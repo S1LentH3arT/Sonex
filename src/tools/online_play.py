@@ -8,14 +8,15 @@ import yt_dlp
 from anyio.streams import file
 
 from src.tools.local_play import check_player
+from src.tools.registry import registry, Params
 from src.tools.result import ToolResult
 
-
+# 默认缓存路径
 def _cache_stream_dir() -> Path:
     return (Path.home() / "sonex" / ".cache" / "youtube_audio").expanduser()
 
-# 在youtube上搜索歌曲
-def search_youtube_song(query: str) -> str:
+# 在youtube上搜索歌曲并解析音频流
+def search_and_resolve_song(query: str) -> str:
     options = {
         "quiet": True,
         "no_warnings": True,
@@ -41,20 +42,16 @@ def search_youtube_song(query: str) -> str:
 
     if not webpage_url:
         raise RuntimeError("Unable to resolve a playable YouTube URL.")
-    return webpage_url
-
-# 解析youtube音频
-def resolve_audio_stream_url(video_url: str) -> str:
-    opts = {
-        "quiet": True, # 减少控制台输出
-        "no_warnings": True, # 不打印warning日志信息
-        "noplaylist": True, # 搜索结果关联playlist取单条视频
-        "format": "bestaudio/best", # 优先最佳音频流
-        "skip_download": True, # 只解析不下载
+    stream_opts = {
+        "quiet": True,  # 减少控制台输出
+        "no_warnings": True,  # 不打印warning日志信息
+        "noplaylist": True,  # 搜索结果关联playlist取单条视频
+        "format": "bestaudio/best",  # 优先最佳音频流
+        "skip_download": True,  # 只解析不下载
     }
 
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(video_url, download=False)
+    with yt_dlp.YoutubeDL(stream_opts) as ydl:
+        info = ydl.extract_info(webpage_url, download=False)
 
     stream_url = info.get("url")
     if not stream_url:
@@ -63,9 +60,9 @@ def resolve_audio_stream_url(video_url: str) -> str:
         audio_formats = [
             f for f in formats
             if isinstance(f, dict)
-            and f.get("url")
-            and f.get("acodec") not in (None, "none")
-            and f.get("vcodec") in (None, "none")
+               and f.get("url")
+               and f.get("acodec") not in (None, "none")
+               and f.get("vcodec") in (None, "none")
         ]
         if not audio_formats:
             raise RuntimeError("No playable audio-only format found.")
@@ -75,7 +72,9 @@ def resolve_audio_stream_url(video_url: str) -> str:
         stream_url = audio_formats[0]["url"]
     return stream_url
 
-def play_youtube_song(query: str, stream_url: str, player: str = "vlc") -> dict[str, Any]:
+def play_youtube_song(query: str, player: str = "vlc") -> dict[str, Any]:
+    stream_url = search_and_resolve_song(query=query)
+
     # 检查vlc是否可用
     if not check_player(player):
         return ToolResult.error(
@@ -107,3 +106,18 @@ def play_youtube_song(query: str, stream_url: str, player: str = "vlc") -> dict[
         message=f"Playing '{query}' online started.",
         data={"query": query, "file": file, "player": player, "method": "online_play"},
     ).to_dict()
+
+registry.register(
+    name="play_youtube_song",
+    type="player",
+    description="Play a resolved audio extract from youtube via VLC music player.",
+    parameters=Params(
+        type="object",
+        properties={
+            "query": {"type": "string", "description": "The song name or related key words."},
+        },
+        required=["query"],
+    ),
+    fn=play_youtube_song,
+    enable=True
+)

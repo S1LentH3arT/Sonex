@@ -1,0 +1,6 @@
+python-dotenv
+typer
+rich
+litellm
+spotipy
+yt-dlp
