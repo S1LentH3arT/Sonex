@@ -5,9 +5,13 @@ from pathlib import Path
 from typing import Any
 
 import yt_dlp
-from anyio.streams import file
 
 from src.tools.local_play import check_player
+from src.tools.player_permission import (
+    build_player_confirm_result,
+    is_player_allowed,
+    launch_player_command,
+)
 from src.tools.registry import registry, Params
 from src.tools.result import ToolResult
 
@@ -30,7 +34,7 @@ def search_and_resolve_song(query: str) -> str:
         raise RuntimeError("Invalid response returned.")
 
     entries = payload.get("entries") or []
-    if not entries or not isinstance(entries[0], list):
+    if not entries or not isinstance(entries[0], dict):
         raise RuntimeError("No valid matches found.")
     first_entry = entries[0]
 
@@ -85,27 +89,25 @@ def play_youtube_song(query: str, player: str = "vlc") -> dict[str, Any]:
         )
 
     cmd = [player, "--play-and-exit", stream_url]
+    data = {"query": query, "player": player, "method": "online_play"}
+    success_message = f"Playing '{query}' online started."
 
-    try:
-        subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-    except OSError as exc:
-        return ToolResult.failure(
+    if not is_player_allowed(player):
+        return build_player_confirm_result(
             tool="play_youtube_song",
-            message=f"Failed to launch player '{player}': {exc}",
-            error_code=exc.errno,
-            data={"query": query, "player": player, "method": "online_play"},
-        ).to_dict()
+            player=player,
+            cmd=cmd,
+            success_message=success_message,
+            data=data,
+        )
 
-    return ToolResult.success(
+    return launch_player_command(
         tool="play_youtube_song",
-        message=f"Playing '{query}' online started.",
-        data={"query": query, "file": file, "player": player, "method": "online_play"},
-    ).to_dict()
+        player=player,
+        cmd=cmd,
+        success_message=success_message,
+        data=data,
+    )
 
 registry.register(
     name="play_youtube_song",
@@ -119,5 +121,6 @@ registry.register(
         required=["query"],
     ),
     fn=play_youtube_song,
-    enable=True
+    enable=True,
+    required_confirm=False,
 )

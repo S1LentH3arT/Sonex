@@ -1,16 +1,70 @@
 from src.tools.local_play import play_local_song
 from src.tools.online_play import play_youtube_song
-from src.tools.registry import ToolRegistry
+from src.tools.registry import ToolRegistry, registry
 from src.tools.result import ToolResult
-from src.tools.spotify_play import search_tracks, search_artists, search_albums
+from src.tools.apple_music import (
+    apple_music_account,
+    apple_music_current_playback,
+    apple_music_next,
+    apple_music_pause,
+    apple_music_play,
+    apple_music_previous,
+    apple_music_recent_tracks,
+    apple_music_recommend,
+    apple_music_resume,
+    apple_music_search,
+)
+from src.tools.spotify_play import (
+    search_albums,
+    search_artists,
+    search_tracks,
+    spotify_account,
+    spotify_current_playback,
+    spotify_devices,
+    spotify_next,
+    spotify_pause,
+    spotify_play,
+    spotify_previous,
+    spotify_recent_tracks,
+    spotify_recommend,
+    spotify_resume,
+    spotify_search,
+    spotify_transfer_playback,
+)
+from src.memory.memory_tool import search_context, search_memory
 
 
 __all__ = [
     "ToolRegistry",
     "ToolResult",
+    "registry",
     "play_local_song",
     "play_youtube_song",
+    "apple_music_search",
+    "apple_music_account",
+    "apple_music_current_playback",
+    "apple_music_recent_tracks",
+    "apple_music_recommend",
+    "apple_music_play",
+    "apple_music_pause",
+    "apple_music_resume",
+    "apple_music_next",
+    "apple_music_previous",
     "search_tracks",
     "search_artists",
     "search_albums",
+    "spotify_search",
+    "spotify_account",
+    "spotify_current_playback",
+    "spotify_recent_tracks",
+    "spotify_recommend",
+    "spotify_devices",
+    "spotify_transfer_playback",
+    "spotify_play",
+    "spotify_pause",
+    "spotify_resume",
+    "spotify_next",
+    "spotify_previous",
+    "search_context",
+    "search_memory",
 ]

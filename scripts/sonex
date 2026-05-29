@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+note() {
+  printf 'NOTE     %s\n' "$1"
+}
+
+missing() {
+  printf 'MISSING  %s\n' "$1" >&2
+}
+
+resolve_script() {
+  local source="$1"
+  while [ -L "$source" ]; do
+    local dir
+    dir="$(cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd)"
+    source="$(readlink "$source")"
+    case "$source" in
+      /*) ;;
+      *) source="$dir/$source" ;;
+    esac
+  done
+  cd -P "$(dirname "$source")" >/dev/null 2>&1 && pwd
+}
+
+if [ -n "${SONEX_ROOT:-}" ]; then
+  ROOT_DIR="$(cd "$SONEX_ROOT" >/dev/null 2>&1 && pwd)"
+else
+  SCRIPT_DIR="$(resolve_script "${BASH_SOURCE[0]}")"
+  ROOT_DIR="$(cd "$SCRIPT_DIR/.." >/dev/null 2>&1 && pwd)"
+fi
+
+INSTALL_SCRIPT="$ROOT_DIR/scripts/install.sh"
+CLI_UI_DIR="$ROOT_DIR/src/cli-ui"
+VENV_DIR="$ROOT_DIR/.venv"
+VENV_PY="$VENV_DIR/bin/python3.12"
+VENV_SONEX="$VENV_DIR/bin/sonex"
+RUNTIME_NODE_PACKAGES=(
+  react
+  ink
+  ink-image
+  ink-text-input
+  terminal-image
+  ws
+)
+
+ready=true
+if [ ! -x "$VENV_PY" ]; then
+  ready=false
+fi
+if [ ! -x "$VENV_SONEX" ]; then
+  ready=false
+fi
+if [ ! -d "$CLI_UI_DIR/node_modules" ]; then
+  ready=false
+fi
+if [ ! -f "$CLI_UI_DIR/dist/index.js" ]; then
+  ready=false
+fi
+for package in "${RUNTIME_NODE_PACKAGES[@]}"; do
+  if [ ! -f "$CLI_UI_DIR/node_modules/$package/package.json" ]; then
+    ready=false
+  fi
+done
+
+if [ "$ready" = false ]; then
+  if [ ! -x "$INSTALL_SCRIPT" ]; then
+    missing "Sonex is not installed and installer is missing or not executable: $INSTALL_SCRIPT"
+    exit 1
+  fi
+  note "Preparing Sonex runtime at $ROOT_DIR"
+  "$INSTALL_SCRIPT" --no-launch
+fi
+
+if [ ! -x "$VENV_SONEX" ]; then
+  missing "Sonex command is still missing after install: $VENV_SONEX"
+  exit 1
+fi
+
+exec "$VENV_SONEX" "$@"

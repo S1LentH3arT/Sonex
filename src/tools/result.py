@@ -1,7 +1,7 @@
-from dataclasses import dataclass, field, asdict
-from typing import Any
+from __future__ import annotations
 
-from litellm.types.proxy.guardrails.guardrail_hooks.tool_permission import ToolResult
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 @dataclass
 class ToolResult:
@@ -44,3 +44,23 @@ class ToolResult:
             error_code=error_code,
             data=data or {},
         )
+
+    @classmethod
+    def failure(
+            cls,
+            tool: str,
+            message: str,
+            error_code: str | int,
+            data: dict[str, Any] | None = None
+    ) -> ToolResult:
+        return cls.fail(tool=tool, message=message, error_code=str(error_code), data=data)
+
+    @classmethod
+    def error(
+            cls,
+            tool: str,
+            message: str,
+            error_code: str | int,
+            data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        return cls.fail(tool=tool, message=message, error_code=str(error_code), data=data).to_dict()

@@ -1,17 +1,17 @@
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
-import tiktoken
-
 from src.agent.action import Action
-from src.agent.memory import MemoryStore
-from src.config.thinking import ThinkingConfig
-from src.llm.compact import snip_compact, auto_compact
 from src.llm.planner import llm_plan
+from src.llm.transport import sanitize_error_message
+from src.memory.memory_hook import append_context, append_tool_summary, finalize_turn
+from src.tools.player_permission import complete_player_confirm
 from src.tools.registry import ToolRegistry
 
 MAX_TOKEN_LIMIT = 60000
+logger = logging.getLogger(__name__)
 
 @dataclass
 class AgentState:
@@ -38,74 +38,63 @@ def _to_serializable(value: Any) -> Any:
         return str(value)
     return value
 
-def _estimate_tokens(messages: list[dict]) -> int:
-    try:
-        enc = tiktoken.encoding_for_model("gpt-4o")
-    except KeyError:
-        enc = tiktoken.get_encoding("cl100k_base")
-    text = json.dumps(messages, ensure_ascii=False, default=str)
-    return len(enc.encode(text))
-
 def _format_error(exc: Exception) -> str:
-    lines = str(exc).strip().splitlines()
-    if not lines:
-        return exc.__class__.__name__
-    return lines[0][:500]
+    return sanitize_error_message(exc)
 
-"""agent_loop重写思路：
-每轮开始，先压缩上下文
-再执行llm_planner，让llm分析问题，是否需要调用工具
-每轮结束时将工具调用结果追加到消息历史
-如果不需要调用工具，那么退出loop
-"""
+def _is_player_confirm_result(value: Any) -> bool:
+    return isinstance(value, dict) and value.get("status") == "requires_player_confirm"
+
+def _player_confirm_payload(result: dict[str, Any], tool_args: dict[str, Any]) -> dict[str, Any]:
+    data = result.get("data") or {}
+    return {
+        "message": data.get("confirm_message") or result.get("message"),
+        "choices": data.get("choices") or [],
+        "tool_args": tool_args,
+        "player": data.get("player"),
+        "player_label": data.get("player_label"),
+    }
+
+def _confirm_approved(decision: Any) -> bool:
+    if isinstance(decision, bool):
+        return decision
+    return str(decision).strip().lower() in {"allow_always", "allow_once", "yes", "true", "ok"}
+
+def _route_input(user_input: str, *, recommendation_routed: bool) -> Action | None:
+    if not recommendation_routed and "推荐" in user_input:
+        return Action(tool="spotify_recommend", args={"query": user_input, "limit": 10}, usage=0)
+    return None
+
 from typing import Generator
 
 def agent_loop(
     user_input: str,
     tools: ToolRegistry,
-    memory_store: MemoryStore,
-    session_id: str,
 ) -> Generator[AgentState, AgentState, None]:
-    history: list[dict[str, Any]] = [{"role": "user", "content": user_input}]
+    append_context("user", {"user": user_input}, ["user_input", "user"])
     _total_tokens = 0
+    recommendation_routed = False
 
-    # 对user_input做预处理，初始化信息写入plan.md文件
-    model = ThinkingConfig.get_model()
-    _total_tokens += memory_store.init_plan(user_input=user_input, model=model)
 
     while True:
-        # 先压缩上下文
-        if history:
-            snip_compact(history)
-
-        token_count: int = _estimate_tokens(history)
-        if token_count > MAX_TOKEN_LIMIT:
-            auto_compact(history, model, session_id)
-
-        _total_tokens += memory_store.append_plan(model)
-
-        yield AgentState(
-            type="status",
-            content="compacting",
-            tokens=_total_tokens,
-        )
         # 执行planner
-        action = Action
         try:
-            action = llm_plan(
-                memory=memory_store,
-            )
+            action = _route_input(user_input, recommendation_routed=recommendation_routed)
+            if action is None:
+                action = llm_plan(user_input=user_input, tools=tools)
+            elif action.tool == "spotify_recommend":
+                recommendation_routed = True
         except Exception as exc:
             error_text = _format_error(exc)
             message = f"Planning failed: {error_text}"
-            history.append ({"kind": "planning error", "content": message})
+            append_context("error", {"error_text": message}, ["error", "planning"])
             yield AgentState(
                 type="error",
                 content=error_text,
                 is_error=True,
             )
+            return
 
-        _total_tokens += action.usage
+        _total_tokens += action.usage or 0
 
         yield AgentState(
             type="status",
@@ -116,7 +105,8 @@ def agent_loop(
         # 如果llm执行结果中没有工具调用，则loop结束
         if action.tool is None:
             answer = action.output
-            history.append ({"role": "assistant", "content": answer})
+            append_context("agent", {"agent_output": answer}, ["agent", "output", "complete"])
+            finalize_turn(user_input)
             yield AgentState(
                 type="complete",
                 content=answer,
@@ -127,7 +117,7 @@ def agent_loop(
         tool_func = tools.get(action.tool)
         if not tool_func:
             message = f"Tool '{action.tool}' not found or not allowed."
-            history.append ({"kind": "tool error", "content": message})
+            append_context("error", {"error_text": message}, ["error", "tool", f"{action.tool}"])
             yield AgentState(
                 type="error",
                 content=message,
@@ -141,14 +131,15 @@ def agent_loop(
                 tool=action.tool,
                 args=action.args,
             )
-            if not decision:
-                history.append ({"kind": "tool rejected", "content": f"{action.tool} was rejected"})
+            if not _confirm_approved(decision):
+                message = f"Tool '{action.tool}' execution rejected."
+                append_context("warn", {"warning": message}, ["reject", "tool", f"{action.tool}"])
                 continue
 
         tool_args = action.args or {}
         if not isinstance(tool_args, dict):
             message = "Planner returned invalid tool arguments."
-            history.append ({"kind": "tool error", "content": message})
+            append_context("error", {"error_text": message}, ["error", "tool", f"{action.args}"])
             yield AgentState(
                 type="error",
                 content=message,
@@ -169,15 +160,23 @@ def agent_loop(
             tool_result = _to_serializable(res)
         except Exception as exc:
             error_text = _format_error(exc)
-            history.append({"tool": action.tool, "error": error_text})
             message = f"Tool execution failed: {error_text}"
-            history.append ({"kind": "tool error", "content": message})
+            append_context("error", {"error_text": message}, ["error", "tool", f"{action.tool}"])
             yield AgentState(
                 type="error",
                 tool=action.tool,
                 content=message,
                 is_error=True,
             )
+            continue
+
+        if _is_player_confirm_result(tool_result):
+            decision = yield AgentState(
+                type="confirm",
+                tool=action.tool,
+                args=_player_confirm_payload(tool_result, tool_args),
+            )
+            tool_result = _to_serializable(complete_player_confirm(tool_result, decision))
 
         yield AgentState(
             type="tool",
@@ -185,17 +184,14 @@ def agent_loop(
             result=tool_result,
         )
 
-        _total_tokens += memory_store.append_findings(action.tool, tool_result, model)
+        context_id = append_context(
+            "tool",
+            {"tool": action.tool, "args": tool_args, "result": tool_result},
+            ["tool", "result", f"{action.tool}"],
+        )
+        append_tool_summary(context_id, action.tool, tool_args, tool_result)
 
-        # 将工具结果追加到对话历史
-        observation = {
-            "tool": action.tool,
-            "args": tool_args,
-            "result": tool_result,
-        }
-        history.append(observation)
 
-        _total_tokens += memory_store.append_process(action.tool, tool_args, tool_result, model)
 
         yield AgentState(
             type="status",

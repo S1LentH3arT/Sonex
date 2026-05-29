@@ -4,3 +4,7 @@ rich
 litellm
 spotipy
 yt-dlp
+textual
+fastapi
+uvicorn[standard]
+cryptography

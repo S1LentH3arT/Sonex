@@ -1,32 +1,54 @@
-import glob
-import subprocess
-from pathlib import Path
+import shutil
 
+from src.tools.player_permission import (
+    build_player_confirm_result,
+    is_player_allowed,
+    launch_player_command,
+)
 from src.tools.registry import registry, Params
 from src.tools.result import ToolResult
+from src.workspace import WorkspaceBoundaryError, user_music_dir
 
 
 # 搜索本地音乐文件
 def search_local_file(query: str) -> str:
-    music_dir = Path.home() / "Music"
-    pattern = f"**/*{query}*.*"
-    matches = glob.glob(str(music_dir / pattern), recursive=True)
-
-    if not matches:
+    query = query.strip()
+    if not query:
+        return "No local files found related to ''."
+    try:
+        music_dir = user_music_dir()
+    except WorkspaceBoundaryError:
+        return "Path outside user workspace."
+    if not music_dir.exists():
         return f"No local files found related to '{query}'."
 
-    first = matches[0]
-    return f"{first}"
+    needle = query.lower()
+    for candidate in music_dir.rglob("*"):
+        if candidate.is_file() and needle in candidate.name.lower():
+            return str(candidate)
+    return f"No local files found related to '{query}'."
 
 # 检查本地播放器
 def check_player(player: str) -> bool:
-    cmd = f"command -v {player}"
-    result = subprocess.run(["bash", "-lc", cmd], check=False)
-    return result.returncode == 0
+    return shutil.which(player) is not None
+
+def _player_command(player: str, file: str) -> list[str] | None:
+    if player == "vlc":
+        return ["vlc", "--play-and-exit", file]
+    if player == "mpv":
+        return ["mpv", "--no-video", file]
+    return [player, file]
 
 # 使用本地播放器播放音乐(默认播放器为vlc)
 def play_local_song(query: str, player: str = "vlc") -> dict:
     file = search_local_file(query)
+    if file.startswith("Path outside user workspace"):
+        return ToolResult.fail(
+            tool="play_local_song",
+            message="Local music search is outside the Sonex user workspace.",
+            error_code="PATH_OUTSIDE_USER_WORKSPACE",
+            data={"query": query},
+        ).to_dict()
     if file.startswith("No local files found"):
         return ToolResult.fail(
             tool="play_local_song",
@@ -44,18 +66,26 @@ def play_local_song(query: str, player: str = "vlc") -> dict:
             data={"query": query},
         ).to_dict()
 
-    cmd = list[str]
-    if player == "vlc":
-        cmd = ["vlc", "--play-and-exit", file]
-    elif player == "mpv":
-        cmd = ["mpv", "--no-video", file]
-    subprocess.Popen(cmd)
+    cmd = _player_command(player, file)
+    data = {"query": query, "file": file, "player": player, "method": "local_play"}
+    success_message = f"Playing '{file}' started."
 
-    return ToolResult.success(
+    if not is_player_allowed(player):
+        return build_player_confirm_result(
+            tool="play_local_song",
+            player=player,
+            cmd=cmd,
+            success_message=success_message,
+            data=data,
+        )
+
+    return launch_player_command(
         tool="play_local_song",
-        message=f"Playing '{file}' started.",
-        data={"query": query, "file": file, "player": player},
-    ).to_dict()
+        player=player,
+        cmd=cmd,
+        success_message=success_message,
+        data=data,
+    )
 
 registry.register(
     name="play_local_song",
@@ -70,5 +100,6 @@ registry.register(
         required=["query", "player"],
     ),
     fn=play_local_song,
-    enable=True
+    enable=True,
+    required_confirm=False,
 )

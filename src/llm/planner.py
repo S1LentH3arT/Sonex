@@ -1,78 +1,51 @@
-import json
+from __future__ import annotations
 
 from src.agent.action import Action
-from src.agent.memory import MemoryStore
-from src.config.thinking import ThinkingConfig
-from src.tools.registry import registry
+from src.llm.context_builder import build_planning_context
+from src.llm.transport import ChatRequest
+from src.thinking.config import ThinkingConfig
+from src.tools.registry import ToolRegistry
 
-PLANNER_SYSTEM_PROMPT = """You are an agent planner.
-Read the following guidelines, include plan, findings and process three parts
-Based on the guidelines, decide if you need to call a tool to assist your thinking. 
-If so, choose the most appropriate tool and call it with the correct arguments.
-If not, directly output your thoughts and conclusions.
-"""
+PLANNER_SYSTEM_PROMPT = """You are Sonex's planner.
+The user-visible conversation history is separate from your model-only planning buffer.
+Use only the compact planning buffer supplied in the user message.
+The buffer is intentionally incomplete and short. If you need other stored facts, call search_memory or search_context.
+search_context is cache-first by default and falls back to full structured context.
+If a tool is useful, call exactly one tool with valid arguments. Otherwise answer the user directly.
+Do not mention internal memory mechanics unless the user asks about them."""
 
-def llm_plan(
-    memory: MemoryStore,
-) -> Action:
-    mem = memory.load_memory()
+
+def llm_plan(user_input: str, tools: ToolRegistry) -> Action:
     client = ThinkingConfig.get_client()
     model = ThinkingConfig.get_model()
+    context = build_planning_context(user_input)
 
-    messages = [
-        {
-            "role": "system",
-            "content": PLANNER_SYSTEM_PROMPT,
-        },
-        {
-            "role": "user",
-            "content": f"[plan.md]\n{mem['plan'][-2000:]}"
-        },
-        {
-            "role": "user",
-            "content": f"[findings.md]\n{mem['findings'][-6000:]}"
-        },
-        {
-            "role": "user",
-            "content": f"[process.md]\n{mem['process'][-2000:]}"
-        }
-    ]
-
-    response = client.responses.create(
+    request = ChatRequest(
         model=model,
-        messages=messages,
-        tools=registry.schemas(),
+        messages=[
+            {
+                "role": "system",
+                "content": PLANNER_SYSTEM_PROMPT,
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"[user_input]\n{user_input}\n\n"
+                    f"[preloaded_memory]\n{context}"
+                ),
+            },
+        ],
+        tools=tools.schemas(),
         tool_choice="auto",
     )
+    response = client.generate(request)
 
-    # 获取每次调用的token数
-    usage = getattr(response, "usage", None)
-    total_tokens = getattr(response, "total_tokens", 0) if usage else 0
+    if response.tool_calls:
+        tool_call = response.tool_calls[0]
+        return Action(
+            tool=tool_call.name,
+            args=tool_call.arguments,
+            usage=response.usage.total_tokens,
+        )
 
-    # 先找是否调用function
-    for item in getattr(response, "output", []):
-        item_type = item["type"]
-        if item_type == "function_call":
-            name = item.get("name")
-            arguments = item.get("arguments")
-            try:
-                args = json.loads(arguments)
-            except json.JSONDecodeError:
-                args = {}
-            if name:
-                return Action(tool=name, args=args, usage=total_tokens)
-    # 没有tool-call就输出文本
-    text = getattr(response, "output_text", None)
-    if not text:
-        chunks = []
-        for item in getattr(response, "output", []):
-            item_type = item.get("type")
-            if item_type != "message":
-                continue
-            content = item.get("content")
-            for c in content:
-                c_type = c.get("type")
-                if c_type == "output_text":
-                    chunks.append(c.get("text"))
-        text = "\n".join([x for x in chunks if x]).strip()
-    return Action(output=text, usage=total_tokens)
+    return Action(output=response.output_text, usage=response.usage.total_tokens)

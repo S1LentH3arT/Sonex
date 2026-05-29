@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sonex"
+version = "1.0.0"
+description = "A CLI agent music player"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "typer",
+    "rich",
+    "openai",
+    "litellm",
+    "python-dotenv",
+    "textual",
+    "fastapi",
+    "uvicorn[standard]",
+    "spotipy",
+    "yt-dlp"
+]
+
+[project.scripts]
+sonex = "src.main:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+namespaces = true
