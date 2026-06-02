@@ -150,6 +150,7 @@ def _resolve_transport_model(model: str, config: ProviderConfig) -> str:
     prefixes = {
         "anthropic": "anthropic",
         "gemini": "gemini",
+        "deepseek": "deepseek",
         "ollama": "ollama",
     }
     prefix = prefixes.get(config.name)

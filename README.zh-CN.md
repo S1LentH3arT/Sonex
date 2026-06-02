@@ -77,6 +77,66 @@ sonex tui
 .venv/bin/sonex
 ```
 
+## 给外部 Agent 使用的 MCP
+
+Sonex 提供本地 MCP server，Claude Code、Codex、Hermes Agent 以及其他 MCP
+客户端都可以把 Sonex 当成音乐工具服务使用。默认只暴露只读工具，例如搜索、账号
+状态、当前播放、最近播放和推荐。会改变真实播放状态的工具默认隐藏，除非你显式
+开启。
+
+正常运行 Sonex 时，FastAPI 后端也会在这里提供 MCP：
+
+```text
+http://127.0.0.1:9001/mcp
+```
+
+连接 Codex：
+
+```bash
+codex mcp add sonex --url http://127.0.0.1:9001/mcp
+```
+
+用 HTTP 连接 Claude Code：
+
+```bash
+claude mcp add --transport http sonex http://127.0.0.1:9001/mcp
+```
+
+让 Claude Code 以本地 stdio MCP server 方式启动 Sonex：
+
+```bash
+claude mcp add --transport stdio sonex -- sonex mcp
+```
+
+Hermes Agent 可以使用 HTTP：
+
+```yaml
+mcp_servers:
+  sonex:
+    url: "http://127.0.0.1:9001/mcp"
+```
+
+也可以使用 stdio：
+
+```yaml
+mcp_servers:
+  sonex:
+    command: "sonex"
+    args: ["mcp"]
+```
+
+如果要单独调试 HTTP MCP server，可以运行：
+
+```bash
+sonex mcp --transport http --host 127.0.0.1 --port 9002
+```
+
+单独调试时的 URL 是 `http://127.0.0.1:9002/mcp`。
+
+如果想把播放、暂停、切歌等会改变播放状态的工具暴露给可信任的本地 agent，可以
+给 `sonex mcp` 加 `--allow-mutations`，或在启动 `sonex api` 之前设置
+`SONEX_MCP_ALLOW_MUTATIONS=1`。
+
 ## 检查安装状态
 
 运行：

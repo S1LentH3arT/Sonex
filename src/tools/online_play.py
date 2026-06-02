@@ -122,5 +122,6 @@ registry.register(
     ),
     fn=play_youtube_song,
     enable=True,
+    read_only=False,
     required_confirm=False,
 )

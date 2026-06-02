@@ -60,11 +60,6 @@ def load_spotify_env() -> None:
         return
 
     load_dotenv(override=False)
-    project_root = Path(__file__).resolve().parents[2]
-    dev_env = project_root / "dev.env"
-    if dev_env.exists():
-        load_dotenv(dotenv_path=dev_env, override=False)
-
     _ENV_LOADED = True
 
 

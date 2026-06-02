@@ -101,5 +101,6 @@ registry.register(
     ),
     fn=play_local_song,
     enable=True,
+    read_only=False,
     required_confirm=False,
 )

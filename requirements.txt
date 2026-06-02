@@ -6,5 +6,6 @@ spotipy
 yt-dlp
 textual
 fastapi
+mcp[cli]
 uvicorn[standard]
 cryptography

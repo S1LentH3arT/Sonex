@@ -947,7 +947,15 @@ def search_spotify(query: str, limit: int = 10) -> dict[str, Any]:
     return spotify_search(query=query, limit=limit)
 
 
-def _register_tool(name: str, description: str, properties: dict[str, Any], required: list[str], fn: Any) -> None:
+def _register_tool(
+    name: str,
+    description: str,
+    properties: dict[str, Any],
+    required: list[str],
+    fn: Any,
+    *,
+    read_only: bool = True,
+) -> None:
     registry.register(
         name=name,
         type="spotify",
@@ -955,6 +963,7 @@ def _register_tool(name: str, description: str, properties: dict[str, Any], requ
         parameters=Params(type="object", properties=properties, required=required),
         fn=fn,
         enable=True,
+        read_only=read_only,
         required_confirm=False,
     )
 
@@ -995,6 +1004,7 @@ _register_tool(
     },
     [],
     spotify_transfer_playback,
+    read_only=False,
 )
 _register_tool(
     "spotify_play",
@@ -1007,11 +1017,12 @@ _register_tool(
     },
     [],
     spotify_play,
+    read_only=False,
 )
-_register_tool("spotify_pause", "Pause Spotify playback.", {}, [], spotify_pause)
-_register_tool("spotify_resume", "Resume Spotify playback.", {}, [], spotify_resume)
-_register_tool("spotify_next", "Skip to the next Spotify track.", {}, [], spotify_next)
-_register_tool("spotify_previous", "Skip to the previous Spotify track.", {}, [], spotify_previous)
+_register_tool("spotify_pause", "Pause Spotify playback.", {}, [], spotify_pause, read_only=False)
+_register_tool("spotify_resume", "Resume Spotify playback.", {}, [], spotify_resume, read_only=False)
+_register_tool("spotify_next", "Skip to the next Spotify track.", {}, [], spotify_next, read_only=False)
+_register_tool("spotify_previous", "Skip to the previous Spotify track.", {}, [], spotify_previous, read_only=False)
 
 _register_tool(
     "search_track",

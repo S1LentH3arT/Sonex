@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.auth.models import AuthStore, OAuthToken, ProviderAuth
-from src.auth.providers import normalize_provider
+from src.auth.providers import normalize_provider, normalize_provider_model
 from src.log import sonex_home
 
 
@@ -74,7 +74,7 @@ def set_api_key(
     current.auth_method = "api_key"
     current.api_key = api_key
     current.oauth = current.oauth if current.oauth and name in {"gemini", "spotify", "apple_music"} else None
-    current.model = model or current.model
+    current.model = normalize_provider_model(name, model or current.model)
     current.base_url = base_url if base_url is not None else current.base_url
     current.custom_llm_provider = custom_llm_provider or current.custom_llm_provider
     current.updated_at = utc_now_iso()
@@ -94,7 +94,7 @@ def set_provider_config(
     name = normalize_provider(provider)
     current = store.providers.get(name) or ProviderAuth(name=name)
     current.auth_method = "none"
-    current.model = model or current.model
+    current.model = normalize_provider_model(name, model or current.model)
     current.base_url = base_url if base_url is not None else current.base_url
     current.custom_llm_provider = custom_llm_provider or current.custom_llm_provider
     current.updated_at = utc_now_iso()
@@ -115,7 +115,7 @@ def set_oauth_token(
     current = store.providers.get(name) or ProviderAuth(name=name)
     current.auth_method = "oauth"
     current.oauth = token
-    current.model = model or current.model
+    current.model = normalize_provider_model(name, model or current.model)
     current.base_url = base_url if base_url is not None else current.base_url
     current.updated_at = utc_now_iso()
     store.providers[name] = current
@@ -128,6 +128,7 @@ def remove_provider(provider: str, *, path: Path | None = None) -> bool:
     removed = store.providers.pop(name, None) is not None
     if store.default_provider == name:
         store.default_provider = None
+        store.default_model = None
     save_auth_store(store, path)
     return removed
 
@@ -136,9 +137,9 @@ def set_default(provider: str, model: str | None = None, *, path: Path | None = 
     store = load_auth_store(path)
     store.default_provider = normalize_provider(provider)
     if model:
-        store.default_model = model
+        store.default_model = normalize_provider_model(store.default_provider, model)
         current = store.providers.get(store.default_provider) or ProviderAuth(name=store.default_provider)
-        current.model = model
+        current.model = store.default_model
         current.updated_at = utc_now_iso()
         store.providers[store.default_provider] = current
     return save_auth_store(store, path)

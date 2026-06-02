@@ -9,7 +9,10 @@ import time
 import uuid
 import webbrowser
 from contextlib import suppress
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -17,14 +20,20 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from src.agent.core import agent_loop
 from src.agent.events import RunnerEvent, UiStatus
-from src.api.builtin_commands import format_help, parse_builtin_command
+from src.api.builtin_commands import BuiltinCommand, command_suggestions, format_help, parse_builtin_command
 from src.auth.apple_music import (
     apple_music_setup_message,
     save_apple_music_credentials,
     save_apple_music_user_token,
 )
-from src.auth.oauth import save_oauth_token
-from src.auth.providers import get_provider_capability, normalize_provider
+from src.auth.browser_oauth import (
+    BrowserOAuthConfigError,
+    browser_oauth_requirements,
+    browser_oauth_supported,
+    run_browser_oauth,
+)
+from src.auth.oauth import ensure_oauth_token_usable
+from src.auth.providers import get_provider_capability, normalize_provider, normalize_provider_model
 from src.auth.spotify import (
     save_spotify_app_credentials,
     save_spotify_token_info,
@@ -32,8 +41,9 @@ from src.auth.spotify import (
     spotify_oauth_manager,
     spotify_redirect_uri,
 )
-from src.auth.store import load_auth_store, set_api_key
+from src.auth.store import get_provider_auth, load_auth_store, remove_provider, set_api_key, set_default
 from src.llm.transport import sanitize_error_message
+from src.llm.models import model_choices_for_provider
 from src.log import sonex_home
 from src.memory.memory import memory_store
 from src.thinking.config import ThinkingConfig
@@ -64,12 +74,50 @@ APPLE_MUSIC_SETUP_TRIGGERS = {
     "连接苹果音乐",
     "配置苹果音乐",
 }
+LLM_AUTH_PROVIDER_CHOICES = [
+    {"value": "openai", "label": "OpenAI"},
+    {"value": "anthropic", "label": "Anthropic"},
+    {"value": "gemini", "label": "Gemini"},
+    {"value": "deepseek", "label": "Deepseek"},
+    {"value": "ollama", "label": "Ollama"},
+]
+LLM_AUTH_PROVIDER_VALUES = {choice["value"] for choice in LLM_AUTH_PROVIDER_CHOICES}
+LLM_MODEL_CHOICES = [
+    {"value": "openai::GPT-5.5", "label": "GPT-5.5", "provider": "OpenAI"},
+    {"value": "anthropic::Claude Opus 4.7", "label": "Claude Opus 4.7", "provider": "Anthropic"},
+    {"value": "gemini::Gemini 3.5 Flash", "label": "Gemini 3.5 Flash", "provider": "Gemini"},
+    {"value": "deepseek::deepseek-v4-pro", "label": "DeepSeek V4 Pro", "provider": "Deepseek"},
+    {"value": "ollama::Gemma4-31b:cloud", "label": "Gemma4-31b:cloud", "provider": "Ollama"},
+]
+LLM_MODEL_CHOICE_VALUES = {choice["value"].lower(): choice for choice in LLM_MODEL_CHOICES}
+
+
+@dataclass(frozen=True, slots=True)
+class AuthRuntimeState:
+    ready: bool
+    provider: str
+    model: str
+    auth_type: str
+    credential_source: str
+    reason: str | None = None
+
+    def to_event(self) -> dict[str, Any]:
+        return {
+            "type": "auth_state",
+            "ready": self.ready,
+            "provider": self.provider,
+            "model": self.model,
+            "auth_type": self.auth_type,
+            "credential_source": self.credential_source,
+            "reason": self.reason,
+        }
 
 
 class WebSocketUIAdapter:
     def __init__(self, ws: WebSocket) -> None:
         self.ws = ws
         self.closed = False
+        self.transcript: list[dict[str, str]] = []
 
     async def _send(self, payload: dict[str, Any]) -> None:
         if self.closed:
@@ -80,9 +128,11 @@ class WebSocketUIAdapter:
             self.closed = True
 
     async def append_user_message(self, text: str) -> None:
+        self.transcript.append({"role": "user", "content": text})
         await self._send({"type": "chat", "role": "user", "text": text})
 
     async def append_agent_message(self, text: str) -> None:
+        self.transcript.append({"role": "agent", "content": text})
         await self._send({"type": "chat", "role": "agent", "text": text})
 
     async def send_error(self, message: str) -> None:
@@ -129,19 +179,24 @@ class WebSocketUIAdapter:
         *,
         tokens: int | None = None,
         elapsed_ms: int | None = None,
+        active: bool | None = None,
     ) -> None:
-        await self._send(
-            {
-                "type": "status",
-                "phase": status.phase,
-                "message": status.message,
-                "tokens": tokens,
-                "elapsed_ms": elapsed_ms,
-                "tool": status.tool_name,
-                "step": status.step,
-                "max_steps": status.max_steps,
-            }
-        )
+        payload = {
+            "type": "status",
+            "phase": status.phase,
+            "message": status.message,
+            "tokens": tokens,
+            "elapsed_ms": elapsed_ms,
+            "tool": status.tool_name,
+            "step": status.step,
+            "max_steps": status.max_steps,
+        }
+        if active is not None:
+            payload["active"] = active
+        await self._send(payload)
+
+    async def send_auth_state(self, state: AuthRuntimeState) -> None:
+        await self._send(state.to_event())
 
     async def ask_confirm(self, attached: dict[str, Any]) -> None:
         await self._send(
@@ -188,6 +243,8 @@ class WebSocketUIAdapter:
         mask: bool = False,
         active: bool = True,
         methods: list[dict[str, str]] | None = None,
+        providers: list[dict[str, str]] | None = None,
+        models: list[dict[str, str]] | None = None,
     ) -> None:
         await self._send(
             {
@@ -200,8 +257,40 @@ class WebSocketUIAdapter:
                 "mask": mask,
                 "active": active,
                 "methods": methods,
+                "providers": providers,
+                "models": models,
             }
         )
+
+    async def send_help_panel(
+        self,
+        commands: list[BuiltinCommand],
+        *,
+        title: str = "Slash commands",
+        hint: str = "press Esc to hide",
+    ) -> None:
+        await self._send(
+            {
+                "type": "help_panel",
+                "title": title,
+                "hint": hint,
+                "commands": [
+                    {
+                        "name": command.name,
+                        "usage": command.usage,
+                        "description": command.description,
+                    }
+                    for command in commands
+                ],
+            }
+        )
+
+    async def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        with suppress(RuntimeError, WebSocketDisconnect):
+            await self.ws.close()
 
 
 def _timestamp_ms() -> int:
@@ -210,6 +299,42 @@ def _timestamp_ms() -> int:
 
 def _new_event_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
+
+
+def _coerce_transcript_messages(messages: Any) -> list[dict[str, str]]:
+    if not isinstance(messages, list):
+        return []
+
+    transcript: list[dict[str, str]] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "").strip()
+        content = str(message.get("content") or message.get("text") or "").strip()
+        if role not in {"user", "agent"} or not content:
+            continue
+        transcript.append({"role": role, "content": content})
+    return transcript
+
+
+def _save_session_transcript(
+    messages: list[dict[str, str]],
+    *,
+    reason: str,
+) -> Path:
+    now = datetime.now(timezone.utc)
+    session_id = now.strftime("%Y%m%d%H%M%S%fZ")
+    root = sonex_home() / "sessions" / session_id
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "transcript.json"
+    payload = {
+        "session_id": session_id,
+        "saved_at": now.isoformat(),
+        "reason": reason,
+        "messages": messages,
+    }
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
 
 
 def _first_line(text: str, limit: int = 160) -> str:
@@ -441,32 +566,175 @@ def _default_provider_name() -> str:
     )
 
 
-def _llm_auth_ready() -> tuple[bool, str, str | None]:
+def _default_model_name() -> str:
+    config_path = os.getenv("SONEX_CONFIG_PATH")
+    if config_path:
+        resolved_config_path = os.path.expanduser(config_path)
+    else:
+        resolved_config_path = str(sonex_home() / "thinking.json")
+
+    file_model = None
+    try:
+        with open(resolved_config_path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            file_model = loaded.get("default_model")
+    except (OSError, json.JSONDecodeError):
+        file_model = None
+
+    try:
+        store = load_auth_store()
+        auth_model = store.default_model
+        provider_auth = get_provider_auth(store, _default_provider_name())
+        provider_model = provider_auth.model if provider_auth else None
+    except Exception:
+        auth_model = None
+        provider_model = None
+
+    provider = _default_provider_name()
+    model = (
+        os.getenv("SONEX_DEFAULT_MODEL")
+        or os.getenv("SONEX_MODEL")
+        or provider_model
+        or auth_model
+        or file_model
+        or get_provider_capability(provider).default_model
+        or "GPT-5.5"
+    )
+    return str(normalize_provider_model(provider, str(model)) or model)
+
+
+def _env_api_key_for_provider(provider: str) -> str | None:
+    name = normalize_provider(provider)
+    value = os.getenv(f"SONEX_{name.upper()}_API_KEY")
+    if value:
+        return value
+    if name == "openai":
+        return os.getenv("SONEX_API_KEY") or None
+    return None
+
+
+def _set_runtime_default_provider(provider: str, model: str | None = None) -> None:
+    name = normalize_provider(provider)
+    resolved_model = model or get_provider_capability(name).default_model
+    set_default(name, resolved_model)
+    os.environ["SONEX_DEFAULT_PROVIDER"] = name
+    if resolved_model:
+        os.environ["SONEX_DEFAULT_MODEL"] = resolved_model
+
+
+def _resolved_provider_model() -> tuple[str, str]:
     try:
         ThinkingConfig.reload()
         provider = normalize_provider(ThinkingConfig.get_provider())
         config = ThinkingConfig.get_provider_config(provider)
-    except Exception as exc:
-        return False, _default_provider_name(), sanitize_error_message(exc)
+        model = config.model or ThinkingConfig.get_model() or _default_model_name()
+    except Exception:
+        return _default_provider_name(), _default_model_name()
+    return provider, str(model)
+
+
+def _llm_auth_state() -> AuthRuntimeState:
+    provider, model = _resolved_provider_model()
 
     capability = get_provider_capability(provider)
     if not capability.requires_auth:
-        return True, provider, None
-    if config.api_key:
-        return True, provider, None
-    if config.extra_headers.get("Authorization"):
-        return True, provider, None
-    return False, provider, f"Provider '{provider}' needs credentials before Sonex can plan this turn."
+        return AuthRuntimeState(True, provider, model, "local", "local")
+
+    if _env_api_key_for_provider(provider):
+        return AuthRuntimeState(True, provider, model, "api_key", "env")
+
+    try:
+        store = load_auth_store()
+        auth = get_provider_auth(store, provider)
+    except Exception as exc:
+        return AuthRuntimeState(
+            False,
+            provider,
+            model,
+            "none",
+            "missing",
+            sanitize_error_message(exc),
+        )
+
+    if auth and auth.api_key:
+        return AuthRuntimeState(True, provider, auth.model or model, "api_key", "auth.json")
+    if auth and auth.oauth and auth.oauth.access_token:
+        try:
+            ensure_oauth_token_usable(provider, auth.oauth)
+        except Exception as exc:
+            return AuthRuntimeState(False, provider, auth.model or model, "oauth", "auth.json", sanitize_error_message(exc))
+        return AuthRuntimeState(True, provider, auth.model or model, "oauth", "auth.json")
+
+    return AuthRuntimeState(
+        False,
+        provider,
+        model,
+        "none",
+        "missing",
+        f"Provider '{provider}' needs credentials before Sonex can plan this turn.",
+    )
+
+
+def _llm_auth_ready() -> tuple[bool, str, str | None]:
+    state = _llm_auth_state()
+    return state.ready, state.provider, state.reason
 
 
 def _auth_methods_for_provider(provider: str) -> list[dict[str, str]]:
     capability = get_provider_capability(provider)
     methods: list[dict[str, str]] = []
-    if capability.supports_oauth:
+    if capability.supports_oauth and browser_oauth_supported(provider):
         methods.append({"value": "oauth", "label": "OAuth"})
     if capability.supports_api_key:
         methods.append({"value": "api_key", "label": "API key"})
     return methods
+
+
+def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
+    name = normalize_provider(provider)
+    if name == "deepseek":
+        ThinkingConfig.reload()
+        config = ThinkingConfig.get_provider_config(name)
+        return model_choices_for_provider(config)
+
+    choices = [
+        choice
+        for choice in LLM_MODEL_CHOICES
+        if normalize_provider(choice["value"].partition("::")[0]) == name
+    ]
+    if choices:
+        return choices
+
+    model = get_provider_capability(name).default_model
+    if not model:
+        return []
+    return [{"value": f"{name}::{model}", "label": model, "provider": name}]
+
+
+def _parse_model_choice(value: str, choices: list[dict[str, str]] | None = None) -> tuple[str, str] | None:
+    normalized = value.strip()
+    if not normalized:
+        return None
+
+    model_choices = choices or LLM_MODEL_CHOICES
+    choice_values = {choice["value"].lower(): choice for choice in model_choices}
+    choice = choice_values.get(normalized.lower())
+    if choice:
+        provider, _, model = choice["value"].partition("::")
+        return normalize_provider(provider), model
+
+    for candidate in model_choices:
+        provider, _, model = candidate["value"].partition("::")
+        aliases = {
+            str(candidate["label"]).lower(),
+            model.lower(),
+            f"{provider} {model}".lower(),
+            f"{candidate['provider']} {model}".lower(),
+        }
+        if normalized.lower() in aliases:
+            return normalize_provider(provider), model
+    return None
 
 
 def _spotify_loopback_login_for_tui(authorize_url: str, expected_state: str) -> dict[str, Any]:
@@ -743,19 +1011,86 @@ class AppleMusicSetupSession:
         setattr(self.ui, "_apple_music_setup", None)
 
 
+
+class ModelSelectionSession:
+    def __init__(self, ui: WebSocketUIAdapter) -> None:
+        self.ui = ui
+        self.provider = _default_provider_name()
+        self.model_choices: list[dict[str, str]] = []
+
+    async def start(self) -> None:
+        self.provider = _default_provider_name()
+        self.model_choices = await asyncio.to_thread(_model_choices_for_provider, self.provider)
+        await self.ui.append_activity(
+            kind="status",
+            title="Switch model",
+            detail=f"Choose a {self.provider} model for the current session.",
+            status="pending",
+        )
+        await self.ui.send_auth_setup(
+            provider=self.provider,
+            step="model",
+            title="Switch model",
+            message=f"Choose a {self.provider} model. Use Up/Down to see more options.",
+            prompt="Model",
+            models=self.model_choices,
+        )
+
+    async def handle_input(self, value: str) -> None:
+        parsed = _parse_model_choice(value, self.model_choices)
+        if parsed is None:
+            await self.ui.send_auth_setup(
+                provider=self.provider,
+                step="model",
+                title="Switch model",
+                message="Choose one of the listed models.",
+                prompt="Model",
+                models=self.model_choices,
+            )
+            return
+
+        provider, model = parsed
+        _set_runtime_default_provider(provider, model)
+        ThinkingConfig.reload()
+        state = _llm_auth_state()
+        ready_detail = f"Using {model} via {provider}."
+        if not state.ready:
+            ready_detail = f"Using {model} via {provider}. Credentials are needed before the next agent turn."
+        await self.ui.append_activity(
+            kind="status",
+            title="Model switched",
+            detail=ready_detail,
+            status="success",
+        )
+        await self.ui.send_auth_state(state)
+        await self.ui.send_auth_setup(
+            provider=provider,
+            step="done",
+            title="Model switched",
+            message=ready_detail,
+            active=False,
+        )
+        setattr(self.ui, "_model_setup", None)
+
 class AuthSetupSession:
-    def __init__(self, ui: WebSocketUIAdapter, provider: str, pending_input: str, runner: "WebSocketRunner") -> None:
+    def __init__(self, ui: WebSocketUIAdapter, provider: str, pending_input: str | None, runner: "WebSocketRunner") -> None:
         self.ui = ui
         self.provider = normalize_provider(provider)
         self.pending_input = pending_input
         self.runner = runner
         self.step = "method"
         self.method: str | None = None
+        self.oauth_task: asyncio.Task[None] | None = None
 
     async def start(self, reason: str | None = None) -> None:
-        capability = get_provider_capability(self.provider)
-        if not capability.requires_auth:
-            await self._finish()
+        if self.pending_input is None:
+            await self.ui.append_activity(
+                kind="status",
+                title="Choose model provider",
+                detail=reason or "Select a model provider before entering Sonex.",
+                status="pending",
+            )
+            await self._prompt_provider(reason)
             return
 
         await self.ui.append_activity(
@@ -764,8 +1099,27 @@ class AuthSetupSession:
             detail=reason or f"Configure {self.provider} before chatting.",
             status="pending",
         )
+        await self._continue_provider_auth(reason)
 
-        if capability.supports_oauth and capability.supports_api_key:
+    async def _prompt_provider(self, reason: str | None = None) -> None:
+        self.step = "provider"
+        await self.ui.send_auth_setup(
+            provider=self.provider,
+            step="provider",
+            title="Connect Sonex",
+            message=reason or "Choose a model provider. Type openai, anthropic, gemini, deepseek, or ollama.",
+            prompt="Model provider",
+            providers=LLM_AUTH_PROVIDER_CHOICES,
+        )
+
+    async def _continue_provider_auth(self, reason: str | None = None) -> None:
+        capability = get_provider_capability(self.provider)
+        if not capability.requires_auth:
+            await self._finish()
+            return
+
+        methods = _auth_methods_for_provider(self.provider)
+        if len(methods) > 1:
             self.step = "method"
             await self.ui.send_auth_setup(
                 provider=self.provider,
@@ -773,13 +1127,13 @@ class AuthSetupSession:
                 title=f"Connect {self.provider}",
                 message="Choose an auth method. Type oauth or api_key.",
                 prompt="oauth or api_key",
-                methods=_auth_methods_for_provider(self.provider),
+                methods=methods,
             )
             return
 
-        if capability.supports_oauth:
+        if capability.supports_oauth and browser_oauth_supported(self.provider):
             self.method = "oauth"
-            await self._prompt_oauth_token()
+            await self._start_browser_oauth()
             return
 
         if capability.supports_api_key:
@@ -801,6 +1155,22 @@ class AuthSetupSession:
             await self._repeat("Input cannot be empty.")
             return
 
+        if self.step == "provider":
+            normalized = normalize_provider(value)
+            if normalized not in LLM_AUTH_PROVIDER_VALUES:
+                await self._prompt_provider("Type one of: openai, anthropic, gemini, deepseek, or ollama.")
+                return
+            self.provider = normalized
+            self.method = None
+            try:
+                _set_runtime_default_provider(self.provider)
+                ThinkingConfig.reload()
+            except Exception as exc:
+                await self._prompt_provider(sanitize_error_message(exc))
+                return
+            await self._continue_provider_auth()
+            return
+
         if self.step == "method":
             normalized = value.lower().replace("-", "_")
             if normalized not in {"oauth", "api_key"}:
@@ -808,14 +1178,14 @@ class AuthSetupSession:
                 return
             capability = get_provider_capability(self.provider)
             if normalized == "oauth" and not capability.supports_oauth:
-                await self._repeat(f"{self.provider} does not support OAuth in Sonex yet.")
+                await self._repeat(browser_oauth_requirements(self.provider))
                 return
             if normalized == "api_key" and not capability.supports_api_key:
                 await self._repeat(f"{self.provider} does not support API key login.")
                 return
             self.method = normalized
             if normalized == "oauth":
-                await self._prompt_oauth_token()
+                await self._start_browser_oauth()
             else:
                 await self._prompt_api_key()
             return
@@ -823,6 +1193,7 @@ class AuthSetupSession:
         if self.step == "api_key":
             try:
                 set_api_key(self.provider, value)
+                _set_runtime_default_provider(self.provider)
                 ThinkingConfig.reload()
             except Exception as exc:
                 await self._repeat(sanitize_error_message(exc))
@@ -830,14 +1201,12 @@ class AuthSetupSession:
             await self._finish()
             return
 
-        if self.step == "oauth_token":
-            try:
-                save_oauth_token(self.provider, access_token=value, scopes=[])
-                ThinkingConfig.reload()
-            except Exception as exc:
-                await self._repeat(sanitize_error_message(exc))
+        if self.step == "oauth_wait":
+            if value.lower().replace("-", "_") == "api_key":
+                self.method = "api_key"
+                await self._prompt_api_key()
                 return
-            await self._finish()
+            await self._repeat("OAuth is already in progress. Finish the browser flow, or type api_key to use an API key.")
 
     async def _prompt_api_key(self) -> None:
         self.step = "api_key"
@@ -851,27 +1220,43 @@ class AuthSetupSession:
             methods=_auth_methods_for_provider(self.provider),
         )
 
-    async def _prompt_oauth_token(self) -> None:
-        self.step = "oauth_token"
+    async def _start_browser_oauth(self) -> None:
+        self.step = "oauth_wait"
         await self.ui.send_auth_setup(
             provider=self.provider,
-            step="oauth_token",
-            title=f"{self.provider} OAuth token",
-            message="Paste an OAuth access token. Browser OAuth is not wired for this provider yet.",
-            prompt="OAuth access token",
-            mask=True,
+            step="oauth_wait",
+            title=f"Authorize {self.provider}",
+            message="Opening browser OAuth. Approve access in the browser, then return to Sonex.",
+            active=False,
             methods=_auth_methods_for_provider(self.provider),
         )
+        self.oauth_task = asyncio.create_task(self._finish_browser_oauth())
+
+    async def _finish_browser_oauth(self) -> None:
+        try:
+            await asyncio.to_thread(run_browser_oauth, self.provider)
+            _set_runtime_default_provider(self.provider)
+            ThinkingConfig.reload()
+        except BrowserOAuthConfigError as exc:
+            self.step = "method"
+            self.method = None
+            await self._repeat(sanitize_error_message(exc))
+            return
+        except Exception as exc:
+            self.step = "method"
+            self.method = None
+            await self._repeat(sanitize_error_message(exc))
+            return
+        await self._finish()
 
     async def _repeat(self, message: str) -> None:
-        if self.method == "oauth" or self.step == "oauth_token":
+        if self.method == "oauth" and self.step == "oauth_wait":
             await self.ui.send_auth_setup(
                 provider=self.provider,
-                step="oauth_token",
-                title=f"{self.provider} OAuth token",
+                step="method",
+                title=f"Connect {self.provider}",
                 message=message,
-                prompt="OAuth access token",
-                mask=True,
+                prompt="oauth or api_key",
                 methods=_auth_methods_for_provider(self.provider),
             )
             return
@@ -893,26 +1278,36 @@ class AuthSetupSession:
             message=message,
             prompt="oauth or api_key",
             methods=_auth_methods_for_provider(self.provider),
+            providers=LLM_AUTH_PROVIDER_CHOICES if self.pending_input is None else None,
         )
 
     async def _finish(self) -> None:
+        try:
+            _set_runtime_default_provider(self.provider)
+            ThinkingConfig.reload()
+        except Exception as exc:
+            await self._repeat(sanitize_error_message(exc))
+            return
+        state = _llm_auth_state()
         await self.ui.append_activity(
             kind="status",
             title=f"{self.provider} connected",
-            detail="Continuing your message.",
+            detail="Continuing your message." if self.pending_input else "Login complete.",
             status="success",
         )
+        await self.ui.send_auth_state(state)
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="done",
             title=f"{self.provider} connected",
-            message="Login complete. Continuing your message.",
+            message="Login complete. Continuing your message." if self.pending_input else "Login complete.",
             active=False,
         )
         setattr(self.ui, "_auth_setup", None)
-        self.runner._running_task = asyncio.create_task(
-            self.runner._run_agent_turn(self.ui, self.pending_input)
-        )
+        if self.pending_input:
+            self.runner._running_task = asyncio.create_task(
+                self.runner._run_agent_turn(self.ui, self.pending_input)
+            )
 
 
 class WebSocketRunner:
@@ -926,6 +1321,7 @@ class WebSocketRunner:
         await ws.accept()
         ui = WebSocketUIAdapter(ws)
         await ui._send({"type": "queue", "tracks": _queue_payload()})
+        await self._handle_startup_auth(ui)
         playback_sync_task = asyncio.create_task(self._sync_spotify_playback(ui))
 
         try:
@@ -958,6 +1354,10 @@ class WebSocketRunner:
                         await apple_music_setup.handle_input(str(data.get("value") or ""))
 
                 elif data.get("type") == "auth_setup_input":
+                    model_setup = getattr(ui, "_model_setup", None)
+                    if model_setup:
+                        await model_setup.handle_input(str(data.get("value") or ""))
+                        continue
                     auth_setup = getattr(ui, "_auth_setup", None)
                     if auth_setup:
                         await auth_setup.handle_input(str(data.get("value") or ""))
@@ -976,20 +1376,41 @@ class WebSocketRunner:
                     confirm_id = str(data.get("id") or "")
                     self._confirm_queue.put((confirm_id, decision))
 
+                elif data.get("type") == "bye":
+                    messages = _coerce_transcript_messages(data.get("messages"))
+                    reason = str(data.get("reason") or "bye")
+                    await self._handle_bye(ui, messages=messages, reason=reason)
+                    break
+
         except WebSocketDisconnect:
             pass
         finally:
             spotify_setup = getattr(ui, "_spotify_setup", None)
             if spotify_setup and spotify_setup.oauth_task:
                 spotify_setup.oauth_task.cancel()
+            auth_setup = getattr(ui, "_auth_setup", None)
+            if auth_setup and auth_setup.oauth_task:
+                auth_setup.oauth_task.cancel()
             apple_music_setup = getattr(ui, "_apple_music_setup", None)
             playback_sync_task.cancel()
             with suppress(asyncio.CancelledError):
                 if spotify_setup and spotify_setup.oauth_task:
                     await spotify_setup.oauth_task
             with suppress(asyncio.CancelledError):
+                if auth_setup and auth_setup.oauth_task:
+                    await auth_setup.oauth_task
+            with suppress(asyncio.CancelledError):
                 await playback_sync_task
             self._confirm_queue.put(("", False))
+
+    async def _handle_startup_auth(self, ui: WebSocketUIAdapter) -> None:
+        state = _llm_auth_state()
+        await ui.send_auth_state(state)
+        if state.ready:
+            return
+        setup = AuthSetupSession(ui, state.provider, None, self)
+        setattr(ui, "_auth_setup", setup)
+        await setup.start(state.reason)
 
     async def _sync_spotify_playback(self, ui: WebSocketUIAdapter) -> None:
         last_signature: tuple[Any, ...] | None = None
@@ -1052,11 +1473,11 @@ class WebSocketRunner:
 
     async def _handle_builtin_command(self, ui: WebSocketUIAdapter, parsed_command: Any) -> None:
         if parsed_command.raw == "/" or not parsed_command.name:
-            await ui.append_agent_message(format_help())
+            await ui.send_help_panel(command_suggestions())
             await ui.append_activity(
                 kind="status",
                 title="Slash commands",
-                detail=format_help(),
+                detail="Showing slash command panel.",
                 status="success",
             )
             return
@@ -1089,17 +1510,41 @@ class WebSocketRunner:
 
         if command_name == "help":
             prefix = args if args.startswith("/") else args
-            await ui.append_agent_message(format_help(prefix))
+            commands = command_suggestions(prefix)
+            if not commands:
+                await ui.append_agent_message(format_help(prefix))
+                await ui.append_activity(
+                    kind="status",
+                    title="Slash commands",
+                    detail=format_help(prefix),
+                    status="success",
+                )
+                return
+            await ui.send_help_panel(commands)
             await ui.append_activity(
                 kind="status",
                 title="Slash commands",
-                detail=format_help(prefix),
+                detail="Showing slash command panel.",
                 status="success",
             )
             return
 
+        if command_name == "model":
+            setup = ModelSelectionSession(ui)
+            setattr(ui, "_model_setup", setup)
+            await setup.start()
+            return
+
         if command_name == "setup":
             await self._start_builtin_setup(ui, args)
+            return
+
+        if command_name == "logout":
+            await self._handle_logout(ui)
+            return
+
+        if command_name in {"bye", "quit"}:
+            await self._handle_bye(ui, messages=ui.transcript, reason=command_name)
             return
 
         if self._running_task and not self._running_task.done():
@@ -1127,6 +1572,65 @@ class WebSocketRunner:
 
         if command_name == "random":
             await self._play_random_recent_track(ui)
+
+    async def _handle_logout(self, ui: WebSocketUIAdapter) -> None:
+        state = _llm_auth_state()
+        if not state.ready:
+            await ui.append_agent_message("You are not logged in.")
+            return
+
+        if state.credential_source == "env":
+            await ui.append_agent_message(
+                "Cannot clear environment variable credentials from the TUI. Remove the provider API key from your environment, then restart Sonex."
+            )
+            await self._handle_bye(ui, messages=ui.transcript, reason="logout")
+            return
+
+        if state.credential_source == "local" or state.auth_type == "local":
+            await ui.append_agent_message(f"Provider '{state.provider}' does not require login.")
+            await self._handle_bye(ui, messages=ui.transcript, reason="logout")
+            return
+
+        if state.credential_source != "auth.json":
+            await ui.append_agent_message("You are not logged in.")
+            return
+
+        try:
+            removed = remove_provider(state.provider)
+            os.environ.pop("SONEX_DEFAULT_PROVIDER", None)
+            os.environ.pop("SONEX_DEFAULT_MODEL", None)
+            ThinkingConfig._state = None
+        except Exception as exc:
+            await ui.append_agent_message(sanitize_error_message(exc))
+            return
+
+        if not removed:
+            await ui.append_agent_message("You are not logged in.")
+            return
+
+        await ui.send_auth_state(_llm_auth_state())
+        await ui.append_agent_message("Successfully log out.")
+        await self._handle_bye(ui, messages=ui.transcript, reason="logout")
+
+    async def _handle_bye(
+        self,
+        ui: WebSocketUIAdapter,
+        *,
+        messages: list[dict[str, str]],
+        reason: str,
+    ) -> None:
+        path = _save_session_transcript(messages, reason=reason)
+        message = f"Session saved to {path}. Bye."
+        await ui.append_activity(
+            kind="status",
+            title="Session saved",
+            detail=str(path),
+            status="success",
+        )
+        await ui.send_status(UiStatus(phase="Bye", message=message))
+        await ui.append_agent_message(message)
+        await ui._send({"type": "bye", "path": str(path), "message": message})
+        await ui.close()
 
     async def _command_usage_error(self, ui: WebSocketUIAdapter, usage: str) -> None:
         message = f"Usage: {usage}"
@@ -1327,6 +1831,7 @@ class WebSocketRunner:
                     UiStatus(phase=str(phase).title(), message=message),
                     tokens=event.data.get("tokens"),
                     elapsed_ms=elapsed_ms(),
+                    active=True,
                 )
                 await ui.append_activity(
                     kind="status",
@@ -1399,4 +1904,5 @@ class WebSocketRunner:
                     await ui.append_agent_message(content)
 
         await producer_task
+        await ui.send_status(UiStatus(phase="Idle", message="Snoozing..."), active=False)
         self._running_task = None

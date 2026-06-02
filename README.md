@@ -82,6 +82,67 @@ You can also run the internal virtualenv command directly:
 .venv/bin/sonex
 ```
 
+## MCP For External Agents
+
+Sonex exposes a local MCP server so Claude Code, Codex, Hermes Agent, and other
+MCP clients can use Sonex music tools. By default, MCP exposes read-only tools
+such as search, account status, current playback, recent tracks, and
+recommendations. Playback-changing tools are hidden unless you explicitly allow
+them.
+
+When Sonex is running normally, the FastAPI backend also serves MCP at:
+
+```text
+http://127.0.0.1:9001/mcp
+```
+
+Connect Codex:
+
+```bash
+codex mcp add sonex --url http://127.0.0.1:9001/mcp
+```
+
+Connect Claude Code over HTTP:
+
+```bash
+claude mcp add --transport http sonex http://127.0.0.1:9001/mcp
+```
+
+Connect Claude Code by spawning Sonex as a local stdio MCP server:
+
+```bash
+claude mcp add --transport stdio sonex -- sonex mcp
+```
+
+Hermes Agent can use either HTTP:
+
+```yaml
+mcp_servers:
+  sonex:
+    url: "http://127.0.0.1:9001/mcp"
+```
+
+or stdio:
+
+```yaml
+mcp_servers:
+  sonex:
+    command: "sonex"
+    args: ["mcp"]
+```
+
+For debugging a standalone HTTP MCP server, run:
+
+```bash
+sonex mcp --transport http --host 127.0.0.1 --port 9002
+```
+
+The standalone debug URL is `http://127.0.0.1:9002/mcp`.
+
+To expose playback-changing tools to trusted local agents, add
+`--allow-mutations` to `sonex mcp` or set `SONEX_MCP_ALLOW_MUTATIONS=1` before
+starting `sonex api`.
+
 ## Check Your Setup
 
 Run:

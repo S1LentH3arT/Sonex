@@ -25,11 +25,15 @@ class ParsedCommand:
 
 BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("help", "/help", "Show available Sonex commands.", aliases=("?",)),
+    BuiltinCommand("model", "/model", "Switch the active model for this session."),
+    BuiltinCommand("logout", "/logout", "Log out current LLM provider and exit."),
     BuiltinCommand("recommend", "/recommend [taste]", "Recommend songs from your taste and listening history.", aliases=("rec",)),
     BuiltinCommand("random", "/random", "Play a random song from your recent Sonex queue."),
     BuiltinCommand("search", "/search <query>", "Search songs and refresh the result list."),
     BuiltinCommand("play", "/play <query|number>", "Play a song by query or by current search result number."),
     BuiltinCommand("setup", "/setup [spotify|apple_music]", "Configure a music provider."),
+    BuiltinCommand("bye", "/bye", "Save the current session and exit safely.", aliases=("exit",)),
+    BuiltinCommand("quit", "/quit", "Save the current session and exit safely."),
 )
 
 _COMMANDS_BY_NAME = {
@@ -60,11 +64,12 @@ def parse_builtin_command(text: str) -> ParsedCommand | None:
 
 def command_suggestions(prefix: str = "") -> list[BuiltinCommand]:
     normalized = prefix.strip().lower().removeprefix("/")
+    commands = sorted(BUILTIN_COMMANDS, key=lambda command: command.name.lower())
     if not normalized:
-        return list(BUILTIN_COMMANDS)
+        return list(commands)
     return [
         command
-        for command in BUILTIN_COMMANDS
+        for command in commands
         if command.name.startswith(normalized)
         or any(alias.startswith(normalized) for alias in command.aliases)
     ]

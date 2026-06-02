@@ -1,0 +1,17 @@
+.venv
+.cache
+.agents
+.codex
+.idea
+identifier.sqlite
+**/__pycache__/
+assets/
+sonex.egg-info/
+src/cli-ui/node_modules/
+src/cli-ui/node_modules/.package-lock.json
+src/cli-ui/dist/
+lib/
+tests/
+share/
+
+

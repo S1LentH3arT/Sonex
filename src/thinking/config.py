@@ -9,7 +9,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from src.auth.oauth import ensure_oauth_token_usable
-from src.auth.providers import get_provider_capability, provider_names
+from src.auth.providers import get_provider_capability, normalize_provider, normalize_provider_model, provider_names
 from src.auth.store import AuthStoreError, get_provider_auth, load_auth_store
 from src.llm import RuntimeConfig, ProviderConfig
 from src.llm.client import ProviderClient
@@ -95,31 +95,28 @@ def _save_config_file(path: Path, data: dict[str, Any]) -> None:
 def _load_env_files() -> None:
     load_dotenv(override=False)
 
-    project_root = Path(__file__).resolve().parents[2]
-    dev_env = project_root / "dev.env"
-    if dev_env.exists():
-        load_dotenv(dotenv_path=dev_env, override=False)
-
 
 def _build_runtime_config(model_override: str | None, config_path: Path) -> RuntimeConfig:
     file_config = _load_config_file(config_path)
     file_providers = file_config.get("providers") or {}
     auth_store = load_auth_store()
 
-    default_provider = (
+    default_provider = normalize_provider(str(
         os.getenv("SONEX_DEFAULT_PROVIDER")
         or os.getenv("SONEX_PROVIDER")
         or auth_store.default_provider
         or file_config.get("default_provider")
         or "openai"
-    )
-    default_model = (
+    ))
+    default_model = normalize_provider_model(
+        default_provider,
         model_override
         or os.getenv("SONEX_DEFAULT_MODEL")
         or os.getenv("SONEX_MODEL")
         or auth_store.default_model
         or file_config.get("default_model")
-        or "gpt-4o"
+        or _provider_default_model(default_provider)
+        or "GPT-5.5",
     )
 
     provider_name_set = {*provider_names(), *file_providers.keys(), *auth_store.providers.keys(), default_provider}
@@ -168,11 +165,13 @@ def _build_provider_config(
         or file_config.get("base_url")
         or capability.default_base_url
     )
-    model = (
+    model = normalize_provider_model(
+        name,
         os.getenv(f"{prefix}MODEL")
         or (auth_config.model if auth_config else None)
         or file_config.get("model")
         or (default_model if is_default else None)
+        or capability.default_model,
     )
     timeout_raw = os.getenv(f"{prefix}TIMEOUT") or file_config.get("timeout")
     timeout = float(timeout_raw) if timeout_raw not in (None, "") else None
@@ -210,6 +209,10 @@ def _build_provider_config(
         extra_headers=extra_headers,
         options=file_config.get("options") or {},
     )
+
+
+def _provider_default_model(name: str) -> str | None:
+    return get_provider_capability(name).default_model
 
 
 def _default_custom_provider(name: str) -> str | None:

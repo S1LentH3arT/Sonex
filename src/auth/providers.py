@@ -11,6 +11,7 @@ class ProviderCapability:
     requires_auth: bool = True
     default_base_url: str | None = None
     default_custom_llm_provider: str | None = None
+    default_model: str | None = None
 
 
 PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
@@ -18,24 +19,29 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         name="openai",
         supports_api_key=True,
         supports_oauth=False,
+        default_model="GPT-5.5",
     ),
     "anthropic": ProviderCapability(
         name="anthropic",
         supports_api_key=True,
         supports_oauth=False,
         default_custom_llm_provider="anthropic",
+        default_model="Claude Opus 4.7",
     ),
     "gemini": ProviderCapability(
         name="gemini",
         supports_api_key=True,
         supports_oauth=True,
         default_custom_llm_provider="gemini",
+        default_model="Gemini 3.5 Flash",
     ),
     "deepseek": ProviderCapability(
         name="deepseek",
         supports_api_key=True,
         supports_oauth=False,
+        default_base_url="https://api.deepseek.com",
         default_custom_llm_provider="deepseek",
+        default_model="deepseek-v4-pro",
     ),
     "ollama": ProviderCapability(
         name="ollama",
@@ -43,6 +49,7 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         supports_oauth=False,
         requires_auth=False,
         default_custom_llm_provider="ollama",
+        default_model="Gemma4-31b:cloud",
     ),
     "spotify": ProviderCapability(
         name="spotify",
@@ -59,6 +66,24 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
 
 def normalize_provider(name: str) -> str:
     return name.strip().lower().replace("-", "_")
+
+
+def normalize_provider_model(provider: str, model: str | None) -> str | None:
+    if model is None:
+        return None
+
+    normalized_provider = normalize_provider(provider)
+    normalized_model = model.strip()
+    if normalized_provider == "deepseek":
+        aliases = {
+            "deepseek-v4-pro": "deepseek-v4-pro",
+            "deepseek-v4": "deepseek-v4-pro",
+            "deepseek-v3": "deepseek-v4-flash",
+            "deepseek-chat": "deepseek-v4-flash",
+            "deepseek-reasoner": "deepseek-v4-flash",
+        }
+        return aliases.get(normalized_model.lower(), normalized_model)
+    return normalized_model
 
 
 def get_provider_capability(name: str) -> ProviderCapability:

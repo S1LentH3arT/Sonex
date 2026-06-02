@@ -7,6 +7,7 @@ from src.llm.adapter.anthropic_adapter import AnthropicAdapter
 from src.llm.adapter.gemini_adapter import GeminiAdapter
 from src.llm.adapter.ollama_adapter import OllamaAdapter
 from src.llm.transport import LLMTransport, ChatRequest, ChatResponse, LiteLLMTransport
+from src.llm.transport.deepseek import DeepSeekTransport
 from src.log import get_logger
 
 logger = get_logger(__name__)
@@ -15,6 +16,7 @@ _DEFAULT_ADAPTERS = {
     "openai": DefaultAdapter(),
     "anthropic": AnthropicAdapter(),
     "gemini": GeminiAdapter(),
+    "deepseek": DefaultAdapter(),
     "ollama": OllamaAdapter(),
 }
 
@@ -34,6 +36,9 @@ class ProviderClient:
     ) -> None:
         self.runtime_config = runtime_config
         self.transport = transport or LiteLLMTransport()
+        self.provider_transports = {
+            "deepseek": DeepSeekTransport(),
+        } if transport is None else {}
         if adapters is None:
             adapters = _DEFAULT_ADAPTERS
         self.adapters = adapters
@@ -55,7 +60,8 @@ class ProviderClient:
             raise RuntimeError(message)
 
         provider_request = adapter.to_provider_request(request, provider_config)
-        raw_response = self.transport.send(provider_request, provider_config)
+        transport = self.provider_transports.get(provider_name, self.transport)
+        raw_response = transport.send(provider_request, provider_config)
         if raw_response is None:
             raise RuntimeError(f"Provider '{provider_name}' returned an empty response.")
         response = adapter.from_provider_response(raw_response)

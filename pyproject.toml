@@ -16,6 +16,7 @@ dependencies = [
     "python-dotenv",
     "textual",
     "fastapi",
+    "mcp[cli]",
     "uvicorn[standard]",
     "spotipy",
     "yt-dlp"

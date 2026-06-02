@@ -70,7 +70,7 @@ def _select_recent_events(events: list[dict[str, Any]], limit: int = 8) -> list[
         event_type = str(item.get("type") or "")
         access_count = int(item.get("access_count") or 0)
         item_id = int(item.get("id") or 0)
-        return (_EVENT_WEIGHTS.get(event_type, 1), access_count, item_id)
+        return _EVENT_WEIGHTS.get(event_type, 1), access_count, item_id
 
     selected = sorted(events, key=score, reverse=True)[:limit]
     return sorted(selected, key=lambda item: int(item.get("id") or 0))
