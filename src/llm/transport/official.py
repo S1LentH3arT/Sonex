@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+import json
+import urllib.error
+import urllib.parse
+import urllib.request
+from typing import Any
+
+from src.llm.config import ProviderConfig
+from src.llm.transport.base import LLMTransportError, ProviderRequest, sanitize_error_message
+from src.log import get_logger
+
+logger = get_logger(__name__)
+
+
+class OpenAICompatibleTransport:
+    def __init__(self, *, default_base_url: str) -> None:
+        self.default_base_url = default_base_url
+
+    def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
+        if not config.api_key:
+            raise LLMTransportError(f"LLM provider '{config.name}' request failed: missing API key")
+
+        payload = dict(request.payload)
+        payload["model"] = request.model
+        if config.options:
+            payload.update(config.options)
+
+        http_request = _json_request(
+            _chat_completions_url(config.base_url or self.default_base_url),
+            payload,
+            timeout=config.timeout,
+        )
+        http_request.add_header("Authorization", f"Bearer {config.api_key}")
+        for key, value in config.extra_headers.items():
+            http_request.add_header(key, value)
+        return _send_json(http_request, config.name, timeout=config.timeout)
+
+
+class AnthropicOfficialTransport:
+    def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
+        if not config.api_key:
+            raise LLMTransportError("LLM provider 'anthropic' request failed: missing API key")
+
+        payload = dict(request.native_payload or request.payload)
+        payload["model"] = request.model
+        payload.setdefault("max_tokens", int(config.options.get("max_tokens") or 4096))
+        if config.options:
+            payload.update({key: value for key, value in config.options.items() if key != "max_tokens"})
+
+        http_request = _json_request(
+            _join_url(config.base_url or "https://api.anthropic.com/v1", "messages"),
+            payload,
+            timeout=config.timeout,
+        )
+        http_request.add_header("x-api-key", config.api_key)
+        http_request.add_header("anthropic-version", config.api_version or "2023-06-01")
+        for key, value in config.extra_headers.items():
+            http_request.add_header(key, value)
+        return _send_json(http_request, "anthropic", timeout=config.timeout)
+
+
+class GeminiOfficialTransport:
+    def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
+        if not config.api_key and "Authorization" not in config.extra_headers:
+            raise LLMTransportError("LLM provider 'gemini' request failed: missing API key or OAuth token")
+
+        payload = dict(request.native_payload or request.payload)
+        payload.pop("model", None)
+        if config.options:
+            payload.update(config.options)
+
+        url = _gemini_generate_content_url(
+            config.base_url or "https://generativelanguage.googleapis.com/v1beta",
+            request.model,
+            api_key=config.api_key if "Authorization" not in config.extra_headers else None,
+        )
+        http_request = _json_request(url, payload, timeout=config.timeout)
+        for key, value in config.extra_headers.items():
+            http_request.add_header(key, value)
+        return _send_json(http_request, "gemini", timeout=config.timeout)
+
+
+def _json_request(url: str, payload: dict[str, Any], *, timeout: float | None) -> urllib.request.Request:
+    del timeout
+    body = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=body, method="POST")
+    request.add_header("Content-Type", "application/json")
+    return request
+
+
+def _send_json(http_request: urllib.request.Request, provider: str, *, timeout: float | None) -> Any:
+    try:
+        with urllib.request.urlopen(http_request, timeout=timeout or 60) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        safe_error = sanitize_error_message(detail)
+        logger.error(f"Transport request failed for provider '{provider}': {safe_error}.")
+        raise LLMTransportError(f"LLM provider '{provider}' request failed: {safe_error}") from exc
+    except Exception as exc:
+        safe_error = sanitize_error_message(exc)
+        logger.error(f"Transport request failed for provider '{provider}': {safe_error}.")
+        raise LLMTransportError(f"LLM provider '{provider}' request failed: {safe_error}") from exc
+
+
+def _chat_completions_url(base_url: str) -> str:
+    normalized = base_url.rstrip("/")
+    if normalized.endswith("/chat/completions"):
+        return normalized
+    return f"{normalized}/chat/completions"
+
+
+def _gemini_generate_content_url(base_url: str, model: str, *, api_key: str | None) -> str:
+    normalized = base_url.rstrip("/")
+    encoded_model = urllib.parse.quote(model, safe="")
+    url = f"{normalized}/models/{encoded_model}:generateContent"
+    if api_key:
+        return f"{url}?{urllib.parse.urlencode({'key': api_key})}"
+    return url
+
+
+def _join_url(base_url: str, path: str) -> str:
+    return f"{base_url.rstrip('/')}/{path.lstrip('/')}"

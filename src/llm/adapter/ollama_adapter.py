@@ -1,6 +1,6 @@
-from src.llm.adapter.base import BaseAdapter
+from src.llm.adapter.base import DefaultAdapter
 
 
-class OllamaAdapter(BaseAdapter):
+class OllamaAdapter(DefaultAdapter):
     provider_name = "ollama"
     ...

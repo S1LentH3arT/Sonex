@@ -1,10 +1,10 @@
 from typing import Any
 
-from src.llm.adapter.base import BaseAdapter, _coerce_text
+from src.llm.adapter.base import DefaultAdapter, _coerce_text
 from src.llm.transport.base import ChatRequest, ChatResponse, Usage, ToolCall
 
 
-class GeminiAdapter(BaseAdapter):
+class GeminiAdapter(DefaultAdapter):
     """Adapter for Gemini or Google response protocol.
 
     Args:

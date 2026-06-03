@@ -16,6 +16,9 @@ export function formatDuration(ms: number): string {
 export function buildProgressBar(progressMs: number, durationMs: number, width = 18): string {
     if (durationMs <= 0) return "─".repeat(width);
     const ratio = Math.min(1, Math.max(0, progressMs / durationMs));
-    const filled = Math.round(ratio * width);
-    return "━".repeat(filled) + "─".repeat(width - filled);
+    const exact = ratio * width;
+    const filled = Math.floor(exact);
+    if (filled >= width) return "━".repeat(width);
+    const partial = exact - filled >= 0.5 ? "╸" : "";
+    return "━".repeat(filled) + partial + "─".repeat(width - filled - partial.length);
 }

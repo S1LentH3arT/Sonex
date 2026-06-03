@@ -1,9 +1,9 @@
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Generator
 
-from src.agent.action import Action
+from src.api.builtin_commands import CommandIntent
 from src.llm.planner import llm_plan
 from src.llm.transport import sanitize_error_message
 from src.memory.memory_hook import append_context, append_tool_summary, finalize_turn
@@ -23,7 +23,6 @@ class AgentState:
     confirm: current step requires confirmation
     """
     type: str = None
-
     tool: str = None
     args: dict = None
     result: Any = None
@@ -59,34 +58,38 @@ def _confirm_approved(decision: Any) -> bool:
         return decision
     return str(decision).strip().lower() in {"allow_always", "allow_once", "yes", "true", "ok"}
 
-def _route_input(user_input: str, *, recommendation_routed: bool) -> Action | None:
-    if not recommendation_routed and "推荐" in user_input:
-        return Action(tool="spotify_recommend", args={"query": user_input, "limit": 10}, usage=0)
-    return None
-
-from typing import Generator
+def _safe_memory_call(label: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        logger.warning("%s failed: %s", label, _format_error(exc))
+        return None
 
 def agent_loop(
     user_input: str,
     tools: ToolRegistry,
+    command_intent: CommandIntent | None = None,
 ) -> Generator[AgentState, AgentState, None]:
-    append_context("user", {"user": user_input}, ["user_input", "user"])
+    user_context: dict[str, Any]= {"user": user_input}
+    if command_intent:
+        user_context["command_intent"] = {
+            "command": command_intent.command,
+            "raw": command_intent.raw,
+            "args": command_intent.args,
+            "allowed_tools": list(command_intent.allowed_tools),
+        }
+    _safe_memory_call("append user context", append_context, "user", user_context, ["user_input", "user"])
     _total_tokens = 0
-    recommendation_routed = False
 
 
     while True:
         # 执行planner
         try:
-            action = _route_input(user_input, recommendation_routed=recommendation_routed)
-            if action is None:
-                action = llm_plan(user_input=user_input, tools=tools)
-            elif action.tool == "spotify_recommend":
-                recommendation_routed = True
+            action = llm_plan(user_input=user_input, tools=tools, command_intent=command_intent)
         except Exception as exc:
             error_text = _format_error(exc)
             message = f"Planning failed: {error_text}"
-            append_context("error", {"error_text": message}, ["error", "planning"])
+            _safe_memory_call("append planning error", append_context, "error", {"error_text": message}, ["error", "planning"])
             yield AgentState(
                 type="error",
                 content=error_text,
@@ -105,8 +108,8 @@ def agent_loop(
         # 如果llm执行结果中没有工具调用，则loop结束
         if action.tool is None:
             answer = action.output
-            append_context("agent", {"agent_output": answer}, ["agent", "output", "complete"])
-            finalize_turn(user_input)
+            _safe_memory_call("append agent context", append_context, "agent", {"agent_output": answer}, ["agent", "output", "complete"])
+            _safe_memory_call("finalize turn", finalize_turn, user_input)
             yield AgentState(
                 type="complete",
                 content=answer,
@@ -117,7 +120,7 @@ def agent_loop(
         tool_func = tools.get(action.tool)
         if not tool_func:
             message = f"Tool '{action.tool}' not found or not allowed."
-            append_context("error", {"error_text": message}, ["error", "tool", f"{action.tool}"])
+            _safe_memory_call("append tool missing error", append_context, "error", {"error_text": message}, ["error", "tool", f"{action.tool}"])
             yield AgentState(
                 type="error",
                 content=message,
@@ -133,13 +136,13 @@ def agent_loop(
             )
             if not _confirm_approved(decision):
                 message = f"Tool '{action.tool}' execution rejected."
-                append_context("warn", {"warning": message}, ["reject", "tool", f"{action.tool}"])
+                _safe_memory_call("append tool rejection", append_context, "warn", {"warning": message}, ["reject", "tool", f"{action.tool}"])
                 continue
 
         tool_args = action.args or {}
         if not isinstance(tool_args, dict):
             message = "Planner returned invalid tool arguments."
-            append_context("error", {"error_text": message}, ["error", "tool", f"{action.args}"])
+            _safe_memory_call("append tool args error", append_context, "error", {"error_text": message}, ["error", "tool", f"{action.args}"])
             yield AgentState(
                 type="error",
                 content=message,
@@ -161,7 +164,7 @@ def agent_loop(
         except Exception as exc:
             error_text = _format_error(exc)
             message = f"Tool execution failed: {error_text}"
-            append_context("error", {"error_text": message}, ["error", "tool", f"{action.tool}"])
+            _safe_memory_call("append tool execution error", append_context, "error", {"error_text": message}, ["error", "tool", f"{action.tool}"])
             yield AgentState(
                 type="error",
                 tool=action.tool,
@@ -184,12 +187,15 @@ def agent_loop(
             result=tool_result,
         )
 
-        context_id = append_context(
+        context_id = _safe_memory_call(
+            "append tool context",
+            append_context,
             "tool",
             {"tool": action.tool, "args": tool_args, "result": tool_result},
             ["tool", "result", f"{action.tool}"],
         )
-        append_tool_summary(context_id, action.tool, tool_args, tool_result)
+        if isinstance(context_id, int):
+            _safe_memory_call("append tool summary", append_tool_summary, context_id, action.tool, tool_args, tool_result)
 
 
 

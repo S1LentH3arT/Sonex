@@ -95,6 +95,11 @@ export type PlayerState = {
     timestamp?: number;
     started_at?: number;
     is_playing?: boolean;
+    provider?: string | null;
+    player?: "mpv" | "vlc" | string | null;
+    session_id?: string | null;
+    ended?: boolean | null;
+    source?: "local" | "youtube" | "spotify" | "apple_music" | string | null;
 };
 
 export type TrackSummary = {

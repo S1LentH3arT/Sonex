@@ -2,9 +2,12 @@ import React from 'react';
 import {Box, Text, measureElement} from 'ink';
 import TextInput from 'ink-text-input';
 import {APP_TIP_PLACEHOLDER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT} from './constants.js';
+import {HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow} from './command-panel.js';
 import {buildProgressBar, formatDuration} from './format.js';
 import {getVisibleChatWindow} from './chat-window.js';
 import {useCoverArt, usePlaybackProgress} from './hooks.js';
+import {coverVisualFromSource, rhythmFrameForPlayback, type CoverVisualModel} from './cover-visual.js';
+import {resolveMiniPlayerChrome, type ShellLayout, type SmallPlaybackFocus} from './layout.js';
 import type {ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackSummary} from './types.js';
 
 const Mascot = () => {
@@ -40,7 +43,7 @@ export const formatAuthLabel = (state: AuthRuntimeState): string => {
 };
 
 export const HeaderFrame = ({authState}: {authState: AuthRuntimeState}) => (
-    <Box width={74} minHeight={5} paddingX={1} borderStyle="single" borderColor={BORDER_BLUE}>
+    <Box width="100%" minHeight={5} paddingX={1} borderStyle="single" borderColor={BORDER_BLUE}>
         <Mascot/>
         <Box flexDirection="column" justifyContent="flex-start">
             <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text color="#bf98a7">v{APP_VERSION}</Text></Text>
@@ -182,13 +185,11 @@ const SlashCommandList = ({suggestions, selectedIndex}: {
 }) => {
     if (suggestions.length === 0) return null;
 
-    const boundedIndex = Math.min(Math.max(selectedIndex, 0), suggestions.length - 1);
-    const maxStart = Math.max(0, suggestions.length - MAX_VISIBLE_SLASH_COMMANDS);
-    const startIndex = Math.min(
-        Math.max(0, boundedIndex - MAX_VISIBLE_SLASH_COMMANDS + 1),
-        maxStart,
+    const {items: visibleSuggestions, boundedIndex, startIndex} = visibleCommandWindow(
+        suggestions,
+        selectedIndex,
+        MAX_VISIBLE_SLASH_COMMANDS,
     );
-    const visibleSuggestions = suggestions.slice(startIndex, startIndex + MAX_VISIBLE_SLASH_COMMANDS);
 
     return (
         <Box flexDirection="column" paddingX={1}>
@@ -210,8 +211,14 @@ const SlashCommandList = ({suggestions, selectedIndex}: {
     );
 };
 
-const HelpPanel = ({panel}: {panel: HelpPanelState}) => {
+const HelpPanel = ({panel, selectedIndex}: {panel: HelpPanelState; selectedIndex: number}) => {
     if (!panel) return null;
+    const commands = helpPanelCommands(panel.commands);
+    const {items: visibleCommands, boundedIndex, startIndex} = visibleCommandWindow(
+        commands,
+        selectedIndex,
+        HELP_PANEL_VISIBLE_COMMANDS,
+    );
 
     return (
         <Box flexDirection="column" paddingX={1} paddingBottom={1}>
@@ -222,14 +229,20 @@ const HelpPanel = ({panel}: {panel: HelpPanelState}) => {
             </Text>
             {panel.commands.length === 0 ? (
                 <Text color="#7f5d6b">No matching commands.</Text>
-            ) : panel.commands.map((command) => (
-                <Text key={command.name}>
-                    <Text color="#7f5d6b">  </Text>
-                    <Text color="#bf98a7">{command.usage}</Text>
-                    <Text color="#7f5d6b"> - </Text>
-                    <Text color="#9d7787">{command.description}</Text>
-                </Text>
-            ))}
+            ) : visibleCommands.map((command, index) => {
+                const absoluteIndex = startIndex + index;
+                const commandColor = absoluteIndex === boundedIndex ? BORDER_BLUE : "#fff4f6";
+                return (
+                    <Text key={command.name}>
+                        <Text color={commandColor}>
+                            {absoluteIndex === boundedIndex ? "> " : "  "}
+                        </Text>
+                        <Text color={commandColor}>{command.usage}</Text>
+                        <Text color={commandColor}> - </Text>
+                        <Text color={commandColor}>{command.description}</Text>
+                    </Text>
+                );
+            })}
         </Box>
     );
 };
@@ -430,6 +443,97 @@ const ActivityPane = ({items, confirm, confirmIndex, spotifySetup, authSetup}: {
     );
 };
 
+const CoverAtmosphere = ({visual, art, compact}: {
+    visual: CoverVisualModel;
+    art: string | null;
+    compact: boolean;
+}) => {
+    if (!compact && art) {
+        return <Text>{art}</Text>;
+    }
+
+    const rows = compact ? visual.blocks.slice(0, 5) : visual.blocks;
+    const columns = compact ? 7 : 14;
+
+    return (
+        <Box flexDirection="column">
+            {rows.map((row, rowIndex) => (
+                <Text key={rowIndex}>
+                    {row.slice(0, columns).map((color, columnIndex) => (
+                        <Text key={`${rowIndex}-${columnIndex}`} backgroundColor={color}>  </Text>
+                    ))}
+                </Text>
+            ))}
+        </Box>
+    );
+};
+
+const PlayerMascot = ({visual, frame, compact}: {
+    visual: CoverVisualModel;
+    frame: number;
+    compact: boolean;
+}) => {
+    const pulse = ["▁", "▃", "▅", "▃"];
+    const left = pulse[frame] ?? "▁";
+    const right = pulse[(frame + 2) % pulse.length] ?? "▁";
+
+    if (compact) {
+        return (
+            <Text>
+                <Text color={visual.secondary}>{left}</Text>
+                <Text color={visual.accent}> sonex </Text>
+                <Text color={visual.secondary}>{right}</Text>
+            </Text>
+        );
+    }
+
+    const lift = frame === 1 || frame === 2 ? "  " : " ";
+    return (
+        <Box flexDirection="column" marginTop={1}>
+            <Text>
+                <Text color={visual.secondary}>{left}{left}</Text>
+                <Text color={visual.accent}>  sonex signal  </Text>
+                <Text color={visual.secondary}>{right}{right}</Text>
+            </Text>
+            <Text>
+                <Text color={visual.muted}>{lift}</Text>
+                <Text color={visual.primary}>╭─╮</Text>
+                <Text color={visual.accent}>●</Text>
+                <Text color={visual.primary}>╭─╮</Text>
+            </Text>
+            <Text>
+                <Text color={visual.muted}>{frame === 3 ? " " : "  "}</Text>
+                <Text color={visual.primary}>╰╥╯</Text>
+                <Text color={visual.secondary}>▔</Text>
+                <Text color={visual.primary}>╰╥╯</Text>
+            </Text>
+        </Box>
+    );
+};
+
+const TrackDetails = ({player, compact}: {player: PlayerState; compact: boolean}) => (
+    <Box flexDirection="column">
+        <Text bold color="#fff4f6">{player.name}</Text>
+        <Text color="#bf98a7">{player.artist}</Text>
+        {!compact || player.album !== "-" ? <Text color="#bf98a7">{player.album}</Text> : null}
+    </Box>
+);
+
+const PlaybackMeter = ({progress, duration, progressBar, visual, isPlaying}: {
+    progress: string;
+    duration: string;
+    progressBar: string;
+    visual: CoverVisualModel;
+    isPlaying: boolean;
+}) => (
+    <Box flexDirection="column" marginTop={1}>
+        <Text>
+            <Text color="#bf98a7">{progress}</Text> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
+        </Text>
+        <Text color={isPlaying ? visual.accent : "#7f5d6b"}>{isPlaying ? "playing" : "paused"}</Text>
+    </Box>
+);
+
 const PlayerPane = ({player, coverUrl, variant = "full"}: {
     player: PlayerState,
     coverUrl: string | null,
@@ -437,45 +541,35 @@ const PlayerPane = ({player, coverUrl, variant = "full"}: {
 }) => {
     const compact = variant === "compact";
     const {art, failed} = useCoverArt(coverUrl, compact ? 14 : 32, compact ? 7 : 16);
+    const visual = React.useMemo(() => coverVisualFromSource(coverUrl, failed), [coverUrl, failed]);
     const duration = formatDuration(player.duration_ms);
     const progressMs = usePlaybackProgress(player);
     const progress = formatDuration(progressMs);
     const progressBar = buildProgressBar(progressMs, player.duration_ms, compact ? 14 : 18);
+    const isPlaying = player.is_playing === true;
+    const rhythmFrame = rhythmFrameForPlayback(isPlaying, progressMs, visual.seed);
 
     return (
-        <Box flexDirection="column" minHeight={compact ? 8 : 20} padding={1} paddingX={compact ? 1 : 2}>
+        <Box flexDirection="column" flexGrow={compact ? 0 : 1} flexShrink={1} minHeight={compact ? 8 : 20} padding={1} paddingX={compact ? 1 : 2}>
             <Box marginBottom={compact ? 0 : 1}>
-                <Text bold color="#f3b2c6">{compact ? "Playing" : "Now Playing"}</Text>
+                <Text bold color={visual.accent}>{compact ? "Playing" : "Now Playing Stage"}</Text>
             </Box>
             <Box marginTop={compact ? 0 : 1}>
                 {!compact && (
                     <Box width={36} paddingRight={2} flexDirection="column">
-                        {art ? (
-                            <Text>{art}</Text>
-                        ) : coverUrl ? (
-                            <Text color={failed ? "#ff9c9c" : "#7f5d6b"}>
-                                {failed ? `Cover unavailable: ${coverUrl}` : "Loading cover..."}
-                            </Text>
-                        ) : (
-                            <Text color="#7f5d6b">No cover art.</Text>
-                        )}
+                        <CoverAtmosphere visual={visual} art={art} compact={compact}/>
+                        <Text color={visual.muted}>{visual.status === "fallback" ? "cover atmosphere" : "cover palette"}</Text>
                     </Box>
                 )}
-                {compact && art ? (
+                {compact ? (
                     <Box width={18} paddingRight={1} flexDirection="column">
-                        <Text>{art}</Text>
+                        <CoverAtmosphere visual={visual} art={art} compact={compact}/>
                     </Box>
                 ) : null}
                 <Box flexDirection="column" flexGrow={1} paddingTop={compact ? 0 : 1}>
-                    <Text bold color="#fff4f6">{player.name}</Text>
-                    <Text color="#bf98a7">{player.artist}</Text>
-                    {!compact || player.album !== "-" ? <Text color="#bf98a7">{player.album}</Text> : null}
-                    <Box marginTop={1}>
-                        <Text>
-                            <Text color="#bf98a7">{progress}</Text> <Text color="#7f5d6b">{progressBar}</Text> <Text
-                            color="#bf98a7">{duration}</Text>
-                        </Text>
-                    </Box>
+                    <TrackDetails player={player} compact={compact}/>
+                    <PlaybackMeter progress={progress} duration={duration} progressBar={progressBar} visual={visual} isPlaying={isPlaying}/>
+                    <PlayerMascot visual={visual} frame={rhythmFrame} compact={compact}/>
                 </Box>
             </Box>
         </Box>
@@ -566,6 +660,9 @@ const InputDock = ({
     slashSuggestions,
     slashIndex,
     helpPanel,
+    helpPanelIndex,
+    minimal = false,
+    switchHint = null,
 }: {
     input: string;
     setInput: (value: string) => void;
@@ -581,17 +678,22 @@ const InputDock = ({
     slashSuggestions: SlashCommandSuggestion[];
     slashIndex: number;
     helpPanel: HelpPanelState;
+    helpPanelIndex: number;
+    minimal?: boolean;
+    switchHint?: string | null;
 }) => (
     <Box flexDirection="column">
-        <Box flexDirection="column" flexShrink={0} paddingX={1}>
-            <HelpPanel panel={helpPanel}/>
-            <SlashCommandList suggestions={slashSuggestions} selectedIndex={slashIndex}/>
-            <CompactConfirm confirm={confirm} confirmIndex={confirmIndex}/>
-            <CompactSetup spotifySetup={spotifySetup} authSetup={authSetup}/>
-        </Box>
+        {!minimal ? (
+            <Box flexDirection="column" flexShrink={0} paddingX={1}>
+                <HelpPanel panel={helpPanel} selectedIndex={helpPanelIndex}/>
+                <SlashCommandList suggestions={slashSuggestions} selectedIndex={slashIndex}/>
+                <CompactConfirm confirm={confirm} confirmIndex={confirmIndex}/>
+                <CompactSetup spotifySetup={spotifySetup} authSetup={authSetup}/>
+            </Box>
+        ) : null}
         <Box borderTop={true} borderStyle="single" borderColor={BORDER_BLUE} paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="row"
-             minHeight={4} flexShrink={0}>
-            <Text color="#7f5d6b">{"> "}</Text>
+             minHeight={minimal ? 3 : 4} flexShrink={0}>
+            <Text color="#7f5d6b">{minimal && switchHint ? `${switchHint} · > ` : "> "}</Text>
                 <PromptInput
                     input={input}
                     setInput={setInput}
@@ -603,6 +705,46 @@ const InputDock = ({
                 />
         </Box>
     </Box>
+);
+
+const MiniPlayerInputDock = ({
+    input,
+    setInput,
+    onSubmit,
+    inputPlaceholder,
+    inputMask,
+    inputFocus,
+    inputRevision,
+    switchHint,
+}: {
+    input: string;
+    setInput: (value: string) => void;
+    onSubmit: (value: string) => void;
+    inputPlaceholder: string;
+    inputMask?: string;
+    inputFocus: boolean;
+    inputRevision: number;
+    switchHint: string;
+}) => (
+    <InputDock
+        input={input}
+        setInput={setInput}
+        onSubmit={onSubmit}
+        inputPlaceholder={inputPlaceholder}
+        inputMask={inputMask}
+        inputFocus={inputFocus}
+        inputRevision={inputRevision}
+        confirm={null}
+        confirmIndex={0}
+        spotifySetup={null}
+        authSetup={null}
+        slashSuggestions={[]}
+        slashIndex={0}
+        helpPanel={null}
+        helpPanelIndex={0}
+        minimal={true}
+        switchHint={switchHint}
+    />
 );
 
 const ConversationColumn = ({
@@ -625,6 +767,7 @@ const ConversationColumn = ({
     slashSuggestions,
     slashIndex,
     helpPanel,
+    helpPanelIndex,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
 }: {
@@ -647,6 +790,7 @@ const ConversationColumn = ({
     slashSuggestions: SlashCommandSuggestion[];
     slashIndex: number;
     helpPanel: HelpPanelState;
+    helpPanelIndex: number;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
 }) => (
@@ -655,12 +799,20 @@ const ConversationColumn = ({
         <Box paddingX={1} height={1} flexShrink={0}>
             <Text color="#bf98a7">
                 {statusText}
-                {showRunMetrics && elapsed && tokens ? (
+                {showRunMetrics && (elapsed || tokens) ? (
                     <>
-                        <Text color="#7f5d6b"> • </Text>
-                        <Text color="#d8bcc7">{elapsed}</Text>
-                        <Text color="#7f5d6b"> • </Text>
-                        <Text color="#d8bcc7">{tokens}</Text>
+                        {elapsed ? (
+                            <>
+                                <Text color="#7f5d6b"> • </Text>
+                                <Text color="#d8bcc7">{elapsed}</Text>
+                            </>
+                        ) : null}
+                        {tokens ? (
+                            <>
+                                <Text color="#7f5d6b"> • </Text>
+                                <Text color="#d8bcc7">{tokens}</Text>
+                            </>
+                        ) : null}
                     </>
                 ) : null}
             </Text>
@@ -680,11 +832,13 @@ const ConversationColumn = ({
             slashSuggestions={slashSuggestions}
             slashIndex={slashIndex}
             helpPanel={helpPanel}
+            helpPanelIndex={helpPanelIndex}
         />
     </Box>
 );
 
 export const DynamicShell = ({
+    authState,
     input,
     setInput,
     onSubmit,
@@ -707,10 +861,14 @@ export const DynamicShell = ({
     slashSuggestions,
     slashIndex,
     helpPanel,
-    showPlaybackSidebar,
+    helpPanelIndex,
+    layout,
+    layoutPulse,
+    smallPlaybackFocus,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
 }: {
+    authState: AuthRuntimeState;
     input: string;
     setInput: (value: string) => void;
     onSubmit: (value: string) => void;
@@ -733,42 +891,78 @@ export const DynamicShell = ({
     slashSuggestions: SlashCommandSuggestion[];
     slashIndex: number;
     helpPanel: HelpPanelState;
-    showPlaybackSidebar: boolean;
+    helpPanelIndex: number;
+    layout: ShellLayout;
+    layoutPulse: boolean;
+    smallPlaybackFocus: SmallPlaybackFocus;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
-}) => (
-    <Box width="100%" height="100%" paddingX={1} flexDirection={showPlaybackSidebar ? "row" : "column"} flexGrow={1} flexShrink={1} minHeight={0}>
-        <Box width={showPlaybackSidebar ? "45%" : 90} minWidth={showPlaybackSidebar ? 48 : undefined} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
-            <ConversationColumn
-                chatItems={chatItems}
-                statusText={statusText}
-                elapsed={elapsed}
-                tokens={tokens}
-                showRunMetrics={showRunMetrics}
-                input={input}
-                setInput={setInput}
-                onSubmit={onSubmit}
-                inputPlaceholder={inputPlaceholder}
-                inputMask={inputMask}
-                inputFocus={inputFocus}
-                inputRevision={inputRevision}
-                confirm={confirm}
-                confirmIndex={confirmIndex}
-                spotifySetup={spotifySetup}
-                authSetup={authSetup}
-                slashSuggestions={slashSuggestions}
-                slashIndex={slashIndex}
-                helpPanel={helpPanel}
-                chatScrollOffset={chatScrollOffset}
-                onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
-            />
-        </Box>
+}) => {
+    const showPlaybackSidebar = layout === "full";
+    const miniChrome = resolveMiniPlayerChrome({layout, smallPlaybackFocus});
+    const conversationStatusText = layout === "chat" && player.is_playing
+        ? `${statusText} · ${miniChrome.switchHint}`
+        : statusText;
 
-        {showPlaybackSidebar ? (
-            <Box width="55%" minWidth={62} flexDirection="column" borderLeft={true} borderStyle="single" borderColor={BORDER_BLUE} flexShrink={0}>
-                <QueuePane tracks={queueItems}/>
-                <PlayerPane player={player} coverUrl={coverUrl}/>
+    if (layout === "miniPlayer") {
+        return (
+            <Box width="100%" height="100%" paddingX={1} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}
+                 borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE}>
+                <Box flexGrow={1} flexShrink={1} minHeight={0} borderBottom={true} borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE}>
+                    <PlayerPane player={player} coverUrl={coverUrl} variant="compact"/>
+                </Box>
+                <MiniPlayerInputDock
+                    input={input}
+                    setInput={setInput}
+                    onSubmit={onSubmit}
+                    inputPlaceholder={inputPlaceholder}
+                    inputMask={inputMask}
+                    inputFocus={inputFocus}
+                    inputRevision={inputRevision}
+                    switchHint={miniChrome.switchHint}
+                />
             </Box>
-        ) : null}
-    </Box>
-);
+        );
+    }
+
+    return (
+        <Box width="100%" height="100%" paddingX={1} flexDirection={showPlaybackSidebar ? "row" : "column"} flexGrow={1} flexShrink={1} minHeight={0}>
+            <Box width={showPlaybackSidebar ? "45%" : "100%"} minWidth={showPlaybackSidebar ? 48 : undefined} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
+                <Box flexShrink={0}>
+                    <HeaderFrame authState={authState}/>
+                </Box>
+                <ConversationColumn
+                    chatItems={chatItems}
+                    statusText={conversationStatusText}
+                    elapsed={elapsed}
+                    tokens={tokens}
+                    showRunMetrics={showRunMetrics}
+                    input={input}
+                    setInput={setInput}
+                    onSubmit={onSubmit}
+                    inputPlaceholder={inputPlaceholder}
+                    inputMask={inputMask}
+                    inputFocus={inputFocus}
+                    inputRevision={inputRevision}
+                    confirm={confirm}
+                    confirmIndex={confirmIndex}
+                    spotifySetup={spotifySetup}
+                    authSetup={authSetup}
+                    slashSuggestions={slashSuggestions}
+                    slashIndex={slashIndex}
+                    helpPanel={helpPanel}
+                    helpPanelIndex={helpPanelIndex}
+                    chatScrollOffset={chatScrollOffset}
+                    onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
+                />
+            </Box>
+
+            {showPlaybackSidebar ? (
+                <Box width="55%" minWidth={62} height="100%" flexDirection="column" borderLeft={true} borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE} flexGrow={1} flexShrink={0} minHeight={0}>
+                    <QueuePane tracks={queueItems}/>
+                    <PlayerPane player={player} coverUrl={coverUrl}/>
+                </Box>
+            ) : null}
+        </Box>
+    );
+};

@@ -12,7 +12,15 @@ PLAYER_CONFIRM_CHOICES = [
 ]
 
 _ALLOWED_PLAYERS: set[str] = set()
-_PRIVATE_CONFIRM_KEYS = {"cmd", "choices", "success_message", "confirm_message"}
+_PRIVATE_CONFIRM_KEYS = {
+    "cmd",
+    "choices",
+    "success_message",
+    "confirm_message",
+    "playback_source_url",
+    "playback_source",
+    "playback_metadata",
+}
 
 
 def normalize_player(player: str) -> str:
@@ -134,6 +142,21 @@ def complete_player_confirm(pending_result: dict[str, Any], decision: Any) -> di
             error_code="INVALID_PLAYER_COMMAND",
             data=_public_data(data),
         ).to_dict()
+
+    playback_source_url = data.get("playback_source_url")
+    playback_source = data.get("playback_source")
+    playback_metadata = data.get("playback_metadata")
+    if isinstance(playback_source_url, str) and isinstance(playback_source, str) and isinstance(playback_metadata, dict):
+        from src.tools.playback_controller import start_local_playback
+
+        return start_local_playback(
+            tool=tool,
+            source_url=playback_source_url,
+            source=playback_source,  # type: ignore[arg-type]
+            metadata=playback_metadata,
+            player=player,
+            success_message=str(data.get("success_message") or f"Playing via {player} started."),
+        )
 
     return launch_player_command(
         tool=tool,

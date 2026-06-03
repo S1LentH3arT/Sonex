@@ -6,7 +6,15 @@ from src.llm.adapter.base import DefaultAdapter
 from src.llm.adapter.anthropic_adapter import AnthropicAdapter
 from src.llm.adapter.gemini_adapter import GeminiAdapter
 from src.llm.adapter.ollama_adapter import OllamaAdapter
-from src.llm.transport import LLMTransport, ChatRequest, ChatResponse, LiteLLMTransport
+from src.llm.transport import (
+    AnthropicOfficialTransport,
+    GeminiOfficialTransport,
+    LLMTransport,
+    ChatRequest,
+    ChatResponse,
+    LiteLLMTransport,
+    OpenAICompatibleTransport,
+)
 from src.llm.transport.deepseek import DeepSeekTransport
 from src.log import get_logger
 
@@ -33,12 +41,16 @@ class ProviderClient:
         runtime_config: RuntimeConfig,
         transport: LLMTransport | None = None,
         adapters: dict[str, LLMAdapter] = None,
+        provider_transports: dict[str, LLMTransport] | None = None,
     ) -> None:
         self.runtime_config = runtime_config
         self.transport = transport or LiteLLMTransport()
-        self.provider_transports = {
+        self.provider_transports = provider_transports or {
+            "openai": OpenAICompatibleTransport(default_base_url="https://api.openai.com/v1"),
+            "anthropic": AnthropicOfficialTransport(),
+            "gemini": GeminiOfficialTransport(),
             "deepseek": DeepSeekTransport(),
-        } if transport is None else {}
+        }
         if adapters is None:
             adapters = _DEFAULT_ADAPTERS
         self.adapters = adapters
@@ -53,7 +65,7 @@ class ProviderClient:
         """
         provider_name = request.provider or self.runtime_config.default_provider
         provider_config = self.runtime_config.get_provider(provider_name, model=request.model)
-        adapter = self.adapters.get(provider_name)
+        adapter = self.adapters.get(provider_name) or DefaultAdapter()
         if adapter is None:
             message = f"Provider '{provider_name}' is not supported."
             logger.error(message)

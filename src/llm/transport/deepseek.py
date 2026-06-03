@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import ssl
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -42,7 +44,7 @@ class DeepSeekTransport:
             logger.error(f"Transport request failed for provider 'deepseek': {safe_error}.")
             raise LLMTransportError(f"LLM provider 'deepseek' request failed: {safe_error}") from exc
         except Exception as exc:
-            safe_error = sanitize_error_message(exc)
+            safe_error = _describe_transport_error(exc)
             logger.error(f"Transport request failed for provider 'deepseek': {safe_error}.")
             raise LLMTransportError(f"LLM provider 'deepseek' request failed: {safe_error}") from exc
 
@@ -54,3 +56,51 @@ def _chat_completions_url(base_url: str) -> str:
     if normalized.endswith("/v1"):
         normalized = normalized[:-3]
     return f"{normalized}/chat/completions"
+
+
+def _describe_transport_error(exc: Exception) -> str:
+    safe_error = sanitize_error_message(exc)
+    proxy = _loopback_proxy_url()
+    if proxy and _is_connection_refused(exc):
+        return (
+            f"{safe_error} (local proxy {proxy} is not accepting connections; "
+            "start the proxy or update/unset HTTPS_PROXY/HTTP_PROXY/https_proxy/http_proxy/all_proxy/ALL_PROXY.)"
+        )
+    if proxy and _is_tls_eof(exc):
+        return (
+            f"{safe_error} (local proxy {proxy} TLS connection closed unexpectedly; "
+            "verify the proxy is running on the URL Python resolves, or update/unset "
+            "HTTPS_PROXY/HTTP_PROXY/https_proxy/http_proxy/all_proxy/ALL_PROXY.)"
+        )
+    return safe_error
+
+
+def _is_connection_refused(exc: Exception) -> bool:
+    if isinstance(exc, ConnectionRefusedError):
+        return True
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, ConnectionRefusedError):
+        return True
+    return "Connection refused" in str(exc)
+
+
+def _is_tls_eof(exc: Exception) -> bool:
+    if isinstance(exc, ssl.SSLError) and exc.errno == ssl.SSL_ERROR_EOF:
+        return True
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, ssl.SSLError) and reason.errno == ssl.SSL_ERROR_EOF:
+        return True
+    return "UNEXPECTED_EOF_WHILE_READING" in str(exc) or "EOF occurred in violation of protocol" in str(exc)
+
+
+def _loopback_proxy_url() -> str | None:
+    proxies = urllib.request.getproxies()
+    for key in ("https", "http", "all"):
+        value = proxies.get(key)
+        if not value:
+            continue
+        parsed = urllib.parse.urlparse(value)
+        host = parsed.hostname
+        if host in {"127.0.0.1", "localhost", "::1"}:
+            return value
+    return None

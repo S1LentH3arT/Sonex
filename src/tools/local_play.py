@@ -1,10 +1,11 @@
 import shutil
+from pathlib import Path
 
 from src.tools.player_permission import (
     build_player_confirm_result,
     is_player_allowed,
-    launch_player_command,
 )
+from src.tools.playback_controller import start_local_playback
 from src.tools.registry import registry, Params
 from src.tools.result import ToolResult
 from src.workspace import WorkspaceBoundaryError, user_music_dir
@@ -39,8 +40,8 @@ def _player_command(player: str, file: str) -> list[str] | None:
         return ["mpv", "--no-video", file]
     return [player, file]
 
-# 使用本地播放器播放音乐(默认播放器为vlc)
-def play_local_song(query: str, player: str = "vlc") -> dict:
+# 使用本地播放器播放音乐(默认播放器为mpv)
+def play_local_song(query: str, player: str = "mpv") -> dict:
     file = search_local_file(query)
     if file.startswith("Path outside user workspace"):
         return ToolResult.fail(
@@ -67,7 +68,17 @@ def play_local_song(query: str, player: str = "vlc") -> dict:
         ).to_dict()
 
     cmd = _player_command(player, file)
-    data = {"query": query, "file": file, "player": player, "method": "local_play"}
+    data = {
+        "query": query,
+        "file": file,
+        "name": Path(file).stem,
+        "artist": "-",
+        "album": "-",
+        "provider": "local",
+        "source": "local",
+        "player": player,
+        "method": "local_play",
+    }
     success_message = f"Playing '{file}' started."
 
     if not is_player_allowed(player):
@@ -76,15 +87,21 @@ def play_local_song(query: str, player: str = "vlc") -> dict:
             player=player,
             cmd=cmd,
             success_message=success_message,
-            data=data,
+            data={
+                **data,
+                "playback_source_url": file,
+                "playback_source": "local",
+                "playback_metadata": data,
+            },
         )
 
-    return launch_player_command(
+    return start_local_playback(
         tool="play_local_song",
+        source_url=file,
+        source="local",
+        metadata=data,
         player=player,
-        cmd=cmd,
         success_message=success_message,
-        data=data,
     )
 
 registry.register(

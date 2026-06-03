@@ -1,17 +1,21 @@
 import React, {useState} from 'react';
-import {Box, useApp, useInput, useStdin} from 'ink';
+import {Box, useApp, useInput, useStdin, useStdout} from 'ink';
 import {buildErrorActivity, upsertActivity} from './activity.js';
 import {completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions} from './commands.js';
 import {DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl} from './constants.js';
-import {DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen} from './components.js';
+import {DynamicShell, isGenericAuthSetup, LoginScreen} from './components.js';
 import {clamp, trimList} from './chat-window.js';
 import {formatElapsed} from './format.js';
 import {useSonexSocket} from './hooks.js';
+import {canUseFullPlaybackLayout, resolveShellLayout, type SmallPlaybackFocus, type TerminalSize} from './layout.js';
 import type {ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, HelpPanelState, LayoutMode, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion} from './types.js';
+
+const LOCAL_PLAYBACK_COMMANDS = new Set(["pause", "resume", "stop", "progress"]);
 
 export const App = () => {
     const {exit} = useApp();
     const {isRawModeSupported} = useStdin();
+    const {stdout} = useStdout();
     const rawModeAvailable = Boolean(isRawModeSupported && typeof process.stdin.setRawMode === "function");
     const [input, setInput] = useState("");
     const [inputRevision, setInputRevision] = useState(0);
@@ -42,12 +46,18 @@ export const App = () => {
         credential_source: "pending",
     });
     const [layoutMode, setLayoutMode] = useState<LayoutMode>("compact");
-    const [hasPlaybackIntent, setHasPlaybackIntent] = useState(false);
     const [manualLayoutOverride, setManualLayoutOverride] = useState(false);
+    const [smallPlaybackFocus, setSmallPlaybackFocus] = useState<SmallPlaybackFocus>("player");
+    const [layoutPulse, setLayoutPulse] = useState(false);
+    const [terminalSize, setTerminalSize] = useState<TerminalSize>({
+        columns: stdout.columns ?? null,
+        rows: stdout.rows ?? null,
+    });
     const [slashIndex, setSlashIndex] = useState(0);
     const [slashMenuDismissedFor, setSlashMenuDismissedFor] = useState<string | null>(null);
     const [isExiting, setIsExiting] = useState(false);
     const [helpPanel, setHelpPanel] = useState<HelpPanelState>(null);
+    const [helpPanelIndex, setHelpPanelIndex] = useState(0);
     const [chatScrollOffset, setChatScrollOffset] = useState(0);
     const [maxChatScrollOffset, setMaxChatScrollOffset] = useState(0);
     const [loginSelectionIndex, setLoginSelectionIndex] = useState(0);
@@ -58,6 +68,28 @@ export const App = () => {
     const isSlashInput = slashInput.startsWith("/");
     const isSlashMenuActive = rawModeAvailable && !confirm && isSlashInput && slashMenuDismissedFor !== input && slashSuggestions.length > 0;
     const selectedSlashCommand = slashSuggestions[Math.min(slashIndex, Math.max(0, slashSuggestions.length - 1))];
+    const fullPlaybackLayoutAvailable = canUseFullPlaybackLayout(terminalSize);
+    const resolvedLayout = resolveShellLayout({
+        ...terminalSize,
+        isPlaying: player.is_playing === true,
+        preferredLayout: layoutMode,
+        smallPlaybackFocus,
+    });
+
+    React.useEffect(() => {
+        const updateTerminalSize = () => {
+            setTerminalSize({
+                columns: stdout.columns ?? null,
+                rows: stdout.rows ?? null,
+            });
+        };
+
+        updateTerminalSize();
+        stdout.on("resize", updateTerminalSize);
+        return () => {
+            stdout.off("resize", updateTerminalSize);
+        };
+    }, [stdout]);
 
     React.useEffect(() => {
         setChatScrollOffset((prev) => clamp(prev, 0, maxChatScrollOffset));
@@ -66,6 +98,11 @@ export const App = () => {
     const scrollChat = React.useCallback((delta: number) => {
         setChatScrollOffset((prev) => clamp(prev + delta, 0, maxChatScrollOffset));
     }, [maxChatScrollOffset]);
+
+    const flashLayoutTransition = React.useCallback(() => {
+        setLayoutPulse(true);
+        setTimeout(() => setLayoutPulse(false), 180);
+    }, []);
 
     React.useEffect(() => {
         setSlashIndex((prev) => Math.min(prev, Math.max(0, slashSuggestions.length - 1)));
@@ -160,7 +197,7 @@ export const App = () => {
             case "player":
                 setPlayer(evt.state);
                 if (evt.state.is_playing) {
-                    setHasPlaybackIntent(true);
+                    setSmallPlaybackFocus("player");
                     if (!manualLayoutOverride) {
                         setLayoutMode("full");
                     }
@@ -173,6 +210,7 @@ export const App = () => {
 	                showError(evt.message, evt.detail, false);
 	                break;
             case "confirm":
+                setSmallPlaybackFocus("chat");
                 setConfirm({
                     id: evt.id,
                     tool_name: evt.tool_name,
@@ -226,10 +264,12 @@ export const App = () => {
                     hint: evt.hint,
                     commands: evt.commands,
                 });
+                setHelpPanelIndex(0);
                 setStatusText(evt.title);
                 break;
             case "bye":
                 setHelpPanel(null);
+                setHelpPanelIndex(0);
                 setStatusText(evt.message ?? `Session saved to ${evt.path}. Bye.`);
                 setTimeout(() => exit(), 80);
                 break;
@@ -249,6 +289,7 @@ export const App = () => {
         setChatScrollOffset(0);
         setSlashMenuDismissedFor(null);
         setHelpPanel(null);
+        setHelpPanelIndex(0);
         setStatusText("Saving session...");
         setActivityItems((prev) => upsertActivity(prev, {
             id: "bye_saving",
@@ -336,6 +377,7 @@ export const App = () => {
         setSlashMenuDismissedFor(null);
         if (command?.name !== "help") {
             setHelpPanel(null);
+            setHelpPanelIndex(0);
         }
         if (spotifySetup?.active) {
             send({type: "setup_input", value: text});
@@ -344,7 +386,10 @@ export const App = () => {
         } else {
             send({type: "user_input", text});
         }
-    }, [applySlashCompletion, authSetup?.active, requestSafeExit, selectedSlashCommand, send, spotifySetup?.active]);
+        if (resolvedLayout === "miniPlayer" && !LOCAL_PLAYBACK_COMMANDS.has(command?.name ?? "")) {
+            setSmallPlaybackFocus("chat");
+        }
+    }, [applySlashCompletion, authSetup?.active, requestSafeExit, resolvedLayout, selectedSlashCommand, send, spotifySetup?.active]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -420,8 +465,13 @@ export const App = () => {
     useInput((inputKey, key) => {
         if (!helpPanel || confirm || isSlashMenuActive) return;
 
-        if (key.escape) {
+        if (key.upArrow && helpPanel.commands.length > 0) {
+            setHelpPanelIndex((prev) => (prev - 1 + helpPanel.commands.length) % helpPanel.commands.length);
+        } else if (key.downArrow && helpPanel.commands.length > 0) {
+            setHelpPanelIndex((prev) => (prev + 1) % helpPanel.commands.length);
+        } else if (key.escape) {
             setHelpPanel(null);
+            setHelpPanelIndex(0);
         }
     }, {isActive: Boolean(helpPanel) && rawModeAvailable && !confirm && !isSlashMenuActive});
 
@@ -430,7 +480,17 @@ export const App = () => {
 
         if (key.tab || inputKey === "\t") {
             setManualLayoutOverride(true);
-            setLayoutMode((prev) => prev === "compact" ? "full" : "compact");
+            if (!fullPlaybackLayoutAvailable) {
+                setLayoutMode("full");
+                setSmallPlaybackFocus((prev) => prev === "player" ? "chat" : "player");
+            } else {
+                setLayoutMode((prev) => {
+                    const next = prev === "compact" ? "full" : "compact";
+                    setSmallPlaybackFocus(next === "full" ? "player" : "chat");
+                    return next;
+                });
+            }
+            flashLayoutTransition();
         }
     }, {isActive: rawModeAvailable && !confirm && !isSlashMenuActive});
 
@@ -449,34 +509,35 @@ export const App = () => {
 
     return (
         <Box flexDirection="column" width="100%" height="100%" minHeight={0}>
-            <Box flexShrink={0}>
-                <HeaderFrame authState={authState}/>
-            </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
                 <DynamicShell
-                input={input}
-                setInput={updateInput}
-                onSubmit={submitInput}
-                inputPlaceholder={inputPlaceholder}
-                inputMask={inputMask}
-                inputFocus={!confirm && rawModeAvailable}
-                inputRevision={inputRevision}
-                chatItems={chatItems}
-                queueItems={queueItems}
-                player={player}
-                statusText={statusText}
-                elapsed={elapsed}
-                tokens={tokens}
-                showRunMetrics={showRunMetrics}
-                coverUrl={coverUrl}
-                confirm={confirm}
-                confirmIndex={confirmIndex}
-                spotifySetup={spotifySetup}
-                authSetup={authSetup}
-                slashSuggestions={slashSuggestions}
-                slashIndex={slashIndex}
+                    authState={authState}
+                    input={input}
+                    setInput={updateInput}
+                    onSubmit={submitInput}
+                    inputPlaceholder={inputPlaceholder}
+                    inputMask={inputMask}
+                    inputFocus={!confirm && rawModeAvailable}
+                    inputRevision={inputRevision}
+                    chatItems={chatItems}
+                    queueItems={queueItems}
+                    player={player}
+                    statusText={statusText}
+                    elapsed={elapsed}
+                    tokens={tokens}
+                    showRunMetrics={showRunMetrics}
+                    coverUrl={coverUrl}
+                    confirm={confirm}
+                    confirmIndex={confirmIndex}
+                    spotifySetup={spotifySetup}
+                    authSetup={authSetup}
+                    slashSuggestions={slashSuggestions}
+                    slashIndex={slashIndex}
                     helpPanel={helpPanel}
-                    showPlaybackSidebar={layoutMode === "full"}
+                    helpPanelIndex={helpPanelIndex}
+                    layout={resolvedLayout}
+                    layoutPulse={layoutPulse}
+                    smallPlaybackFocus={smallPlaybackFocus}
                     chatScrollOffset={chatScrollOffset}
                     onMaxChatScrollOffsetChange={setMaxChatScrollOffset}
                 />

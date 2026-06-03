@@ -4,6 +4,16 @@ import terminalImage from 'terminal-image';
 import {API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE} from './constants.js';
 import type {ClientEvent, PlayerState, ServerEvent} from './types.js';
 
+export const PLAYBACK_PROGRESS_INTERVAL_MS = 250;
+
+export function playbackProgressAt(player: PlayerState, now: number): number {
+    const base = player.progress_ms ?? 0;
+    const reference = player.timestamp ?? player.started_at;
+    const liveOffset = player.is_playing && reference ? Math.max(0, now - reference) : 0;
+    const progress = base + liveOffset;
+    return player.duration_ms > 0 ? Math.min(player.duration_ms, progress) : progress;
+}
+
 export function usePlaybackProgress(player: PlayerState): number {
     const [now, setNow] = React.useState(Date.now());
 
@@ -13,14 +23,11 @@ export function usePlaybackProgress(player: PlayerState): number {
             return;
         }
 
-        const timer = setInterval(() => setNow(Date.now()), 1000);
+        const timer = setInterval(() => setNow(Date.now()), PLAYBACK_PROGRESS_INTERVAL_MS);
         return () => clearInterval(timer);
     }, [player.is_playing, player.timestamp, player.started_at, player.progress_ms]);
 
-    const base = player.progress_ms ?? 0;
-    const reference = player.timestamp ?? player.started_at;
-    const liveOffset = player.is_playing && reference ? Math.max(0, now - reference) : 0;
-    return Math.min(player.duration_ms || 0, base + liveOffset);
+    return playbackProgressAt(player, now);
 }
 
 export function useCoverArt(url: string | null, width = 32, height = 16): {art: string | null; failed: boolean} {

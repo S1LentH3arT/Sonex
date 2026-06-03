@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 import queue
-import random
+import threading
 import time
 import uuid
 import webbrowser
@@ -20,7 +20,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from src.agent.core import agent_loop
 from src.agent.events import RunnerEvent, UiStatus
-from src.api.builtin_commands import BuiltinCommand, command_suggestions, format_help, parse_builtin_command
+from src.api.builtin_commands import BuiltinCommand, CommandIntent, command_suggestions, format_help, parse_builtin_command
 from src.auth.apple_music import (
     apple_music_setup_message,
     save_apple_music_credentials,
@@ -48,11 +48,18 @@ from src.log import sonex_home
 from src.memory.memory import memory_store
 from src.thinking.config import ThinkingConfig
 from src.tools import registry
+from src.tools.playback_controller import controller as local_playback_controller
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
 from src.tools.spotify_play import remember_recent_track, recent_tracks_snapshot, spotify_current_playback, \
     spotify_account
 
 SEARCH_RESULT_TOOLS = {"spotify_search", "search_track", "spotify_recommend", "apple_music_search", "apple_music_recommend"}
+LOCAL_PLAYBACK_CONTROL_TOOLS = {
+    "pause": "local_playback_pause",
+    "resume": "local_playback_resume",
+    "stop": "local_playback_stop",
+    "progress": "local_playback_status",
+}
 SPOTIFY_SETUP_TRIGGERS = {
     "spotify setup",
     "setup spotify",
@@ -83,10 +90,10 @@ LLM_AUTH_PROVIDER_CHOICES = [
 ]
 LLM_AUTH_PROVIDER_VALUES = {choice["value"] for choice in LLM_AUTH_PROVIDER_CHOICES}
 LLM_MODEL_CHOICES = [
-    {"value": "openai::GPT-5.5", "label": "GPT-5.5", "provider": "OpenAI"},
-    {"value": "anthropic::Claude Opus 4.7", "label": "Claude Opus 4.7", "provider": "Anthropic"},
-    {"value": "gemini::Gemini 3.5 Flash", "label": "Gemini 3.5 Flash", "provider": "Gemini"},
-    {"value": "deepseek::deepseek-v4-pro", "label": "DeepSeek V4 Pro", "provider": "Deepseek"},
+    {"value": "openai::gpt-5.2", "label": "GPT-5.2", "provider": "OpenAI"},
+    {"value": "anthropic::claude-opus-4-1-20250805", "label": "Claude Opus 4.1", "provider": "Anthropic"},
+    {"value": "gemini::gemini-3-flash-preview", "label": "Gemini 3 Flash Preview", "provider": "Gemini"},
+    {"value": "deepseek::deepseek-v4-pro", "label": "DeepSeek V4 Pro", "provider": "DeepSeek"},
     {"value": "ollama::Gemma4-31b:cloud", "label": "Gemma4-31b:cloud", "provider": "Ollama"},
 ]
 LLM_MODEL_CHOICE_VALUES = {choice["value"].lower(): choice for choice in LLM_MODEL_CHOICES}
@@ -433,8 +440,15 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
             "is_playing": is_playing,
             "uri": item.get("uri"),
             "provider": item.get("provider"),
+            "player": item.get("player"),
+            "session_id": item.get("session_id"),
+            "source": item.get("source"),
+            "ended": item.get("ended"),
             "spotify_url": item.get("spotify_url"),
-            "apple_music_url": item.get("apple_music_url") or item.get("url"),
+            "apple_music_url": item.get("apple_music_url"),
+            "youtube_url": item.get("youtube_url") or (item.get("url") if item.get("provider") == "youtube" else None),
+            "url": item.get("url"),
+            "stream_url": item.get("stream_url"),
             "album_cover_url": cover_url,
         }
         return state, cover_url
@@ -498,20 +512,6 @@ def _search_results_payload(result: Any) -> list[dict[str, Any]]:
             }
         )
     return payload
-
-
-def _track_query_text(track: dict[str, Any]) -> str:
-    title = str(track.get("name") or track.get("title") or "").strip()
-    artist = str(track.get("artist") or "").strip()
-    return " ".join(part for part in [title, artist] if part).strip()
-
-
-def _track_number(text: str) -> int | None:
-    stripped = text.strip()
-    if not stripped.isdigit():
-        return None
-    number = int(stripped)
-    return number if number > 0 else None
 
 
 def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
@@ -599,7 +599,7 @@ def _default_model_name() -> str:
         or auth_model
         or file_model
         or get_provider_capability(provider).default_model
-        or "GPT-5.5"
+        or "gpt-5.2"
     )
     return str(normalize_provider_model(provider, str(model)) or model)
 
@@ -693,7 +693,7 @@ def _auth_methods_for_provider(provider: str) -> list[dict[str, str]]:
 
 def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
     name = normalize_provider(provider)
-    if name == "deepseek":
+    if name in {"openai", "anthropic", "gemini", "deepseek"}:
         ThinkingConfig.reload()
         config = ThinkingConfig.get_provider_config(name)
         return model_choices_for_provider(config)
@@ -1020,7 +1020,10 @@ class ModelSelectionSession:
 
     async def start(self) -> None:
         self.provider = _default_provider_name()
-        self.model_choices = await asyncio.to_thread(_model_choices_for_provider, self.provider)
+        if normalize_provider(self.provider) == "deepseek":
+            self.model_choices = await asyncio.to_thread(_model_choices_for_provider, self.provider)
+        else:
+            self.model_choices = _model_choices_for_provider(self.provider)
         await self.ui.append_activity(
             kind="status",
             title="Switch model",
@@ -1323,6 +1326,7 @@ class WebSocketRunner:
         await ui._send({"type": "queue", "tracks": _queue_payload()})
         await self._handle_startup_auth(ui)
         playback_sync_task = asyncio.create_task(self._sync_spotify_playback(ui))
+        local_playback_sync_task = asyncio.create_task(self._sync_local_playback(ui))
 
         try:
             while True:
@@ -1393,6 +1397,7 @@ class WebSocketRunner:
                 auth_setup.oauth_task.cancel()
             apple_music_setup = getattr(ui, "_apple_music_setup", None)
             playback_sync_task.cancel()
+            local_playback_sync_task.cancel()
             with suppress(asyncio.CancelledError):
                 if spotify_setup and spotify_setup.oauth_task:
                     await spotify_setup.oauth_task
@@ -1401,6 +1406,8 @@ class WebSocketRunner:
                     await auth_setup.oauth_task
             with suppress(asyncio.CancelledError):
                 await playback_sync_task
+            with suppress(asyncio.CancelledError):
+                await local_playback_sync_task
             self._confirm_queue.put(("", False))
 
     async def _handle_startup_auth(self, ui: WebSocketUIAdapter) -> None:
@@ -1434,6 +1441,20 @@ class WebSocketRunner:
                 pass
             await asyncio.sleep(2)
 
+    async def _sync_local_playback(self, ui: WebSocketUIAdapter) -> None:
+        last_signature: tuple[Any, ...] | None = None
+        while not ui.closed:
+            try:
+                state = await asyncio.to_thread(local_playback_controller.status)
+                payload = state.to_dict()
+                signature = _player_sync_signature(payload)
+                if signature != last_signature:
+                    await ui._send({"type": "player", "state": payload})
+                    last_signature = signature
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+
     async def _handle_user_input(self, ui: WebSocketUIAdapter, user_input: str) -> None:
         user_input = user_input.strip()
         if not user_input:
@@ -1443,7 +1464,25 @@ class WebSocketRunner:
 
         parsed_command = parse_builtin_command(user_input)
         if parsed_command is not None:
-            await self._handle_builtin_command(ui, parsed_command)
+            command_intent = parsed_command.command_intent()
+            if command_intent is None:
+                await self._handle_builtin_command(ui, parsed_command)
+                return
+
+            if self._running_task and not self._running_task.done():
+                ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
+                return
+
+            ready, provider, reason = _llm_auth_ready()
+            if not ready:
+                setup = AuthSetupSession(ui, provider, user_input, self)
+                setattr(ui, "_auth_setup", setup)
+                await setup.start(reason)
+                return
+
+            self._running_task = asyncio.create_task(
+                self._run_agent_turn(ui, user_input, command_intent=command_intent)
+            )
             return
 
         if _is_spotify_setup_request(user_input):
@@ -1543,35 +1582,30 @@ class WebSocketRunner:
             await self._handle_logout(ui)
             return
 
+        if command_name in LOCAL_PLAYBACK_CONTROL_TOOLS:
+            await self._handle_local_playback_control(ui, command_name)
+            return
+
         if command_name in {"bye", "quit"}:
             await self._handle_bye(ui, messages=ui.transcript, reason=command_name)
             return
 
-        if self._running_task and not self._running_task.done():
-            ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
-            return
+        message = f"Command '/{command_name}' is handled by the agent."
+        await ui.append_activity(kind="status", title="Agent command", detail=message, status="success")
 
-        if command_name == "recommend":
-            query = args or "推荐一些适合我最近口味的歌"
-            await self._invoke_builtin_tool(ui, "spotify_recommend", {"query": query, "limit": 10})
-            return
-
-        if command_name == "search":
-            if not args:
-                await self._command_usage_error(ui, "/search <query>")
-                return
-            await self._invoke_builtin_tool(ui, "spotify_search", {"query": args, "limit": 10, "types": "track"})
-            return
-
-        if command_name == "play":
-            if not args:
-                await self._command_usage_error(ui, "/play <query|number>")
-                return
-            await self._play_builtin_target(ui, args)
-            return
-
-        if command_name == "random":
-            await self._play_random_recent_track(ui)
+    async def _handle_local_playback_control(self, ui: WebSocketUIAdapter, command_name: str) -> None:
+        tool_name = LOCAL_PLAYBACK_CONTROL_TOOLS[command_name]
+        try:
+            result = registry.invoke(tool_name, {})
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": tool_name,
+                "message": sanitize_error_message(exc),
+                "error_code": "PLAYBACK_CONTROL_FAILED",
+                "data": {},
+            }
+        await self._sync_tool_result_ui(ui, tool_name, result)
 
     async def _handle_logout(self, ui: WebSocketUIAdapter) -> None:
         state = _llm_auth_state()
@@ -1632,11 +1666,6 @@ class WebSocketRunner:
         await ui._send({"type": "bye", "path": str(path), "message": message})
         await ui.close()
 
-    async def _command_usage_error(self, ui: WebSocketUIAdapter, usage: str) -> None:
-        message = f"Usage: {usage}"
-        await ui.append_activity(kind="error", title="Command needs input", detail=message, status="error")
-        await ui.append_agent_message(message)
-
     async def _start_builtin_setup(self, ui: WebSocketUIAdapter, args: str) -> None:
         provider = (args or "spotify").strip().lower().replace("-", "_")
         if provider in {"spotify", "sp"}:
@@ -1653,61 +1682,6 @@ class WebSocketRunner:
         message = "Unknown setup provider. Use /setup spotify or /setup apple_music."
         await ui.append_activity(kind="error", title="Unknown setup provider", detail=message, status="error")
         await ui.append_agent_message(message)
-
-    async def _play_builtin_target(self, ui: WebSocketUIAdapter, target: str) -> None:
-        number = _track_number(target)
-        if number is not None:
-            tracks = getattr(ui, "_last_search_tracks", [])
-            if not isinstance(tracks, list) or number > len(tracks):
-                await ui.append_activity(
-                    kind="error",
-                    title="Search result not found",
-                    detail=f"No search result #{number}. Run /search first.",
-                    status="error",
-                )
-                await ui.append_agent_message(f"No search result #{number}. Run /search first.")
-                return
-            track = tracks[number - 1]
-            uri = track.get("uri") if isinstance(track, dict) else None
-            query = _track_query_text(track) if isinstance(track, dict) else ""
-            args = {"uri": uri} if uri else {"query": query}
-            await self._invoke_builtin_tool(ui, "spotify_play", args)
-            return
-
-        await self._invoke_builtin_tool(ui, "spotify_play", {"query": target})
-
-    async def _play_random_recent_track(self, ui: WebSocketUIAdapter) -> None:
-        tracks = recent_tracks_snapshot()
-        if not tracks:
-            message = "No recent tracks yet. Run /search or play a song before /random."
-            await ui.append_activity(kind="error", title="Random queue is empty", detail=message, status="error")
-            await ui.append_agent_message(message)
-            return
-
-        track = random.choice(tracks)
-        uri = track.get("uri")
-        query = _track_query_text(track)
-        args = {"uri": uri} if uri else {"query": query}
-        await self._invoke_builtin_tool(ui, "spotify_play", args)
-
-    async def _invoke_builtin_tool(self, ui: WebSocketUIAdapter, tool_name: str, args: dict[str, Any]) -> None:
-        title, detail = _format_tool_start(tool_name, args)
-        activity_id = await ui.append_activity(kind="tool", title=title, detail=detail, status="pending")
-        try:
-            result = self.tools.invoke(tool_name, args)
-        except Exception as exc:
-            message = sanitize_error_message(exc)
-            await ui.append_activity(
-                kind="error",
-                title=f"Failed {tool_name}",
-                detail=message,
-                status="error",
-                activity_id=activity_id,
-            )
-            await ui.send_error(message)
-            return
-
-        await self._sync_tool_result_ui(ui, tool_name, result, activity_id)
 
     async def _sync_tool_result_ui(
         self,
@@ -1730,8 +1704,13 @@ class WebSocketRunner:
             setattr(ui, "_last_search_tracks", search_tracks)
             await ui._send({"type": "search_results", "tracks": search_tracks})
 
+        result_status = str(tool_result.get("status") or "").lower() if isinstance(tool_result, dict) else ""
         player_state, cover_url = _extract_music_state(tool_result)
-        if player_state:
+        is_control_tool = tool_name in set(LOCAL_PLAYBACK_CONTROL_TOOLS.values())
+        should_sync_player = result_status == "success" and bool(
+            player_state and (player_state.get("is_playing") or is_control_tool)
+        )
+        if should_sync_player and player_state:
             await ui._send({"type": "player", "state": player_state})
             if tool_name not in SEARCH_RESULT_TOOLS:
                 if player_state.get("provider") == "apple_music":
@@ -1739,14 +1718,25 @@ class WebSocketRunner:
                 else:
                     remember_recent_track(player_state)
                 await ui._send({"type": "queue", "tracks": _queue_payload()})
-        if cover_url:
+        if should_sync_player and cover_url:
             await ui._send({"type": "cover", "url": cover_url})
 
-    async def _run_agent_turn(self, ui: WebSocketUIAdapter, user_input: str) -> None:
+    async def _run_agent_turn(
+        self,
+        ui: WebSocketUIAdapter,
+        user_input: str,
+        command_intent: CommandIntent | None = None,
+    ) -> None:
         event_queue: asyncio.Queue[RunnerEvent] = asyncio.Queue()
         self._confirm_queue = queue.Queue()
         loop = asyncio.get_running_loop()
         turn_started = time.monotonic()
+        tick_interval = 0.25
+        current_phase = "Planning"
+        current_message = "Planning..."
+        latest_tokens = 0
+        planning_activity_id = _new_event_id("activity")
+        planning_finished = False
 
         def elapsed_ms() -> int:
             return int((time.monotonic() - turn_started) * 1000)
@@ -1763,7 +1753,10 @@ class WebSocketRunner:
         def producer() -> None:
             decision: Any = None
             try:
-                gen = agent_loop(user_input=user_input, tools=self.tools)
+                if command_intent is None:
+                    gen = agent_loop(user_input=user_input, tools=self.tools)
+                else:
+                    gen = agent_loop(user_input=user_input, tools=self.tools, command_intent=command_intent)
                 while True:
                     evt = gen.send(decision) if decision is not None else next(gen)
                     decision = None
@@ -1815,33 +1808,71 @@ class WebSocketRunner:
             finally:
                 emit(RunnerEvent(type="done", data={}))
 
-        producer_task = loop.run_in_executor(None, producer)
+        async def send_current_status() -> None:
+            await ui.send_status(
+                UiStatus(phase=current_phase, message=current_message),
+                tokens=latest_tokens,
+                elapsed_ms=elapsed_ms(),
+                active=True,
+            )
+
+        async def finish_planning(status: str, detail: str) -> None:
+            nonlocal planning_finished
+            if planning_finished:
+                return
+            planning_finished = True
+            await ui.append_activity(
+                kind="status",
+                title="Planning",
+                detail=detail,
+                status=status,
+                activity_id=planning_activity_id,
+            )
+
+        await send_current_status()
+        await ui.append_activity(
+            kind="status",
+            title="Planning",
+            detail=current_message,
+            status="pending",
+            activity_id=planning_activity_id,
+        )
+
+        producer_thread = threading.Thread(target=producer, name="sonex-agent-turn", daemon=True)
+        producer_thread.start()
         active_tool_activity_id: str | None = None
         active_tool_name: str | None = None
 
         while True:
-            event = await event_queue.get()
+            try:
+                event = await asyncio.wait_for(event_queue.get(), timeout=tick_interval)
+            except asyncio.TimeoutError:
+                await send_current_status()
+                continue
+
             if event.type == "done":
+                await finish_planning("success", "Planning complete.")
                 break
 
             if event.type == "status":
                 phase = event.data.get("content")
-                message = f"{phase}..."
-                await ui.send_status(
-                    UiStatus(phase=str(phase).title(), message=message),
-                    tokens=event.data.get("tokens"),
-                    elapsed_ms=elapsed_ms(),
-                    active=True,
-                )
-                await ui.append_activity(
-                    kind="status",
-                    title=str(phase).title(),
-                    detail=message,
-                    status="pending",
-                )
+                current_phase = str(phase).title()
+                current_message = f"{phase}..."
+                if isinstance(event.data.get("tokens"), int):
+                    latest_tokens = int(event.data["tokens"])
+                await finish_planning("success", "Planning complete.")
+                await send_current_status()
+                if current_phase != "Planning":
+                    await ui.append_activity(
+                        kind="status",
+                        title=current_phase,
+                        detail=current_message,
+                        status="pending",
+                    )
                 continue
 
             if event.type == "confirm":
+                await finish_planning("success", "Planning complete.")
                 tool_name = str(event.data.get("tool_name") or "tool")
                 await ui.append_activity(
                     kind="confirm",
@@ -1866,6 +1897,7 @@ class WebSocketRunner:
                 continue
 
             if event.type == "tool":
+                await finish_planning("success", "Planning complete.")
                 tool_name = str(event.data.get("tool_name") or active_tool_name or "tool")
                 tool_args = event.data.get("tool_args") or {}
                 tool_result = event.data.get("tool_result")
@@ -1888,6 +1920,7 @@ class WebSocketRunner:
                 continue
 
             if event.type == "error":
+                await finish_planning("error", str(event.data.get("content") or "Planning failed."))
                 message = str(event.data.get("content") or "Agent failed.")
                 await ui.append_activity(
                     kind="error",
@@ -1899,10 +1932,12 @@ class WebSocketRunner:
                 continue
 
             if event.type == "complete":
+                await finish_planning("success", "Planning complete.")
                 content = str(event.data.get("content") or "")
                 if content:
                     await ui.append_agent_message(content)
 
-        await producer_task
+        if producer_thread.is_alive():
+            producer_thread.join(timeout=1)
         await ui.send_status(UiStatus(phase="Idle", message="Snoozing..."), active=False)
         self._running_task = None

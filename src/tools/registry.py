@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 
 
@@ -54,11 +54,10 @@ class ToolRegistry:
                 fn=kwargs["fn"],
                 enabled=kwargs.get("enabled", kwargs.get("enable", True)),
                 read_only=kwargs.get("read_only", True),
-                confirm_required=kwargs.get(
-                    "confirm_required",
-                    kwargs.get("required_confirm", True),
-                ),
+                confirm_required=not kwargs.get("read_only", True),
             )
+        elif spec.confirm_required != (not spec.read_only):
+            spec = replace(spec, confirm_required=not spec.read_only)
 
         if spec.name in self.tools:
             raise ValueError(f"Tool '{spec.name}' already registered.")
@@ -70,8 +69,13 @@ class ToolRegistry:
             return None
         return spec
 
-    def schemas(self) -> list[dict[str, Any]]:
-        return [spec.to_openai_schema() for spec in self.tools.values() if spec.enabled]
+    def schemas(self, allowed_tools: tuple[str, ...] | set[str] | None = None) -> list[dict[str, Any]]:
+        allowed = set(allowed_tools or ())
+        return [
+            spec.to_openai_schema()
+            for spec in self.tools.values()
+            if spec.enabled and (not allowed or spec.name in allowed)
+        ]
 
     def invoke(self, name: str, args: dict[str, Any] | None = None) -> Any:
         spec = self.get(name)

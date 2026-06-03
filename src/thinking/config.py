@@ -116,7 +116,7 @@ def _build_runtime_config(model_override: str | None, config_path: Path) -> Runt
         or auth_store.default_model
         or file_config.get("default_model")
         or _provider_default_model(default_provider)
-        or "GPT-5.5",
+        or "gpt-5.2",
     )
 
     provider_name_set = {*provider_names(), *file_providers.keys(), *auth_store.providers.keys(), default_provider}

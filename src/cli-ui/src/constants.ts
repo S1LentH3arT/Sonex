@@ -3,7 +3,7 @@ import type {ConfirmChoice, SlashCommandSuggestion} from './types.js';
 export const wsUrl = process.env.SONEX_WS_URL ?? "ws://localhost:9001/ws";
 
 export const APP_VERSION = "1.0.1";
-export const FALLBACK_MODEL_NAME = "GPT-5.5";
+export const FALLBACK_MODEL_NAME = "GPT-5.2";
 export const BORDER_BLUE = "#3b82f6";
 export const BORDER_BLUE_SOFT = "#9fd9ff";
 export const APP_TIP_PLACEHOLDER = "Tips: coming soon";
@@ -20,12 +20,16 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     {name: "help", usage: "/help", description: "Show available commands", needsArgument: false},
     {name: "logout", usage: "/logout", description: "Log out current LLM provider and exit", needsArgument: false},
     {name: "model", usage: "/model", description: "Switch active model", needsArgument: false},
-    {name: "play", usage: "/play <query|number>", description: "Play a song", needsArgument: true},
+    {name: "pause", usage: "/pause", description: "Pause current playback", needsArgument: false},
+    {name: "play", usage: "/play <query/number>", description: "Play a song by query or result number.", needsArgument: true},
+    {name: "progress", usage: "/progress", description: "Show playback progress", needsArgument: false},
     {name: "quit", usage: "/quit", description: "Save session and exit", needsArgument: false},
     {name: "random", usage: "/random", description: "Play from recent songs", needsArgument: false},
-    {name: "recommend", usage: "/recommend [taste]", description: "Recommend songs", needsArgument: true},
-    {name: "search", usage: "/search <query>", description: "Search songs", needsArgument: true},
-    {name: "setup", usage: "/setup [provider]", description: "Configure music", needsArgument: true},
+    {name: "recommend", usage: "/recommend [taste]", description: "Recommend songs of preferred music taste.", needsArgument: true},
+    {name: "resume", usage: "/resume", description: "Resume current playback", needsArgument: false},
+    {name: "search", usage: "/search <query>", description: "Search songs by keywords.", needsArgument: true},
+    {name: "setup", usage: "/setup [provider]", description: "Configure a music provider.", needsArgument: true},
+    {name: "stop", usage: "/stop", description: "Stop current playback", needsArgument: false},
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";
 export const API_NOT_RUNNING_DETAIL = "Start with `sonex`, or run `sonex api` before `sonex tui`.";

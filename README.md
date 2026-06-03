@@ -1,4 +1,4 @@
-# Sonex
+# 🎵 Sonex
 
 [简体中文](README.zh-CN.md)
 
@@ -7,19 +7,19 @@ FastAPI/WebSocket backend. The normal user experience is one command:
 `sonex` starts the backend, opens the TUI, and keeps chat, setup prompts,
 confirmations, and playback state synced over WebSocket.
 
-## Requirements
+## ✅ Requirements
 
 Install these system runtimes before running the Sonex installer:
 
-- Python 3.12, available as `python3.12`
-- Node.js and `npm`
-- A Linux or WSL shell
-- Optional: `vlc` or `mpv` for local-file and YouTube playback
+- 🐍 Python 3.12, available as `python3.12`
+- 🟢 Node.js and `npm`
+- 🐧 A Linux or WSL shell
+- 🎬 Optional: `vlc` or `mpv` for local-file and YouTube playback
 
 The installer checks for Python, Node.js, and npm, but it does not install
 system packages for you.
 
-## Install
+## 📦 Install
 
 From the project checkout:
 
@@ -29,11 +29,11 @@ From the project checkout:
 
 The installer:
 
-- creates or reuses `.venv`
-- installs the Python package and dependencies
-- installs the React + Ink TUI dependencies with `npm ci`
-- builds `src/cli-ui/dist/index.js`
-- creates a user-facing `sonex` launcher at `~/.local/bin/sonex`
+- 🧱 creates or reuses `.venv`
+- 🐍 installs the Python package and dependencies
+- 🖥️ installs the React + Ink TUI dependencies with `npm ci`
+- 🏗️ builds `src/cli-ui/dist/index.js`
+- 🚀 creates a user-facing `sonex` launcher at `~/.local/bin/sonex`
 
 If `~/.local/bin` is not on your `PATH`, add it to your shell profile and open a
 new shell:
@@ -55,7 +55,7 @@ Use `--no-user-shim` to skip creating `~/.local/bin/sonex`. Use
 `--no-launch` is used by the bootstrap launcher when it repairs missing runtime
 pieces.
 
-## Start Sonex
+## 🚀 Start Sonex
 
 Run the app with:
 
@@ -82,7 +82,7 @@ You can also run the internal virtualenv command directly:
 .venv/bin/sonex
 ```
 
-## MCP For External Agents
+## 🤖 MCP For External Agents
 
 Sonex exposes a local MCP server so Claude Code, Codex, Hermes Agent, and other
 MCP clients can use Sonex music tools. By default, MCP exposes read-only tools
@@ -143,7 +143,7 @@ To expose playback-changing tools to trusted local agents, add
 `--allow-mutations` to `sonex mcp` or set `SONEX_MCP_ALLOW_MUTATIONS=1` before
 starting `sonex api`.
 
-## Check Your Setup
+## 🩺 Check Your Setup
 
 Run:
 
@@ -155,12 +155,23 @@ Run:
 `sonex` command, `~/.sonex`, optional local players, and Spotify configuration
 status.
 
-## Provider Setup
+## 🔌 Provider Setup
 
 Sonex stores local credentials under `~/.sonex` by default. Set `SONEX_HOME` if
 you want to use a different state directory.
 
-Manage LLM provider credentials with:
+Sonex now prefers official provider APIs for the main cloud LLMs:
+
+- ✅ **OpenAI** uses the official chat completions endpoint.
+- ✅ **Anthropic** uses the official messages endpoint.
+- ✅ **Gemini** uses the official generate content endpoint, including OAuth
+  headers when configured.
+- ✅ **DeepSeek** keeps the official API adapter that Sonex already used.
+- 🚧 **LiteLLM** is still installed as a compatibility fallback for custom or
+  not-yet-native providers, but it is no longer the default path for the cloud
+  providers above.
+
+🔐 Manage LLM provider credentials with:
 
 ```bash
 sonex auth login openai
@@ -170,13 +181,26 @@ sonex auth set-default openai
 sonex auth logout openai
 ```
 
-If you start chatting before the default provider is configured, the TUI starts
-an interactive setup flow before planner or agent work begins. `ollama` can be
-used as a local provider when configured as the default provider.
+⚙️ Environment variables are also supported:
 
-## Music Setup
+```bash
+export SONEX_DEFAULT_PROVIDER=openai
+export SONEX_OPENAI_API_KEY=sk-...
+export SONEX_ANTHROPIC_API_KEY=sk-ant-...
+export SONEX_GEMINI_API_KEY=...
+export SONEX_DEEPSEEK_API_KEY=sk-...
+```
 
-### Spotify
+🧠 If you start chatting before the default provider is configured, the TUI
+starts an interactive setup flow before planner or agent work begins. `ollama`
+can be used as a local provider when configured as the default provider.
+
+🛠️ Advanced users can still override per-provider `base_url`, `model`,
+`timeout`, `extra_headers`, and `options` in `~/.sonex/thinking.json`.
+
+## 🎧 Music Setup
+
+### 🟩 Spotify
 
 In the TUI, type:
 
@@ -199,7 +223,7 @@ Spotify app credentials can come from `SPOTIFY_CLIENT_ID` and
 requires a Spotify account and an available Spotify Connect device; Premium is
 required for playback control.
 
-### Apple Music
+### 🍎 Apple Music
 
 Apple Music setup uses developer credentials plus a Music User Token:
 
@@ -210,21 +234,21 @@ sonex auth login apple_music --access-token <music-user-token>
 
 Apple Music playback requires Sonex's local MusicKit bridge.
 
-### Local And YouTube Playback
+### 📁 Local And YouTube Playback
 
 Install `vlc` or `mpv` if you want local-file or YouTube playback. Spotify
 Connect playback does not use these local players.
 
-## Troubleshooting
+## 🛟 Troubleshooting
 
-- `sonex: command not found`: make sure `~/.local/bin` is on `PATH`, then run
+- 🧭 `sonex: command not found`: make sure `~/.local/bin` is on `PATH`, then run
   `./scripts/doctor.sh`.
-- A different `sonex` command is found: run
+- 🔁 A different `sonex` command is found: run
   `./scripts/install.sh --force-user-shim` for this checkout.
-- Runtime files are missing: run `sonex` again; the bootstrap launcher can
+- 🧩 Runtime files are missing: run `sonex` again; the bootstrap launcher can
   repair `.venv`, TUI dependencies, and the built TUI. You can also rerun
   `./scripts/install.sh`.
-- The TUI says the API is not running: launch with `sonex`, or run `sonex api`
+- 🌐 The TUI says the API is not running: launch with `sonex`, or run `sonex api`
   before `sonex tui` when debugging.
-- Spotify cannot play: run `sonex auth login spotify` again, check scopes and
+- 🟩 Spotify cannot play: run `sonex auth login spotify` again, check scopes and
   account product, and make sure Spotify is open on a device.
