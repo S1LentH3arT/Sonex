@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -9,12 +10,13 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 from src.tools.registry import Params, registry
 from src.tools.result import ToolResult
 
-PlayerName = Literal["mpv", "vlc"]
+PlayerName = Literal["mpv", "cvlc"]
+PlayerBackend = Literal["auto", "mpv", "cvlc"]
 PlaybackSource = Literal["local", "youtube", "spotify", "apple_music"]
 
 
@@ -40,6 +42,7 @@ class PlayerState:
     url: str | None = None
     stream_url: str | None = None
     album_cover_url: str | None = None
+    volume_percent: int | None = None
     ended: bool = False
 
     def to_dict(self) -> dict[str, Any]:
@@ -62,6 +65,7 @@ def _metadata_state(
     progress_ms: int = 0,
     duration_ms: int | None = None,
     is_playing: bool = True,
+    volume_percent: int | None = None,
     ended: bool = False,
 ) -> PlayerState:
     duration = _coerce_ms(duration_ms if duration_ms is not None else metadata.get("duration_ms"))
@@ -83,8 +87,35 @@ def _metadata_state(
         url=metadata.get("url"),
         stream_url=metadata.get("stream_url"),
         album_cover_url=metadata.get("album_cover_url") or metadata.get("cover_url"),
+        volume_percent=volume_percent,
         ended=ended,
     )
+
+
+def _coerce_volume(value: Any) -> int:
+    try:
+        volume = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("Volume must be an integer from 0 to 100.") from None
+    if not 0 <= volume <= 100:
+        raise ValueError("Volume must be an integer from 0 to 100.")
+    return volume
+
+
+class PlaybackAdapter(Protocol):
+    session_id: str
+
+    def start(self) -> PlayerState: ...
+
+    def status(self) -> PlayerState: ...
+
+    def pause(self) -> PlayerState: ...
+
+    def resume(self) -> PlayerState: ...
+
+    def stop(self) -> PlayerState: ...
+
+    def set_volume(self, volume_percent: int) -> PlayerState: ...
 
 
 class MpvPlaybackAdapter:
@@ -95,8 +126,11 @@ class MpvPlaybackAdapter:
         self.session_id = uuid.uuid4().hex
         self.socket_path = str(Path(tempfile.gettempdir()) / f"sonex-mpv-{self.session_id}.sock")
         self.process: subprocess.Popen[bytes] | None = None
+        self.volume_percent: int | None = None
 
     def start(self) -> PlayerState:
+        if shutil.which("mpv") is None:
+            raise RuntimeError("mpv is not installed or not on PATH.")
         self.process = subprocess.Popen(
             [
                 "mpv",
@@ -159,6 +193,7 @@ class MpvPlaybackAdapter:
             progress_ms=progress_ms,
             duration_ms=duration_ms,
             is_playing=is_playing and not ended,
+            volume_percent=self.volume_percent,
             ended=ended,
         )
 
@@ -178,11 +213,109 @@ class MpvPlaybackAdapter:
                 self.process.terminate()
         return replace(self.status(default_playing=False), is_playing=False, ended=True)
 
+    def set_volume(self, volume_percent: int) -> PlayerState:
+        volume = _coerce_volume(volume_percent)
+        self._request(["set_property", "volume", volume])
+        self.volume_percent = volume
+        return self.status()
+
+
+class CvlcRcPlaybackAdapter:
+    def __init__(self, *, source_url: str, source: PlaybackSource, metadata: dict[str, Any]) -> None:
+        self.source_url = source_url
+        self.source = source
+        self.metadata = metadata
+        self.session_id = uuid.uuid4().hex
+        self.socket_path = str(Path(tempfile.gettempdir()) / f"sonex-cvlc-{self.session_id}.sock")
+        self.process: subprocess.Popen[bytes] | None = None
+        self.started_at = _timestamp_ms()
+        self.progress_ms = 0
+        self.is_playing = True
+        self.volume_percent: int | None = None
+
+    def start(self) -> PlayerState:
+        if shutil.which("cvlc") is None:
+            raise RuntimeError("cvlc is not installed or not on PATH.")
+        self.process = subprocess.Popen(
+            [
+                "cvlc",
+                "--no-video",
+                "--extraintf",
+                "oldrc",
+                "--rc-unix",
+                self.socket_path,
+                self.source_url,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            if self.process.poll() is not None:
+                raise RuntimeError("cvlc exited before playback started.")
+            if os.path.exists(self.socket_path):
+                return self.status()
+            time.sleep(0.05)
+        raise RuntimeError("cvlc rc socket was not ready.")
+
+    def _send(self, command: str) -> None:
+        if self.process and self.process.poll() is not None:
+            raise RuntimeError("cvlc process is not running.")
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+            client.settimeout(1)
+            client.connect(self.socket_path)
+            client.sendall(command.encode("utf-8") + b"\n")
+
+    def status(self) -> PlayerState:
+        ended = bool(self.process and self.process.poll() is not None)
+        progress_ms = self.progress_ms
+        if self.is_playing and not ended:
+            progress_ms += max(0, _timestamp_ms() - self.started_at)
+        return _metadata_state(
+            metadata=self.metadata,
+            source=self.source,
+            player="cvlc",
+            session_id=self.session_id,
+            progress_ms=progress_ms,
+            is_playing=self.is_playing and not ended,
+            volume_percent=self.volume_percent,
+            ended=ended,
+        )
+
+    def pause(self) -> PlayerState:
+        self._send("pause")
+        self.progress_ms = self.status().progress_ms
+        self.is_playing = False
+        return self.status()
+
+    def resume(self) -> PlayerState:
+        self._send("play")
+        self.started_at = _timestamp_ms()
+        self.is_playing = True
+        return self.status()
+
+    def stop(self) -> PlayerState:
+        try:
+            self._send("stop")
+            self._send("quit")
+        except Exception:
+            if self.process and self.process.poll() is None:
+                self.process.terminate()
+        return replace(self.status(), is_playing=False, ended=True)
+
+    def set_volume(self, volume_percent: int) -> PlayerState:
+        volume = _coerce_volume(volume_percent)
+        self._send(f"volume {round(volume * 256 / 100)}")
+        self.volume_percent = volume
+        return self.status()
+
 
 class LocalPlaybackController:
     def __init__(self) -> None:
-        self._adapter: MpvPlaybackAdapter | None = None
+        self._adapter: PlaybackAdapter | None = None
         self.current_session_id: str | None = None
+        self.player_backend: PlayerBackend = "auto"
 
     def play(
         self,
@@ -190,23 +323,70 @@ class LocalPlaybackController:
         source_url: str,
         source: PlaybackSource,
         metadata: dict[str, Any],
-        player: str = "mpv",
+        player: str | None = None,
     ) -> PlayerState:
-        normalized_player = player.strip().lower()
-        if normalized_player != "mpv":
-            raise RuntimeError("Only mpv is supported for controllable local playback.")
+        backend = self._normalize_backend(player or self.player_backend)
         if self._adapter is not None:
             try:
                 self._adapter.stop()
             except Exception:
                 pass
-        adapter = MpvPlaybackAdapter(source_url=source_url, source=source, metadata=metadata)
-        state = adapter.start()
+        adapter, state = self._start_adapter(
+            backend=backend,
+            source_url=source_url,
+            source=source,
+            metadata=metadata,
+        )
         self._adapter = adapter
         self.current_session_id = state.session_id
         return state
 
-    def _require_adapter(self) -> MpvPlaybackAdapter:
+    def _normalize_backend(self, backend: str) -> PlayerBackend:
+        normalized = backend.strip().lower()
+        if normalized not in {"auto", "mpv", "cvlc"}:
+            raise ValueError("Unsupported local playback backend. Use auto, mpv, or cvlc.")
+        return normalized  # type: ignore[return-value]
+
+    def set_player_backend(self, backend: str) -> PlayerBackend:
+        self.player_backend = self._normalize_backend(backend)
+        return self.player_backend
+
+    def _adapter_for(
+        self,
+        backend: Literal["mpv", "cvlc"],
+        *,
+        source_url: str,
+        source: PlaybackSource,
+        metadata: dict[str, Any],
+    ) -> PlaybackAdapter:
+        adapter_cls = MpvPlaybackAdapter if backend == "mpv" else CvlcRcPlaybackAdapter
+        return adapter_cls(source_url=source_url, source=source, metadata=metadata)
+
+    def _start_adapter(
+        self,
+        *,
+        backend: PlayerBackend,
+        source_url: str,
+        source: PlaybackSource,
+        metadata: dict[str, Any],
+    ) -> tuple[PlaybackAdapter, PlayerState]:
+        backends: tuple[Literal["mpv", "cvlc"], ...] = ("mpv", "cvlc") if backend == "auto" else (backend,)
+        failures: list[str] = []
+        for candidate in backends:
+            adapter = self._adapter_for(candidate, source_url=source_url, source=source, metadata=metadata)
+            try:
+                return adapter, adapter.start()
+            except Exception as exc:
+                failures.append(f"{candidate}: {exc}")
+                try:
+                    adapter.stop()
+                except Exception:
+                    pass
+                if backend != "auto":
+                    raise
+        raise RuntimeError("; ".join(failures) or "No playback backend could start.")
+
+    def _require_adapter(self) -> PlaybackAdapter:
         if self._adapter is None:
             raise RuntimeError("No active local playback session.")
         return self._adapter
@@ -227,6 +407,9 @@ class LocalPlaybackController:
         self.current_session_id = None
         return state
 
+    def set_volume(self, volume_percent: int) -> PlayerState:
+        return self._require_adapter().set_volume(_coerce_volume(volume_percent))
+
 
 controller = LocalPlaybackController()
 
@@ -237,11 +420,12 @@ def start_local_playback(
     source_url: str,
     source: PlaybackSource,
     metadata: dict[str, Any],
-    player: str = "mpv",
+    player: str = "auto",
     success_message: str,
 ) -> dict[str, Any]:
+    selected_player = None if player.strip().lower() == "auto" else player
     try:
-        state = controller.play(source_url=source_url, source=source, metadata=metadata, player=player)
+        state = controller.play(source_url=source_url, source=source, metadata=metadata, player=selected_player)
     except Exception as exc:
         return ToolResult.fail(
             tool=tool,
@@ -286,6 +470,46 @@ def local_playback_status() -> dict[str, Any]:
     return _control_result("local_playback_status", "status")
 
 
+def local_playback_volume(volume_percent: int) -> dict[str, Any]:
+    try:
+        volume = _coerce_volume(volume_percent)
+    except ValueError as exc:
+        return ToolResult.fail(
+            tool="local_playback_volume",
+            message=str(exc),
+            error_code="INVALID_VOLUME",
+        ).to_dict()
+    try:
+        state = controller.set_volume(volume)
+    except Exception as exc:
+        return ToolResult.fail(
+            tool="local_playback_volume",
+            message=str(exc),
+            error_code="NO_ACTIVE_PLAYBACK",
+        ).to_dict()
+    return ToolResult.success(
+        tool="local_playback_volume",
+        message=f"Playback volume set to {volume}%.",
+        data=state.to_dict(),
+    ).to_dict()
+
+
+def local_playback_player(backend: str) -> dict[str, Any]:
+    try:
+        selected = controller.set_player_backend(backend)
+    except ValueError as exc:
+        return ToolResult.fail(
+            tool="local_playback_player",
+            message=str(exc),
+            error_code="INVALID_PLAYER_BACKEND",
+        ).to_dict()
+    return ToolResult.success(
+        tool="local_playback_player",
+        message=f"Local playback backend set to {selected}.",
+        data={"backend": selected},
+    ).to_dict()
+
+
 for name, description, fn in (
     ("local_playback_pause", "Pause the current local playback session.", local_playback_pause),
     ("local_playback_resume", "Resume the current local playback session.", local_playback_resume),
@@ -302,3 +526,33 @@ for name, description, fn in (
         read_only=False,
         required_confirm=False,
     )
+
+registry.register(
+    name="local_playback_volume",
+    type="player",
+    description="Set current local playback volume from 0 to 100 percent.",
+    parameters=Params(
+        type="object",
+        properties={"volume_percent": {"type": "integer", "minimum": 0, "maximum": 100}},
+        required=["volume_percent"],
+    ),
+    fn=local_playback_volume,
+    enable=True,
+    read_only=False,
+    required_confirm=False,
+)
+
+registry.register(
+    name="local_playback_player",
+    type="player",
+    description="Set local playback backend strategy for this session.",
+    parameters=Params(
+        type="object",
+        properties={"backend": {"type": "string", "enum": ["auto", "mpv", "cvlc"]}},
+        required=["backend"],
+    ),
+    fn=local_playback_player,
+    enable=True,
+    read_only=False,
+    required_confirm=False,
+)

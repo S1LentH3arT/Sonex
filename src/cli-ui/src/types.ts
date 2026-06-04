@@ -96,9 +96,10 @@ export type PlayerState = {
     started_at?: number;
     is_playing?: boolean;
     provider?: string | null;
-    player?: "mpv" | "vlc" | string | null;
+    player?: "mpv" | "cvlc" | string | null;
     session_id?: string | null;
     ended?: boolean | null;
+    volume_percent?: number | null;
     source?: "local" | "youtube" | "spotify" | "apple_music" | string | null;
 };
 

@@ -10,7 +10,7 @@ import {useSonexSocket} from './hooks.js';
 import {canUseFullPlaybackLayout, resolveShellLayout, type SmallPlaybackFocus, type TerminalSize} from './layout.js';
 import type {ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, HelpPanelState, LayoutMode, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion} from './types.js';
 
-const LOCAL_PLAYBACK_COMMANDS = new Set(["pause", "resume", "stop", "progress"]);
+const LOCAL_PLAYBACK_COMMANDS = new Set(["pause", "resume", "stop", "progress", "volume", "player"]);
 
 export const App = () => {
     const {exit} = useApp();

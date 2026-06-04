@@ -21,6 +21,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     {name: "logout", usage: "/logout", description: "Log out current LLM provider and exit", needsArgument: false},
     {name: "model", usage: "/model", description: "Switch active model", needsArgument: false},
     {name: "pause", usage: "/pause", description: "Pause current playback", needsArgument: false},
+    {name: "player", usage: "/player <auto|mpv|cvlc>", description: "Set local playback backend", needsArgument: true},
     {name: "play", usage: "/play <query/number>", description: "Play a song by query or result number.", needsArgument: true},
     {name: "progress", usage: "/progress", description: "Show playback progress", needsArgument: false},
     {name: "quit", usage: "/quit", description: "Save session and exit", needsArgument: false},
@@ -30,6 +31,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     {name: "search", usage: "/search <query>", description: "Search songs by keywords.", needsArgument: true},
     {name: "setup", usage: "/setup [provider]", description: "Configure a music provider.", needsArgument: true},
     {name: "stop", usage: "/stop", description: "Stop current playback", needsArgument: false},
+    {name: "volume", usage: "/volume <0-100>", description: "Set local playback volume", needsArgument: true},
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";
 export const API_NOT_RUNNING_DETAIL = "Start with `sonex`, or run `sonex api` before `sonex tui`.";

@@ -34,14 +34,18 @@ def check_player(player: str) -> bool:
     return shutil.which(player) is not None
 
 def _player_command(player: str, file: str) -> list[str] | None:
+    if player == "auto":
+        return ["sonex-local-playback", "auto", file]
+    if player == "cvlc":
+        return ["cvlc", "--no-video", file]
     if player == "vlc":
         return ["vlc", "--play-and-exit", file]
     if player == "mpv":
         return ["mpv", "--no-video", file]
     return [player, file]
 
-# 使用本地播放器播放音乐(默认播放器为mpv)
-def play_local_song(query: str, player: str = "mpv") -> dict:
+# 使用本地播放器播放音乐(默认策略为auto)
+def play_local_song(query: str, player: str = "auto") -> dict:
     file = search_local_file(query)
     if file.startswith("Path outside user workspace"):
         return ToolResult.fail(
@@ -58,8 +62,8 @@ def play_local_song(query: str, player: str = "mpv") -> dict:
             data={"query": query},
         ).to_dict()
 
-    # 检查本地是否有该播放器
-    if not check_player(player):
+    # `auto` is resolved by the playback controller; concrete adapters validate binaries.
+    if player != "auto" and not check_player(player):
         return ToolResult.fail(
             tool="play_local_song",
             message=f"{player} is not ready.",

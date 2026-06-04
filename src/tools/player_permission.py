@@ -29,8 +29,10 @@ def normalize_player(player: str) -> str:
 
 def player_label(player: str) -> str:
     known = {
+        "auto": "auto local player",
         "vlc": "VLC",
         "mpv": "mpv",
+        "cvlc": "cvlc",
     }
     return known.get(normalize_player(player), player)
 

@@ -2,9 +2,11 @@ from src.tools.local_play import play_local_song
 from src.tools.online_play import play_youtube_song
 from src.tools.playback_controller import (
     local_playback_pause,
+    local_playback_player,
     local_playback_resume,
     local_playback_status,
     local_playback_stop,
+    local_playback_volume,
 )
 from src.tools.registry import ToolRegistry, registry
 from src.tools.result import ToolResult
@@ -47,9 +49,11 @@ __all__ = [
     "play_local_song",
     "play_youtube_song",
     "local_playback_pause",
+    "local_playback_player",
     "local_playback_resume",
     "local_playback_status",
     "local_playback_stop",
+    "local_playback_volume",
     "apple_music_search",
     "apple_music_account",
     "apple_music_current_playback",

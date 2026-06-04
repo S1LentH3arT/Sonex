@@ -469,7 +469,11 @@ def _account_capabilities(product: str, scopes: set[str], logged_in: bool) -> di
     return {
         "search": True,
         "account": logged_in,
-        "current_playback": logged_in and bool(scopes & (SPOTIFY_READ_PLAYBACK_SCOPES | SPOTIFY_NOW_PLAYING_SCOPES)),
+        "current_playback": (
+            logged_in
+            and product == "premium"
+            and bool(scopes & (SPOTIFY_READ_PLAYBACK_SCOPES | SPOTIFY_NOW_PLAYING_SCOPES))
+        ),
         "playback_control": logged_in and product == "premium" and SPOTIFY_MODIFY_PLAYBACK_SCOPES <= scopes,
     }
 
@@ -495,6 +499,22 @@ def spotify_account() -> dict[str, Any]:
 
 
 def spotify_current_playback() -> dict[str, Any]:
+    account = spotify_account()
+    data = account.get("data") if isinstance(account, dict) else {}
+    capabilities = data.get("capabilities") if isinstance(data, dict) else {}
+    if data.get("logged_in") and not capabilities.get("current_playback"):
+        if data.get("product") != "premium":
+            return ToolResult.fail(
+                tool="spotify_current_playback",
+                message="Spotify playback state requires a Premium account.",
+                error_code="SPOTIFY_PREMIUM_REQUIRED",
+            ).to_dict()
+        return ToolResult.fail(
+            tool="spotify_current_playback",
+            message="Spotify playback state scope is missing. Run `sonex auth login spotify` again.",
+            error_code="SPOTIFY_SCOPE_MISSING",
+        ).to_dict()
+
     try:
         client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES)
         playback = client.current_playback()
@@ -534,11 +554,6 @@ def spotify_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
 
 
 def _require_premium_control(tool: str) -> dict[str, Any] | None:
-    try:
-        spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_PRIVATE_SCOPES)
-    except Exception as exc:
-        return _spotify_error(tool, exc, "SPOTIFY_API_ERROR")
-
     account = spotify_account()
     data = account.get("data") or {}
     if not data.get("logged_in"):
@@ -560,6 +575,10 @@ def _require_premium_control(tool: str) -> dict[str, Any] | None:
             message="Spotify playback control scope is missing. Run `sonex auth login spotify` again.",
             error_code="SPOTIFY_SCOPE_MISSING",
         ).to_dict()
+    try:
+        spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_PRIVATE_SCOPES)
+    except Exception as exc:
+        return _spotify_error(tool, exc, "SPOTIFY_API_ERROR")
     return None
 
 

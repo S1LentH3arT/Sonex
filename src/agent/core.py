@@ -43,6 +43,14 @@ def _format_error(exc: Exception) -> str:
 def _is_player_confirm_result(value: Any) -> bool:
     return isinstance(value, dict) and value.get("status") == "requires_player_confirm"
 
+def _spotify_premium_failure_answer(result: Any) -> str | None:
+    if not isinstance(result, dict):
+        return None
+    if result.get("error_code") != "SPOTIFY_PREMIUM_REQUIRED":
+        return None
+    message = result.get("message") or "Spotify playback requires a Premium account."
+    return f"{message} I can search Spotify results, or play the track through YouTube/local playback instead."
+
 def _player_confirm_payload(result: dict[str, Any], tool_args: dict[str, Any]) -> dict[str, Any]:
     data = result.get("data") or {}
     return {
@@ -197,7 +205,22 @@ def agent_loop(
         if isinstance(context_id, int):
             _safe_memory_call("append tool summary", append_tool_summary, context_id, action.tool, tool_args, tool_result)
 
-
+        capability_answer = _spotify_premium_failure_answer(tool_result)
+        if capability_answer:
+            _safe_memory_call(
+                "append agent context",
+                append_context,
+                "agent",
+                {"agent_output": capability_answer},
+                ["agent", "output", "complete"],
+            )
+            _safe_memory_call("finalize turn", finalize_turn, user_input)
+            yield AgentState(
+                type="complete",
+                content=capability_answer,
+                tokens=_total_tokens,
+            )
+            return
 
         yield AgentState(
             type="status",

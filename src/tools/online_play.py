@@ -171,7 +171,7 @@ def search_and_resolve_song(query: str) -> str:
     return str(resolve_youtube_song(query=query)["stream_url"])
 
 
-def play_youtube_song(query: str, player: str = "mpv") -> dict[str, Any]:
+def play_youtube_song(query: str, player: str = "auto") -> dict[str, Any]:
     try:
         data = resolve_youtube_song(query=query)
     except Exception as exc:
@@ -184,8 +184,8 @@ def play_youtube_song(query: str, player: str = "mpv") -> dict[str, Any]:
             data={"query": query, "player": player, "method": "online_play", "provider": "youtube"},
         ).to_dict()
 
-    # 检查vlc是否可用
-    if not check_player(player):
+    # `auto` is a controller strategy, not a binary name; concrete adapters validate availability.
+    if player != "auto" and not check_player(player):
         return ToolResult.error(
             tool="play_youtube_song",
             message=f"Player '{player}' is not ready.",
@@ -193,7 +193,14 @@ def play_youtube_song(query: str, player: str = "mpv") -> dict[str, Any]:
             data={**data, "player": player, "method": "online_play"},
         )
 
-    cmd = ["mpv", "--no-video", str(data["stream_url"])] if player == "mpv" else [player, "--play-and-exit", str(data["stream_url"])]
+    if player == "auto":
+        cmd = ["sonex-local-playback", "auto", str(data["stream_url"])]
+    elif player == "mpv":
+        cmd = ["mpv", "--no-video", str(data["stream_url"])]
+    elif player == "cvlc":
+        cmd = ["cvlc", "--no-video", str(data["stream_url"])]
+    else:
+        cmd = [player, "--play-and-exit", str(data["stream_url"])]
     data = {**data, "player": player, "method": "online_play", "source": "youtube"}
     success_message = f"Playing '{query}' online started."
 

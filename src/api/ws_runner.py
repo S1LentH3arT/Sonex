@@ -60,6 +60,7 @@ LOCAL_PLAYBACK_CONTROL_TOOLS = {
     "stop": "local_playback_stop",
     "progress": "local_playback_status",
 }
+LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
 SPOTIFY_SETUP_TRIGGERS = {
     "spotify setup",
     "setup spotify",
@@ -444,6 +445,7 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
             "session_id": item.get("session_id"),
             "source": item.get("source"),
             "ended": item.get("ended"),
+            "volume_percent": item.get("volume_percent"),
             "spotify_url": item.get("spotify_url"),
             "apple_music_url": item.get("apple_music_url"),
             "youtube_url": item.get("youtube_url") or (item.get("url") if item.get("provider") == "youtube" else None),
@@ -523,6 +525,7 @@ def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
         state.get("duration_ms"),
         bool(state.get("is_playing")),
         progress_bucket,
+        state.get("volume_percent"),
     )
 
 
@@ -1586,6 +1589,14 @@ class WebSocketRunner:
             await self._handle_local_playback_control(ui, command_name)
             return
 
+        if command_name == "volume":
+            await self._handle_local_playback_volume(ui, args)
+            return
+
+        if command_name == "player":
+            await self._handle_local_playback_player(ui, args)
+            return
+
         if command_name in {"bye", "quit"}:
             await self._handle_bye(ui, messages=ui.transcript, reason=command_name)
             return
@@ -1597,6 +1608,51 @@ class WebSocketRunner:
         tool_name = LOCAL_PLAYBACK_CONTROL_TOOLS[command_name]
         try:
             result = registry.invoke(tool_name, {})
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": tool_name,
+                "message": sanitize_error_message(exc),
+                "error_code": "PLAYBACK_CONTROL_FAILED",
+                "data": {},
+            }
+        await self._sync_tool_result_ui(ui, tool_name, result)
+
+    async def _handle_local_playback_volume(self, ui: WebSocketUIAdapter, args: str) -> None:
+        try:
+            volume = int(args.strip())
+            if not 0 <= volume <= 100:
+                raise ValueError
+        except ValueError:
+            message = "Usage: /volume <0-100>"
+            await ui.append_activity(kind="error", title="Invalid volume", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+
+        tool_name = "local_playback_volume"
+        try:
+            result = registry.invoke(tool_name, {"volume_percent": volume})
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": tool_name,
+                "message": sanitize_error_message(exc),
+                "error_code": "PLAYBACK_CONTROL_FAILED",
+                "data": {},
+            }
+        await self._sync_tool_result_ui(ui, tool_name, result)
+
+    async def _handle_local_playback_player(self, ui: WebSocketUIAdapter, args: str) -> None:
+        backend = args.strip().lower()
+        if backend not in LOCAL_PLAYBACK_BACKENDS:
+            message = "Usage: /player <auto|mpv|cvlc>"
+            await ui.append_activity(kind="error", title="Invalid player backend", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+
+        tool_name = "local_playback_player"
+        try:
+            result = registry.invoke(tool_name, {"backend": backend})
         except Exception as exc:
             result = {
                 "status": "fail",

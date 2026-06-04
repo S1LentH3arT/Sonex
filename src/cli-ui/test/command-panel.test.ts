@@ -17,7 +17,7 @@ assert.deepEqual(
 
 assert.equal(visibleCommandWindow(allHelpCommands, 0, HELP_PANEL_VISIBLE_COMMANDS).items.length, 8);
 assert.equal(visibleCommandWindow(allHelpCommands, 0, HELP_PANEL_VISIBLE_COMMANDS).items[0]?.name, "bye");
-assert.equal(visibleCommandWindow(allHelpCommands, 8, HELP_PANEL_VISIBLE_COMMANDS).items.at(-1)?.name, "random");
+assert.equal(visibleCommandWindow(allHelpCommands, 8, HELP_PANEL_VISIBLE_COMMANDS).items.at(-1)?.name, allHelpCommands[8]?.name);
 
 const slashSearch = SLASH_COMMANDS.find((command) => command.name === "search");
 const helpSearch = allHelpCommands.find((command) => command.name === "search");
@@ -34,3 +34,11 @@ assert.equal(helpRecommend?.description, "Recommend songs of preferred music tas
 const helpPause = allHelpCommands.find((command) => command.name === "pause");
 assert.equal(helpPause?.usage, "/pause");
 assert.equal(helpPause?.description, "Pause current playback");
+
+const helpVolume = allHelpCommands.find((command) => command.name === "volume");
+assert.equal(helpVolume?.usage, "/volume <0-100>");
+assert.equal(helpVolume?.description, "Set local playback volume");
+
+const helpPlayer = allHelpCommands.find((command) => command.name === "player");
+assert.equal(helpPlayer?.usage, "/player <auto|mpv|cvlc>");
+assert.equal(helpPlayer?.description, "Set local playback backend");

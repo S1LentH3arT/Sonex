@@ -55,6 +55,8 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("resume", "/resume", "Resume current local playback."),
     BuiltinCommand("stop", "/stop", "Stop current local playback."),
     BuiltinCommand("progress", "/progress", "Show current local playback progress."),
+    BuiltinCommand("volume", "/volume <0-100>", "Set current local playback volume."),
+    BuiltinCommand("player", "/player <auto|mpv|cvlc>", "Set local playback backend strategy."),
     BuiltinCommand(
         "recommend",
         "/recommend [taste]",
