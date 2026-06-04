@@ -1,3 +1,3 @@
-from src.log.config import get_logger, sonex_home
+from src.log.config import configure_file_logging, get_logger, sonex_home, sonex_log_path
 
-__all__ = ["sonex_home", "get_logger"]
+__all__ = ["configure_file_logging", "sonex_home", "sonex_log_path", "get_logger"]

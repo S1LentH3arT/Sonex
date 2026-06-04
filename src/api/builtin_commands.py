@@ -107,16 +107,8 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     ),
     BuiltinCommand(
         "play",
-        "/play <query/number>",
-        "Play a song by query or result number.",
-        mode="agent",
-        intent_prompt=(
-            "The user invoked /play. Treat the args as either a track query or a result number from recent "
-            "search context. Prefer Spotify or Apple Music playback when a platform URI or search result is "
-            "available, then fall back to play_youtube_song for query-based online playback. "
-            "Playback-changing tools require confirmation."
-        ),
-        allowed_tools=("spotify_play", "apple_music_play", "play_youtube_song"),
+        "/play <query>",
+        "Play a song by query.",
     ),
     BuiltinCommand("setup", "/setup [provider]", "Configure a music provider."),
     BuiltinCommand("bye", "/bye", "Save the current session and exit safely.", aliases=("exit",)),

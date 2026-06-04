@@ -11,7 +11,6 @@ src/cli-ui/node_modules/
 src/cli-ui/node_modules/.package-lock.json
 src/cli-ui/dist/
 lib/
-tests/
 share/
 
 

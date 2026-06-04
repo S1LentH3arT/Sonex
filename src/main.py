@@ -37,6 +37,7 @@ from src.auth.store import (
     set_default,
     set_provider_config,
 )
+from src.log import configure_file_logging, sonex_log_path
 from src.mcp import SONEX_MCP_ALLOW_MUTATIONS, run_mcp_server
 from src.workspace import user_workspace_root
 
@@ -356,22 +357,28 @@ def _wait_for_server(host: str, port: int, timeout: float = SERVER_START_TIMEOUT
 
 
 def _start_api_process(host: str, port: int) -> subprocess.Popen[bytes]:
-    return subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "src.api.app:app",
-            "--host",
-            host,
-            "--port",
-            str(port),
-            "--log-level",
-            os.getenv("SONEX_UVICORN_LOG_LEVEL", "warning"),
-        ],
-        cwd=user_workspace_root(),
-        env=_process_env(),
-    )
+    log_fd = os.open(sonex_log_path(), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        return subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "src.api.app:app",
+                "--host",
+                host,
+                "--port",
+                str(port),
+                "--log-level",
+                os.getenv("SONEX_UVICORN_LOG_LEVEL", "warning"),
+            ],
+            cwd=user_workspace_root(),
+            env=_process_env(),
+            stdout=log_fd,
+            stderr=subprocess.STDOUT,
+        )
+    finally:
+        os.close(log_fd)
 
 
 def _run_full_tui(host: str, port: int) -> None:
@@ -414,7 +421,13 @@ def api(
 ) -> None:
     """Run only the Sonex WebSocket API."""
     os.chdir(user_workspace_root())
-    uvicorn.run("src.api.app:app", host=host, port=port)
+    configure_file_logging()
+    uvicorn.run(
+        "src.api.app:app",
+        host=host,
+        port=port,
+        log_level=os.getenv("SONEX_UVICORN_LOG_LEVEL", "warning"),
+    )
 
 
 @app.command()

@@ -19,7 +19,8 @@ dependencies = [
     "mcp[cli]",
     "uvicorn[standard]",
     "spotipy",
-    "yt-dlp"
+    "yt-dlp",
+    "Pillow"
 ]
 
 [project.scripts]

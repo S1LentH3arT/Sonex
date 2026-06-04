@@ -42,16 +42,19 @@ from src.auth.spotify import (
     spotify_redirect_uri,
 )
 from src.auth.store import get_provider_auth, load_auth_store, remove_provider, set_api_key, set_default
-from src.llm.transport import sanitize_error_message
+from src.llm.transport import ChatRequest, sanitize_error_message
 from src.llm.models import model_choices_for_provider
 from src.log import sonex_home
 from src.memory.memory import memory_store
 from src.thinking.config import ThinkingConfig
 from src.tools import registry
+from src.tools.local_play import search_local_file
 from src.tools.playback_controller import controller as local_playback_controller
+from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
 from src.tools.spotify_play import remember_recent_track, recent_tracks_snapshot, spotify_current_playback, \
     spotify_account
+from src.tools.song_cache import find_best_cached_song, recent_cached_songs, resolve_cached_song, upsert_cached_song
 
 SEARCH_RESULT_TOOLS = {"spotify_search", "search_track", "spotify_recommend", "apple_music_search", "apple_music_recommend"}
 LOCAL_PLAYBACK_CONTROL_TOOLS = {
@@ -61,6 +64,29 @@ LOCAL_PLAYBACK_CONTROL_TOOLS = {
     "progress": "local_playback_status",
 }
 LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
+PLAYBACK_METHOD_CHOICES = [
+    {
+        "value": "spotify_play",
+        "label": "🎧 Spotify 播放",
+        "description": "需要 Premium 或可控制播放的订阅账号。",
+    },
+    {
+        "value": "apple_music_play",
+        "label": "🍎 Apple Music 播放",
+        "description": "需要 Apple Music 订阅和本机 bridge。",
+    },
+    {
+        "value": "online_play",
+        "label": "🌐 在线播放",
+        "description": "无订阅要求，使用在线音源和本地播放器。",
+    },
+    {"value": "cancel", "label": "取消"},
+]
+LOCAL_PLAYBACK_CHOICES = [
+    {"value": "play_local", "label": "播放本地"},
+    {"value": "skip_local", "label": "不播放本地，选择其他方式"},
+    {"value": "cancel", "label": "取消"},
+]
 SPOTIFY_SETUP_TRIGGERS = {
     "spotify setup",
     "setup spotify",
@@ -98,6 +124,14 @@ LLM_MODEL_CHOICES = [
     {"value": "ollama::Gemma4-31b:cloud", "label": "Gemma4-31b:cloud", "provider": "Ollama"},
 ]
 LLM_MODEL_CHOICE_VALUES = {choice["value"].lower(): choice for choice in LLM_MODEL_CHOICES}
+
+
+@dataclass(frozen=True, slots=True)
+class PlayRequestParse:
+    is_play_request: bool
+    query: str | None
+    confidence: str
+    rewritten_input: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +240,10 @@ class WebSocketUIAdapter:
     async def send_auth_state(self, state: AuthRuntimeState) -> None:
         await self._send(state.to_event())
 
+    async def send_cover(self, url: str) -> None:
+        await self._send({"type": "cover", "url": url})
+        asyncio.create_task(_send_cover_pattern(self, url))
+
     async def ask_confirm(self, attached: dict[str, Any]) -> None:
         await self._send(
             {
@@ -309,6 +347,17 @@ def _new_event_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
+async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
+    try:
+        payload = await asyncio.to_thread(fetch_cover_pattern, source_url)
+    except CoverPatternError:
+        return
+    except Exception:
+        return
+    if not ui.closed:
+        await ui._send(payload)
+
+
 def _coerce_transcript_messages(messages: Any) -> list[dict[str, str]]:
     if not isinstance(messages, list):
         return []
@@ -334,14 +383,24 @@ def _save_session_transcript(
     session_id = now.strftime("%Y%m%d%H%M%S%fZ")
     root = sonex_home() / "sessions" / session_id
     root.mkdir(parents=True, exist_ok=True)
-    path = root / "transcript.json"
-    payload = {
-        "session_id": session_id,
-        "saved_at": now.isoformat(),
-        "reason": reason,
-        "messages": messages,
-    }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    path = root / "transcript.jsonl"
+    saved_at = now.isoformat()
+    lines = [
+        json.dumps(
+            {
+                "session_id": session_id,
+                "saved_at": saved_at,
+                "reason": reason,
+                "index": index,
+                "role": message["role"],
+                "content": message["content"],
+            },
+            ensure_ascii=False,
+            default=str,
+        )
+        for index, message in enumerate(messages)
+    ]
+    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
     return path
 
 
@@ -401,6 +460,26 @@ def _format_tool_result(tool_name: str, result: Any) -> tuple[str, str | None, s
     title = f"{title_status} {tool_name}"
     detail = message or _preview(result)
     return title, detail or None, activity_status
+
+
+def _is_failed_tool_result(result: Any) -> bool:
+    if not isinstance(result, dict):
+        return False
+    return str(result.get("status") or "").lower() in {"fail", "failure", "error"}
+
+
+def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something went wrong.") -> str:
+    if isinstance(result, dict):
+        code = str(result.get("error_code") or "")
+        message = str(result.get("message") or "").strip()
+        if code == "SPOTIFY_PREMIUM_REQUIRED":
+            return (
+                "Spotify playback state requires a Premium account. "
+                "I will stop polling Spotify playback for this session; search and local playback can still work."
+            )
+        if message:
+            return sanitize_error_message(message)
+    return sanitize_error_message(fallback)
 
 
 def _walk_dicts(value: Any) -> list[dict[str, Any]]:
@@ -479,7 +558,12 @@ def _duration_text(ms: Any) -> str:
 
 
 def _queue_payload() -> list[dict[str, str]]:
-    tracks = recent_tracks_snapshot()
+    try:
+        tracks = recent_cached_songs()
+    except Exception:
+        tracks = []
+    if not tracks:
+        tracks = recent_tracks_snapshot()
     return [
         {
             "index": f"{index:02d}",
@@ -537,6 +621,69 @@ def _is_spotify_setup_request(text: str) -> bool:
 def _is_apple_music_setup_request(text: str) -> bool:
     normalized = " ".join(text.strip().lower().split())
     return normalized in APPLE_MUSIC_SETUP_TRIGGERS
+
+
+def _rule_parse_play_request(text: str) -> PlayRequestParse:
+    stripped = text.strip()
+    lowered = stripped.lower()
+    prefixes = ("play ", "播放", "放一下", "放首", "来首", "来一首", "听 ")
+    for prefix in prefixes:
+        if lowered.startswith(prefix):
+            query = stripped[len(prefix):].strip()
+            if query:
+                return PlayRequestParse(True, query, "high", f"/play {query}")
+    return PlayRequestParse(False, None, "low", stripped)
+
+
+def _should_optimize_play_request(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
+        return False
+    english_cues = ("play", "listen to", "song", "track", "music")
+    chinese_cues = ("播放", "放一", "放首", "来首", "来一首", "想听", "听歌", "歌曲", "音乐")
+    return any(cue in lowered for cue in english_cues) or any(cue in text for cue in chinese_cues)
+
+
+def _optimize_play_prompt(text: str) -> PlayRequestParse:
+    prompt = (
+        "Decide whether the user is clearly asking to play a song now.\n"
+        "Return JSON only with keys: is_play_request boolean, query string or null, "
+        "confidence high or low, rewritten_input string.\n"
+        f"user_input: {text}"
+    )
+    try:
+        response = ThinkingConfig.get_client().generate(
+            ChatRequest(
+                model=ThinkingConfig.get_model(),
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You extract music playback intent. Only high confidence explicit playback requests pass.",
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0,
+                max_tokens=160,
+            )
+        )
+        raw = str(getattr(response, "output_text", "") or "")
+        data = json.loads(raw)
+    except Exception:
+        return PlayRequestParse(False, None, "low", text)
+    return PlayRequestParse(
+        bool(data.get("is_play_request")),
+        str(data.get("query")).strip() if data.get("query") else None,
+        "high" if data.get("confidence") == "high" else "low",
+        str(data.get("rewritten_input") or text),
+    )
+
+
+def _is_local_search_hit(result: str) -> bool:
+    return bool(result and not result.startswith("No local files found") and not result.startswith("Path outside user workspace"))
+
+
+def _filename(path_text: str) -> str:
+    return Path(path_text).name or path_text
 
 
 def _default_provider_name() -> str:
@@ -1316,6 +1463,173 @@ class AuthSetupSession:
             )
 
 
+class PlaySelectionSession:
+    def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner", query: str) -> None:
+        self.ui = ui
+        self.runner = runner
+        self.query = query.strip()
+        self.local_file: str | None = None
+        self.cache_hit: dict[str, Any] | None = None
+        self.active_confirm_id: str | None = None
+
+    async def start(self) -> None:
+        if not self.query:
+            message = "Usage: /play <query>"
+            await self.ui.append_activity(kind="error", title="Invalid play request", detail=message, status="error")
+            await self.ui.append_agent_message(message)
+            return
+
+        local_result = search_local_file(self.query)
+        if _is_local_search_hit(local_result):
+            self.local_file = local_result
+            await self._ask_local_choice(local_result)
+            return
+
+        self.cache_hit = find_best_cached_song(self.query)
+        await self._ask_method_choice()
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return bool(self.active_confirm_id and confirm_id == self.active_confirm_id)
+
+    async def handle_choice(self, decision: Any) -> None:
+        choice = str(decision or "cancel")
+        if choice in {"deny", "cancel"}:
+            await self._finish("Playback cancelled.", status="error")
+            return
+        if choice == "play_local":
+            await self._invoke_playback("play_local_song", {"query": self.query, "player": "auto"})
+            await self._finish("Local playback selected.")
+            return
+        if choice == "skip_local":
+            self.cache_hit = find_best_cached_song(self.query)
+            await self._ask_method_choice()
+            return
+        if choice == "spotify_play":
+            await self._play_from_provider("spotify_play", "spotify")
+            return
+        if choice == "apple_music_play":
+            await self._play_from_provider("apple_music_play", "apple_music")
+            return
+        if choice == "online_play":
+            result = await self._invoke_playback(
+                "play_youtube_song",
+                {"query": self.query, "player": "auto"},
+                cache_provider="youtube",
+                pending_detail="Resolving online source and starting local playback.",
+            )
+            if _is_failed_tool_result(result):
+                await self._finish("Online playback failed.", status="error")
+            else:
+                await self._finish("Online playback selected.")
+            return
+        await self._finish("Unknown playback choice.", status="error")
+
+    async def _ask_local_choice(self, local_file: str) -> None:
+        await self._ask_confirm(
+            message=f"💾 播放本地文件 {_filename(local_file)}?",
+            choices=LOCAL_PLAYBACK_CHOICES,
+            tool_args={"query": self.query, "file": local_file, "stage": "local_match"},
+        )
+
+    async def _ask_method_choice(self) -> None:
+        tool_args: dict[str, Any] = {"query": self.query, "stage": "method_choice"}
+        if self.cache_hit:
+            tool_args["cache_id"] = self.cache_hit.get("cache_id")
+            tool_args["cached_song"] = self.cache_hit
+        await self._ask_confirm(
+            message="选择播放方式",
+            choices=PLAYBACK_METHOD_CHOICES,
+            tool_args=tool_args,
+        )
+
+    async def _ask_confirm(self, *, message: str, choices: list[dict[str, Any]], tool_args: dict[str, Any]) -> None:
+        confirm_id = _new_event_id("confirm")
+        self.active_confirm_id = confirm_id
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Playback choice",
+            detail=message,
+            status="pending",
+            activity_id=confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "type": "confirm",
+                "id": confirm_id,
+                "tool_name": "playback_choice",
+                "tool_args": tool_args,
+                "message": message,
+                "choices": choices,
+            }
+        )
+
+    async def _play_from_provider(self, tool_name: str, provider: str) -> None:
+        args: dict[str, Any] = {"query": self.query}
+        cached_item = self._cached_item_for_provider(provider)
+        if cached_item and cached_item.get("uri"):
+            args = {"uri": cached_item["uri"], "query": self.query}
+        await self._invoke_playback(tool_name, args, cache_provider=provider)
+        await self._finish(f"{provider.replace('_', ' ').title()} playback selected.")
+
+    def _cached_item_for_provider(self, provider: str) -> dict[str, Any] | None:
+        if not self.cache_hit:
+            return None
+        try:
+            full = resolve_cached_song(str(self.cache_hit["cache_id"]))
+        except Exception:
+            return None
+        providers = full.get("providers")
+        if isinstance(providers, dict) and isinstance(providers.get(provider), dict):
+            return providers[provider]
+        if full.get("provider") == provider:
+            return full
+        return None
+
+    async def _invoke_playback(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        *,
+        cache_provider: str | None = None,
+        pending_detail: str | None = None,
+    ) -> dict[str, Any]:
+        if pending_detail:
+            await self.ui.append_activity(
+                kind="tool",
+                title=f"Calling {tool_name}",
+                detail=pending_detail,
+                status="pending",
+            )
+        try:
+            result = await asyncio.to_thread(registry.invoke, tool_name, args)
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": tool_name,
+                "message": sanitize_error_message(exc),
+                "error_code": "PLAYBACK_FAILED",
+                "data": args,
+            }
+        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
+        if _is_failed_tool_result(result):
+            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
+            await self.ui.append_agent_message(message)
+            await self.ui.send_error(message)
+        if isinstance(result, dict) and result.get("status") == "success":
+            data = dict(result.get("data") or {})
+            if cache_provider:
+                data.setdefault("provider", cache_provider)
+            try:
+                await asyncio.to_thread(upsert_cached_song, data)
+            except Exception:
+                pass
+        return result
+
+    async def _finish(self, detail: str, *, status: str = "success") -> None:
+        setattr(self.ui, "_play_selection", None)
+        await self.ui.append_activity(kind="status", title="Playback selection", detail=detail, status=status)
+
+
 class WebSocketRunner:
     def __init__(self) -> None:
         self.tools = registry
@@ -1381,6 +1695,10 @@ class WebSocketRunner:
                             confirmed = data.get("ok")
                         decision = "allow_once" if confirmed else "deny"
                     confirm_id = str(data.get("id") or "")
+                    play_selection = getattr(ui, "_play_selection", None)
+                    if play_selection and play_selection.owns_confirm(confirm_id):
+                        await play_selection.handle_choice(decision)
+                        continue
                     self._confirm_queue.put((confirm_id, decision))
 
                 elif data.get("type") == "bye":
@@ -1425,6 +1743,7 @@ class WebSocketRunner:
     async def _sync_spotify_playback(self, ui: WebSocketUIAdapter) -> None:
         last_signature: tuple[Any, ...] | None = None
         last_cover_url: str | None = None
+        reported_failures: set[str] = set()
         while not ui.closed:
             try:
                 result = await asyncio.to_thread(spotify_current_playback)
@@ -1438,8 +1757,15 @@ class WebSocketRunner:
                             await ui._send({"type": "queue", "tracks": _queue_payload()})
                             last_signature = signature
                         if cover_url and cover_url != last_cover_url:
-                            await ui._send({"type": "cover", "url": cover_url})
+                            await ui.send_cover(cover_url)
                             last_cover_url = cover_url
+                elif isinstance(result, dict) and result.get("status") in {"fail", "error"}:
+                    failure_key = str(result.get("error_code") or result.get("message") or "spotify_sync_failed")
+                    if failure_key not in reported_failures:
+                        reported_failures.add(failure_key)
+                        await ui.append_agent_message(_friendly_runtime_error_message(result, fallback="Spotify playback sync failed."))
+                    if failure_key == "SPOTIFY_PREMIUM_REQUIRED":
+                        return
             except Exception:
                 pass
             await asyncio.sleep(2)
@@ -1467,6 +1793,15 @@ class WebSocketRunner:
 
         parsed_command = parse_builtin_command(user_input)
         if parsed_command is not None:
+            if parsed_command.known and parsed_command.command and parsed_command.command.name == "play":
+                if self._running_task and not self._running_task.done():
+                    ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
+                    return
+                session = PlaySelectionSession(ui, self, parsed_command.args)
+                setattr(ui, "_play_selection", session)
+                await session.start()
+                return
+
             command_intent = parsed_command.command_intent()
             if command_intent is None:
                 await self._handle_builtin_command(ui, parsed_command)
@@ -1502,6 +1837,17 @@ class WebSocketRunner:
 
         if self._running_task and not self._running_task.done():
             ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
+            return
+
+        play_request = _rule_parse_play_request(user_input)
+        if not play_request.is_play_request and _should_optimize_play_request(user_input):
+            ready_for_optimizer, _, _ = _llm_auth_ready()
+            if ready_for_optimizer:
+                play_request = await asyncio.to_thread(_optimize_play_prompt, user_input)
+        if play_request.is_play_request and play_request.confidence == "high" and play_request.query:
+            session = PlaySelectionSession(ui, self, play_request.query)
+            setattr(ui, "_play_selection", session)
+            await session.start()
             return
 
         ready, provider, reason = _llm_auth_ready()
@@ -1775,7 +2121,7 @@ class WebSocketRunner:
                     remember_recent_track(player_state)
                 await ui._send({"type": "queue", "tracks": _queue_payload()})
         if should_sync_player and cover_url:
-            await ui._send({"type": "cover", "url": cover_url})
+            await ui.send_cover(cover_url)
 
     async def _run_agent_turn(
         self,
@@ -1978,13 +2324,18 @@ class WebSocketRunner:
             if event.type == "error":
                 await finish_planning("error", str(event.data.get("content") or "Planning failed."))
                 message = str(event.data.get("content") or "Agent failed.")
+                friendly_message = _friendly_runtime_error_message(
+                    {"message": message},
+                    fallback="Agent failed.",
+                )
                 await ui.append_activity(
                     kind="error",
                     title="Agent error",
-                    detail=message,
+                    detail=friendly_message,
                     status="error",
                 )
-                await ui.send_error(message)
+                await ui.append_agent_message(friendly_message)
+                await ui.send_error(friendly_message)
                 continue
 
             if event.type == "complete":

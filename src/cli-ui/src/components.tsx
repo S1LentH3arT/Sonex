@@ -7,6 +7,7 @@ import {buildProgressBar, formatDuration} from './format.js';
 import {getVisibleChatWindow} from './chat-window.js';
 import {useCoverArt, usePlaybackProgress} from './hooks.js';
 import {coverVisualFromSource, rhythmFrameForPlayback, type CoverVisualModel} from './cover-visual.js';
+import {chooseCoverPatternVariant, renderCoverPatternHalfBlocks, type CoverPatternPayload, type TerminalSpace} from './cover-pattern.js';
 import {resolveMiniPlayerChrome, type ShellLayout, type SmallPlaybackFocus} from './layout.js';
 import type {ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackSummary} from './types.js';
 
@@ -386,9 +387,14 @@ const ActivityPane = ({items, confirm, confirmIndex, spotifySetup, authSetup}: {
                     <Text color="#bf98a7">{confirm.tool_name} {JSON.stringify(confirm.tool_args)}</Text>
                     <Box flexDirection="column">
                         {confirm.choices.map((choice, idx) => (
-                            <Text key={choice.value} color={confirmIndex === idx ? "#fff4f6" : "#7f5d6b"}>
-                                {confirmIndex === idx ? "> " : "  "}{choice.label}
-                            </Text>
+                            <Box key={choice.value} flexDirection="column">
+                                <Text color={confirmIndex === idx ? "#fff4f6" : "#7f5d6b"}>
+                                    {confirmIndex === idx ? "> " : "  "}{choice.label}
+                                </Text>
+                                {choice.description ? (
+                                    <Text color="#8f6f7c">    {choice.description}</Text>
+                                ) : null}
+                            </Box>
                         ))}
                     </Box>
                 </Box>
@@ -468,6 +474,29 @@ const CoverAtmosphere = ({visual, art, compact}: {
     );
 };
 
+const CoverPatternArt = ({pattern, space}: {
+    pattern: CoverPatternPayload;
+    space: TerminalSpace;
+}) => {
+    const variant = chooseCoverPatternVariant(pattern, space);
+    if (!variant) return null;
+
+    const rows = renderCoverPatternHalfBlocks(variant.grid, pattern.palette);
+    return (
+        <Box flexDirection="column">
+            {rows.map((row, rowIndex) => (
+                <Text key={rowIndex}>
+                    {row.map((cell, columnIndex) => (
+                        <Text key={`${rowIndex}-${columnIndex}`} color={cell.foreground} backgroundColor={cell.background}>
+                            {cell.char}
+                        </Text>
+                    ))}
+                </Text>
+            ))}
+        </Box>
+    );
+};
+
 const PlayerMascot = ({visual, frame, compact}: {
     visual: CoverVisualModel;
     frame: number;
@@ -534,9 +563,11 @@ const PlaybackMeter = ({progress, duration, progressBar, visual, isPlaying}: {
     </Box>
 );
 
-const PlayerPane = ({player, coverUrl, variant = "full"}: {
+const PlayerPane = ({player, coverUrl, coverPattern, terminalSpace, variant = "full"}: {
     player: PlayerState,
     coverUrl: string | null,
+    coverPattern?: CoverPatternPayload | null,
+    terminalSpace?: TerminalSpace,
     variant?: PlayerPaneVariant
 }) => {
     const compact = variant === "compact";
@@ -548,6 +579,25 @@ const PlayerPane = ({player, coverUrl, variant = "full"}: {
     const progressBar = buildProgressBar(progressMs, player.duration_ms, compact ? 14 : 18);
     const isPlaying = player.is_playing === true;
     const rhythmFrame = rhythmFrameForPlayback(isPlaying, progressMs, visual.seed);
+    const compactPattern = compact && coverPattern && terminalSpace
+        ? chooseCoverPatternVariant(coverPattern, terminalSpace)
+        : null;
+
+    if (compact && compactPattern && coverPattern && terminalSpace) {
+        return (
+            <Box flexDirection="column" flexGrow={0} flexShrink={1} minHeight={8} padding={1} paddingX={1}>
+                <Box marginBottom={1}>
+                    <Text bold color={visual.accent}>Playing</Text>
+                </Box>
+                <CoverPatternArt pattern={coverPattern} space={terminalSpace}/>
+                <Box flexDirection="column" marginTop={1}>
+                    <TrackDetails player={player} compact={compact}/>
+                    <PlaybackMeter progress={progress} duration={duration} progressBar={progressBar} visual={visual} isPlaying={isPlaying}/>
+                    <PlayerMascot visual={visual} frame={rhythmFrame} compact={compact}/>
+                </Box>
+            </Box>
+        );
+    }
 
     return (
         <Box flexDirection="column" flexGrow={compact ? 0 : 1} flexShrink={1} minHeight={compact ? 8 : 20} padding={1} paddingX={compact ? 1 : 2}>
@@ -601,9 +651,14 @@ const CompactConfirm = ({confirm, confirmIndex}: {confirm: ConfirmState; confirm
         <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={BORDER_BLUE}>
             <Text color="#fff4f6">{confirm.message}</Text>
             {confirm.choices.map((choice, idx) => (
-                <Text key={choice.value} color={confirmIndex === idx ? "#fff4f6" : "#7f5d6b"}>
-                    {confirmIndex === idx ? "> " : "  "}{choice.label}
-                </Text>
+                <Box key={choice.value} flexDirection="column">
+                    <Text color={confirmIndex === idx ? "#fff4f6" : "#7f5d6b"}>
+                        {confirmIndex === idx ? "> " : "  "}{choice.label}
+                    </Text>
+                    {choice.description ? (
+                        <Text color="#8f6f7c">    {choice.description}</Text>
+                    ) : null}
+                </Box>
             ))}
         </Box>
     );
@@ -854,6 +909,7 @@ export const DynamicShell = ({
     tokens,
     showRunMetrics,
     coverUrl,
+    coverPattern,
     confirm,
     confirmIndex,
     spotifySetup,
@@ -867,6 +923,7 @@ export const DynamicShell = ({
     smallPlaybackFocus,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
+    terminalSpace,
 }: {
     authState: AuthRuntimeState;
     input: string;
@@ -884,6 +941,7 @@ export const DynamicShell = ({
     tokens: string | null;
     showRunMetrics: boolean;
     coverUrl: string | null;
+    coverPattern: CoverPatternPayload | null;
     confirm: ConfirmState;
     confirmIndex: number;
     spotifySetup: SpotifySetupState;
@@ -897,6 +955,7 @@ export const DynamicShell = ({
     smallPlaybackFocus: SmallPlaybackFocus;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
+    terminalSpace: TerminalSpace;
 }) => {
     const showPlaybackSidebar = layout === "full";
     const miniChrome = resolveMiniPlayerChrome({layout, smallPlaybackFocus});
@@ -909,7 +968,7 @@ export const DynamicShell = ({
             <Box width="100%" height="100%" paddingX={1} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}
                  borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE}>
                 <Box flexGrow={1} flexShrink={1} minHeight={0} borderBottom={true} borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE}>
-                    <PlayerPane player={player} coverUrl={coverUrl} variant="compact"/>
+                    <PlayerPane player={player} coverUrl={coverUrl} coverPattern={coverPattern} terminalSpace={terminalSpace} variant="compact"/>
                 </Box>
                 <MiniPlayerInputDock
                     input={input}

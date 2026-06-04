@@ -8,7 +8,7 @@ import {clamp, trimList} from './chat-window.js';
 import {formatElapsed} from './format.js';
 import {useSonexSocket} from './hooks.js';
 import {canUseFullPlaybackLayout, resolveShellLayout, type SmallPlaybackFocus, type TerminalSize} from './layout.js';
-import type {ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, HelpPanelState, LayoutMode, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion} from './types.js';
+import type {ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LayoutMode, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion} from './types.js';
 
 const LOCAL_PLAYBACK_COMMANDS = new Set(["pause", "resume", "stop", "progress", "volume", "player"]);
 
@@ -34,6 +34,8 @@ export const App = () => {
     const [tokens, setTokens] = useState<string | null>(null);
     const [showRunMetrics, setShowRunMetrics] = useState(false);
     const [coverUrl, setCoverUrl] = useState<string | null>(null);
+    const [coverPattern, setCoverPattern] = useState<CoverPatternEvent | null>(null);
+    const coverUrlRef = React.useRef<string | null>(null);
     const [confirm, setConfirm] = useState<ConfirmState>(null);
     const [confirmIndex, setConfirmIndex] = useState(0); // 0=Yes, 1=No
     const [spotifySetup, setSpotifySetup] = useState<SpotifySetupState>(null);
@@ -190,7 +192,9 @@ export const App = () => {
                         progress_ms: 0,
                         is_playing: false,
                     });
+                    coverUrlRef.current = first.album_cover_url ?? null;
                     setCoverUrl(first.album_cover_url ?? null);
+                    setCoverPattern(null);
                 }
                 break;
             }
@@ -204,8 +208,16 @@ export const App = () => {
                 }
                 break;
 	            case "cover":
+                    coverUrlRef.current = evt.url;
 	                setCoverUrl(evt.url);
+                    setCoverPattern(null);
 	                break;
+            case "cover_pattern":
+                setCoverPattern((prev) => {
+                    if (evt.source_url !== coverUrlRef.current) return prev;
+                    return evt;
+                });
+                break;
 	            case "error":
 	                showError(evt.message, evt.detail, false);
 	                break;
@@ -527,6 +539,7 @@ export const App = () => {
                     tokens={tokens}
                     showRunMetrics={showRunMetrics}
                     coverUrl={coverUrl}
+                    coverPattern={coverPattern}
                     confirm={confirm}
                     confirmIndex={confirmIndex}
                     spotifySetup={spotifySetup}
@@ -540,6 +553,10 @@ export const App = () => {
                     smallPlaybackFocus={smallPlaybackFocus}
                     chatScrollOffset={chatScrollOffset}
                     onMaxChatScrollOffsetChange={setMaxChatScrollOffset}
+                    terminalSpace={{
+                        columns: terminalSize.columns ? Math.max(0, terminalSize.columns - 4) : null,
+                        rows: terminalSize.rows ? Math.max(0, terminalSize.rows - 8) : null,
+                    }}
                 />
             </Box>
         </Box>

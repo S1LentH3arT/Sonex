@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket
 
 from src.api.ws_runner import WebSocketRunner
+from src.log import configure_file_logging
 from src.mcp import build_mcp_server
 
 runner = WebSocketRunner()
@@ -14,6 +15,7 @@ mcp_app = mcp_server.streamable_http_app()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_file_logging()
     async with mcp_server.session_manager.run():
         yield
 

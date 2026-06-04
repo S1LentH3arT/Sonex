@@ -6,6 +6,7 @@ export type ServerEvent =
     | { type: "search_results"; tracks: TrackSummary[] }
     | { type: "player"; state: PlayerState }
     | { type: "cover"; url: string }
+    | CoverPatternEvent
     | { type: "error"; message: string; detail?: string | null; recoverable?: boolean | null }
     | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; choices?: ConfirmChoice[] | null }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
@@ -13,6 +14,15 @@ export type ServerEvent =
     | { type: "auth_state"; ready: boolean; provider: string; model: string; auth_type: string; credential_source: string; reason?: string | null }
     | { type: "help_panel"; title: string; hint: string; commands: HelpCommand[] }
     | { type: "bye"; path: string; message?: string | null };
+
+export type CoverPatternEvent = {
+    type: "cover_pattern";
+    source_url: string;
+    palette: string[];
+    variants: Partial<Record<36 | 48 | 64, number[][]>>;
+    source_hash?: string;
+    generated_at?: number;
+};
 
 export type ClientEvent =
     | { type: "user_input"; text: string }
@@ -24,6 +34,7 @@ export type ClientEvent =
 export type ConfirmChoice = {
     value: string;
     label: string;
+    description?: string;
 };
 
 export type ConfirmState = {
