@@ -6,6 +6,10 @@ import type {ClientEvent, PlayerState, ServerEvent} from './types.js';
 
 export const PLAYBACK_PROGRESS_INTERVAL_MS = 1000;
 
+export function shouldUsePlaybackProgressTimer(player: PlayerState, active = true): boolean {
+    return active && player.is_playing === true;
+}
+
 export function playbackProgressAt(player: PlayerState, now: number): number {
     const base = player.progress_ms ?? 0;
     const reference = player.timestamp ?? player.started_at;
@@ -14,18 +18,18 @@ export function playbackProgressAt(player: PlayerState, now: number): number {
     return player.duration_ms > 0 ? Math.min(player.duration_ms, progress) : progress;
 }
 
-export function usePlaybackProgress(player: PlayerState): number {
+export function usePlaybackProgress(player: PlayerState, active = true): number {
     const [now, setNow] = React.useState(Date.now());
 
     React.useEffect(() => {
-        if (!player.is_playing) {
+        if (!shouldUsePlaybackProgressTimer(player, active)) {
             setNow(Date.now());
             return;
         }
 
         const timer = setInterval(() => setNow(Date.now()), PLAYBACK_PROGRESS_INTERVAL_MS);
         return () => clearInterval(timer);
-    }, [player.is_playing, player.timestamp, player.started_at, player.progress_ms]);
+    }, [active, player.is_playing, player.timestamp, player.started_at, player.progress_ms]);
 
     return playbackProgressAt(player, now);
 }

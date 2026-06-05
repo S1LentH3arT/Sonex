@@ -12,3 +12,10 @@ assert.match(appSource, /shouldAppendAuthBanner\(lastBannerSignatureRef\.current
 const dynamicShellBody = componentSource.slice(componentSource.indexOf('export const DynamicShell'));
 assert.equal(dynamicShellBody.includes('<HeaderFrame'), false);
 assert.equal(dynamicShellBody.includes('authState:'), false);
+assert.equal(dynamicShellBody.includes('width="100%" paddingX={1}'), false);
+assert.match(dynamicShellBody, /const miniVisible = layout === "miniPlayer"/);
+assert.match(dynamicShellBody, /const chatVisible = layout !== "miniPlayer"/);
+assert.match(dynamicShellBody, /display=\{miniVisible \? "flex" : "none"\}/);
+assert.match(dynamicShellBody, /display=\{chatVisible \? "flex" : "none"\}/);
+assert.match(dynamicShellBody, /<PlayerPane[\s\S]*active=\{miniVisible\}/);
+assert.match(dynamicShellBody, /<PlayerPane[\s\S]*active=\{showPlaybackSidebar\}/);

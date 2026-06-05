@@ -5,6 +5,8 @@ import {
     FULL_LAYOUT_MIN_ROWS,
     resolveMiniPlayerChrome,
     resolveShellLayout,
+    resolvePlayerEventFocus,
+    shouldReturnToChatAfterSubmit,
 } from '../src/layout.js';
 
 assert.equal(FULL_LAYOUT_MIN_COLUMNS, 114);
@@ -90,3 +92,24 @@ assert.equal(
     resolveMiniPlayerChrome({layout: 'chat', smallPlaybackFocus: 'chat'}).switchHint,
     'Tab to switch to player',
 );
+
+assert.equal(
+    resolvePlayerEventFocus({
+        wasPlaying: false,
+        isPlaying: true,
+        currentFocus: 'chat',
+    }),
+    'player',
+);
+
+assert.equal(
+    resolvePlayerEventFocus({
+        wasPlaying: true,
+        isPlaying: true,
+        currentFocus: 'chat',
+    }),
+    'chat',
+);
+
+assert.equal(shouldReturnToChatAfterSubmit({layout: 'miniPlayer', commandName: 'play'}), false);
+assert.equal(shouldReturnToChatAfterSubmit({layout: 'miniPlayer', commandName: 'pause'}), false);

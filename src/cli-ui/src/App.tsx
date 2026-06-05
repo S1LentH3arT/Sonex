@@ -9,7 +9,7 @@ import {clamp, trimList} from './chat-window.js';
 import {formatElapsed} from './format.js';
 import {useSonexSocket} from './hooks.js';
 import {LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing} from './launch-preparing.js';
-import {canUseFullPlaybackLayout, resolveShellLayout, type SmallPlaybackFocus, type TerminalSize} from './layout.js';
+import {canUseFullPlaybackLayout, resolvePlayerEventFocus, resolveShellLayout, shouldReturnToChatAfterSubmit, type SmallPlaybackFocus, type TerminalSize} from './layout.js';
 import type {ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LayoutMode, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion} from './types.js';
 
 const LOCAL_PLAYBACK_COMMANDS = new Set(["pause", "resume", "stop", "progress", "volume", "player"]);
@@ -245,9 +245,14 @@ export const App = () => {
             }
             case "player":
                 setLaunchPreparing(false);
+                const wasPlaying = player.is_playing === true;
                 setPlayer(evt.state);
                 if (evt.state.is_playing) {
-                    setSmallPlaybackFocus("player");
+                    setSmallPlaybackFocus((currentFocus) => resolvePlayerEventFocus({
+                        wasPlaying,
+                        isPlaying: evt.state.is_playing === true,
+                        currentFocus,
+                    }));
                     if (!manualLayoutOverride) {
                         setLayoutMode("full");
                     }
@@ -269,7 +274,6 @@ export const App = () => {
 	                break;
             case "confirm":
                 setLaunchPreparing(false);
-                setSmallPlaybackFocus("chat");
                 setInput("");
                 setConfirm({
                     id: evt.id,
@@ -344,7 +348,7 @@ export const App = () => {
                 setTimeout(() => exit(), 80);
                 break;
         }
-	    }, [exit, manualLayoutOverride, showError]);
+	    }, [exit, manualLayoutOverride, player.is_playing, showError]);
 
 	    const {send} = useSonexSocket({
 	        url: wsUrl,
@@ -477,7 +481,7 @@ export const App = () => {
         } else {
             send({type: "user_input", text});
         }
-        if (resolvedLayout === "miniPlayer" && !LOCAL_PLAYBACK_COMMANDS.has(command?.name ?? "")) {
+        if (shouldReturnToChatAfterSubmit({layout: resolvedLayout, commandName: command?.name ?? null}) && !LOCAL_PLAYBACK_COMMANDS.has(command?.name ?? "")) {
             setSmallPlaybackFocus("chat");
         }
     }, [applySlashCompletion, authSetup?.active, confirm, requestSafeExit, resolvedLayout, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active]);

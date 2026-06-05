@@ -603,14 +603,15 @@ const TrackDetails = React.memo(({player, compact}: {player: PlayerState; compac
     </Box>
 ));
 
-const PlaybackProgressTime = React.memo(({player}: {player: PlayerState}) => {
-    const progressMs = usePlaybackProgress(player);
+const PlaybackProgressTime = React.memo(({player, active}: {player: PlayerState; active: boolean}) => {
+    const progressMs = usePlaybackProgress(player, active);
     return <Text color="#bf98a7">{formatDuration(progressMs)}</Text>;
 });
 
-const MiniPlaybackMeter = React.memo(({player, visual}: {
+const MiniPlaybackMeter = React.memo(({player, visual, active = true}: {
     player: PlayerState;
     visual: CoverVisualModel;
+    active?: boolean;
 }) => {
     const duration = formatDuration(player.duration_ms);
     const progressBar = buildProgressBar(player.progress_ms ?? 0, player.duration_ms, 14);
@@ -618,22 +619,23 @@ const MiniPlaybackMeter = React.memo(({player, visual}: {
     return (
         <Box flexDirection="column" marginTop={1}>
             <Text>
-                <PlaybackProgressTime player={player}/> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
+                <PlaybackProgressTime player={player} active={active}/> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
             </Text>
         </Box>
     );
 });
 
-const PlaybackMeter = ({player, visual, compact = false}: {
+const PlaybackMeter = ({player, visual, compact = false, active = true}: {
     player: PlayerState;
     visual: CoverVisualModel;
     compact?: boolean;
+    active?: boolean;
 }) => {
     if (compact) {
-        return <MiniPlaybackMeter player={player} visual={visual}/>;
+        return <MiniPlaybackMeter player={player} visual={visual} active={active}/>;
     }
 
-    const progressMs = usePlaybackProgress(player);
+    const progressMs = usePlaybackProgress(player, active);
     const progress = formatDuration(progressMs);
     const duration = formatDuration(player.duration_ms);
     const progressBar = buildProgressBar(progressMs, player.duration_ms, 18);
@@ -648,12 +650,13 @@ const PlaybackMeter = ({player, visual, compact = false}: {
     );
 };
 
-const PlayerPane = ({player, coverUrl, coverPattern, terminalSpace, variant = "full"}: {
+const PlayerPane = ({player, coverUrl, coverPattern, terminalSpace, variant = "full", active = true}: {
     player: PlayerState,
     coverUrl: string | null,
     coverPattern?: CoverPatternPayload | null,
     terminalSpace?: TerminalSpace,
-    variant?: PlayerPaneVariant
+    variant?: PlayerPaneVariant,
+    active?: boolean
 }) => {
     const compact = variant === "compact";
     const visual = React.useMemo(() => coverVisualFromSource(coverUrl, false), [coverUrl]);
@@ -664,7 +667,7 @@ const PlayerPane = ({player, coverUrl, coverPattern, terminalSpace, variant = "f
                 <StaticCover visual={visual} coverUrl={coverUrl} coverPattern={coverPattern ?? null} terminalSpace={terminalSpace} compact={compact}/>
                 <Box flexDirection="column" marginTop={1} flexShrink={0}>
                     <TrackDetails player={player} compact={compact}/>
-                    <PlaybackMeter player={player} visual={visual} compact={compact}/>
+                    <PlaybackMeter player={player} visual={visual} compact={compact} active={active}/>
                 </Box>
             </Box>
         );
@@ -681,7 +684,7 @@ const PlayerPane = ({player, coverUrl, coverPattern, terminalSpace, variant = "f
                 {!compact ? <StaticCover visual={visual} coverUrl={coverUrl} coverPattern={coverPattern ?? null} terminalSpace={terminalSpace} compact={compact}/> : null}
                 <Box flexDirection="column" flexGrow={compact ? 0 : 1} flexShrink={0} paddingTop={compact ? 1 : 1}>
                     <TrackDetails player={player} compact={compact}/>
-                    <PlaybackMeter player={player} visual={visual} compact={compact}/>
+                    <PlaybackMeter player={player} visual={visual} compact={compact} active={active}/>
                     {!compact ? <PlayerMascot visual={visual} frame={0} compact={compact}/> : null}
                 </Box>
             </Box>
@@ -813,6 +816,7 @@ const InputDock = ({
                 <CompactSetup spotifySetup={spotifySetup} authSetup={authSetup}/>
             </Box>
         ) : null}
+        {minimal ? <CompactConfirm confirm={confirm} confirmIndex={confirmIndex}/> : null}
         {showInput ? (
             <Box borderTop={true} borderStyle="single" borderColor={BORDER_BLUE} paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="row"
                  minHeight={minimal ? 3 : 4} flexShrink={0}>
@@ -968,6 +972,15 @@ const ConversationColumn = ({
     </Box>
 );
 
+function useVisibleSnapshot<T>(value: T, active: boolean): T {
+    const snapshotRef = React.useRef(value);
+    if (active) {
+        snapshotRef.current = value;
+        return value;
+    }
+    return snapshotRef.current;
+}
+
 export const DynamicShell = ({
     input,
     setInput,
@@ -1032,70 +1045,121 @@ export const DynamicShell = ({
     terminalSpace: TerminalSpace;
 }) => {
     const showPlaybackSidebar = layout === "full";
+    const miniVisible = layout === "miniPlayer";
+    const chatVisible = layout !== "miniPlayer";
     const miniChrome = resolveMiniPlayerChrome({layout, smallPlaybackFocus});
     const conversationStatusText = layout === "chat" && player.is_playing
         ? `${statusText} · ${miniChrome.switchHint}`
         : statusText;
-
-    if (layout === "miniPlayer") {
-        return (
-            <Box width="100%" height="100%" paddingX={1} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}
-                 borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE}>
-                <Box flexGrow={1} flexShrink={1} minHeight={0} borderBottom={true} borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE}>
-                    <PlayerPane player={player} coverUrl={coverUrl} coverPattern={coverPattern} terminalSpace={terminalSpace} variant="compact"/>
-                </Box>
-                <MiniPlayerInputDock
-                    input={input}
-                    setInput={setInput}
-                    onSubmit={onSubmit}
-                    inputPlaceholder={inputPlaceholder}
-                    inputMask={inputMask}
-                    inputFocus={inputFocus}
-                    inputRevision={inputRevision}
-                    confirm={confirm}
-                    confirmIndex={confirmIndex}
-                    switchHint={miniChrome.switchHint}
-                />
-            </Box>
-        );
-    }
+    const miniSnapshot = useVisibleSnapshot({
+        input,
+        inputPlaceholder,
+        inputMask,
+        inputFocus,
+        inputRevision,
+        player,
+        coverUrl,
+        coverPattern,
+        confirm,
+        confirmIndex,
+        terminalSpace,
+        switchHint: miniChrome.switchHint,
+    }, miniVisible);
+    const chatSnapshot = useVisibleSnapshot({
+        chatItems,
+        statusText: conversationStatusText,
+        elapsed,
+        tokens,
+        showRunMetrics,
+        input,
+        inputPlaceholder,
+        inputMask,
+        inputFocus,
+        inputRevision,
+        confirm,
+        confirmIndex,
+        spotifySetup,
+        authSetup,
+        slashSuggestions,
+        slashIndex,
+        helpPanel,
+        helpPanelIndex,
+        chatScrollOffset,
+        queueItems,
+        player,
+        coverUrl,
+        coverPattern,
+        terminalSpace,
+    }, chatVisible);
 
     return (
-        <Box width="100%" paddingX={1} flexDirection={showPlaybackSidebar ? "row" : "column"} flexGrow={showPlaybackSidebar ? 1 : 0} flexShrink={1} minHeight={0}>
-            <Box width={showPlaybackSidebar ? "45%" : "100%"} minWidth={showPlaybackSidebar ? 48 : undefined} flexDirection="column" flexGrow={showPlaybackSidebar ? 1 : 0} flexShrink={1} minHeight={0}>
-                <ConversationColumn
-                    chatItems={chatItems}
-                    statusText={conversationStatusText}
-                    elapsed={elapsed}
-                    tokens={tokens}
-                    showRunMetrics={showRunMetrics}
-                    input={input}
+        <Box width="100%" flexDirection="column" flexGrow={showPlaybackSidebar || miniVisible ? 1 : 0} flexShrink={1} minHeight={0}>
+            <Box display={miniVisible ? "flex" : "none"} width="100%" height="100%" paddingX={1} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}
+                 borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE}>
+                <Box flexGrow={1} flexShrink={1} minHeight={0} borderBottom={true} borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE}>
+                    <PlayerPane
+                        player={miniSnapshot.player}
+                        coverUrl={miniSnapshot.coverUrl}
+                        coverPattern={miniSnapshot.coverPattern}
+                        terminalSpace={miniSnapshot.terminalSpace}
+                        variant="compact"
+                        active={miniVisible}
+                    />
+                </Box>
+                <MiniPlayerInputDock
+                    input={miniSnapshot.input}
                     setInput={setInput}
                     onSubmit={onSubmit}
-                    inputPlaceholder={inputPlaceholder}
-                    inputMask={inputMask}
-                    inputFocus={inputFocus}
-                    inputRevision={inputRevision}
-                    confirm={confirm}
-                    confirmIndex={confirmIndex}
-                    spotifySetup={spotifySetup}
-                    authSetup={authSetup}
-                    slashSuggestions={slashSuggestions}
-                    slashIndex={slashIndex}
-                    helpPanel={helpPanel}
-                    helpPanelIndex={helpPanelIndex}
-                    chatScrollOffset={chatScrollOffset}
-                    onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
-                    fill={showPlaybackSidebar}
+                    inputPlaceholder={miniSnapshot.inputPlaceholder}
+                    inputMask={miniSnapshot.inputMask}
+                    inputFocus={miniSnapshot.inputFocus && miniVisible}
+                    inputRevision={miniSnapshot.inputRevision}
+                    confirm={miniSnapshot.confirm}
+                    confirmIndex={miniSnapshot.confirmIndex}
+                    switchHint={miniSnapshot.switchHint}
                 />
             </Box>
 
-            {showPlaybackSidebar ? (
-                <Box width="55%" minWidth={62} height="100%" flexDirection="column" borderLeft={true} borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE} flexGrow={1} flexShrink={0} minHeight={0}>
-                    <QueuePane tracks={queueItems}/>
-                    <PlayerPane player={player} coverUrl={coverUrl} coverPattern={coverPattern} terminalSpace={terminalSpace}/>
+            <Box display={chatVisible ? "flex" : "none"} width="100%" flexDirection={showPlaybackSidebar ? "row" : "column"} flexGrow={showPlaybackSidebar ? 1 : 0} flexShrink={1} minHeight={0}>
+                <Box width={showPlaybackSidebar ? "45%" : "100%"} minWidth={showPlaybackSidebar ? 48 : undefined} flexDirection="column" flexGrow={showPlaybackSidebar ? 1 : 0} flexShrink={1} minHeight={0}>
+                    <ConversationColumn
+                        chatItems={chatSnapshot.chatItems}
+                        statusText={chatSnapshot.statusText}
+                        elapsed={chatSnapshot.elapsed}
+                        tokens={chatSnapshot.tokens}
+                        showRunMetrics={chatSnapshot.showRunMetrics}
+                        input={chatSnapshot.input}
+                        setInput={setInput}
+                        onSubmit={onSubmit}
+                        inputPlaceholder={chatSnapshot.inputPlaceholder}
+                        inputMask={chatSnapshot.inputMask}
+                        inputFocus={chatSnapshot.inputFocus && chatVisible}
+                        inputRevision={chatSnapshot.inputRevision}
+                        confirm={chatSnapshot.confirm}
+                        confirmIndex={chatSnapshot.confirmIndex}
+                        spotifySetup={chatSnapshot.spotifySetup}
+                        authSetup={chatSnapshot.authSetup}
+                        slashSuggestions={chatSnapshot.slashSuggestions}
+                        slashIndex={chatSnapshot.slashIndex}
+                        helpPanel={chatSnapshot.helpPanel}
+                        helpPanelIndex={chatSnapshot.helpPanelIndex}
+                        chatScrollOffset={chatSnapshot.chatScrollOffset}
+                        onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
+                        fill={showPlaybackSidebar}
+                    />
                 </Box>
-            ) : null}
+
+                <Box display={showPlaybackSidebar ? "flex" : "none"} width="55%" minWidth={62} height="100%" flexDirection="column" borderLeft={true} borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE} flexGrow={1} flexShrink={0} minHeight={0}>
+                    <QueuePane tracks={chatSnapshot.queueItems}/>
+                    <PlayerPane
+                        player={chatSnapshot.player}
+                        coverUrl={chatSnapshot.coverUrl}
+                        coverPattern={chatSnapshot.coverPattern}
+                        terminalSpace={chatSnapshot.terminalSpace}
+                        active={showPlaybackSidebar}
+                    />
+                </Box>
+            </Box>
         </Box>
     );
 };

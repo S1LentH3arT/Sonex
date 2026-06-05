@@ -10,6 +10,11 @@ export type MiniPlayerChrome = {
     showStatus: boolean;
     switchHint: string;
 };
+export type PlayerEventFocusInput = {
+    wasPlaying: boolean;
+    isPlaying: boolean;
+    currentFocus: SmallPlaybackFocus;
+};
 
 export type TerminalSize = {
     columns: number | null;
@@ -56,4 +61,26 @@ export function resolveMiniPlayerChrome({
         showStatus: !isMiniPlayer,
         switchHint: smallPlaybackFocus === "player" ? "Tab to switch to chat" : "Tab to switch to player",
     };
+}
+
+export function resolvePlayerEventFocus({
+    wasPlaying,
+    isPlaying,
+    currentFocus,
+}: PlayerEventFocusInput): SmallPlaybackFocus {
+    if (!wasPlaying && isPlaying) {
+        return "player";
+    }
+    return currentFocus;
+}
+
+export function shouldReturnToChatAfterSubmit({
+    layout,
+    commandName,
+}: {
+    layout: ShellLayout;
+    commandName?: string | null;
+}): boolean {
+    void commandName;
+    return layout !== "miniPlayer" && false;
 }
