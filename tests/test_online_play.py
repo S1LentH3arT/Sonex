@@ -78,32 +78,32 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidates[0]["artist"], "Channel 0")
         self.assertEqual(candidates[0]["duration_ms"], 60000)
         self.assertFalse(candidates[0]["cached"])
-        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch20:Song Artist")
+        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch40:Song Artist")
         self.assertFalse(any(call["download"] for call in FakeYoutubeDL.calls))
 
-    def test_search_youtube_songs_ranks_same_song_by_popularity_and_variant(self) -> None:
+    def test_search_youtube_songs_ranks_official_match_above_higher_view_noisy_media(self) -> None:
         FakeYoutubeDL.responses = [
             {
                 "entries": [
                     {
-                        "id": "y-official",
-                        "title": "Love Song Official Music Video",
-                        "artist": "Y Artist",
-                        "channel": "Y Artist",
+                        "id": "tv-show",
+                        "title": "Love Song on Morning TV with celebrity interview",
+                        "artist": "TV Cast",
+                        "channel": "Hit Variety Show",
                         "duration": 210,
-                        "view_count": 5_000_000,
-                        "like_count": 50_000,
-                        "webpage_url": "https://www.youtube.com/watch?v=y-official",
+                        "view_count": 120_000_000,
+                        "like_count": 900_000,
+                        "webpage_url": "https://www.youtube.com/watch?v=tv-show",
                     },
                     {
-                        "id": "x-live",
-                        "title": "Love Song Live Version",
+                        "id": "official",
+                        "title": "Love Song Official Music Video",
                         "artist": "X Artist",
                         "channel": "X Artist",
-                        "duration": 230,
+                        "duration": 215,
                         "view_count": 20_000_000,
-                        "like_count": 200_000,
-                        "webpage_url": "https://www.youtube.com/watch?v=x-live",
+                        "like_count": 250_000,
+                        "webpage_url": "https://www.youtube.com/watch?v=official",
                     },
                     {
                         "id": "cover",
@@ -113,16 +113,6 @@ class OnlinePlayTests(unittest.TestCase):
                         "view_count": 100_000_000,
                         "webpage_url": "https://www.youtube.com/watch?v=cover",
                     },
-                    {
-                        "id": "x-official",
-                        "title": "Love Song Official Music Video",
-                        "artist": "X Artist",
-                        "channel": "X Artist",
-                        "duration": 215,
-                        "view_count": 50_000_000,
-                        "like_count": 500_000,
-                        "webpage_url": "https://www.youtube.com/watch?v=x-official",
-                    },
                 ]
             }
         ]
@@ -130,13 +120,74 @@ class OnlinePlayTests(unittest.TestCase):
         with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
             candidates = online.search_youtube_songs("Love Song", limit=5)
 
-        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["x-official", "x-live", "y-official"])
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["official", "tv-show"])
         self.assertEqual(candidates[0]["variant_type"], "official_original")
-        self.assertEqual(candidates[1]["variant_type"], "live")
-        self.assertEqual(candidates[2]["variant_type"], "official_original")
-        self.assertEqual(candidates[0]["raw_view_count"], 50_000_000)
-        self.assertGreater(candidates[0]["popularity_score"], candidates[1]["popularity_score"])
+        self.assertEqual(candidates[0]["quality_label"], "official_original")
+        self.assertGreater(candidates[0]["similarity_score"], 0)
+        self.assertEqual(candidates[1]["quality_label"], "noisy_media")
+        self.assertGreater(candidates[1]["popularity_score"], candidates[0]["popularity_score"])
         self.assertIn("official", candidates[0]["rank_reason"])
+
+    def test_search_youtube_songs_ranks_clean_match_above_higher_view_show_result(self) -> None:
+        FakeYoutubeDL.responses = [
+            {
+                "entries": [
+                    {
+                        "id": "show",
+                        "title": "Love Song finale performance on singing show",
+                        "artist": "Contestant",
+                        "channel": "Prime Time Show",
+                        "duration": 230,
+                        "view_count": 80_000_000,
+                        "webpage_url": "https://www.youtube.com/watch?v=show",
+                    },
+                    {
+                        "id": "clean",
+                        "title": "X Artist - Love Song",
+                        "channel": "Music Archive",
+                        "duration": 215,
+                        "view_count": 800_000,
+                        "webpage_url": "https://www.youtube.com/watch?v=clean",
+                    },
+                ]
+            }
+        ]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.search_youtube_songs("X Artist Love Song", limit=5)
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["clean", "show"])
+        self.assertEqual(candidates[0]["quality_label"], "clean_audio_match")
+        self.assertEqual(candidates[1]["quality_label"], "noisy_media")
+
+    def test_search_youtube_songs_uses_popularity_as_tiebreaker_for_clean_matches(self) -> None:
+        FakeYoutubeDL.responses = [
+            {
+                "entries": [
+                    {
+                        "id": "lower",
+                        "title": "X Artist - Love Song",
+                        "channel": "Archive One",
+                        "duration": 215,
+                        "view_count": 800_000,
+                        "webpage_url": "https://www.youtube.com/watch?v=lower",
+                    },
+                    {
+                        "id": "higher",
+                        "title": "X Artist - Love Song",
+                        "channel": "Archive Two",
+                        "duration": 215,
+                        "view_count": 2_000_000,
+                        "webpage_url": "https://www.youtube.com/watch?v=higher",
+                    },
+                ]
+            }
+        ]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.search_youtube_songs("X Artist Love Song", limit=5)
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["higher", "lower"])
 
     def test_search_youtube_songs_prioritizes_live_when_query_requests_live(self) -> None:
         FakeYoutubeDL.responses = [

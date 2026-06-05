@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,24 @@ from src.tools.song_cache import resolve_cached_song, upsert_cached_song
 LIVE_TERMS = ("live", "concert", "session", "现场", "演唱会")
 LOW_RELEVANCE_TERMS = ("cover", "tutorial", "reaction", "karaoke", "翻唱", "教程", "伴奏")
 OFFICIAL_TERMS = ("official audio", "official music video", "official video", "official mv")
+NOISY_MEDIA_TERMS = (
+    "tv",
+    "television",
+    "show",
+    "variety",
+    "interview",
+    "reaction",
+    "karaoke",
+    "tutorial",
+    "综艺",
+    "电视",
+    "节目",
+    "访谈",
+    "教程",
+    "伴奏",
+)
+COVER_TERMS = ("cover", "翻唱")
+QUERY_FILLER_TERMS = {"the", "a", "an"}
 
 
 def _song_cache_root(cache_root: Path | None = None) -> Path:
@@ -71,9 +91,13 @@ def _words(value: str) -> list[str]:
     return re.findall(r"[\w\u4e00-\u9fff]+", value.casefold())
 
 
+def _normalized_rank_text(value: str) -> str:
+    return " ".join(_words(value))
+
+
 def _query_terms(query: str) -> list[str]:
     terms = _words(query)
-    return [term for term in terms if term not in {"the", "a", "an"} and term not in LIVE_TERMS]
+    return [term for term in terms if term not in QUERY_FILLER_TERMS and term not in LIVE_TERMS]
 
 
 def _contains_any(value: str, terms: tuple[str, ...]) -> bool:
@@ -92,11 +116,26 @@ def _variant_type(query: str, info: dict[str, Any]) -> str:
     return "other"
 
 
-def _relevance_score(query: str, info: dict[str, Any]) -> int:
-    terms = _query_terms(query)
-    if not terms:
-        return 0
-    haystack = " ".join(
+def _rank_title(info: dict[str, Any]) -> str:
+    return _text(info.get("track") or info.get("title") or info.get("fulltitle") or "") or ""
+
+
+def _rank_channel(info: dict[str, Any]) -> str:
+    return _text(info.get("channel") or info.get("uploader") or "") or ""
+
+
+def _rank_artist(info: dict[str, Any]) -> str:
+    return (
+        _non_placeholder_text(info.get("artist"))
+        or _non_placeholder_text(info.get("artists"))
+        or _non_placeholder_text(info.get("creator"))
+        or _non_placeholder_text(info.get("creators"))
+        or ""
+    )
+
+
+def _rank_haystack(info: dict[str, Any]) -> str:
+    return " ".join(
         str(value or "")
         for value in (
             info.get("track"),
@@ -108,7 +147,61 @@ def _relevance_score(query: str, info: dict[str, Any]) -> int:
             info.get("uploader"),
             info.get("channel"),
         )
-    ).casefold()
+    )
+
+
+def _similarity_score(query: str, info: dict[str, Any]) -> int:
+    query_norm = _normalized_rank_text(query)
+    if not query_norm:
+        return 0
+
+    title_norm = _normalized_rank_text(_rank_title(info))
+    artist_norm = _normalized_rank_text(_rank_artist(info) or _rank_channel(info))
+    variants = [title_norm]
+    if artist_norm and title_norm:
+        variants.extend((f"{artist_norm} {title_norm}", f"{title_norm} {artist_norm}"))
+    best_ratio = max((SequenceMatcher(None, query_norm, value).ratio() for value in variants if value), default=0.0)
+
+    terms = _query_terms(query)
+    haystack_words = set(_words(_rank_haystack(info)))
+    coverage = sum(1 for term in terms if term in haystack_words) / len(terms) if terms else 0.0
+    return round((best_ratio * 0.6 + coverage * 0.4) * 100)
+
+
+def _clean_title_match(query: str, info: dict[str, Any], similarity: int) -> bool:
+    title = _rank_title(info)
+    if similarity < 70:
+        return False
+    if _contains_any(title, LIVE_TERMS + LOW_RELEVANCE_TERMS + NOISY_MEDIA_TERMS):
+        return False
+    return " - " in title or " – " in title or " — " in title or similarity >= 86
+
+
+def _quality_label(query: str, info: dict[str, Any], variant: str, similarity: int) -> str:
+    combined = f"{_rank_title(info)} {_rank_channel(info)}".casefold()
+    live_requested = _contains_any(query, LIVE_TERMS)
+    if variant == "live":
+        return "live"
+    if variant == "official_original":
+        return "official_original"
+    if not live_requested and _contains_any(combined, COVER_TERMS):
+        return "cover_like"
+    if not live_requested and _contains_any(combined, NOISY_MEDIA_TERMS):
+        return "noisy_media"
+    if _clean_title_match(query, info, similarity):
+        return "clean_audio_match"
+    return "other"
+
+
+def _popularity_tiebreaker(popularity: int) -> int:
+    return round(math.log10(max(0, popularity) + 1) * 1000)
+
+
+def _relevance_score(query: str, info: dict[str, Any]) -> int:
+    terms = _query_terms(query)
+    if not terms:
+        return 0
+    haystack = _rank_haystack(info).casefold()
     return sum(1 for term in terms if term in haystack)
 
 
@@ -120,17 +213,17 @@ def _popularity_score(info: dict[str, Any]) -> int:
     return view_count + like_count * 20 + comment_count * 5 + repost_count * 10
 
 
-def _rank_reason(variant: str, popularity: int, relevance: int) -> str:
+def _rank_reason(variant: str, popularity: int, relevance: int, similarity: int, quality: str) -> str:
     label = {
         "official_original": "official original",
         "live": "live version",
         "other": "other match",
     }.get(variant, "other match")
-    return f"{label}; popularity={popularity}; relevance={relevance}"
+    return f"{label}; quality={quality}; similarity={similarity}; popularity={popularity}; relevance={relevance}"
 
 
 def _should_keep_candidate(query: str, info: dict[str, Any]) -> bool:
-    title = _text(info.get("track") or info.get("title") or info.get("fulltitle") or "") or ""
+    title = _rank_title(info)
     if not title:
         return bool(_text(info.get("id")) or _webpage_url(info))
     if _relevance_score(query, info) <= 0:
@@ -229,6 +322,8 @@ def _normalize_youtube_info(query: str, info: dict[str, Any], stream_url: str | 
     variant = _variant_type(query, info)
     popularity = _popularity_score(info)
     relevance = _relevance_score(query, info)
+    similarity = _similarity_score(query, info)
+    quality = _quality_label(query, info, variant, similarity)
     return {
         "provider": "youtube",
         "id": youtube_id,
@@ -249,7 +344,9 @@ def _normalize_youtube_info(query: str, info: dict[str, Any], stream_url: str | 
         "variant_type": variant,
         "popularity_score": popularity,
         "relevance_score": relevance,
-        "rank_reason": _rank_reason(variant, popularity, relevance),
+        "similarity_score": similarity,
+        "quality_label": quality,
+        "rank_reason": _rank_reason(variant, popularity, relevance, similarity, quality),
         "raw_view_count": _count(info.get("view_count")),
         "raw_like_count": _count(info.get("like_count")),
         "is_playing": True,
@@ -258,26 +355,47 @@ def _normalize_youtube_info(query: str, info: dict[str, Any], stream_url: str | 
 
 def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     live_requested = _contains_any(query, LIVE_TERMS)
-    variant_priority = {"official_original": 2, "live": 1, "other": 0}
+    quality_priority = {
+        "official_original": 4,
+        "clean_audio_match": 3,
+        "live": 2,
+        "other": 1,
+        "cover_like": -2,
+        "noisy_media": -3,
+    }
     if live_requested:
-        variant_priority = {"live": 2, "official_original": 1, "other": 0}
+        quality_priority = {
+            "live": 4,
+            "official_original": 3,
+            "clean_audio_match": 2,
+            "other": 1,
+            "cover_like": 0,
+            "noisy_media": -1,
+        }
+
+    def score(pair: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int, int]:
+        index, candidate = pair
+        quality = str(candidate.get("quality_label") or "other")
+        noisy_penalty = 25 if quality in {"noisy_media", "cover_like"} and not live_requested else 0
+        similarity = max(0, int(candidate.get("similarity_score") or 0) - noisy_penalty)
+        popularity = _popularity_tiebreaker(int(candidate.get("popularity_score") or 0))
+        relevance = int(candidate.get("relevance_score") or 0)
+        return (
+            similarity,
+            quality_priority.get(quality, 0),
+            relevance,
+            popularity,
+            -index,
+        )
+
     indexed = list(enumerate(candidates))
-    indexed.sort(
-        key=lambda pair: (
-            pair[1].get("relevance_score") or 0,
-            variant_priority.get(str(pair[1].get("variant_type") or "other"), 0) if live_requested else 0,
-            pair[1].get("popularity_score") or 0,
-            variant_priority.get(str(pair[1].get("variant_type") or "other"), 0),
-            -pair[0],
-        ),
-        reverse=True,
-    )
+    indexed.sort(key=score, reverse=True)
     return [candidate for _, candidate in indexed]
 
 
 def search_youtube_songs(query: str, limit: int = 5, *, cache_root: Path | None = None) -> list[dict[str, Any]]:
     bounded_limit = max(1, min(10, int(limit or 5)))
-    search_limit = min(50, max(bounded_limit, bounded_limit * 4))
+    search_limit = min(50, max(bounded_limit, bounded_limit * 8))
     options = {
         "quiet": True,
         "no_warnings": True,
