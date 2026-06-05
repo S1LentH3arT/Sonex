@@ -169,7 +169,6 @@ export type PromptInputProps = {
 
 export type LoginScreenProps = {
     authSetup: AuthSetupState;
-    authState: AuthRuntimeState;
     selectedIndex: number;
     apiKeyInput: string;
     setApiKeyInput: (value: string) => void;

@@ -1,10 +1,10 @@
 import React, {useState} from 'react';
-import {Box, useApp, useInput, useStdin, useStdout} from 'ink';
+import {Box, Static, useApp, useInput, useStdin, useStdout} from 'ink';
 import {buildErrorActivity, upsertActivity} from './activity.js';
 import {completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions} from './commands.js';
 import {resolveConfirmDecisionFromInput, resolveConfirmInputDecision} from './confirm-choice.js';
 import {DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl} from './constants.js';
-import {DynamicShell, isGenericAuthSetup, LoginScreen} from './components.js';
+import {DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen} from './components.js';
 import {clamp, trimList} from './chat-window.js';
 import {formatElapsed} from './format.js';
 import {useSonexSocket} from './hooks.js';
@@ -13,6 +13,25 @@ import {canUseFullPlaybackLayout, resolveShellLayout, type SmallPlaybackFocus, t
 import type {ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LayoutMode, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion} from './types.js';
 
 const LOCAL_PLAYBACK_COMMANDS = new Set(["pause", "resume", "stop", "progress", "volume", "player"]);
+
+type BannerItem = {
+    id: string;
+    authState: AuthRuntimeState;
+};
+
+export function authBannerSignature(state: AuthRuntimeState): string {
+    return [
+        state.ready ? "ready" : "blocked",
+        state.provider,
+        state.model,
+        state.auth_type,
+        state.credential_source,
+    ].join(":");
+}
+
+export function shouldAppendAuthBanner(previousSignature: string | null, state: AuthRuntimeState): boolean {
+    return previousSignature !== authBannerSignature(state);
+}
 
 export const App = () => {
     const {exit} = useApp();
@@ -68,6 +87,9 @@ export const App = () => {
     const [maxChatScrollOffset, setMaxChatScrollOffset] = useState(0);
     const [loginSelectionIndex, setLoginSelectionIndex] = useState(0);
     const [loginApiKeyInput, setLoginApiKeyInput] = useState("");
+    const [bannerItems, setBannerItems] = useState<BannerItem[]>([]);
+    const lastBannerSignatureRef = React.useRef<string | null>(null);
+    const bannerSequenceRef = React.useRef(0);
     const isLoginScreenActive = isGenericAuthSetup(authSetup);
     const slashSuggestions = authSetup?.active || spotifySetup?.active ? [] : slashCommandSuggestions(input);
     const slashInput = input.trimStart();
@@ -289,14 +311,20 @@ export const App = () => {
                 setStatusText(evt.title);
                 break;
             case "auth_state":
-                setAuthState({
+                const nextAuthState = {
                     ready: evt.ready,
                     provider: evt.provider,
                     model: evt.model,
                     auth_type: evt.auth_type,
                     credential_source: evt.credential_source,
                     reason: evt.reason,
-                });
+                };
+                setAuthState(nextAuthState);
+                if (shouldAppendAuthBanner(lastBannerSignatureRef.current, nextAuthState)) {
+                    lastBannerSignatureRef.current = authBannerSignature(nextAuthState);
+                    bannerSequenceRef.current += 1;
+                    setBannerItems((prev) => [...prev, {id: `auth_${bannerSequenceRef.current}`, authState: nextAuthState}]);
+                }
                 break;
             case "help_panel":
                 setLaunchPreparing(false);
@@ -560,59 +588,58 @@ export const App = () => {
         }
     }, {isActive: rawModeAvailable && !confirm && !isSlashMenuActive});
 
-    if (isLoginScreenActive) {
-        return (
-            <LoginScreen
-                authSetup={authSetup}
-                authState={authState}
-                selectedIndex={loginSelectionIndex}
-                apiKeyInput={loginApiKeyInput}
-                setApiKeyInput={setLoginApiKeyInput}
-                onApiKeySubmit={submitLoginApiKey}
-            />
-        );
-    }
-
     return (
-        <Box flexDirection="column" width="100%" height="100%" minHeight={0}>
-            <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
-                <DynamicShell
-                    authState={authState}
-                    input={input}
-                    setInput={updateInput}
-                    onSubmit={submitInput}
-                    inputPlaceholder={inputPlaceholder}
-                    inputMask={inputMask}
-                    inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable}
-                    inputRevision={inputRevision}
-                    chatItems={chatItems}
-                    queueItems={queueItems}
-                    player={player}
-                    statusText={displayStatusText}
-                    elapsed={elapsed}
-                    tokens={tokens}
-                    showRunMetrics={showRunMetrics}
-                    coverUrl={coverUrl}
-                    coverPattern={coverPattern}
-                    confirm={confirm}
-                    confirmIndex={confirmIndex}
-                    spotifySetup={spotifySetup}
+        <>
+            <Static items={bannerItems}>
+                {(item) => <HeaderFrame key={item.id} authState={item.authState}/>}
+            </Static>
+            {isLoginScreenActive ? (
+                <LoginScreen
                     authSetup={authSetup}
-                    slashSuggestions={slashSuggestions}
-                    slashIndex={slashIndex}
-                    helpPanel={helpPanel}
-                    helpPanelIndex={helpPanelIndex}
-                    layout={resolvedLayout}
-                    layoutPulse={layoutPulse}
-                    smallPlaybackFocus={smallPlaybackFocus}
-                    chatScrollOffset={chatScrollOffset}
-                    onMaxChatScrollOffsetChange={setMaxChatScrollOffset}
-                    terminalSpace={{
-                        columns: terminalSize.columns ? Math.max(0, terminalSize.columns - 4) : null,
-                        rows: terminalSize.rows ? Math.max(0, terminalSize.rows - 8) : null,
-                    }}
+                    selectedIndex={loginSelectionIndex}
+                    apiKeyInput={loginApiKeyInput}
+                    setApiKeyInput={setLoginApiKeyInput}
+                    onApiKeySubmit={submitLoginApiKey}
                 />
-            </Box>
-        </Box>
+            ) : (
+                <Box flexDirection="column" width="100%" minHeight={0}>
+                    <DynamicShell
+                        input={input}
+                        setInput={updateInput}
+                        onSubmit={submitInput}
+                        inputPlaceholder={inputPlaceholder}
+                        inputMask={inputMask}
+                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable}
+                        inputRevision={inputRevision}
+                        chatItems={chatItems}
+                        queueItems={queueItems}
+                        player={player}
+                        statusText={displayStatusText}
+                        elapsed={elapsed}
+                        tokens={tokens}
+                        showRunMetrics={showRunMetrics}
+                        coverUrl={coverUrl}
+                        coverPattern={coverPattern}
+                        confirm={confirm}
+                        confirmIndex={confirmIndex}
+                        spotifySetup={spotifySetup}
+                        authSetup={authSetup}
+                        slashSuggestions={slashSuggestions}
+                        slashIndex={slashIndex}
+                        helpPanel={helpPanel}
+                        helpPanelIndex={helpPanelIndex}
+                        layout={resolvedLayout}
+                        layoutPulse={layoutPulse}
+                        smallPlaybackFocus={smallPlaybackFocus}
+                        chatScrollOffset={chatScrollOffset}
+                        onMaxChatScrollOffsetChange={setMaxChatScrollOffset}
+                        terminalSpace={{
+                            columns: terminalSize.columns ? Math.max(0, terminalSize.columns - 4) : null,
+                            rows: terminalSize.rows ? Math.max(0, terminalSize.rows - 8) : null,
+                        }}
+                    />
+                </Box>
+            )}
+        </>
     );
 };

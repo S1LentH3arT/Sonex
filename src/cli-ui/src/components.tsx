@@ -92,7 +92,6 @@ const LoginChoiceList = ({choices, selectedIndex, visibleLimit}: {
 
 export const LoginScreen = ({
     authSetup,
-    authState,
     selectedIndex,
     apiKeyInput,
     setApiKeyInput,
@@ -115,16 +114,6 @@ export const LoginScreen = ({
 
     return (
         <Box width={74} minHeight={18} paddingX={1} paddingY={1} borderStyle="single" borderColor={BORDER_BLUE} flexDirection="column">
-            <Box>
-                <Mascot/>
-                <Box flexDirection="column" justifyContent="flex-start">
-                    <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text color="#bf98a7">v{APP_VERSION}</Text></Text>
-                    <Text><Text color="#d8bcc7">{authState.model || authState.provider || FALLBACK_MODEL_NAME}</Text> <Text color="#9d7787">•</Text> <Text color="#d8bcc7">{formatAuthLabel(authState)}</Text></Text>
-                    <Text color="#bf98a7">~/dev/sonex</Text>
-                    <Text color={BORDER_BLUE_SOFT}>{APP_TIP_PLACEHOLDER}</Text>
-                </Box>
-            </Box>
-
             <Box flexDirection="column" marginTop={1} paddingX={1}>
                 <Text color="#fff4f6">{authSetup.title}</Text>
                 <Text color="#bf98a7">{displayMessage}</Text>
@@ -261,10 +250,11 @@ const ChatBubble = ({role, content}: ChatBubbleProps) => {
     );
 };
 
-const ChatPane = ({items, scrollOffset, onMaxScrollOffsetChange}: {
+const ChatPane = ({items, scrollOffset, onMaxScrollOffsetChange, fill = false}: {
     items: ChatItem[];
     scrollOffset: number;
     onMaxScrollOffsetChange: (value: number) => void;
+    fill?: boolean;
 }) => {
     const containerRef = React.useRef<any>(null);
     const [viewportRows, setViewportRows] = React.useState(12);
@@ -286,7 +276,7 @@ const ChatPane = ({items, scrollOffset, onMaxScrollOffsetChange}: {
     }, [onMaxScrollOffsetChange, visibleWindow.maxScrollOffset]);
 
     return (
-        <Box ref={containerRef} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} overflowY="hidden" paddingX={1}>
+        <Box ref={containerRef} flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} overflowY="hidden" paddingX={1}>
             <Box marginBottom={1} flexShrink={0}>
                 <Text bold color={BORDER_BLUE}>Conversation</Text>
             </Box>
@@ -909,6 +899,7 @@ const ConversationColumn = ({
     helpPanelIndex,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
+    fill = false,
 }: {
     chatItems: ChatItem[];
     statusText: string;
@@ -932,9 +923,10 @@ const ConversationColumn = ({
     helpPanelIndex: number;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
+    fill?: boolean;
 }) => (
-    <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} height="100%">
-        <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange}/>
+    <Box flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} height={fill ? "100%" : undefined}>
+        <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange} fill={fill}/>
         <Box paddingX={1} height={1} flexShrink={0}>
             <Text color="#bf98a7">
                 {statusText}
@@ -977,7 +969,6 @@ const ConversationColumn = ({
 );
 
 export const DynamicShell = ({
-    authState,
     input,
     setInput,
     onSubmit,
@@ -1009,7 +1000,6 @@ export const DynamicShell = ({
     onMaxChatScrollOffsetChange,
     terminalSpace,
 }: {
-    authState: AuthRuntimeState;
     input: string;
     setInput: (value: string) => void;
     onSubmit: (value: string) => void;
@@ -1071,11 +1061,8 @@ export const DynamicShell = ({
     }
 
     return (
-        <Box width="100%" height="100%" paddingX={1} flexDirection={showPlaybackSidebar ? "row" : "column"} flexGrow={1} flexShrink={1} minHeight={0}>
-            <Box width={showPlaybackSidebar ? "45%" : "100%"} minWidth={showPlaybackSidebar ? 48 : undefined} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
-                <Box flexShrink={0}>
-                    <HeaderFrame authState={authState}/>
-                </Box>
+        <Box width="100%" paddingX={1} flexDirection={showPlaybackSidebar ? "row" : "column"} flexGrow={showPlaybackSidebar ? 1 : 0} flexShrink={1} minHeight={0}>
+            <Box width={showPlaybackSidebar ? "45%" : "100%"} minWidth={showPlaybackSidebar ? 48 : undefined} flexDirection="column" flexGrow={showPlaybackSidebar ? 1 : 0} flexShrink={1} minHeight={0}>
                 <ConversationColumn
                     chatItems={chatItems}
                     statusText={conversationStatusText}
@@ -1099,6 +1086,7 @@ export const DynamicShell = ({
                     helpPanelIndex={helpPanelIndex}
                     chatScrollOffset={chatScrollOffset}
                     onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
+                    fill={showPlaybackSidebar}
                 />
             </Box>
 
