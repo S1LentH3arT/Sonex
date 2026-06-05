@@ -8,6 +8,8 @@ VENV_PY="$VENV_DIR/bin/python3.12"
 LAUNCHER="$ROOT_DIR/scripts/sonex"
 USER_BIN="${SONEX_USER_BIN:-$HOME/.local/bin}"
 USER_SHIM="$USER_BIN/sonex"
+PYTHON_BIN=""
+NPM_BIN=""
 INSTALL_USER_SHIM=true
 FORCE_USER_SHIM=false
 NO_LAUNCH=false
@@ -42,11 +44,20 @@ warn() {
 require_cmd() {
   local cmd="$1"
   local hint="$2"
-  if ! command -v "$cmd" >/dev/null 2>&1; then
+  local resolved
+  if ! resolved="$(command -v "$cmd")"; then
     missing "$cmd not found. $hint"
     exit 1
   fi
-  ok "$cmd found: $(command -v "$cmd")"
+  case "$resolved" in
+    /*) ;;
+    *)
+      missing "$cmd resolved to non-executable path: $resolved"
+      exit 1
+      ;;
+  esac
+  ok "$cmd found: $resolved"
+  REQUIRED_CMD="$resolved"
 }
 
 while [ "$#" -gt 0 ]; do
@@ -115,12 +126,14 @@ printf 'Sonex installer\n'
 printf 'Project: %s\n\n' "$ROOT_DIR"
 
 require_cmd python3.12 "Install Python 3.12 first, then rerun this script."
+PYTHON_BIN="$REQUIRED_CMD"
 require_cmd node "Install Node.js first, then rerun this script."
 require_cmd npm "Install npm first, then rerun this script."
+NPM_BIN="$REQUIRED_CMD"
 
 if [ ! -d "$VENV_DIR" ]; then
   note "Creating virtualenv at $VENV_DIR"
-  python3.12 -m venv "$VENV_DIR"
+  "$PYTHON_BIN" -m venv "$VENV_DIR"
 else
   note "Reusing virtualenv at $VENV_DIR"
 fi
@@ -141,11 +154,11 @@ if [ ! -f "$CLI_UI_DIR/package-lock.json" ]; then
 fi
 
 note "Installing TUI dependencies with npm ci"
-npm --prefix "$CLI_UI_DIR" ci
+"$NPM_BIN" --prefix "$CLI_UI_DIR" ci
 ok "Node dependencies installed"
 
 note "Building React + Ink TUI"
-npm --prefix "$CLI_UI_DIR" run build
+"$NPM_BIN" --prefix "$CLI_UI_DIR" run build
 ok "TUI built"
 
 install_user_shim
