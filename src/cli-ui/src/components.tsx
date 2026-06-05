@@ -605,30 +605,55 @@ const PlayerMascot = ({visual, frame, compact}: {
     );
 };
 
-const TrackDetails = ({player, compact}: {player: PlayerState; compact: boolean}) => (
+const TrackDetails = React.memo(({player, compact}: {player: PlayerState; compact: boolean}) => (
     <Box flexDirection="column">
         <Text bold color="#fff4f6">{player.name}</Text>
         <Text color="#bf98a7">{player.artist}</Text>
         {!compact || player.album !== "-" ? <Text color="#bf98a7">{player.album}</Text> : null}
     </Box>
-);
+));
+
+const PlaybackProgressTime = React.memo(({player}: {player: PlayerState}) => {
+    const progressMs = usePlaybackProgress(player);
+    return <Text color="#bf98a7">{formatDuration(progressMs)}</Text>;
+});
+
+const MiniPlaybackMeter = React.memo(({player, visual}: {
+    player: PlayerState;
+    visual: CoverVisualModel;
+}) => {
+    const duration = formatDuration(player.duration_ms);
+    const progressBar = buildProgressBar(player.progress_ms ?? 0, player.duration_ms, 14);
+
+    return (
+        <Box flexDirection="column" marginTop={1}>
+            <Text>
+                <PlaybackProgressTime player={player}/> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
+            </Text>
+        </Box>
+    );
+});
 
 const PlaybackMeter = ({player, visual, compact = false}: {
     player: PlayerState;
     visual: CoverVisualModel;
     compact?: boolean;
 }) => {
+    if (compact) {
+        return <MiniPlaybackMeter player={player} visual={visual}/>;
+    }
+
     const progressMs = usePlaybackProgress(player);
     const progress = formatDuration(progressMs);
     const duration = formatDuration(player.duration_ms);
-    const progressBar = buildProgressBar(progressMs, player.duration_ms, compact ? 14 : 18);
+    const progressBar = buildProgressBar(progressMs, player.duration_ms, 18);
     const isPlaying = player.is_playing === true;
     return (
         <Box flexDirection="column" marginTop={1}>
             <Text>
                 <Text color="#bf98a7">{progress}</Text> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
             </Text>
-            {!compact ? <Text color={isPlaying ? visual.accent : "#7f5d6b"}>{isPlaying ? "playing" : "paused"}</Text> : null}
+            <Text color={isPlaying ? visual.accent : "#7f5d6b"}>{isPlaying ? "playing" : "paused"}</Text>
         </Box>
     );
 };
