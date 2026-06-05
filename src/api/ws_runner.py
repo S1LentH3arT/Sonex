@@ -51,7 +51,7 @@ from src.memory.memory import memory_store
 from src.thinking.config import ThinkingConfig
 from src.tools import registry
 from src.tools.local_play import search_local_file
-from src.tools.online_play import play_youtube_candidate, search_youtube_songs
+from src.tools.online_play import play_youtube_candidate, search_spotify_track_candidates, search_youtube_songs
 from src.tools.playback_controller import controller as local_playback_controller
 from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
 from src.tools.cover_sources import cover_bytes_for_source
@@ -708,7 +708,7 @@ def _is_apple_music_setup_request(text: str) -> bool:
 def _rule_parse_play_request(text: str) -> PlayRequestParse:
     stripped = text.strip()
     lowered = stripped.lower()
-    prefixes = ("play ", "播放", "放一下", "放首", "来首", "来一首", "听 ")
+    prefixes = ("play ", "播放", "放一下", "放首", "来首", "来一首", "我想听", "想听", "听 ")
     for prefix in prefixes:
         if lowered.startswith(prefix):
             query = stripped[len(prefix):].strip()
@@ -1554,7 +1554,10 @@ class PlaySelectionSession:
         self.cache_hit: dict[str, Any] | None = None
         self.active_confirm_id: str | None = None
         self.pending_player_confirm_result: dict[str, Any] | None = None
+        self.spotify_candidates: list[dict[str, Any]] = []
         self.youtube_candidates: list[dict[str, Any]] = []
+        self.selected_playback_metadata: dict[str, Any] | None = None
+        self.awaiting_spotify_refinement = False
         self.awaiting_youtube_refinement = False
 
     async def start(self) -> None:
@@ -1585,6 +1588,29 @@ class PlaySelectionSession:
         if choice in {"deny", "cancel"}:
             await self._finish("Playback cancelled.", status="error")
             return
+        if choice.startswith("refine_spotify_query:"):
+            extra = unquote(choice.partition(":")[2]).strip()
+            if not extra:
+                await self.ui.append_activity(
+                    kind="error",
+                    title="Refine Spotify search",
+                    detail="Search details cannot be empty.",
+                    status="error",
+                )
+                return
+            self.awaiting_spotify_refinement = False
+            self.query = f"{self.query} {extra}".strip()
+            await self._ask_spotify_candidates(self.query)
+            return
+        if choice == "refine_spotify_query":
+            self.awaiting_spotify_refinement = True
+            await self.ui.append_activity(
+                kind="status",
+                title="Refine Spotify search",
+                detail="Send more song details to search again.",
+                status="pending",
+            )
+            return
         if choice.startswith("refine_query:"):
             extra = unquote(choice.partition(":")[2]).strip()
             if not extra:
@@ -1597,7 +1623,7 @@ class PlaySelectionSession:
                 return
             self.awaiting_youtube_refinement = False
             self.query = f"{self.query} {extra}".strip()
-            await self._ask_youtube_candidates(self.query)
+            await self._ask_youtube_candidates(self.query, playback_metadata=self.selected_playback_metadata)
             return
         if choice == "refine_query":
             self.awaiting_youtube_refinement = True
@@ -1607,6 +1633,23 @@ class PlaySelectionSession:
                 detail="Send more song details to search again.",
                 status="pending",
             )
+            return
+        if choice.startswith("spotify_candidate:"):
+            index_text = choice.partition(":")[2]
+            try:
+                index = int(index_text)
+            except ValueError:
+                index = -1
+            candidate = self.spotify_candidates[index] if 0 <= index < len(self.spotify_candidates) else None
+            if candidate is None:
+                await self._finish("Selected Spotify candidate expired.", status="error")
+                return
+            self.selected_playback_metadata = dict(candidate)
+            self.selected_playback_metadata.setdefault("metadata_source", "spotify")
+            self.selected_playback_metadata.setdefault("original_query", self.query)
+            youtube_query = str(candidate.get("youtube_query") or f"{candidate.get('artist') or ''} {candidate.get('name') or ''}").strip()
+            self.query = youtube_query or self.query
+            await self._ask_youtube_candidates(self.query, playback_metadata=self.selected_playback_metadata)
             return
         if choice.startswith("youtube_candidate:"):
             cache_id = choice.partition(":")[2]
@@ -1642,11 +1685,25 @@ class PlaySelectionSession:
             await self._play_from_provider("apple_music_play", "apple_music")
             return
         if choice == "online_play":
-            await self._ask_youtube_candidates(self.query)
+            await self._ask_spotify_candidates(self.query)
             return
         await self._finish("Unknown playback choice.", status="error")
 
     async def handle_refinement(self, text: str) -> bool:
+        if self.awaiting_spotify_refinement:
+            extra = text.strip()
+            if not extra:
+                await self.ui.append_activity(
+                    kind="error",
+                    title="Refine Spotify search",
+                    detail="Search details cannot be empty.",
+                    status="error",
+                )
+                return True
+            self.awaiting_spotify_refinement = False
+            self.query = f"{self.query} {extra}".strip()
+            await self._ask_spotify_candidates(self.query)
+            return True
         if not self.awaiting_youtube_refinement:
             return False
         extra = text.strip()
@@ -1660,7 +1717,7 @@ class PlaySelectionSession:
             return True
         self.awaiting_youtube_refinement = False
         self.query = f"{self.query} {extra}".strip()
-        await self._ask_youtube_candidates(self.query)
+        await self._ask_youtube_candidates(self.query, playback_metadata=self.selected_playback_metadata)
         return True
 
     async def _ask_local_choice(self, local_file: str) -> None:
@@ -1681,7 +1738,51 @@ class PlaySelectionSession:
             tool_args=tool_args,
         )
 
-    async def _ask_youtube_candidates(self, query: str) -> None:
+    async def _ask_spotify_candidates(self, query: str) -> None:
+        await self.ui.append_activity(
+            kind="tool",
+            title="Searching Spotify",
+            detail=f"Finding song metadata for {query}.",
+            status="pending",
+        )
+        try:
+            self.spotify_candidates = await asyncio.to_thread(search_spotify_track_candidates, query, 5)
+        except Exception:
+            self.spotify_candidates = []
+        self.spotify_candidates = self.spotify_candidates[:5]
+        if not self.spotify_candidates:
+            await self._ask_youtube_candidates(query)
+            return
+
+        choices = [self._spotify_candidate_choice(index, item) for index, item in enumerate(self.spotify_candidates)]
+        choices.append(
+            {
+                "value": "refine_spotify_query",
+                "label": "没有想听的歌曲",
+                "input": {"placeholder": "试试补充更多歌曲信息"},
+            }
+        )
+        await self._ask_confirm(
+            message="选择 Spotify 歌曲候选",
+            choices=choices,
+            tool_args={"query": query, "stage": "spotify_candidates"},
+            tool_name="spotify_candidate",
+        )
+
+    def _spotify_candidate_choice(self, index: int, candidate: dict[str, Any]) -> dict[str, Any]:
+        artist = str(candidate.get("artist") or "-")
+        album = str(candidate.get("album") or "-")
+        name = str(candidate.get("name") or candidate.get("title") or "-")
+        parts = [_duration_text(candidate.get("duration_ms"))]
+        if candidate.get("uri"):
+            parts.append("Spotify")
+        return {
+            "value": f"spotify_candidate:{index}",
+            "label": f"{artist}-{album}--{name}",
+            "description": " · ".join(part for part in parts if part),
+        }
+
+    async def _ask_youtube_candidates(self, query: str, playback_metadata: dict[str, Any] | None = None) -> None:
         await self.ui.append_activity(
             kind="tool",
             title="Searching YouTube",
@@ -1689,7 +1790,17 @@ class PlaySelectionSession:
             status="pending",
         )
         try:
-            self.youtube_candidates = await asyncio.to_thread(search_youtube_songs, query, 5)
+            if playback_metadata:
+                metadata = dict(playback_metadata)
+                metadata["youtube_query"] = query
+                self.youtube_candidates = await asyncio.to_thread(
+                    search_youtube_songs,
+                    query,
+                    5,
+                    playback_metadata=metadata,
+                )
+            else:
+                self.youtube_candidates = await asyncio.to_thread(search_youtube_songs, query, 5)
         except Exception as exc:
             result = {
                 "status": "fail",

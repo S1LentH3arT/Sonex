@@ -10,8 +10,8 @@ from typing import Any
 import yt_dlp
 
 from src.log import sonex_home
+from src.tools import cover_sources, spotify_play
 from src.tools.local_play import check_player
-from src.tools.cover_sources import resolve_online_cover
 from src.tools.player_permission import (
     build_player_confirm_result,
     is_player_allowed,
@@ -42,6 +42,14 @@ NOISY_MEDIA_TERMS = (
 )
 COVER_TERMS = ("cover", "翻唱")
 QUERY_FILLER_TERMS = {"the", "a", "an"}
+AGE_RESTRICTED_MESSAGE = (
+    "Selected YouTube result requires age verification. "
+    "Choose another candidate or refine the search."
+)
+UNAVAILABLE_MESSAGE = (
+    "Selected YouTube result is not available. "
+    "Choose another candidate or refine the search."
+)
 
 
 def _song_cache_root(cache_root: Path | None = None) -> Path:
@@ -71,6 +79,142 @@ def _non_placeholder_text(value: Any) -> str | None:
     if text in {None, "-"}:
         return None
     return text
+
+
+def _spotify_tracks_from_result(result: dict[str, Any]) -> list[dict[str, Any]]:
+    if str(result.get("status") or "").lower() != "success":
+        return []
+    data = result.get("data")
+    tracks = data.get("tracks") if isinstance(data, dict) else None
+    if not isinstance(tracks, list) or not tracks:
+        return []
+    return [track for track in tracks if isinstance(track, dict)]
+
+
+def _spotify_track_metadata(query: str, track: dict[str, Any]) -> dict[str, Any] | None:
+    name = _non_placeholder_text(track.get("name") or track.get("title"))
+    artist = _non_placeholder_text(track.get("artist") or track.get("artists"))
+    if not name or not artist:
+        return None
+    raw_artists = track.get("artists") if isinstance(track.get("artists"), list) else [artist]
+    artists = [str(item) for item in raw_artists if _non_placeholder_text(item)]
+    youtube_query = f"{artist} {name}".strip()
+    return {
+        "metadata_source": "spotify",
+        "original_query": query,
+        "youtube_query": youtube_query,
+        "id": _non_placeholder_text(track.get("id")),
+        "name": name,
+        "title": name,
+        "artist": artist,
+        "artists": artists,
+        "album": _non_placeholder_text(track.get("album")) or "-",
+        "duration_ms": int(track.get("duration_ms") or 0),
+        "spotify_url": _non_placeholder_text(track.get("spotify_url")),
+        "uri": _non_placeholder_text(track.get("uri")),
+        "spotify_track_id": _non_placeholder_text(track.get("id")),
+    }
+
+
+def search_spotify_track_candidates(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    clean_query = query.strip()
+    if not clean_query:
+        return []
+    bounded_limit = max(1, min(10, int(limit or 5)))
+    try:
+        result = spotify_play.spotify_search(query=clean_query, limit=bounded_limit, types="track")
+    except Exception:
+        return []
+    if not isinstance(result, dict):
+        return []
+    candidates: list[dict[str, Any]] = []
+    for track in _spotify_tracks_from_result(result):
+        metadata = _spotify_track_metadata(clean_query, track)
+        if metadata:
+            candidates.append(metadata)
+        if len(candidates) >= bounded_limit:
+            break
+    return candidates
+
+
+def _query_fallback_metadata(query: str) -> dict[str, Any]:
+    clean_query = query.strip()
+    return {
+        "metadata_source": "query_fallback",
+        "original_query": clean_query,
+        "youtube_query": clean_query,
+    }
+
+
+def _resolved_playback_metadata(query: str, playback_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not isinstance(playback_metadata, dict) or not playback_metadata:
+        return _query_fallback_metadata(query)
+
+    metadata = _canonical_metadata({**playback_metadata, "metadata_source": playback_metadata.get("metadata_source") or "spotify"})
+    if not metadata.get("original_query"):
+        metadata["original_query"] = query.strip()
+    if not metadata.get("youtube_query"):
+        artist = _non_placeholder_text(metadata.get("artist"))
+        name = _non_placeholder_text(metadata.get("name") or metadata.get("title"))
+        metadata["youtube_query"] = f"{artist or ''} {name or ''}".strip() or query.strip()
+    if metadata.get("metadata_source") == "spotify":
+        for key in ("album_cover_url", "cover_url", "cover_source", "cover_source_type"):
+            metadata.pop(key, None)
+        cover = cover_sources.resolve_online_cover(metadata)
+        if cover and cover.get("source_type") == "cover_art_archive":
+            metadata["album_cover_url"] = cover["cover_source"]
+            metadata["cover_url"] = cover.get("cover_url") or cover["cover_source"]
+            metadata["cover_source"] = cover["cover_source"]
+            metadata["cover_source_type"] = cover["source_type"]
+    return metadata
+
+
+def resolve_online_playback_metadata(query: str, playback_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _resolved_playback_metadata(query, playback_metadata)
+
+
+def _canonical_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    common_keys = (
+        "metadata_source",
+        "original_query",
+        "youtube_query",
+        "album_cover_url",
+        "cover_url",
+        "cover_source",
+        "cover_source_type",
+    )
+    spotify_keys = (
+        "name",
+        "title",
+        "artist",
+        "artists",
+        "album",
+        "duration_ms",
+        "spotify_url",
+        "uri",
+        "spotify_track_id",
+    )
+    keys = common_keys + (spotify_keys if item.get("metadata_source") == "spotify" else ())
+    for key in keys:
+        if key in item and item.get(key) is not None:
+            metadata[key] = item[key]
+    return metadata
+
+
+def _merge_canonical_metadata(item: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    if not metadata:
+        return item
+    merged = dict(item)
+    for key, value in metadata.items():
+        if value is None:
+            continue
+        if key in {"name", "title", "artist", "artists", "album", "duration_ms", "spotify_url", "uri", "spotify_track_id"}:
+            merged[key] = value
+        else:
+            if not merged.get(key):
+                merged[key] = value
+    return merged
 
 
 def _duration_ms(value: Any) -> int:
@@ -222,7 +366,52 @@ def _rank_reason(variant: str, popularity: int, relevance: int, similarity: int,
     return f"{label}; quality={quality}; similarity={similarity}; popularity={popularity}; relevance={relevance}"
 
 
+def _is_age_restricted_info(info: dict[str, Any]) -> bool:
+    try:
+        age_limit = int(info.get("age_limit") or 0)
+    except (TypeError, ValueError):
+        age_limit = 0
+    if age_limit > 0:
+        return True
+    availability = str(info.get("availability") or "").casefold()
+    return availability == "needs_auth"
+
+
+def _is_unavailable_info(info: dict[str, Any]) -> bool:
+    availability = str(info.get("availability") or "").casefold()
+    return availability in {
+        "unavailable",
+        "private",
+        "premium_only",
+        "subscriber_only",
+        "needs_subscription",
+        "needs_premium",
+    }
+
+
+def _is_age_verification_error(message: str) -> bool:
+    text = message.casefold()
+    return (
+        "confirm your age" in text
+        or "age verification" in text
+        or "may be inappropriate for some users" in text
+    )
+
+
+def _is_unavailable_error(message: str) -> bool:
+    text = message.casefold()
+    return (
+        "this video is not available" in text
+        or "video unavailable" in text
+        or "private video" in text
+        or "members-only" in text
+        or "join this channel" in text
+    )
+
+
 def _should_keep_candidate(query: str, info: dict[str, Any]) -> bool:
+    if _is_age_restricted_info(info) or _is_unavailable_info(info):
+        return False
     title = _rank_title(info)
     if not title:
         return bool(_text(info.get("id")) or _webpage_url(info))
@@ -393,7 +582,15 @@ def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> li
     return [candidate for _, candidate in indexed]
 
 
-def search_youtube_songs(query: str, limit: int = 5, *, cache_root: Path | None = None) -> list[dict[str, Any]]:
+def search_youtube_songs(
+    query: str,
+    limit: int = 5,
+    *,
+    cache_root: Path | None = None,
+    playback_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    playback_metadata = resolve_online_playback_metadata(query, playback_metadata)
+    youtube_query = str(playback_metadata.get("youtube_query") or query).strip() or query
     bounded_limit = max(1, min(10, int(limit or 5)))
     search_limit = min(50, max(bounded_limit, bounded_limit * 8))
     options = {
@@ -403,7 +600,7 @@ def search_youtube_songs(query: str, limit: int = 5, *, cache_root: Path | None 
     }
 
     with yt_dlp.YoutubeDL(options) as ydl:
-        payload = ydl.extract_info(f"ytsearch{search_limit}:{query}", download=False)
+        payload = ydl.extract_info(f"ytsearch{search_limit}:{youtube_query}", download=False)
 
     if not isinstance(payload, dict):
         raise RuntimeError("Invalid response returned.")
@@ -413,9 +610,15 @@ def search_youtube_songs(query: str, limit: int = 5, *, cache_root: Path | None 
     for entry in entries:
         if not isinstance(entry, dict):
             continue
-        if not _should_keep_candidate(query, entry):
+        if not _should_keep_candidate(youtube_query, entry):
             continue
-        candidate = _normalize_youtube_info(query, entry, None)
+        candidate = _merge_canonical_metadata(
+            _normalize_youtube_info(youtube_query, entry, None),
+            playback_metadata,
+        )
+        candidate["query"] = youtube_query
+        candidate["original_query"] = playback_metadata.get("original_query") or query
+        candidate["youtube_query"] = youtube_query
         cached = _cached_audio_item(str(candidate["cache_id"]), cache_root=cache_root)
         candidate["cached"] = cached is not None
         if cached:
@@ -424,7 +627,7 @@ def search_youtube_songs(query: str, limit: int = 5, *, cache_root: Path | None 
         candidates.append(candidate)
     if not candidates:
         raise RuntimeError("No valid matches found.")
-    return _rank_youtube_candidates(query, candidates)[:bounded_limit]
+    return _rank_youtube_candidates(youtube_query, candidates)[:bounded_limit]
 
 
 def _downloaded_filepath(info: dict[str, Any], fallback: Path) -> Path:
@@ -466,6 +669,7 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
     if "formats" in info:
         _audio_stream_url(info)
 
+    canonical_metadata = _canonical_metadata(candidate)
     merged = {**candidate, **info}
     for cover_key in ("official_album_cover_url", "provider_album_cover_url"):
         if candidate.get(cover_key):
@@ -474,7 +678,10 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
     audio_path = _downloaded_filepath(merged, audio_dir / f"{cache_id}.webm")
     audio_ext = audio_path.suffix.lstrip(".") or _text(merged.get("ext")) or "webm"
     item = {
-        **_normalize_youtube_info(str(candidate.get("query") or merged.get("query") or merged.get("title") or ""), merged, str(audio_path)),
+        **_merge_canonical_metadata(
+            _normalize_youtube_info(str(candidate.get("query") or merged.get("query") or merged.get("title") or ""), merged, str(audio_path)),
+            canonical_metadata,
+        ),
         "cache_id": cache_id,
         "youtube_id": _text(merged.get("youtube_id") or merged.get("id")),
         "audio_path": str(audio_path),
@@ -482,7 +689,10 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
         "stream_url": str(audio_path),
         "cached": True,
     }
-    cover = resolve_online_cover(item)
+    item["query"] = str(candidate.get("query") or item.get("query") or "")
+    item["original_query"] = candidate.get("original_query") or item.get("original_query") or item["query"]
+    item["youtube_query"] = candidate.get("youtube_query") or item.get("youtube_query") or item["query"]
+    cover = None if item.get("cover_source_type") == "cover_art_archive" else cover_sources.resolve_online_cover(item)
     if cover:
         item["album_cover_url"] = cover["cover_source"]
         item["cover_url"] = cover.get("cover_url") or cover["cover_source"]
@@ -502,7 +712,14 @@ def play_youtube_candidate(
         data = download_youtube_candidate(candidate, cache_root=cache_root)
     except Exception as exc:
         message = str(exc)
-        error_code = "NO_PLAYABLE_AUDIO" if "No playable audio" in message else "YOUTUBE_RESOLVE_FAILED"
+        if _is_age_verification_error(message):
+            message = AGE_RESTRICTED_MESSAGE
+            error_code = "YOUTUBE_AGE_RESTRICTED"
+        elif _is_unavailable_error(message):
+            message = UNAVAILABLE_MESSAGE
+            error_code = "YOUTUBE_UNAVAILABLE"
+        else:
+            error_code = "NO_PLAYABLE_AUDIO" if "No playable audio" in message else "YOUTUBE_RESOLVE_FAILED"
         return ToolResult.fail(
             tool="play_youtube_song",
             message=message,
@@ -606,9 +823,19 @@ def search_and_resolve_song(query: str) -> str:
     return str(download_youtube_candidate(candidate)["stream_url"])
 
 
-def play_youtube_song(query: str, player: str = "auto", cache_root: Path | None = None) -> dict[str, Any]:
+def play_youtube_song(
+    query: str,
+    player: str = "auto",
+    cache_root: Path | None = None,
+    playback_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     try:
-        candidate = search_youtube_songs(query, limit=1, cache_root=cache_root)[0]
+        candidate = search_youtube_songs(
+            query,
+            limit=1,
+            cache_root=cache_root,
+            playback_metadata=playback_metadata,
+        )[0]
     except Exception as exc:
         message = str(exc)
         error_code = "NO_PLAYABLE_AUDIO" if "No playable audio" in message else "YOUTUBE_RESOLVE_FAILED"
@@ -628,6 +855,10 @@ registry.register(
         type="object",
         properties={
             "query": {"type": "string", "description": "The song name or related key words."},
+            "playback_metadata": {
+                "type": "object",
+                "description": "Optional confirmed provider metadata to use for YouTube search and playback metadata.",
+            },
         },
         required=["query"],
     ),

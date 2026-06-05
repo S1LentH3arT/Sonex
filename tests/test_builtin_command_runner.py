@@ -377,6 +377,40 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["tool_args"]["query"], "青花瓷")
         self.assertEqual(confirm_events[-1]["tool_name"], "playback_choice")
 
+    async def test_want_to_listen_playback_online_choice_starts_spotify_candidates(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        spotify_candidates = [
+            {
+                "id": "spotify-track",
+                "name": "青花瓷",
+                "artist": "周杰伦",
+                "artists": ["周杰伦"],
+                "album": "我很忙",
+                "duration_ms": 239000,
+                "uri": "spotify:track:qinghuaci",
+            }
+        ]
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to '青花瓷'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
+             patch("src.api.ws_runner._llm_auth_ready", return_value=(False, "openai", "missing")):
+            await runner._handle_user_input(ui, "我想听 青花瓷")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=spotify_candidates) as spotify_search, \
+             patch("src.api.ws_runner.search_youtube_songs") as youtube_search, \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+
+        spotify_search.assert_called_once_with("青花瓷", 5)
+        youtube_search.assert_not_called()
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["tool_name"], "spotify_candidate")
+        self.assertEqual(confirm_events[-1]["choices"][0]["label"], "周杰伦-我很忙--青花瓷")
+
     def test_queue_payload_prefers_unified_song_cache_recent_10(self) -> None:
         cached_tracks = [
             {"name": f"Cached {idx}", "artist": "Artist", "duration_ms": 60_000}
@@ -683,6 +717,113 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["choices"][-1]["label"], "没有想听的歌曲")
         self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "试试补充更多信息")
         self.assertNotIn("description", confirm_events[-1]["choices"][-1])
+
+    async def test_online_play_choice_sends_spotify_candidate_list_before_youtube_search(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        spotify_candidates = [
+            {
+                "id": f"spotify-{idx}",
+                "name": f"Song {idx}",
+                "artist": f"Artist {idx}",
+                "artists": [f"Artist {idx}"],
+                "album": f"Album {idx}",
+                "duration_ms": (180 + idx) * 1000,
+                "uri": f"spotify:track:{idx}",
+            }
+            for idx in range(6)
+        ]
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play Song Artist")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=spotify_candidates) as spotify_search, \
+             patch("src.api.ws_runner.search_youtube_songs") as youtube_search, \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+
+        spotify_search.assert_called_once_with("Song Artist", 5)
+        youtube_search.assert_not_called()
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["tool_name"], "spotify_candidate")
+        self.assertEqual(confirm_events[-1]["tool_args"]["stage"], "spotify_candidates")
+        self.assertEqual(len(confirm_events[-1]["choices"]), 6)
+        self.assertEqual(confirm_events[-1]["choices"][0]["value"], "spotify_candidate:0")
+        self.assertEqual(confirm_events[-1]["choices"][0]["label"], "Artist 0-Album 0--Song 0")
+        self.assertIn("3:00", confirm_events[-1]["choices"][0]["description"])
+        self.assertEqual(confirm_events[-1]["choices"][-1]["value"], "refine_spotify_query")
+        self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "试试补充更多歌曲信息")
+
+    async def test_spotify_candidate_choice_searches_youtube_with_confirmed_metadata(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        spotify_candidate = {
+            "id": "spotify-track",
+            "name": "Canonical Song",
+            "artist": "Canonical Artist",
+            "artists": ["Canonical Artist"],
+            "album": "Canonical Album",
+            "duration_ms": 201000,
+            "uri": "spotify:track:canonical",
+        }
+        youtube_candidate = {
+            "cache_id": "youtube_abc",
+            "id": "abc",
+            "youtube_id": "abc",
+            "name": "Canonical Song",
+            "artist": "Canonical Artist",
+            "duration_ms": 201000,
+            "cached": False,
+        }
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'messy query'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play messy query")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=[spotify_candidate]), \
+             patch("src.api.ws_runner.search_youtube_songs", return_value=[youtube_candidate]) as youtube_search, \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+            await session.handle_choice("spotify_candidate:0")
+
+        youtube_search.assert_called_once()
+        self.assertEqual(youtube_search.call_args.args[0], "Canonical Artist Canonical Song")
+        self.assertEqual(youtube_search.call_args.args[1], 5)
+        metadata = youtube_search.call_args.kwargs["playback_metadata"]
+        self.assertEqual(metadata["name"], "Canonical Song")
+        self.assertEqual(metadata["artist"], "Canonical Artist")
+        self.assertEqual(metadata["album"], "Canonical Album")
+        self.assertEqual(metadata["uri"], "spotify:track:canonical")
+        self.assertEqual(metadata["original_query"], "messy query")
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["tool_name"], "youtube_candidate")
+        self.assertEqual(confirm_events[-1]["choices"][0]["value"], "youtube_candidate:youtube_abc")
+
+    async def test_spotify_candidate_refine_researches_spotify_not_youtube(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        first_candidate = {"name": "First", "artist": "Artist", "album": "Album", "duration_ms": 180000}
+        refined_candidate = {"name": "Refined", "artist": "Artist", "album": "Album", "duration_ms": 181000}
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play Song Artist")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_spotify_track_candidates", side_effect=[[first_candidate], [refined_candidate]]) as spotify_search, \
+             patch("src.api.ws_runner.search_youtube_songs") as youtube_search, \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+            await session.handle_choice("refine_spotify_query")
+            await runner._handle_user_input(ui, "live acoustic")
+
+        self.assertEqual(spotify_search.call_args_list[0].args, ("Song Artist", 5))
+        self.assertEqual(spotify_search.call_args_list[1].args, ("Song Artist live acoustic", 5))
+        youtube_search.assert_not_called()
+        self.assertFalse(runner._run_agent_turn.called)
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["choices"][0]["label"], "Artist-Album--Refined")
 
     async def test_youtube_candidate_refine_appends_next_input_and_researches(self) -> None:
         runner = WebSocketRunner()
