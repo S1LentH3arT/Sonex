@@ -402,6 +402,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=spotify_candidates) as spotify_search, \
              patch("src.api.ws_runner.search_youtube_songs") as youtube_search, \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
 
@@ -410,6 +411,41 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertEqual(confirm_events[-1]["tool_name"], "spotify_candidate")
         self.assertEqual(confirm_events[-1]["choices"][0]["label"], "周杰伦-我很忙--青花瓷")
+
+    async def test_online_choice_without_open_audio_provider_shows_setup_required(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to '青花瓷'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
+             patch("src.api.ws_runner.online_audio_configured", return_value=False), \
+             patch("src.api.ws_runner.search_spotify_track_candidates") as spotify_search, \
+             patch("src.api.ws_runner.search_online_audio_candidates") as online_search:
+            await runner._handle_user_input(ui, "/play 青花瓷")
+            session = getattr(ui, "_play_selection")
+            await session.handle_choice("online_play")
+
+        spotify_search.assert_not_called()
+        online_search.assert_not_called()
+        self.assertTrue(any("Jamendo or Audius" in str(event.get("text")) for event in ui.events))
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["tool_name"], "playback_choice")
+
+    async def test_setup_jamendo_stores_open_audio_api_key(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
+            await runner._handle_user_input(ui, "/setup jamendo")
+            setup = getattr(ui, "_auth_setup")
+            await setup.handle_input("jamendo-client-id")
+            store = load_auth_store()
+
+        self.assertEqual(store.providers["jamendo"].api_key, "jamendo-client-id")
+        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+        self.assertEqual(auth_events[-1]["provider"], "jamendo")
+        self.assertFalse(auth_events[-1].get("active", True))
 
     def test_queue_payload_prefers_unified_song_cache_recent_10(self) -> None:
         cached_tracks = [
@@ -660,6 +696,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
              patch("src.api.ws_runner.play_youtube_candidate", return_value=result), \
              patch("src.api.ws_runner.upsert_cached_song"), \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
             await session.handle_choice("youtube_candidate:youtube_abc")
@@ -693,6 +730,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "/play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", return_value=candidates), \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
 
@@ -740,6 +778,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=spotify_candidates) as spotify_search, \
              patch("src.api.ws_runner.search_youtube_songs") as youtube_search, \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
 
@@ -783,6 +822,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=[spotify_candidate]), \
              patch("src.api.ws_runner.search_youtube_songs", return_value=[youtube_candidate]) as youtube_search, \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
             await session.handle_choice("spotify_candidate:0")
@@ -813,6 +853,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_spotify_track_candidates", side_effect=[[first_candidate], [refined_candidate]]) as spotify_search, \
              patch("src.api.ws_runner.search_youtube_songs") as youtube_search, \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
             await session.handle_choice("refine_spotify_query")
@@ -857,6 +898,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "/play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", side_effect=[first_candidates, refined_candidates]) as search, \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
             await session.handle_choice("refine_query")
@@ -900,6 +942,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "/play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", side_effect=[first_candidates, refined_candidates]) as search, \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
             await session.handle_choice("refine_query:live%20acoustic")
@@ -950,6 +993,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
              patch("src.api.ws_runner.play_youtube_candidate", return_value=result) as play_candidate, \
              patch("src.api.ws_runner.upsert_cached_song"), \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
             await session.handle_choice("youtube_candidate:youtube_abc")
@@ -1017,6 +1061,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
              patch("src.api.ws_runner.play_youtube_candidate", return_value=pending_result), \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
             await session.handle_choice("youtube_candidate:youtube_abc")
@@ -1075,6 +1120,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
              patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
              patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
              patch("src.api.ws_runner.upsert_cached_song"), \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), \
              patch("src.api.ws_runner.play_youtube_candidate", return_value=result) as play_candidate:
             await runner.handle_ws(ws)  # type: ignore[arg-type]
@@ -1145,6 +1191,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
              patch("src.api.ws_runner.play_youtube_candidate", return_value=result), \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
             await session.handle_choice("youtube_candidate:youtube_abc")

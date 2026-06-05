@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
+import urllib.parse
+import urllib.request
+from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
 import yt_dlp
 
+from src.auth.store import get_provider_auth, load_auth_store
 from src.log import sonex_home
 from src.tools import cover_sources, spotify_play
 from src.tools.local_play import check_player
@@ -50,6 +55,20 @@ UNAVAILABLE_MESSAGE = (
     "Selected YouTube result is not available. "
     "Choose another candidate or refine the search."
 )
+ONLINE_AUDIO_SETUP_MESSAGE = (
+    "Online playback requires Jamendo or Audius setup. "
+    "Run /setup jamendo or /setup audius first."
+)
+
+
+class OnlineAudioSetupRequired(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class OnlineAudioConfig:
+    jamendo_client_id: str | None = None
+    audius_api_key: str | None = None
 
 
 def _song_cache_root(cache_root: Path | None = None) -> Path:
@@ -58,6 +77,38 @@ def _song_cache_root(cache_root: Path | None = None) -> Path:
 
 def _audio_cache_dir(cache_root: Path | None = None) -> Path:
     return _song_cache_root(cache_root) / "audio"
+
+
+def online_audio_config() -> OnlineAudioConfig:
+    jamendo_client_id = _text(
+        os_value("SONEX_JAMENDO_CLIENT_ID")
+        or os_value("JAMENDO_CLIENT_ID")
+    )
+    audius_api_key = _text(
+        os_value("SONEX_AUDIUS_API_KEY")
+        or os_value("AUDIUS_API_KEY")
+    )
+    try:
+        store = load_auth_store()
+    except Exception:
+        store = None
+    if store:
+        jamendo_auth = get_provider_auth(store, "jamendo")
+        audius_auth = get_provider_auth(store, "audius")
+        jamendo_client_id = jamendo_client_id or _text(jamendo_auth.api_key if jamendo_auth else None)
+        audius_api_key = audius_api_key or _text(audius_auth.api_key if audius_auth else None)
+    return OnlineAudioConfig(jamendo_client_id=jamendo_client_id, audius_api_key=audius_api_key)
+
+
+def os_value(name: str) -> str | None:
+    import os
+
+    return os.environ.get(name)
+
+
+def online_audio_configured(config: OnlineAudioConfig | None = None) -> bool:
+    resolved = config or online_audio_config()
+    return bool(resolved.jamendo_client_id or resolved.audius_api_key)
 
 
 def _text(value: Any) -> str | None:
@@ -337,6 +388,160 @@ def _quality_label(query: str, info: dict[str, Any], variant: str, similarity: i
     return "other"
 
 
+def _provider_cache_id(provider: str, provider_id: str | None, source_url: str | None = None) -> str:
+    if provider_id:
+        return f"{provider}_{provider_id}"
+    digest_source = source_url or provider
+    digest = hashlib.sha1(digest_source.encode("utf-8")).hexdigest()[:16]
+    return f"{provider}_{digest}"
+
+
+def _open_audio_candidate(
+    *,
+    provider: str,
+    provider_id: str | None,
+    query: str,
+    name: str,
+    artist: str,
+    album: str | None,
+    duration_ms: int,
+    cover_url: str | None,
+    source_url: str,
+    download_url: str | None,
+    webpage_url: str | None,
+    playback_metadata: dict[str, Any] | None = None,
+    extra_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    info = {
+        "id": provider_id,
+        "title": name,
+        "track": name,
+        "artist": artist,
+        "album": album,
+    }
+    variant = _variant_type(query, info)
+    similarity = _similarity_score(query, info)
+    quality = _quality_label(query, info, variant, similarity)
+    metadata = _canonical_metadata(playback_metadata or {})
+    candidate: dict[str, Any] = {
+        "provider": provider,
+        "id": provider_id,
+        "cache_id": _provider_cache_id(provider, provider_id, source_url),
+        "query": query,
+        "name": name,
+        "title": name,
+        "artist": artist or "-",
+        "artists": [artist] if artist else [],
+        "album": album or "-",
+        "duration_ms": duration_ms,
+        "album_cover_url": cover_url,
+        "cover_url": cover_url,
+        "source_url": source_url,
+        "download_url": download_url or source_url,
+        "webpage_url": webpage_url,
+        "url": webpage_url,
+        "stream_url": source_url,
+        "quality_label": quality,
+        "variant_type": variant,
+        "similarity_score": similarity,
+        "relevance_score": _relevance_score(query, info),
+        "popularity_score": 0,
+        "rank_reason": _rank_reason(variant, 0, _relevance_score(query, info), similarity, quality),
+        "playback_metadata": metadata,
+        "cached": False,
+        "is_playing": True,
+    }
+    if extra_metadata:
+        candidate["playback_metadata"] = {**metadata, **extra_metadata}
+    return _merge_canonical_metadata(candidate, metadata)
+
+
+def normalize_jamendo_track(
+    track: dict[str, Any],
+    *,
+    query: str,
+    playback_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    source_url = _text(track.get("audio"))
+    download_url = _text(track.get("audiodownload"))
+    if not source_url and not download_url:
+        return None
+    provider_id = _text(track.get("id"))
+    name = _text(track.get("name") or track.get("title") or query) or query
+    artist = _text(track.get("artist_name") or track.get("artist")) or "-"
+    cover_url = _text(track.get("album_image") or track.get("image"))
+    return _open_audio_candidate(
+        provider="jamendo",
+        provider_id=provider_id,
+        query=query,
+        name=name,
+        artist=artist,
+        album=_text(track.get("album_name") or track.get("album")),
+        duration_ms=_duration_ms(track.get("duration")),
+        cover_url=cover_url,
+        source_url=source_url or str(download_url),
+        download_url=download_url or source_url,
+        webpage_url=_text(track.get("shareurl") or track.get("shorturl")),
+        playback_metadata=playback_metadata,
+        extra_metadata={"tags": track.get("tags") or []},
+    )
+
+
+def _best_audius_artwork(track: dict[str, Any]) -> str | None:
+    artwork = track.get("artwork")
+    if not isinstance(artwork, dict):
+        return None
+    for key in ("1000x1000", "480x480", "150x150"):
+        url = _text(artwork.get(key))
+        if url:
+            return url
+    return None
+
+
+def _audius_user_name(track: dict[str, Any]) -> str | None:
+    user = track.get("user")
+    if isinstance(user, dict):
+        return _text(user.get("name") or user.get("handle"))
+    return None
+
+
+def _is_audius_stream_gated(track: dict[str, Any]) -> bool:
+    if bool(track.get("is_stream_gated")):
+        return True
+    availability = str(track.get("stream_conditions") or "").casefold()
+    return bool(availability and availability not in {"none", "null"})
+
+
+def normalize_audius_track(
+    track: dict[str, Any],
+    *,
+    query: str,
+    stream_url: str,
+    playback_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    if _is_audius_stream_gated(track):
+        return None
+    provider_id = _text(track.get("id"))
+    if not provider_id or not _text(stream_url):
+        return None
+    name = _text(track.get("title") or track.get("name") or query) or query
+    artist = _audius_user_name(track) or _text(track.get("artist")) or "-"
+    return _open_audio_candidate(
+        provider="audius",
+        provider_id=provider_id,
+        query=query,
+        name=name,
+        artist=artist,
+        album=_text(track.get("album") or track.get("playlist_name")),
+        duration_ms=_duration_ms(track.get("duration")),
+        cover_url=_best_audius_artwork(track),
+        source_url=stream_url,
+        download_url=stream_url,
+        webpage_url=_text(track.get("permalink") or track.get("permalink_url")),
+        playback_metadata=playback_metadata,
+    )
+
+
 def _popularity_tiebreaker(popularity: int) -> int:
     return round(math.log10(max(0, popularity) + 1) * 1000)
 
@@ -582,6 +787,192 @@ def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> li
     return [candidate for _, candidate in indexed]
 
 
+def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    quality_priority = {
+        "official_original": 4,
+        "clean_audio_match": 3,
+        "live": 2,
+        "other": 1,
+        "cover_like": -2,
+        "noisy_media": -3,
+    }
+    provider_priority = {"jamendo": 3, "audius": 2, "youtube": 1}
+
+    def score(pair: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int]:
+        index, candidate = pair
+        return (
+            int(candidate.get("similarity_score") or 0),
+            quality_priority.get(str(candidate.get("quality_label") or "other"), 0),
+            provider_priority.get(str(candidate.get("provider") or ""), 0),
+            -index,
+        )
+
+    indexed = list(enumerate(candidates))
+    indexed.sort(key=score, reverse=True)
+    return [candidate for _, candidate in indexed]
+
+
+def _credible_online_audio_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        candidate for candidate in candidates
+        if int(candidate.get("similarity_score") or 0) >= 45
+    ]
+
+
+def _json_get(url: str, *, headers: dict[str, str] | None = None, timeout: float = 10.0) -> dict[str, Any]:
+    request = urllib.request.Request(url, headers=headers or {})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = response.read().decode("utf-8")
+    data = json.loads(payload)
+    if not isinstance(data, dict):
+        raise RuntimeError("Invalid response returned.")
+    return data
+
+
+def search_jamendo_audio_candidates(
+    query: str,
+    *,
+    client_id: str,
+    limit: int = 5,
+    playback_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    params = urllib.parse.urlencode(
+        {
+            "client_id": client_id,
+            "format": "json",
+            "limit": max(1, min(20, int(limit or 5))),
+            "search": query,
+            "audioformat": "mp32",
+            "imagesize": 600,
+            "include": "musicinfo",
+        }
+    )
+    payload = _json_get(f"https://api.jamendo.com/v3.0/tracks/?{params}")
+    results = payload.get("results") or []
+    candidates = [
+        candidate
+        for item in results
+        if isinstance(item, dict)
+        for candidate in [normalize_jamendo_track(item, query=query, playback_metadata=playback_metadata)]
+        if candidate is not None
+    ]
+    return rank_online_audio_candidates(query, candidates)[: max(1, min(10, int(limit or 5)))]
+
+
+def _audius_stream_url(track_id: str) -> str:
+    return f"https://discoveryprovider.audius.co/v1/tracks/{urllib.parse.quote(track_id)}/stream?app_name=Sonex"
+
+
+def search_audius_audio_candidates(
+    query: str,
+    *,
+    api_key: str,
+    limit: int = 5,
+    playback_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    params = urllib.parse.urlencode(
+        {
+            "query": query,
+            "limit": max(1, min(20, int(limit or 5))),
+            "app_name": "Sonex",
+        }
+    )
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    payload = _json_get(f"https://discoveryprovider.audius.co/v1/tracks/search?{params}", headers=headers)
+    data = payload.get("data") or []
+    candidates = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        track_id = _text(item.get("id"))
+        if not track_id:
+            continue
+        candidate = normalize_audius_track(
+            item,
+            query=query,
+            stream_url=_audius_stream_url(track_id),
+            playback_metadata=playback_metadata,
+        )
+        if candidate:
+            candidates.append(candidate)
+    return rank_online_audio_candidates(query, candidates)[: max(1, min(10, int(limit or 5)))]
+
+
+def resolve_online_audio_candidates(
+    query: str,
+    limit: int = 5,
+    *,
+    cache_root: Path | None = None,
+    playback_metadata: dict[str, Any] | None = None,
+    config: OnlineAudioConfig | None = None,
+) -> list[dict[str, Any]]:
+    resolved_config = config or online_audio_config()
+    if not online_audio_configured(resolved_config):
+        raise OnlineAudioSetupRequired(ONLINE_AUDIO_SETUP_MESSAGE)
+
+    resolved_metadata = resolve_online_playback_metadata(query, playback_metadata)
+    search_query = str(resolved_metadata.get("youtube_query") or query).strip() or query
+    candidates: list[dict[str, Any]] = []
+    tried_open_source = False
+    if resolved_config.jamendo_client_id:
+        tried_open_source = True
+        try:
+            candidates.extend(
+                search_jamendo_audio_candidates(
+                    search_query,
+                    client_id=resolved_config.jamendo_client_id,
+                    limit=limit,
+                    playback_metadata=resolved_metadata,
+                )
+            )
+        except Exception:
+            pass
+    if resolved_config.audius_api_key:
+        tried_open_source = True
+        try:
+            candidates.extend(
+                search_audius_audio_candidates(
+                    search_query,
+                    api_key=resolved_config.audius_api_key,
+                    limit=limit,
+                    playback_metadata=resolved_metadata,
+                )
+            )
+        except Exception:
+            pass
+
+    candidates = _credible_online_audio_candidates(candidates)
+    if not candidates and tried_open_source:
+        candidates.extend(
+            search_youtube_songs(
+                search_query,
+                limit=limit,
+                cache_root=cache_root,
+                playback_metadata=resolved_metadata,
+            )
+        )
+    if not candidates:
+        raise RuntimeError("No valid online audio matches found.")
+    ranked = rank_online_audio_candidates(search_query, candidates)
+    bounded_limit = max(1, min(10, int(limit or 5)))
+    return ranked[:bounded_limit]
+
+
+def search_online_audio_candidates(
+    query: str,
+    limit: int = 5,
+    *,
+    cache_root: Path | None = None,
+    playback_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    return resolve_online_audio_candidates(
+        query,
+        limit=limit,
+        cache_root=cache_root,
+        playback_metadata=playback_metadata,
+    )
+
+
 def search_youtube_songs(
     query: str,
     limit: int = 5,
@@ -700,6 +1091,117 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
         item["cover_source_type"] = cover["source_type"]
     upsert_cached_song(item, cache_root=cache_root)
     return item
+
+
+def _extension_from_url(url: str, default: str = "mp3") -> str:
+    path = urllib.parse.urlparse(url).path
+    suffix = Path(path).suffix.lstrip(".").lower()
+    if suffix and len(suffix) <= 5:
+        return suffix
+    return default
+
+
+def download_open_audio_candidate(candidate: dict[str, Any], *, cache_root: Path | None = None) -> dict[str, Any]:
+    provider = str(candidate.get("provider") or "online")
+    if provider == "youtube":
+        return download_youtube_candidate(candidate, cache_root=cache_root)
+    cache_id = _text(candidate.get("cache_id")) or _provider_cache_id(provider, _text(candidate.get("id")), _text(candidate.get("download_url")))
+    cached = _cached_audio_item(cache_id, cache_root=cache_root)
+    if cached:
+        return cached
+    download_url = _text(candidate.get("download_url") or candidate.get("source_url") or candidate.get("stream_url"))
+    if not download_url:
+        raise RuntimeError("Unable to resolve a playable online audio URL.")
+
+    audio_dir = _audio_cache_dir(cache_root)
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    audio_ext = _extension_from_url(download_url)
+    audio_path = audio_dir / f"{cache_id}.{audio_ext}"
+    request = urllib.request.Request(download_url, headers={"User-Agent": "Sonex/1.0"})
+    with urllib.request.urlopen(request, timeout=30) as response, audio_path.open("wb") as output:
+        while True:
+            chunk = response.read(1024 * 256)
+            if not chunk:
+                break
+            output.write(chunk)
+
+    item = {
+        **candidate,
+        "cache_id": cache_id,
+        "audio_path": str(audio_path),
+        "audio_ext": audio_ext,
+        "stream_url": str(audio_path),
+        "cached": True,
+    }
+    upsert_cached_song(item, cache_root=cache_root)
+    return item
+
+
+def play_online_audio_candidate(
+    candidate: dict[str, Any],
+    *,
+    player: str = "auto",
+    cache_root: Path | None = None,
+) -> dict[str, Any]:
+    provider = str(candidate.get("provider") or "online")
+    if provider == "youtube":
+        return play_youtube_candidate(candidate, player=player, cache_root=cache_root)
+    try:
+        data = download_open_audio_candidate(candidate, cache_root=cache_root)
+    except Exception as exc:
+        return ToolResult.fail(
+            tool="play_youtube_song",
+            message=sanitize_message(str(exc)),
+            error_code="ONLINE_AUDIO_RESOLVE_FAILED",
+            data={"query": candidate.get("query"), "player": player, "method": "online_play", "provider": provider},
+        ).to_dict()
+
+    if player != "auto" and not check_player(player):
+        return ToolResult.error(
+            tool="play_youtube_song",
+            message=f"Player '{player}' is not ready.",
+            error_code="PLAYER_MISSED",
+            data={**data, "player": player, "method": "online_play"},
+        )
+
+    audio_path = str(data["audio_path"])
+    if player == "auto":
+        cmd = ["sonex-local-playback", "auto", audio_path]
+    elif player == "mpv":
+        cmd = ["mpv", "--no-video", audio_path]
+    elif player == "cvlc":
+        cmd = ["cvlc", "--no-video", audio_path]
+    else:
+        cmd = [player, "--play-and-exit", audio_path]
+    data = {**data, "player": player, "method": "online_play", "source": provider}
+    success_message = f"Playing '{data.get('query') or data.get('name')}' online started."
+
+    if not is_player_allowed(player):
+        return build_player_confirm_result(
+            tool="play_youtube_song",
+            player=player,
+            cmd=cmd,
+            success_message=success_message,
+            data={
+                **data,
+                "playback_source_url": audio_path,
+                "playback_source": provider,
+                "playback_metadata": data,
+            },
+        )
+
+    return start_local_playback(
+        tool="play_youtube_song",
+        source_url=audio_path,
+        source=provider,
+        metadata=data,
+        player=player,
+        success_message=success_message,
+    )
+
+
+def sanitize_message(message: str) -> str:
+    return message.strip() or "Online audio resolve failed."
 
 
 def play_youtube_candidate(

@@ -51,7 +51,18 @@ from src.memory.memory import memory_store
 from src.thinking.config import ThinkingConfig
 from src.tools import registry
 from src.tools.local_play import search_local_file
-from src.tools.online_play import play_youtube_candidate, search_spotify_track_candidates, search_youtube_songs
+from src.tools.online_play import (
+    ONLINE_AUDIO_SETUP_MESSAGE,
+    OnlineAudioSetupRequired,
+    online_audio_configured,
+    play_online_audio_candidate,
+    search_online_audio_candidates,
+    search_spotify_track_candidates,
+)
+
+# Backward-compatible runner patch points; these now resolve the unified online-audio layer.
+search_youtube_songs = search_online_audio_candidates
+play_youtube_candidate = play_online_audio_candidate
 from src.tools.playback_controller import controller as local_playback_controller
 from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
 from src.tools.cover_sources import cover_bytes_for_source
@@ -1243,6 +1254,69 @@ class AppleMusicSetupSession:
         setattr(self.ui, "_apple_music_setup", None)
 
 
+class OpenAudioSetupSession:
+    def __init__(self, ui: WebSocketUIAdapter, provider: str) -> None:
+        self.ui = ui
+        self.provider = provider
+
+    async def start(self) -> None:
+        label = "Jamendo Client ID" if self.provider == "jamendo" else "Audius API key"
+        message = f"Paste your {label}. It will be saved to auth.json for online playback."
+        await self.ui.append_activity(
+            kind="status",
+            title=f"{self.provider} setup",
+            detail=message,
+            status="pending",
+        )
+        await self.ui.send_auth_setup(
+            provider=self.provider,
+            step="api_key",
+            title=f"{self.provider} setup",
+            message=message,
+            prompt=label,
+            mask=True,
+        )
+
+    async def handle_input(self, value: str) -> None:
+        value = value.strip()
+        if not value:
+            await self.ui.send_auth_setup(
+                provider=self.provider,
+                step="api_key",
+                title=f"{self.provider} setup",
+                message="Input cannot be empty.",
+                prompt="API key",
+                mask=True,
+            )
+            return
+        try:
+            set_api_key(self.provider, value)
+        except Exception as exc:
+            await self.ui.send_auth_setup(
+                provider=self.provider,
+                step="api_key",
+                title=f"{self.provider} setup",
+                message=sanitize_error_message(exc),
+                prompt="API key",
+                mask=True,
+            )
+            return
+        await self.ui.append_activity(
+            kind="status",
+            title=f"{self.provider} configured",
+            detail=f"{self.provider} is configured for online playback.",
+            status="success",
+        )
+        await self.ui.send_auth_setup(
+            provider=self.provider,
+            step="done",
+            title=f"{self.provider} configured",
+            message=f"{self.provider} is configured for online playback.",
+            active=False,
+        )
+        setattr(self.ui, "_auth_setup", None)
+
+
 
 class ModelSelectionSession:
     def __init__(self, ui: WebSocketUIAdapter) -> None:
@@ -1555,10 +1629,10 @@ class PlaySelectionSession:
         self.active_confirm_id: str | None = None
         self.pending_player_confirm_result: dict[str, Any] | None = None
         self.spotify_candidates: list[dict[str, Any]] = []
-        self.youtube_candidates: list[dict[str, Any]] = []
+        self.online_audio_candidates: list[dict[str, Any]] = []
         self.selected_playback_metadata: dict[str, Any] | None = None
         self.awaiting_spotify_refinement = False
-        self.awaiting_youtube_refinement = False
+        self.awaiting_online_refinement = False
 
     async def start(self) -> None:
         if not self.query:
@@ -1616,20 +1690,20 @@ class PlaySelectionSession:
             if not extra:
                 await self.ui.append_activity(
                     kind="error",
-                    title="Refine YouTube search",
+                    title="Refine online audio search",
                     detail="Search details cannot be empty.",
                     status="error",
                 )
                 return
-            self.awaiting_youtube_refinement = False
+            self.awaiting_online_refinement = False
             self.query = f"{self.query} {extra}".strip()
-            await self._ask_youtube_candidates(self.query, playback_metadata=self.selected_playback_metadata)
+            await self._ask_online_audio_candidates(self.query, playback_metadata=self.selected_playback_metadata)
             return
         if choice == "refine_query":
-            self.awaiting_youtube_refinement = True
+            self.awaiting_online_refinement = True
             await self.ui.append_activity(
                 kind="status",
-                title="Refine YouTube search",
+                title="Refine online audio search",
                 detail="Send more song details to search again.",
                 status="pending",
             )
@@ -1649,18 +1723,18 @@ class PlaySelectionSession:
             self.selected_playback_metadata.setdefault("original_query", self.query)
             youtube_query = str(candidate.get("youtube_query") or f"{candidate.get('artist') or ''} {candidate.get('name') or ''}").strip()
             self.query = youtube_query or self.query
-            await self._ask_youtube_candidates(self.query, playback_metadata=self.selected_playback_metadata)
+            await self._ask_online_audio_candidates(self.query, playback_metadata=self.selected_playback_metadata)
             return
         if choice.startswith("youtube_candidate:"):
             cache_id = choice.partition(":")[2]
             candidate = next(
-                (item for item in self.youtube_candidates if str(item.get("cache_id")) == cache_id),
+                (item for item in self.online_audio_candidates if str(item.get("cache_id")) == cache_id),
                 None,
             )
             if candidate is None:
-                await self._finish("Selected YouTube candidate expired.", status="error")
+                await self._finish("Selected online audio candidate expired.", status="error")
                 return
-            result = await self._play_youtube_candidate(candidate)
+            result = await self._play_online_audio_candidate(candidate)
             if _is_failed_tool_result(result):
                 await self._finish("Online playback failed.", status="error")
             elif _is_player_confirm_result(result):
@@ -1685,6 +1759,8 @@ class PlaySelectionSession:
             await self._play_from_provider("apple_music_play", "apple_music")
             return
         if choice == "online_play":
+            if not await self._ensure_online_audio_setup():
+                return
             await self._ask_spotify_candidates(self.query)
             return
         await self._finish("Unknown playback choice.", status="error")
@@ -1704,21 +1780,38 @@ class PlaySelectionSession:
             self.query = f"{self.query} {extra}".strip()
             await self._ask_spotify_candidates(self.query)
             return True
-        if not self.awaiting_youtube_refinement:
+        if not self.awaiting_online_refinement:
             return False
         extra = text.strip()
         if not extra:
             await self.ui.append_activity(
                 kind="error",
-                title="Refine YouTube search",
+                title="Refine online audio search",
                 detail="Search details cannot be empty.",
                 status="error",
             )
             return True
-        self.awaiting_youtube_refinement = False
+        self.awaiting_online_refinement = False
         self.query = f"{self.query} {extra}".strip()
-        await self._ask_youtube_candidates(self.query, playback_metadata=self.selected_playback_metadata)
+        await self._ask_online_audio_candidates(self.query, playback_metadata=self.selected_playback_metadata)
         return True
+
+    async def _ensure_online_audio_setup(self) -> bool:
+        if online_audio_configured():
+            return True
+        await self._show_online_audio_setup_required()
+        return False
+
+    async def _show_online_audio_setup_required(self) -> None:
+        await self.ui.append_activity(
+            kind="error",
+            title="Online audio setup required",
+            detail=ONLINE_AUDIO_SETUP_MESSAGE,
+            status="error",
+        )
+        await self.ui.append_agent_message(ONLINE_AUDIO_SETUP_MESSAGE)
+        await self.ui.send_error(ONLINE_AUDIO_SETUP_MESSAGE)
+        await self._ask_method_choice()
 
     async def _ask_local_choice(self, local_file: str) -> None:
         await self._ask_confirm(
@@ -1751,7 +1844,7 @@ class PlaySelectionSession:
             self.spotify_candidates = []
         self.spotify_candidates = self.spotify_candidates[:5]
         if not self.spotify_candidates:
-            await self._ask_youtube_candidates(query)
+            await self._ask_online_audio_candidates(query)
             return
 
         choices = [self._spotify_candidate_choice(index, item) for index, item in enumerate(self.spotify_candidates)]
@@ -1782,10 +1875,10 @@ class PlaySelectionSession:
             "description": " · ".join(part for part in parts if part),
         }
 
-    async def _ask_youtube_candidates(self, query: str, playback_metadata: dict[str, Any] | None = None) -> None:
+    async def _ask_online_audio_candidates(self, query: str, playback_metadata: dict[str, Any] | None = None) -> None:
         await self.ui.append_activity(
             kind="tool",
-            title="Searching YouTube",
+            title="Searching online audio",
             detail=f"Finding online matches for {query}.",
             status="pending",
         )
@@ -1793,30 +1886,33 @@ class PlaySelectionSession:
             if playback_metadata:
                 metadata = dict(playback_metadata)
                 metadata["youtube_query"] = query
-                self.youtube_candidates = await asyncio.to_thread(
+                self.online_audio_candidates = await asyncio.to_thread(
                     search_youtube_songs,
                     query,
                     5,
                     playback_metadata=metadata,
                 )
             else:
-                self.youtube_candidates = await asyncio.to_thread(search_youtube_songs, query, 5)
+                self.online_audio_candidates = await asyncio.to_thread(search_youtube_songs, query, 5)
+        except OnlineAudioSetupRequired:
+            await self._show_online_audio_setup_required()
+            return
         except Exception as exc:
             result = {
                 "status": "fail",
                 "tool": "play_youtube_song",
                 "message": sanitize_error_message(exc),
-                "error_code": "YOUTUBE_RESOLVE_FAILED",
-                "data": {"query": query, "provider": "youtube", "method": "online_play"},
+                "error_code": "ONLINE_AUDIO_RESOLVE_FAILED",
+                "data": {"query": query, "provider": "online_audio", "method": "online_play"},
             }
             await self.runner._sync_tool_result_ui(self.ui, "play_youtube_song", result)
-            message = _friendly_runtime_error_message(result, fallback="YouTube search failed.")
+            message = _friendly_runtime_error_message(result, fallback="Online audio search failed.")
             await self.ui.append_agent_message(message)
             await self.ui.send_error(message)
             await self._finish("Online playback failed.", status="error")
             return
 
-        choices = [self._youtube_candidate_choice(item) for item in self.youtube_candidates]
+        choices = [self._online_audio_candidate_choice(item) for item in self.online_audio_candidates]
         choices.append(
             {
                 "value": "refine_query",
@@ -1825,18 +1921,19 @@ class PlaySelectionSession:
             }
         )
         await self._ask_confirm(
-            message="选择 YouTube 候选歌曲",
+            message="选择在线音源候选歌曲",
             choices=choices,
             tool_args={"query": query, "stage": "youtube_candidates"},
             tool_name="youtube_candidate",
         )
 
-    def _youtube_candidate_choice(self, candidate: dict[str, Any]) -> dict[str, Any]:
+    def _online_audio_candidate_choice(self, candidate: dict[str, Any]) -> dict[str, Any]:
         name = str(candidate.get("name") or candidate.get("title") or "-")
         artist = str(candidate.get("artist") or "-")
         duration = _duration_text(candidate.get("duration_ms"))
         cached = "cached" if candidate.get("cached") else "not cached"
-        parts = [_youtube_variant_label(candidate.get("variant_type"))]
+        provider = str(candidate.get("provider") or "online")
+        parts = [provider, _youtube_variant_label(candidate.get("variant_type"))]
         views = _compact_count(candidate.get("raw_view_count"))
         if views:
             parts.append(f"{views} views")
@@ -1942,10 +2039,10 @@ class PlaySelectionSession:
                 pass
         return result
 
-    async def _play_youtube_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
+    async def _play_online_audio_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
         await self.ui.append_activity(
             kind="tool",
-            title="Caching YouTube audio",
+            title="Caching online audio",
             detail="Downloading selected audio before local playback.",
             status="pending",
         )
@@ -2486,8 +2583,13 @@ class WebSocketRunner:
             await setup.start()
             setattr(ui, "_apple_music_setup", setup)
             return
+        if provider in {"jamendo", "audius"}:
+            setup = OpenAudioSetupSession(ui, provider)
+            setattr(ui, "_auth_setup", setup)
+            await setup.start()
+            return
 
-        message = "Unknown setup provider. Use /setup spotify or /setup apple_music."
+        message = "Unknown setup provider. Use /setup spotify, /setup apple_music, /setup jamendo, or /setup audius."
         await ui.append_activity(kind="error", title="Unknown setup provider", detail=message, status="error")
         await ui.append_agent_message(message)
 

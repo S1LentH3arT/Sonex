@@ -92,6 +92,187 @@ class OnlinePlayTests(unittest.TestCase):
         with patch("src.tools.spotify_play.spotify_search", side_effect=RuntimeError("no token")):
             self.assertEqual(online.search_spotify_track_candidates("query", limit=5), [])
 
+    def test_normalize_jamendo_track_keeps_stream_download_cover_and_metadata(self) -> None:
+        track = {
+            "id": "jam-1",
+            "name": "Canonical Song",
+            "artist_name": "Canonical Artist",
+            "album_name": "Canonical Album",
+            "duration": "201",
+            "audio": "https://audio.example/stream.mp3",
+            "audiodownload": "https://audio.example/download.mp3",
+            "album_image": "https://img.example/album.jpg",
+            "shareurl": "https://www.jamendo.com/track/1",
+            "tags": ["pop"],
+        }
+
+        candidate = online.normalize_jamendo_track(
+            track,
+            query="Canonical Artist Canonical Song",
+            playback_metadata={"metadata_source": "spotify", "name": "Canonical Song", "artist": "Canonical Artist"},
+        )
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertEqual(candidate["provider"], "jamendo")
+        self.assertEqual(candidate["id"], "jam-1")
+        self.assertEqual(candidate["cache_id"], "jamendo_jam-1")
+        self.assertEqual(candidate["name"], "Canonical Song")
+        self.assertEqual(candidate["artist"], "Canonical Artist")
+        self.assertEqual(candidate["album"], "Canonical Album")
+        self.assertEqual(candidate["duration_ms"], 201000)
+        self.assertEqual(candidate["source_url"], "https://audio.example/stream.mp3")
+        self.assertEqual(candidate["download_url"], "https://audio.example/download.mp3")
+        self.assertEqual(candidate["cover_url"], "https://img.example/album.jpg")
+        self.assertEqual(candidate["webpage_url"], "https://www.jamendo.com/track/1")
+        self.assertEqual(candidate["playback_metadata"]["metadata_source"], "spotify")
+
+    def test_normalize_jamendo_track_returns_none_without_playable_url(self) -> None:
+        candidate = online.normalize_jamendo_track(
+            {"id": "jam-1", "name": "Song", "artist_name": "Artist"},
+            query="Artist Song",
+        )
+
+        self.assertIsNone(candidate)
+
+    def test_normalize_jamendo_track_accepts_stream_without_download_url(self) -> None:
+        candidate = online.normalize_jamendo_track(
+            {
+                "id": "jam-2",
+                "name": "Stream Only",
+                "artist_name": "Artist",
+                "audio": "https://audio.example/stream-only.mp3",
+                "audiodownload_allowed": True,
+            },
+            query="Artist Stream Only",
+        )
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertEqual(candidate["source_url"], "https://audio.example/stream-only.mp3")
+        self.assertEqual(candidate["download_url"], "https://audio.example/stream-only.mp3")
+
+    def test_normalize_audius_track_uses_best_artwork_and_excludes_gated_tracks(self) -> None:
+        gated = online.normalize_audius_track(
+            {
+                "id": "aud-gated",
+                "title": "Gated Song",
+                "user": {"name": "Artist"},
+                "is_stream_gated": True,
+                "permalink": "https://audius.co/artist/gated",
+            },
+            query="Artist Gated Song",
+            stream_url="https://audius.example/stream/gated",
+        )
+        self.assertIsNone(gated)
+
+        candidate = online.normalize_audius_track(
+            {
+                "id": "aud-1",
+                "title": "Canonical Song",
+                "user": {"name": "Canonical Artist"},
+                "duration": 202,
+                "artwork": {
+                    "150x150": "https://img.example/150.jpg",
+                    "480x480": "https://img.example/480.jpg",
+                    "1000x1000": "https://img.example/1000.jpg",
+                },
+                "permalink": "https://audius.co/artist/song",
+            },
+            query="Canonical Artist Canonical Song",
+            stream_url="https://audius.example/stream/aud-1",
+        )
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertEqual(candidate["provider"], "audius")
+        self.assertEqual(candidate["cache_id"], "audius_aud-1")
+        self.assertEqual(candidate["source_url"], "https://audius.example/stream/aud-1")
+        self.assertEqual(candidate["download_url"], "https://audius.example/stream/aud-1")
+        self.assertEqual(candidate["cover_url"], "https://img.example/1000.jpg")
+        self.assertEqual(candidate["duration_ms"], 202000)
+
+    def test_resolve_online_audio_requires_configured_open_audio_source_before_youtube(self) -> None:
+        config = online.OnlineAudioConfig(jamendo_client_id=None, audius_api_key=None)
+
+        with patch("src.tools.online_play.search_youtube_songs") as youtube_search:
+            with self.assertRaisesRegex(online.OnlineAudioSetupRequired, "Jamendo or Audius"):
+                online.resolve_online_audio_candidates("Artist Song", config=config)
+
+        youtube_search.assert_not_called()
+
+    def test_resolve_online_audio_tries_youtube_only_after_configured_sources_fail(self) -> None:
+        config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
+        youtube_candidate = {
+            "provider": "youtube",
+            "cache_id": "youtube_yt-1",
+            "id": "yt-1",
+            "name": "Song",
+            "artist": "Artist",
+            "quality_label": "clean_audio_match",
+            "similarity_score": 92,
+        }
+
+        with patch("src.tools.online_play.search_jamendo_audio_candidates", return_value=[]) as jamendo_search, \
+             patch("src.tools.online_play.search_audius_audio_candidates") as audius_search, \
+             patch("src.tools.online_play.search_youtube_songs", return_value=[youtube_candidate]) as youtube_search:
+            candidates = online.resolve_online_audio_candidates("Artist Song", config=config)
+
+        jamendo_search.assert_called_once()
+        audius_search.assert_not_called()
+        youtube_search.assert_called_once()
+        self.assertEqual(candidates, [youtube_candidate])
+
+    def test_resolve_online_audio_filters_low_similarity_before_youtube_fallback(self) -> None:
+        config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
+        low_similarity = {
+            "provider": "jamendo",
+            "cache_id": "jamendo_wrong",
+            "id": "wrong",
+            "name": "Wrong Song",
+            "artist": "Other Artist",
+            "quality_label": "official_original",
+            "similarity_score": 24,
+        }
+        youtube_candidate = {
+            "provider": "youtube",
+            "cache_id": "youtube_yt-1",
+            "id": "yt-1",
+            "name": "Song",
+            "artist": "Artist",
+            "quality_label": "clean_audio_match",
+            "similarity_score": 92,
+        }
+
+        with patch("src.tools.online_play.search_jamendo_audio_candidates", return_value=[low_similarity]), \
+             patch("src.tools.online_play.search_youtube_songs", return_value=[youtube_candidate]) as youtube_search:
+            candidates = online.resolve_online_audio_candidates("Artist Song", config=config)
+
+        youtube_search.assert_called_once()
+        self.assertEqual(candidates, [youtube_candidate])
+
+    def test_rank_online_audio_candidates_uses_similarity_quality_before_provider_priority(self) -> None:
+        audius = {
+            "provider": "audius",
+            "id": "aud-1",
+            "name": "Canonical Song",
+            "artist": "Canonical Artist",
+            "similarity_score": 96,
+            "quality_label": "official_original",
+        }
+        jamendo = {
+            "provider": "jamendo",
+            "id": "jam-1",
+            "name": "Wrong Song",
+            "artist": "Other Artist",
+            "similarity_score": 55,
+            "quality_label": "official_original",
+        }
+
+        ranked = online.rank_online_audio_candidates("Canonical Artist Canonical Song", [jamendo, audius])
+
+        self.assertEqual([candidate["provider"] for candidate in ranked], ["audius", "jamendo"])
+
     def test_search_youtube_songs_returns_five_candidates_without_downloading(self) -> None:
         FakeYoutubeDL.responses = [
             {
