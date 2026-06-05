@@ -8,6 +8,7 @@ import {DynamicShell, isGenericAuthSetup, LoginScreen} from './components.js';
 import {clamp, trimList} from './chat-window.js';
 import {formatElapsed} from './format.js';
 import {useSonexSocket} from './hooks.js';
+import {LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing} from './launch-preparing.js';
 import {canUseFullPlaybackLayout, resolveShellLayout, type SmallPlaybackFocus, type TerminalSize} from './layout.js';
 import type {ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LayoutMode, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion} from './types.js';
 
@@ -31,6 +32,8 @@ export const App = () => {
     const [searchItems, setSearchItems] = useState<TrackSummary[]>([]);
     const [player, setPlayer] = useState<PlayerState>({name: "-", artist: "-", album: "-", duration_ms: 0, progress_ms: 0, is_playing: false});
     const [statusText, setStatusText] = useState("Snoozing...");
+    const [launchPreparing, setLaunchPreparing] = useState(false);
+    const [launchPreparingFrame, setLaunchPreparingFrame] = useState(0);
     const [elapsed, setElapsed] = useState<string | null>(null);
     const [tokens, setTokens] = useState<string | null>(null);
     const [showRunMetrics, setShowRunMetrics] = useState(false);
@@ -123,6 +126,14 @@ export const App = () => {
         setLoginApiKeyInput("");
     }, [authSetup?.step, authSetup?.provider]);
 
+    React.useEffect(() => {
+        if (!launchPreparing) return;
+        const timer = setInterval(() => {
+            setLaunchPreparingFrame((prev) => prev + 1);
+        }, LAUNCH_PREPARING_INTERVAL_MS);
+        return () => clearInterval(timer);
+    }, [launchPreparing]);
+
     const updateInput = React.useCallback((value: string) => {
         const sanitized = value.replace(/\x1B/g, "");
         setInput(sanitized);
@@ -162,8 +173,15 @@ export const App = () => {
                 break;
             case "activity":
                 setActivityItems((prev) => upsertActivity(prev, evt));
+                if (shouldStartLaunchPreparing(evt)) {
+                    setLaunchPreparing(true);
+                    setLaunchPreparingFrame(0);
+                } else if (evt.status === "success" || evt.status === "error") {
+                    setLaunchPreparing(false);
+                }
                 break;
             case "status":
+                setLaunchPreparing(evt.active !== false && evt.message === "Launch preparing...");
                 setStatusText(evt.message);
                 if (evt.active === false) {
                     setShowRunMetrics(false);
@@ -200,6 +218,7 @@ export const App = () => {
                 break;
             }
             case "player":
+                setLaunchPreparing(false);
                 setPlayer(evt.state);
                 if (evt.state.is_playing) {
                     setSmallPlaybackFocus("player");
@@ -223,6 +242,7 @@ export const App = () => {
 	                showError(evt.message, evt.detail, false);
 	                break;
             case "confirm":
+                setLaunchPreparing(false);
                 setSmallPlaybackFocus("chat");
                 setConfirm({
                     id: evt.id,
@@ -234,6 +254,7 @@ export const App = () => {
                 setConfirmIndex(0);
                 break;
             case "spotify_setup":
+                setLaunchPreparing(false);
                 setHelpPanel(null);
                 setSpotifySetup({
                     step: evt.step,
@@ -246,6 +267,7 @@ export const App = () => {
                 setStatusText(evt.title);
                 break;
             case "auth_setup":
+                setLaunchPreparing(false);
                 setHelpPanel(null);
                 setAuthSetup({
                     provider: evt.provider,
@@ -272,6 +294,7 @@ export const App = () => {
                 });
                 break;
             case "help_panel":
+                setLaunchPreparing(false);
                 setHelpPanel({
                     title: evt.title,
                     hint: evt.hint,
@@ -281,6 +304,7 @@ export const App = () => {
                 setStatusText(evt.title);
                 break;
             case "bye":
+                setLaunchPreparing(false);
                 setHelpPanel(null);
                 setHelpPanelIndex(0);
                 setStatusText(evt.message ?? `Session saved to ${evt.path}. Bye.`);
@@ -327,6 +351,7 @@ export const App = () => {
             : authSetup?.step === "model"
                 ? authSetup.models ?? []
                 : [];
+    const displayStatusText = launchPreparing ? launchPreparingText(launchPreparingFrame) : statusText;
 
     const submitLoginChoice = React.useCallback(() => {
         if (!authSetup?.active) return;
@@ -544,7 +569,7 @@ export const App = () => {
                     chatItems={chatItems}
                     queueItems={queueItems}
                     player={player}
-                    statusText={statusText}
+                    statusText={displayStatusText}
                     elapsed={elapsed}
                     tokens={tokens}
                     showRunMetrics={showRunMetrics}
