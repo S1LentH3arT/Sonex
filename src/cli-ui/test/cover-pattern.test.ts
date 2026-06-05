@@ -23,6 +23,8 @@ const pattern: CoverPatternPayload = {
 assert.equal(chooseCoverPatternVariant(pattern, {columns: 36, rows: 18})?.size, 36);
 assert.equal(chooseCoverPatternVariant(pattern, {columns: 52, rows: 26})?.size, 48);
 assert.equal(chooseCoverPatternVariant(pattern, {columns: 70, rows: 34})?.size, 64);
+assert.equal(chooseCoverPatternVariant(pattern, {columns: 70, rows: 34}, {maxSize: 48})?.size, 48);
+assert.equal(chooseCoverPatternVariant(pattern, {columns: 52, rows: 26}, {maxSize: 48})?.size, 48);
 assert.equal(chooseCoverPatternVariant(pattern, {columns: 10, rows: 4}), null);
 
 const rendered = renderCoverPatternHalfBlocks(pattern.variants[36]!, palette);

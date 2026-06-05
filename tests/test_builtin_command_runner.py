@@ -10,7 +10,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+from fastapi import WebSocketDisconnect
+
 from src.agent.core import AgentState
+from src.api import ws_runner
 from src.api.ws_runner import WebSocketRunner, _queue_payload
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
@@ -83,6 +86,52 @@ class FakeUI:
 
     def set_status(self, status: object) -> None:
         self.statuses.append(status)
+
+
+class FakeWebSocket:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, object]] = []
+        self.accepted = False
+        self._sent_user_input = False
+        self._sent_confirm_result = False
+        self._sent_youtube_candidate = False
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def send_text(self, text: str) -> None:
+        self.sent.append(json.loads(text))
+
+    async def receive_text(self) -> str:
+        if not self._sent_user_input:
+            self._sent_user_input = True
+            return json.dumps({"type": "user_input", "text": "/play Song Artist"})
+        if not self._sent_confirm_result:
+            confirm_id = next(
+                (
+                    str(event["id"])
+                    for event in self.sent
+                    if event.get("type") == "confirm" and event.get("tool_name") == "playback_choice"
+                ),
+                None,
+            )
+            if confirm_id:
+                self._sent_confirm_result = True
+                return json.dumps({"type": "confirm_result", "id": confirm_id, "decision": "online_play"})
+        if not self._sent_youtube_candidate:
+            confirm_id = next(
+                (
+                    str(event["id"])
+                    for event in self.sent
+                    if event.get("type") == "confirm" and event.get("tool_name") == "youtube_candidate"
+                ),
+                None,
+            )
+            if confirm_id:
+                self._sent_youtube_candidate = True
+                return json.dumps({"type": "confirm_result", "id": confirm_id, "decision": "youtube_candidate:youtube_abc"})
+        await asyncio.sleep(0)
+        raise WebSocketDisconnect()
 
 
 class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
@@ -467,7 +516,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 "artist": "Artist",
                 "album": "Album",
                 "duration_ms": 180000,
-                "album_cover_url": "https://i.ytimg.com/vi/abc/maxresdefault.jpg",
+                "album_cover_url": "https://coverartarchive.org/release-group/mbid/front-500",
                 "url": "https://www.youtube.com/watch?v=abc",
                 "stream_url": "https://stream.example/audio",
                 "is_playing": True,
@@ -485,7 +534,32 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["youtube_url"], "https://www.youtube.com/watch?v=abc")
         self.assertIsNone(player_events[-1]["state"]["apple_music_url"])
         self.assertTrue(cover_events)
-        self.assertEqual(cover_events[-1]["url"], "https://i.ytimg.com/vi/abc/maxresdefault.jpg")
+        self.assertEqual(cover_events[-1]["url"], "https://coverartarchive.org/release-group/mbid/front-500")
+
+    async def test_online_play_result_without_official_cover_does_not_send_youtube_thumbnail(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        result = {
+            "status": "success",
+            "tool": "play_youtube_song",
+            "message": "Playing 'Song Artist' online started.",
+            "data": {
+                "provider": "youtube",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration_ms": 180000,
+                "thumbnail": "https://i.ytimg.com/vi/abc/maxresdefault.jpg",
+                "url": "https://www.youtube.com/watch?v=abc",
+                "stream_url": "/cache/audio/youtube_abc.webm",
+                "is_playing": True,
+            },
+        }
+
+        with patch("src.api.ws_runner.remember_recent_track"):
+            await runner._sync_tool_result_ui(ui, "play_youtube_song", result)
+
+        self.assertFalse([event for event in ui.events if event.get("type") == "cover"])
 
     async def test_failed_online_play_result_does_not_enter_player_mode(self) -> None:
         runner = WebSocketRunner()
@@ -535,21 +609,329 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 "is_playing": True,
             },
         }
+        candidate = {
+            "cache_id": "youtube_abc",
+            "id": "abc",
+            "youtube_id": "abc",
+            "name": "Song",
+            "artist": "Artist",
+            "duration_ms": 180000,
+            "cached": False,
+        }
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
             await runner._handle_user_input(ui, "/play Song Artist")
         session = getattr(ui, "_play_selection")
-        with patch("src.api.ws_runner.registry.invoke", return_value=result), \
+        with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
+             patch("src.api.ws_runner.play_youtube_candidate", return_value=result), \
              patch("src.api.ws_runner.upsert_cached_song"), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
+            await session.handle_choice("youtube_candidate:youtube_abc")
 
         activities = [event for event in ui.events if event.get("type") == "activity"]
-        self.assertTrue(any(event.get("status") == "pending" and "online source" in str(event.get("detail")) for event in activities))
+        self.assertTrue(any(event.get("status") == "pending" and "Downloading selected audio" in str(event.get("detail")) for event in activities))
         player_events = [event for event in ui.events if event.get("type") == "player"]
         self.assertTrue(player_events)
         self.assertEqual(player_events[-1]["state"]["name"], "Song")
+
+    async def test_online_play_choice_sends_youtube_candidate_list(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        candidates = [
+            {
+                "cache_id": f"youtube_id{idx}",
+                "id": f"id{idx}",
+                "youtube_id": f"id{idx}",
+                "name": f"Song {idx}",
+                "artist": f"Channel {idx}",
+                "duration_ms": (60 + idx) * 1000,
+                "cached": idx == 1,
+                "variant_type": "live" if idx == 1 else "official_original",
+                "raw_view_count": 1_500_000 if idx == 1 else 500_000,
+            }
+            for idx in range(5)
+        ]
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play Song Artist")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_youtube_songs", return_value=candidates), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["tool_name"], "youtube_candidate")
+        self.assertEqual(confirm_events[-1]["tool_args"]["stage"], "youtube_candidates")
+        self.assertEqual(
+            [choice["value"] for choice in confirm_events[-1]["choices"]],
+            [
+                "youtube_candidate:youtube_id0",
+                "youtube_candidate:youtube_id1",
+                "youtube_candidate:youtube_id2",
+                "youtube_candidate:youtube_id3",
+                "youtube_candidate:youtube_id4",
+                "refine_query",
+            ],
+        )
+        self.assertIn("cached", confirm_events[-1]["choices"][1]["description"])
+        self.assertIn("Live", confirm_events[-1]["choices"][1]["description"])
+        self.assertIn("1.5M views", confirm_events[-1]["choices"][1]["description"])
+        self.assertIn("原音", confirm_events[-1]["choices"][0]["description"])
+
+    async def test_youtube_candidate_refine_appends_next_input_and_researches(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        first_candidates = [
+            {
+                "cache_id": "youtube_first",
+                "id": "first",
+                "youtube_id": "first",
+                "name": "First",
+                "artist": "Channel",
+                "duration_ms": 60000,
+                "cached": False,
+            }
+        ]
+        refined_candidates = [
+            {
+                "cache_id": "youtube_refined",
+                "id": "refined",
+                "youtube_id": "refined",
+                "name": "Refined",
+                "artist": "Channel",
+                "duration_ms": 65000,
+                "cached": False,
+            }
+        ]
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play Song Artist")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_youtube_songs", side_effect=[first_candidates, refined_candidates]) as search, \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+            await session.handle_choice("refine_query")
+            await runner._handle_user_input(ui, "live acoustic")
+
+        self.assertEqual(search.call_args_list[0].args[0], "Song Artist")
+        self.assertEqual(search.call_args_list[1].args[0], "Song Artist live acoustic")
+        self.assertFalse(runner._run_agent_turn.called)
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["choices"][0]["value"], "youtube_candidate:youtube_refined")
+
+    async def test_youtube_candidate_choice_downloads_cache_and_plays_local_audio(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        candidate = {
+            "cache_id": "youtube_abc",
+            "id": "abc",
+            "youtube_id": "abc",
+            "name": "Song",
+            "artist": "Artist",
+            "duration_ms": 180000,
+            "cached": False,
+        }
+        result = {
+            "status": "success",
+            "tool": "play_youtube_song",
+            "message": "Playing 'Song Artist' online started.",
+            "data": {
+                "provider": "youtube",
+                "source": "youtube",
+                "player": "mpv",
+                "session_id": "session-1",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "-",
+                "duration_ms": 180000,
+                "progress_ms": 0,
+                "timestamp": 1,
+                "is_playing": True,
+                "stream_url": "/cache/audio/youtube_abc.webm",
+                "audio_path": "/cache/audio/youtube_abc.webm",
+            },
+        }
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play Song Artist")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
+             patch("src.api.ws_runner.play_youtube_candidate", return_value=result) as play_candidate, \
+             patch("src.api.ws_runner.upsert_cached_song"), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+            await session.handle_choice("youtube_candidate:youtube_abc")
+
+        play_candidate.assert_called_once()
+        self.assertEqual(play_candidate.call_args.args[0]["cache_id"], "youtube_abc")
+        self.assertEqual(play_candidate.call_args.kwargs["player"], "auto")
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertEqual(player_events[-1]["state"]["stream_url"], "/cache/audio/youtube_abc.webm")
+
+    async def test_online_play_choice_handles_player_launch_confirmation(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        pending_result = {
+            "status": "requires_player_confirm",
+            "tool": "play_youtube_song",
+            "message": "Sonex wants to open auto local player.",
+            "data": {
+                "provider": "youtube",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration_ms": 180000,
+                "url": "https://www.youtube.com/watch?v=abc",
+                "stream_url": "https://stream.example/audio",
+                "is_playing": True,
+                "player": "auto",
+                "player_label": "auto local player",
+                "confirm_message": "Sonex wanna open auto local player, confirm?",
+                "choices": [
+                    {"value": "mpv", "label": "🎧 mpv", "description": "recommended for smoother background playback."},
+                    {"value": "cvlc", "label": "📻 VLC", "description": "fallback background player using the VLC rc interface."},
+                    {"value": "deny", "label": "取消"},
+                ],
+            },
+        }
+        success_result = {
+            "status": "success",
+            "tool": "play_youtube_song",
+            "message": "Playing 'Song Artist' online started.",
+            "data": {
+                "provider": "youtube",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration_ms": 180000,
+                "url": "https://www.youtube.com/watch?v=abc",
+                "stream_url": "https://stream.example/audio",
+                "is_playing": True,
+            },
+        }
+        candidate = {
+            "cache_id": "youtube_abc",
+            "id": "abc",
+            "youtube_id": "abc",
+            "name": "Song",
+            "artist": "Artist",
+            "duration_ms": 180000,
+            "cached": False,
+        }
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play Song Artist")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
+             patch("src.api.ws_runner.play_youtube_candidate", return_value=pending_result), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+            await session.handle_choice("youtube_candidate:youtube_abc")
+
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["tool_name"], "play_youtube_song")
+        self.assertEqual([choice["value"] for choice in confirm_events[-1]["choices"]], ["mpv", "cvlc", "deny"])
+        self.assertIs(getattr(ui, "_play_selection"), session)
+
+        with patch("src.api.ws_runner.complete_player_confirm", return_value=success_result) as complete, \
+             patch("src.api.ws_runner.upsert_cached_song"), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("mpv")
+
+        complete.assert_called_once_with(pending_result, "mpv")
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertTrue(player_events)
+        self.assertEqual(player_events[-1]["state"]["name"], "Song")
+        self.assertIsNone(getattr(ui, "_play_selection"))
+
+    async def test_online_play_confirm_result_from_websocket_invokes_playback(self) -> None:
+        runner = WebSocketRunner()
+        ws = FakeWebSocket()
+        result = {
+            "status": "success",
+            "tool": "play_youtube_song",
+            "message": "Playing 'Song Artist' online started.",
+            "data": {
+                "provider": "youtube",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration_ms": 180000,
+                "url": "https://www.youtube.com/watch?v=abc",
+                "stream_url": "https://stream.example/audio",
+                "is_playing": True,
+            },
+        }
+        candidate = {
+            "cache_id": "youtube_abc",
+            "id": "abc",
+            "youtube_id": "abc",
+            "name": "Song",
+            "artist": "Artist",
+            "duration_ms": 180000,
+            "cached": False,
+        }
+
+        async def idle_sync(_ui: object) -> None:
+            return None
+
+        with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
+             patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
+             patch.object(runner, "_sync_local_playback", side_effect=idle_sync), \
+             patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
+             patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
+             patch("src.api.ws_runner.upsert_cached_song"), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), \
+             patch("src.api.ws_runner.play_youtube_candidate", return_value=result) as play_candidate:
+            await runner.handle_ws(ws)  # type: ignore[arg-type]
+
+        play_candidate.assert_called_once()
+        self.assertEqual(play_candidate.call_args.args[0]["cache_id"], "youtube_abc")
+        player_events = [event for event in ws.sent if event.get("type") == "player"]
+        self.assertTrue(player_events)
+        self.assertEqual(player_events[-1]["state"]["name"], "Song")
+
+    def test_project_local_playback_state_advances_without_status_probe(self) -> None:
+        state = {
+            "name": "Song",
+            "artist": "Artist",
+            "album": "Album",
+            "duration_ms": 10_000,
+            "progress_ms": 2_000,
+            "timestamp": 1_000,
+            "is_playing": True,
+        }
+
+        projected = ws_runner._project_local_playback_state(state, 4_000)
+
+        self.assertEqual(projected["progress_ms"], 5_000)
+        self.assertEqual(projected["timestamp"], 4_000)
+        self.assertTrue(projected["is_playing"])
+
+    def test_project_local_playback_state_marks_ended_at_duration(self) -> None:
+        state = {
+            "name": "Song",
+            "artist": "Artist",
+            "album": "Album",
+            "duration_ms": 3_000,
+            "progress_ms": 2_500,
+            "timestamp": 1_000,
+            "is_playing": True,
+        }
+
+        projected = ws_runner._project_local_playback_state(state, 2_000)
+
+        self.assertEqual(projected["progress_ms"], 3_000)
+        self.assertFalse(projected["is_playing"])
+        self.assertTrue(projected["ended"])
 
     async def test_online_play_choice_reports_failure_to_chat_and_error(self) -> None:
         runner = WebSocketRunner()
@@ -561,14 +943,25 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "error_code": "PLAYER_START_FAILED",
             "data": {"query": "Song Artist", "method": "online_play", "provider": "youtube"},
         }
+        candidate = {
+            "cache_id": "youtube_abc",
+            "id": "abc",
+            "youtube_id": "abc",
+            "name": "Song",
+            "artist": "Artist",
+            "duration_ms": 180000,
+            "cached": False,
+        }
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
             await runner._handle_user_input(ui, "/play Song Artist")
         session = getattr(ui, "_play_selection")
-        with patch("src.api.ws_runner.registry.invoke", return_value=result), \
+        with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
+             patch("src.api.ws_runner.play_youtube_candidate", return_value=result), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
+            await session.handle_choice("youtube_candidate:youtube_abc")
 
         self.assertFalse([event for event in ui.events if event.get("type") == "player"])
         self.assertTrue(any(
@@ -688,6 +1081,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with (
             patch("src.api.ws_runner.spotify_current_playback", return_value=failure),
+            patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline),
             patch("src.api.ws_runner.asyncio.sleep", side_effect=stop_after_two_sleeps),
         ):
             await runner._sync_spotify_playback(ui)

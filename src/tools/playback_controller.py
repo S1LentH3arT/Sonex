@@ -5,6 +5,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -22,6 +23,11 @@ PlaybackSource = Literal["local", "youtube", "spotify", "apple_music"]
 
 def _timestamp_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _player_debug(message: str) -> None:
+    if os.environ.get("SONEX_PLAYER_DEBUG") == "1":
+        print(f"[sonex-player-debug] {message}", file=sys.stderr)
 
 
 @dataclass(frozen=True)
@@ -135,6 +141,9 @@ class MpvPlaybackAdapter:
             [
                 "mpv",
                 "--no-video",
+                "--cache=yes",
+                "--demuxer-readahead-secs=30",
+                "--demuxer-max-bytes=256MiB",
                 f"--input-ipc-server={self.socket_path}",
                 self.source_url,
             ],
@@ -240,6 +249,7 @@ class CvlcRcPlaybackAdapter:
             [
                 "cvlc",
                 "--no-video",
+                "--network-caching=5000",
                 "--extraintf",
                 "oldrc",
                 "--rc-unix",
@@ -377,6 +387,7 @@ class LocalPlaybackController:
             try:
                 return adapter, adapter.start()
             except Exception as exc:
+                _player_debug(f"{candidate} start failed: {exc}")
                 failures.append(f"{candidate}: {exc}")
                 try:
                     adapter.stop()

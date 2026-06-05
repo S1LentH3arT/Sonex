@@ -6,9 +6,17 @@ from typing import Any
 from src.tools.result import ToolResult
 
 PLAYER_CONFIRM_CHOICES = [
-    {"value": "allow_always", "label": "Yes and don't ask again"},
-    {"value": "allow_once", "label": "Yes for once"},
-    {"value": "deny", "label": "Nope"},
+    {
+        "value": "mpv",
+        "label": "🎧 mpv",
+        "description": "recommended for smoother background playback.",
+    },
+    {
+        "value": "cvlc",
+        "label": "📻 VLC",
+        "description": "fallback background player using the VLC rc interface.",
+    },
+    {"value": "deny", "label": "取消"},
 ]
 
 _ALLOWED_PLAYERS: set[str] = set()
@@ -32,7 +40,7 @@ def player_label(player: str) -> str:
         "auto": "auto local player",
         "vlc": "VLC",
         "mpv": "mpv",
-        "cvlc": "cvlc",
+        "cvlc": "VLC",
     }
     return known.get(normalize_player(player), player)
 
@@ -82,7 +90,7 @@ def normalize_confirm_decision(decision: Any) -> str:
         return "deny"
 
     decision_text = str(decision).strip().lower()
-    if decision_text in {"allow_always", "allow_once", "deny"}:
+    if decision_text in {"allow_always", "allow_once", "mpv", "cvlc", "vlc", "deny"}:
         return decision_text
     if decision_text in {"yes", "true", "ok"}:
         return "allow_once"
@@ -133,8 +141,14 @@ def complete_player_confirm(pending_result: dict[str, Any], decision: Any) -> di
             data=_public_data(data),
         ).to_dict()
 
+    selected_player = "cvlc" if normalized == "vlc" else normalized
+    if selected_player in {"allow_once", "allow_always"}:
+        selected_player = player
+
     if normalized == "allow_always":
         remember_player(player)
+    elif selected_player in {"mpv", "cvlc"}:
+        remember_player(selected_player)
 
     cmd = data.get("cmd")
     if not isinstance(cmd, list) or not all(isinstance(part, str) for part in cmd):
@@ -156,14 +170,14 @@ def complete_player_confirm(pending_result: dict[str, Any], decision: Any) -> di
             source_url=playback_source_url,
             source=playback_source,  # type: ignore[arg-type]
             metadata=playback_metadata,
-            player=player,
-            success_message=str(data.get("success_message") or f"Playing via {player} started."),
+            player=selected_player,
+            success_message=str(data.get("success_message") or f"Playing via {selected_player} started."),
         )
 
     return launch_player_command(
         tool=tool,
-        player=player,
+        player=selected_player,
         cmd=cmd,
-        success_message=str(data.get("success_message") or f"Playing via {player} started."),
+        success_message=str(data.get("success_message") or f"Playing via {selected_player} started."),
         data=_public_data(data),
     )

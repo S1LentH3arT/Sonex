@@ -20,7 +20,8 @@ dependencies = [
     "uvicorn[standard]",
     "spotipy",
     "yt-dlp",
-    "Pillow"
+    "Pillow",
+    "mutagen"
 ]
 
 [project.scripts]

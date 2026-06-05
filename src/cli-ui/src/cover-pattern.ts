@@ -16,6 +16,10 @@ export type CoverPatternVariant = {
     grid: number[][];
 };
 
+export type CoverPatternVariantOptions = {
+    maxSize?: 36 | 48 | 64;
+};
+
 export type HalfBlockCell = {
     char: '▀';
     foreground: string;
@@ -27,10 +31,12 @@ const SIZES: Array<36 | 48 | 64> = [64, 48, 36];
 export function chooseCoverPatternVariant(
     pattern: CoverPatternPayload | null,
     space: TerminalSpace,
+    options: CoverPatternVariantOptions = {},
 ): CoverPatternVariant | null {
     if (!pattern || !space.columns || !space.rows) return null;
 
     for (const size of SIZES) {
+        if (options.maxSize && size > options.maxSize) continue;
         const grid = pattern.variants[size];
         if (!grid || grid.length !== size) continue;
         if (space.columns >= size && space.rows >= size / 2) {

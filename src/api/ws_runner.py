@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import queue
+import sys
 import threading
 import time
 import uuid
@@ -49,8 +50,11 @@ from src.memory.memory import memory_store
 from src.thinking.config import ThinkingConfig
 from src.tools import registry
 from src.tools.local_play import search_local_file
+from src.tools.online_play import play_youtube_candidate, search_youtube_songs
 from src.tools.playback_controller import controller as local_playback_controller
-from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern
+from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
+from src.tools.cover_sources import cover_bytes_for_source
+from src.tools.player_permission import complete_player_confirm
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
 from src.tools.spotify_play import remember_recent_track, recent_tracks_snapshot, spotify_current_playback, \
     spotify_account
@@ -63,6 +67,8 @@ LOCAL_PLAYBACK_CONTROL_TOOLS = {
     "stop": "local_playback_stop",
     "progress": "local_playback_status",
 }
+LOCAL_PLAYBACK_SYNC_INTERVAL_SECONDS = 1.0
+LOCAL_PLAYBACK_STATUS_PROBE_SECONDS = 15.0
 LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
 PLAYBACK_METHOD_CHOICES = [
     {
@@ -87,6 +93,13 @@ LOCAL_PLAYBACK_CHOICES = [
     {"value": "skip_local", "label": "不播放本地，选择其他方式"},
     {"value": "cancel", "label": "取消"},
 ]
+
+
+def _player_debug(message: str) -> None:
+    if os.environ.get("SONEX_PLAYER_DEBUG") == "1":
+        print(f"[sonex-player-debug] {message}", file=sys.stderr)
+
+
 SPOTIFY_SETUP_TRIGGERS = {
     "spotify setup",
     "setup spotify",
@@ -349,13 +362,24 @@ def _new_event_id(prefix: str) -> str:
 
 async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
     try:
-        payload = await asyncio.to_thread(fetch_cover_pattern, source_url)
+        image_bytes = cover_bytes_for_source(source_url)
+        if image_bytes is not None:
+            payload = await asyncio.to_thread(generate_cover_pattern, source_url, image_bytes)
+        elif _is_http_cover_source(source_url):
+            payload = await asyncio.to_thread(fetch_cover_pattern, source_url)
+        else:
+            return
     except CoverPatternError:
         return
     except Exception:
         return
     if not ui.closed:
         await ui._send(payload)
+
+
+def _is_http_cover_source(source: str) -> bool:
+    lowered = source.lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
 
 
 def _coerce_transcript_messages(messages: Any) -> list[dict[str, str]]:
@@ -468,6 +492,10 @@ def _is_failed_tool_result(result: Any) -> bool:
     return str(result.get("status") or "").lower() in {"fail", "failure", "error"}
 
 
+def _is_player_confirm_result(result: Any) -> bool:
+    return isinstance(result, dict) and result.get("status") == "requires_player_confirm"
+
+
 def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something went wrong.") -> str:
     if isinstance(result, dict):
         code = str(result.get("error_code") or "")
@@ -503,7 +531,9 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
         progress_ms = item.get("progress_ms") or 0
         timestamp = item.get("timestamp") or item.get("started_at") or _timestamp_ms()
         is_playing = bool(item.get("is_playing")) if "is_playing" in item else False
-        cover_url = item.get("album_cover_url") or item.get("image_url") or item.get("cover_url")
+        cover_url = item.get("cover_source") or item.get("album_cover_url") or item.get("image_url") or item.get("cover_url")
+        if item.get("provider") == "youtube" and not item.get("cover_source_type") and _is_youtube_thumbnail(cover_url):
+            cover_url = None
 
         if not (name or artist or album or duration_ms or cover_url):
             continue
@@ -537,6 +567,10 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
     return None, None
 
 
+def _is_youtube_thumbnail(value: Any) -> bool:
+    return isinstance(value, str) and "ytimg.com/" in value
+
+
 def _extract_tracks(result: Any) -> list[dict[str, Any]]:
     if not isinstance(result, dict):
         return []
@@ -555,6 +589,33 @@ def _duration_text(ms: Any) -> str:
     minutes = total_seconds // 60
     seconds = total_seconds % 60
     return f"{minutes}:{seconds:02d}"
+
+
+def _compact_count(value: Any) -> str | None:
+    try:
+        count = max(0, int(float(value or 0)))
+    except (TypeError, ValueError):
+        return None
+    if count <= 0:
+        return None
+    if count >= 1_000_000_000:
+        text = f"{count / 1_000_000_000:.1f}B"
+    elif count >= 1_000_000:
+        text = f"{count / 1_000_000:.1f}M"
+    elif count >= 1_000:
+        text = f"{count / 1_000:.1f}K"
+    else:
+        text = str(count)
+    return text.replace(".0", "")
+
+
+def _youtube_variant_label(value: Any) -> str:
+    variant = str(value or "other")
+    if variant == "official_original":
+        return "原音"
+    if variant == "live":
+        return "Live"
+    return "其他"
 
 
 def _queue_payload() -> list[dict[str, str]]:
@@ -611,6 +672,26 @@ def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
         progress_bucket,
         state.get("volume_percent"),
     )
+
+
+def _project_local_playback_state(state: dict[str, Any], now_ms: int) -> dict[str, Any]:
+    payload = dict(state)
+    progress_ms = int(payload.get("progress_ms") or 0)
+    duration_ms = int(payload.get("duration_ms") or 0)
+    timestamp = int(payload.get("timestamp") or now_ms)
+    is_playing = payload.get("is_playing") is True
+
+    if is_playing:
+        progress_ms += max(0, now_ms - timestamp)
+        if duration_ms > 0:
+            progress_ms = min(duration_ms, progress_ms)
+            if progress_ms >= duration_ms:
+                payload["is_playing"] = False
+                payload["ended"] = True
+
+    payload["progress_ms"] = progress_ms
+    payload["timestamp"] = now_ms
+    return payload
 
 
 def _is_spotify_setup_request(text: str) -> bool:
@@ -1471,6 +1552,9 @@ class PlaySelectionSession:
         self.local_file: str | None = None
         self.cache_hit: dict[str, Any] | None = None
         self.active_confirm_id: str | None = None
+        self.pending_player_confirm_result: dict[str, Any] | None = None
+        self.youtube_candidates: list[dict[str, Any]] = []
+        self.awaiting_youtube_refinement = False
 
     async def start(self) -> None:
         if not self.query:
@@ -1493,11 +1577,43 @@ class PlaySelectionSession:
 
     async def handle_choice(self, decision: Any) -> None:
         choice = str(decision or "cancel")
+        if self.pending_player_confirm_result:
+            await self._complete_player_confirmation(choice)
+            return
+
         if choice in {"deny", "cancel"}:
             await self._finish("Playback cancelled.", status="error")
             return
+        if choice == "refine_query":
+            self.awaiting_youtube_refinement = True
+            await self.ui.append_activity(
+                kind="status",
+                title="Refine YouTube search",
+                detail="Send more song details to search again.",
+                status="pending",
+            )
+            return
+        if choice.startswith("youtube_candidate:"):
+            cache_id = choice.partition(":")[2]
+            candidate = next(
+                (item for item in self.youtube_candidates if str(item.get("cache_id")) == cache_id),
+                None,
+            )
+            if candidate is None:
+                await self._finish("Selected YouTube candidate expired.", status="error")
+                return
+            result = await self._play_youtube_candidate(candidate)
+            if _is_failed_tool_result(result):
+                await self._finish("Online playback failed.", status="error")
+            elif _is_player_confirm_result(result):
+                return
+            else:
+                await self._finish("Online playback selected.")
+            return
         if choice == "play_local":
-            await self._invoke_playback("play_local_song", {"query": self.query, "player": "auto"})
+            result = await self._invoke_playback("play_local_song", {"query": self.query, "player": "auto"})
+            if _is_player_confirm_result(result):
+                return
             await self._finish("Local playback selected.")
             return
         if choice == "skip_local":
@@ -1511,18 +1627,26 @@ class PlaySelectionSession:
             await self._play_from_provider("apple_music_play", "apple_music")
             return
         if choice == "online_play":
-            result = await self._invoke_playback(
-                "play_youtube_song",
-                {"query": self.query, "player": "auto"},
-                cache_provider="youtube",
-                pending_detail="Resolving online source and starting local playback.",
-            )
-            if _is_failed_tool_result(result):
-                await self._finish("Online playback failed.", status="error")
-            else:
-                await self._finish("Online playback selected.")
+            await self._ask_youtube_candidates(self.query)
             return
         await self._finish("Unknown playback choice.", status="error")
+
+    async def handle_refinement(self, text: str) -> bool:
+        if not self.awaiting_youtube_refinement:
+            return False
+        extra = text.strip()
+        if not extra:
+            await self.ui.append_activity(
+                kind="error",
+                title="Refine YouTube search",
+                detail="Search details cannot be empty.",
+                status="error",
+            )
+            return True
+        self.awaiting_youtube_refinement = False
+        self.query = f"{self.query} {extra}".strip()
+        await self._ask_youtube_candidates(self.query)
+        return True
 
     async def _ask_local_choice(self, local_file: str) -> None:
         await self._ask_confirm(
@@ -1542,7 +1666,69 @@ class PlaySelectionSession:
             tool_args=tool_args,
         )
 
-    async def _ask_confirm(self, *, message: str, choices: list[dict[str, Any]], tool_args: dict[str, Any]) -> None:
+    async def _ask_youtube_candidates(self, query: str) -> None:
+        await self.ui.append_activity(
+            kind="tool",
+            title="Searching YouTube",
+            detail=f"Finding online matches for {query}.",
+            status="pending",
+        )
+        try:
+            self.youtube_candidates = await asyncio.to_thread(search_youtube_songs, query, 5)
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": "play_youtube_song",
+                "message": sanitize_error_message(exc),
+                "error_code": "YOUTUBE_RESOLVE_FAILED",
+                "data": {"query": query, "provider": "youtube", "method": "online_play"},
+            }
+            await self.runner._sync_tool_result_ui(self.ui, "play_youtube_song", result)
+            message = _friendly_runtime_error_message(result, fallback="YouTube search failed.")
+            await self.ui.append_agent_message(message)
+            await self.ui.send_error(message)
+            await self._finish("Online playback failed.", status="error")
+            return
+
+        choices = [self._youtube_candidate_choice(item) for item in self.youtube_candidates]
+        choices.append(
+            {
+                "value": "refine_query",
+                "label": "没有想听的歌曲？试试补充更多信息",
+                "description": "Close this list and use your next message to refine the YouTube search.",
+            }
+        )
+        await self._ask_confirm(
+            message="选择 YouTube 候选歌曲",
+            choices=choices,
+            tool_args={"query": query, "stage": "youtube_candidates"},
+            tool_name="youtube_candidate",
+        )
+
+    def _youtube_candidate_choice(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        name = str(candidate.get("name") or candidate.get("title") or "-")
+        artist = str(candidate.get("artist") or "-")
+        duration = _duration_text(candidate.get("duration_ms"))
+        cached = "cached" if candidate.get("cached") else "not cached"
+        parts = [_youtube_variant_label(candidate.get("variant_type"))]
+        views = _compact_count(candidate.get("raw_view_count"))
+        if views:
+            parts.append(f"{views} views")
+        parts.extend([duration, cached])
+        return {
+            "value": f"youtube_candidate:{candidate.get('cache_id')}",
+            "label": f"{name} - {artist}",
+            "description": " · ".join(parts),
+        }
+
+    async def _ask_confirm(
+        self,
+        *,
+        message: str,
+        choices: list[dict[str, Any]],
+        tool_args: dict[str, Any],
+        tool_name: str = "playback_choice",
+    ) -> None:
         confirm_id = _new_event_id("confirm")
         self.active_confirm_id = confirm_id
         await self.ui.append_activity(
@@ -1556,7 +1742,7 @@ class PlaySelectionSession:
             {
                 "type": "confirm",
                 "id": confirm_id,
-                "tool_name": "playback_choice",
+                "tool_name": tool_name,
                 "tool_args": tool_args,
                 "message": message,
                 "choices": choices,
@@ -1568,7 +1754,9 @@ class PlaySelectionSession:
         cached_item = self._cached_item_for_provider(provider)
         if cached_item and cached_item.get("uri"):
             args = {"uri": cached_item["uri"], "query": self.query}
-        await self._invoke_playback(tool_name, args, cache_provider=provider)
+        result = await self._invoke_playback(tool_name, args, cache_provider=provider)
+        if _is_player_confirm_result(result):
+            return
         await self._finish(f"{provider.replace('_', ' ').title()} playback selected.")
 
     def _cached_item_for_provider(self, provider: str) -> dict[str, Any] | None:
@@ -1611,6 +1799,9 @@ class PlaySelectionSession:
                 "data": args,
             }
         await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
+        if _is_player_confirm_result(result):
+            await self._ask_player_confirm(result)
+            return result
         if _is_failed_tool_result(result):
             message = _friendly_runtime_error_message(result, fallback="Playback failed.")
             await self.ui.append_agent_message(message)
@@ -1624,6 +1815,76 @@ class PlaySelectionSession:
             except Exception:
                 pass
         return result
+
+    async def _play_youtube_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        await self.ui.append_activity(
+            kind="tool",
+            title="Caching YouTube audio",
+            detail="Downloading selected audio before local playback.",
+            status="pending",
+        )
+        try:
+            result = await asyncio.to_thread(play_youtube_candidate, candidate, player="auto")
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": "play_youtube_song",
+                "message": sanitize_error_message(exc),
+                "error_code": "PLAYBACK_FAILED",
+                "data": candidate,
+            }
+        await self.runner._sync_tool_result_ui(self.ui, "play_youtube_song", result)
+        if _is_player_confirm_result(result):
+            await self._ask_player_confirm(result)
+            return result
+        if _is_failed_tool_result(result):
+            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
+            await self.ui.append_agent_message(message)
+            await self.ui.send_error(message)
+        if isinstance(result, dict) and result.get("status") == "success":
+            try:
+                await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
+            except Exception:
+                pass
+        return result
+
+    async def _ask_player_confirm(self, result: dict[str, Any]) -> None:
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        self.pending_player_confirm_result = result
+        await self._ask_confirm(
+            message=str(data.get("confirm_message") or result.get("message") or "Confirm player launch."),
+            choices=data.get("choices") if isinstance(data.get("choices"), list) else [],
+            tool_args={
+                "query": self.query,
+                "stage": "player_confirm",
+                "tool": result.get("tool"),
+                "player": data.get("player"),
+                "player_label": data.get("player_label"),
+            },
+            tool_name=str(result.get("tool") or "player"),
+        )
+
+    async def _complete_player_confirmation(self, decision: Any) -> None:
+        pending = self.pending_player_confirm_result
+        self.pending_player_confirm_result = None
+        if not pending:
+            await self._finish("Player confirmation expired.", status="error")
+            return
+        tool_name = str(pending.get("tool") or "player")
+        result = await asyncio.to_thread(complete_player_confirm, pending, decision)
+        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
+        if _is_failed_tool_result(result):
+            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
+            await self.ui.append_agent_message(message)
+            await self.ui.send_error(message)
+            await self._finish("Playback failed.", status="error")
+            return
+        if isinstance(result, dict) and result.get("status") == "success":
+            try:
+                await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
+            except Exception:
+                pass
+        await self._finish("Online playback selected.")
 
     async def _finish(self, detail: str, *, status: str = "success") -> None:
         setattr(self.ui, "_play_selection", None)
@@ -1772,17 +2033,32 @@ class WebSocketRunner:
 
     async def _sync_local_playback(self, ui: WebSocketUIAdapter) -> None:
         last_signature: tuple[Any, ...] | None = None
+        last_payload: dict[str, Any] | None = None
+        next_status_probe_at = 0.0
         while not ui.closed:
             try:
-                state = await asyncio.to_thread(local_playback_controller.status)
-                payload = state.to_dict()
+                now = time.monotonic()
+                should_probe = now >= next_status_probe_at
+                if should_probe:
+                    probe_started = time.monotonic()
+                    state = await asyncio.to_thread(local_playback_controller.status)
+                    _player_debug(f"local playback status probe {int((time.monotonic() - probe_started) * 1000)}ms")
+                    payload = state.to_dict()
+                    next_status_probe_at = now + LOCAL_PLAYBACK_STATUS_PROBE_SECONDS
+                else:
+                    payload = _project_local_playback_state(last_payload, _timestamp_ms()) if last_payload else None
+                if payload is None:
+                    await asyncio.sleep(LOCAL_PLAYBACK_SYNC_INTERVAL_SECONDS)
+                    continue
                 signature = _player_sync_signature(payload)
                 if signature != last_signature:
                     await ui._send({"type": "player", "state": payload})
                     last_signature = signature
+                last_payload = payload
             except Exception:
-                pass
-            await asyncio.sleep(2)
+                last_payload = None
+                next_status_probe_at = time.monotonic() + LOCAL_PLAYBACK_STATUS_PROBE_SECONDS
+            await asyncio.sleep(LOCAL_PLAYBACK_SYNC_INTERVAL_SECONDS)
 
     async def _handle_user_input(self, ui: WebSocketUIAdapter, user_input: str) -> None:
         user_input = user_input.strip()
@@ -1790,6 +2066,10 @@ class WebSocketRunner:
             return
 
         await ui.append_user_message(user_input)
+
+        play_selection = getattr(ui, "_play_selection", None)
+        if play_selection and await play_selection.handle_refinement(user_input):
+            return
 
         parsed_command = parse_builtin_command(user_input)
         if parsed_command is not None:

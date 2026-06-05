@@ -39,6 +39,70 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertTrue(state.is_playing)
         self.assertEqual(self.controller.current_session_id, "session-1")
 
+    def test_mpv_start_uses_network_buffering_options(self) -> None:
+        adapter = playback.MpvPlaybackAdapter(
+            source_url="https://stream.example/audio",
+            source="youtube",
+            metadata={"name": "Song"},
+        )
+        expected_state = playback.PlayerState(
+            provider="youtube",
+            source="youtube",
+            player="mpv",
+            session_id=adapter.session_id,
+            name="Song",
+            artist="-",
+            album="-",
+            duration_ms=0,
+            progress_ms=0,
+            timestamp=1,
+            is_playing=True,
+        )
+        process = Mock()
+        process.poll.return_value = None
+
+        with patch.object(playback.shutil, "which", return_value="/usr/bin/mpv"), \
+             patch.object(playback.subprocess, "Popen", return_value=process) as popen, \
+             patch.object(playback.os.path, "exists", return_value=True), \
+             patch.object(adapter, "status", return_value=expected_state):
+            adapter.start()
+
+        command = popen.call_args.args[0]
+        self.assertIn("--cache=yes", command)
+        self.assertIn("--demuxer-readahead-secs=30", command)
+        self.assertIn("--demuxer-max-bytes=256MiB", command)
+
+    def test_cvlc_start_uses_network_buffering_options(self) -> None:
+        adapter = playback.CvlcRcPlaybackAdapter(
+            source_url="https://stream.example/audio",
+            source="youtube",
+            metadata={"name": "Song"},
+        )
+        expected_state = playback.PlayerState(
+            provider="youtube",
+            source="youtube",
+            player="cvlc",
+            session_id=adapter.session_id,
+            name="Song",
+            artist="-",
+            album="-",
+            duration_ms=0,
+            progress_ms=0,
+            timestamp=1,
+            is_playing=True,
+        )
+        process = Mock()
+        process.poll.return_value = None
+
+        with patch.object(playback.shutil, "which", return_value="/usr/bin/cvlc"), \
+             patch.object(playback.subprocess, "Popen", return_value=process) as popen, \
+             patch.object(playback.os.path, "exists", return_value=True), \
+             patch.object(adapter, "status", return_value=expected_state):
+            adapter.start()
+
+        command = popen.call_args.args[0]
+        self.assertIn("--network-caching=5000", command)
+
     def test_auto_play_falls_back_to_cvlc_when_mpv_fails(self) -> None:
         mpv_adapter = Mock()
         mpv_adapter.start.side_effect = RuntimeError("mpv missing")

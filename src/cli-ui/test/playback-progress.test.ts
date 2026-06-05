@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import {PLAYBACK_PROGRESS_INTERVAL_MS, playbackProgressAt} from '../src/hooks.js';
 
-assert.equal(PLAYBACK_PROGRESS_INTERVAL_MS, 250);
+assert.equal(PLAYBACK_PROGRESS_INTERVAL_MS, 1000);
 assert.equal(playbackProgressAt({
     name: "Song",
     artist: "Artist",

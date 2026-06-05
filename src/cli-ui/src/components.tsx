@@ -5,8 +5,8 @@ import {APP_TIP_PLACEHOLDER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBAC
 import {HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow} from './command-panel.js';
 import {buildProgressBar, formatDuration} from './format.js';
 import {getVisibleChatWindow} from './chat-window.js';
-import {useCoverArt, usePlaybackProgress} from './hooks.js';
-import {coverVisualFromSource, rhythmFrameForPlayback, type CoverVisualModel} from './cover-visual.js';
+import {isHttpCoverSource, useCoverArt, usePlaybackProgress} from './hooks.js';
+import {coverVisualFromSource, type CoverVisualModel} from './cover-visual.js';
 import {chooseCoverPatternVariant, renderCoverPatternHalfBlocks, type CoverPatternPayload, type TerminalSpace} from './cover-pattern.js';
 import {resolveMiniPlayerChrome, type ShellLayout, type SmallPlaybackFocus} from './layout.js';
 import type {ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackSummary} from './types.js';
@@ -474,14 +474,18 @@ const CoverAtmosphere = ({visual, art, compact}: {
     );
 };
 
-const CoverPatternArt = ({pattern, space}: {
+const CoverPatternArt = React.memo(({pattern, space, maxSize}: {
     pattern: CoverPatternPayload;
     space: TerminalSpace;
+    maxSize?: 36 | 48 | 64;
 }) => {
-    const variant = chooseCoverPatternVariant(pattern, space);
-    if (!variant) return null;
+    const variant = React.useMemo(
+        () => chooseCoverPatternVariant(pattern, space, maxSize ? {maxSize} : undefined),
+        [pattern, space, maxSize],
+    );
+    const rows = React.useMemo(() => renderCoverPatternHalfBlocks(variant?.grid ?? [], pattern.palette), [variant, pattern.palette]);
 
-    const rows = renderCoverPatternHalfBlocks(variant.grid, pattern.palette);
+    if (!variant) return null;
     return (
         <Box flexDirection="column">
             {rows.map((row, rowIndex) => (
@@ -495,7 +499,68 @@ const CoverPatternArt = ({pattern, space}: {
             ))}
         </Box>
     );
-};
+});
+
+const StaticCover = React.memo(({visual, coverUrl, coverPattern, terminalSpace, compact}: {
+    visual: CoverVisualModel;
+    coverUrl: string | null;
+    coverPattern: CoverPatternPayload | null;
+    terminalSpace?: TerminalSpace;
+    compact: boolean;
+}) => {
+    const maxSize = compact ? 48 : 36;
+    const chosenPattern = coverPattern && terminalSpace
+        ? chooseCoverPatternVariant(coverPattern, terminalSpace, {maxSize})
+        : null;
+    const hasCoverPattern = Boolean(coverPattern && terminalSpace && chosenPattern);
+    const compactCoverWidth = Math.max(22, Math.min(48, (terminalSpace?.columns ?? 40) - 6));
+    const compactCoverHeight = Math.max(8, Math.min(24, (terminalSpace?.rows ?? 22) - 8));
+    const fetchableCoverUrl = !hasCoverPattern && isHttpCoverSource(coverUrl) ? coverUrl : null;
+    const {art, failed} = useCoverArt(fetchableCoverUrl, compact ? compactCoverWidth : 32, compact ? compactCoverHeight : 16);
+    const resolvedVisual = React.useMemo(() => coverVisualFromSource(coverUrl, failed), [coverUrl, failed]);
+    const patternRequestedAt = React.useRef<number | null>(null);
+
+    React.useEffect(() => {
+        if (process.env.SONEX_PLAYER_DEBUG !== '1') return;
+        if (!coverUrl) {
+            patternRequestedAt.current = null;
+            return;
+        }
+        if (!coverPattern) {
+            if (patternRequestedAt.current === null) {
+                patternRequestedAt.current = Date.now();
+            }
+            return;
+        }
+        if (patternRequestedAt.current !== null) {
+            console.error(`[sonex-player-debug] cover pattern arrived in ${Date.now() - patternRequestedAt.current}ms url=${coverUrl}`);
+            patternRequestedAt.current = null;
+        }
+    }, [coverUrl, coverPattern]);
+
+    if (hasCoverPattern && coverPattern && terminalSpace) {
+        return (
+            <Box flexGrow={compact ? 1 : 0} flexShrink={1} minHeight={compact ? compactCoverHeight : undefined} alignItems="center" justifyContent="center">
+                <CoverPatternArt pattern={coverPattern} space={terminalSpace} maxSize={maxSize}/>
+            </Box>
+        );
+    }
+
+    if (compact) {
+        return (
+            <Box flexGrow={1} flexShrink={1} minHeight={compactCoverHeight} alignItems="center" justifyContent="center">
+                <CoverAtmosphere visual={resolvedVisual} art={art} compact={compact}/>
+            </Box>
+        );
+    }
+
+    return (
+        <Box width={36} paddingRight={2} flexDirection="column">
+            <CoverAtmosphere visual={resolvedVisual} art={art} compact={compact}/>
+            <Text color={visual.muted}>{resolvedVisual.status === "fallback" ? "cover atmosphere" : "cover palette"}</Text>
+        </Box>
+    );
+});
 
 const PlayerMascot = ({visual, frame, compact}: {
     visual: CoverVisualModel;
@@ -548,20 +613,25 @@ const TrackDetails = ({player, compact}: {player: PlayerState; compact: boolean}
     </Box>
 );
 
-const PlaybackMeter = ({progress, duration, progressBar, visual, isPlaying}: {
-    progress: string;
-    duration: string;
-    progressBar: string;
+const PlaybackMeter = ({player, visual, compact = false}: {
+    player: PlayerState;
     visual: CoverVisualModel;
-    isPlaying: boolean;
-}) => (
-    <Box flexDirection="column" marginTop={1}>
-        <Text>
-            <Text color="#bf98a7">{progress}</Text> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
-        </Text>
-        <Text color={isPlaying ? visual.accent : "#7f5d6b"}>{isPlaying ? "playing" : "paused"}</Text>
-    </Box>
-);
+    compact?: boolean;
+}) => {
+    const progressMs = usePlaybackProgress(player);
+    const progress = formatDuration(progressMs);
+    const duration = formatDuration(player.duration_ms);
+    const progressBar = buildProgressBar(progressMs, player.duration_ms, compact ? 14 : 18);
+    const isPlaying = player.is_playing === true;
+    return (
+        <Box flexDirection="column" marginTop={1}>
+            <Text>
+                <Text color="#bf98a7">{progress}</Text> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
+            </Text>
+            {!compact ? <Text color={isPlaying ? visual.accent : "#7f5d6b"}>{isPlaying ? "playing" : "paused"}</Text> : null}
+        </Box>
+    );
+};
 
 const PlayerPane = ({player, coverUrl, coverPattern, terminalSpace, variant = "full"}: {
     player: PlayerState,
@@ -571,55 +641,33 @@ const PlayerPane = ({player, coverUrl, coverPattern, terminalSpace, variant = "f
     variant?: PlayerPaneVariant
 }) => {
     const compact = variant === "compact";
-    const {art, failed} = useCoverArt(coverUrl, compact ? 14 : 32, compact ? 7 : 16);
-    const visual = React.useMemo(() => coverVisualFromSource(coverUrl, failed), [coverUrl, failed]);
-    const duration = formatDuration(player.duration_ms);
-    const progressMs = usePlaybackProgress(player);
-    const progress = formatDuration(progressMs);
-    const progressBar = buildProgressBar(progressMs, player.duration_ms, compact ? 14 : 18);
-    const isPlaying = player.is_playing === true;
-    const rhythmFrame = rhythmFrameForPlayback(isPlaying, progressMs, visual.seed);
-    const compactPattern = compact && coverPattern && terminalSpace
-        ? chooseCoverPatternVariant(coverPattern, terminalSpace)
-        : null;
+    const visual = React.useMemo(() => coverVisualFromSource(coverUrl, false), [coverUrl]);
 
-    if (compact && compactPattern && coverPattern && terminalSpace) {
+    if (compact) {
         return (
-            <Box flexDirection="column" flexGrow={0} flexShrink={1} minHeight={8} padding={1} paddingX={1}>
-                <Box marginBottom={1}>
-                    <Text bold color={visual.accent}>Playing</Text>
-                </Box>
-                <CoverPatternArt pattern={coverPattern} space={terminalSpace}/>
-                <Box flexDirection="column" marginTop={1}>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={8} padding={1} paddingX={1}>
+                <StaticCover visual={visual} coverUrl={coverUrl} coverPattern={coverPattern ?? null} terminalSpace={terminalSpace} compact={compact}/>
+                <Box flexDirection="column" marginTop={1} flexShrink={0}>
                     <TrackDetails player={player} compact={compact}/>
-                    <PlaybackMeter progress={progress} duration={duration} progressBar={progressBar} visual={visual} isPlaying={isPlaying}/>
-                    <PlayerMascot visual={visual} frame={rhythmFrame} compact={compact}/>
+                    <PlaybackMeter player={player} visual={visual} compact={compact}/>
                 </Box>
             </Box>
         );
     }
 
     return (
-        <Box flexDirection="column" flexGrow={compact ? 0 : 1} flexShrink={1} minHeight={compact ? 8 : 20} padding={1} paddingX={compact ? 1 : 2}>
-            <Box marginBottom={compact ? 0 : 1}>
-                <Text bold color={visual.accent}>{compact ? "Playing" : "Now Playing Stage"}</Text>
-            </Box>
+        <Box flexDirection="column" flexGrow={compact ? 1 : 1} flexShrink={1} minHeight={compact ? 8 : 20} padding={1} paddingX={compact ? 1 : 2}>
+            {!compact ? (
+                <Box marginBottom={1}>
+                    <Text bold color={visual.accent}>Now Playing Stage</Text>
+                </Box>
+            ) : null}
             <Box marginTop={compact ? 0 : 1}>
-                {!compact && (
-                    <Box width={36} paddingRight={2} flexDirection="column">
-                        <CoverAtmosphere visual={visual} art={art} compact={compact}/>
-                        <Text color={visual.muted}>{visual.status === "fallback" ? "cover atmosphere" : "cover palette"}</Text>
-                    </Box>
-                )}
-                {compact ? (
-                    <Box width={18} paddingRight={1} flexDirection="column">
-                        <CoverAtmosphere visual={visual} art={art} compact={compact}/>
-                    </Box>
-                ) : null}
-                <Box flexDirection="column" flexGrow={1} paddingTop={compact ? 0 : 1}>
+                {!compact ? <StaticCover visual={visual} coverUrl={coverUrl} coverPattern={coverPattern ?? null} terminalSpace={terminalSpace} compact={compact}/> : null}
+                <Box flexDirection="column" flexGrow={compact ? 0 : 1} flexShrink={0} paddingTop={compact ? 1 : 1}>
                     <TrackDetails player={player} compact={compact}/>
-                    <PlaybackMeter progress={progress} duration={duration} progressBar={progressBar} visual={visual} isPlaying={isPlaying}/>
-                    <PlayerMascot visual={visual} frame={rhythmFrame} compact={compact}/>
+                    <PlaybackMeter player={player} visual={visual} compact={compact}/>
+                    {!compact ? <PlayerMascot visual={visual} frame={0} compact={compact}/> : null}
                 </Box>
             </Box>
         </Box>
@@ -1019,7 +1067,7 @@ export const DynamicShell = ({
             {showPlaybackSidebar ? (
                 <Box width="55%" minWidth={62} height="100%" flexDirection="column" borderLeft={true} borderStyle="single" borderColor={layoutPulse ? "#f3b2c6" : BORDER_BLUE} flexGrow={1} flexShrink={0} minHeight={0}>
                     <QueuePane tracks={queueItems}/>
-                    <PlayerPane player={player} coverUrl={coverUrl}/>
+                    <PlayerPane player={player} coverUrl={coverUrl} coverPattern={coverPattern} terminalSpace={terminalSpace}/>
                 </Box>
             ) : null}
         </Box>

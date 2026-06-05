@@ -41,6 +41,41 @@ class SongCacheTests(unittest.TestCase):
             self.assertEqual(recent[0]["name"], "Song 100")
             self.assertEqual(recent[-1]["name"], "Song 91")
 
+    def test_prune_deletes_audio_file_referenced_by_stale_item(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            stale_audio = root / "audio" / "stale.webm"
+            stale_audio.parent.mkdir(parents=True)
+            stale_audio.write_bytes(b"stale-audio")
+
+            upsert_cached_song(
+                {
+                    "cache_id": "youtube_stale",
+                    "name": "Stale Song",
+                    "artist": "Stale Artist",
+                    "album": "-",
+                    "provider": "youtube",
+                    "audio_path": str(stale_audio),
+                },
+                cache_root=root,
+                now=0,
+            )
+            for idx in range(100):
+                upsert_cached_song(
+                    {
+                        "cache_id": f"youtube_fresh_{idx}",
+                        "name": f"Fresh {idx}",
+                        "artist": "Artist",
+                        "album": "-",
+                        "provider": "youtube",
+                    },
+                    cache_root=root,
+                    now=idx + 1,
+                )
+
+            self.assertFalse(stale_audio.exists())
+            self.assertIsNone(find_best_cached_song("Stale Song", cache_root=root))
+
     def test_resolve_cached_song_reads_full_item_json(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

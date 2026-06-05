@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {Box, useApp, useInput, useStdin, useStdout} from 'ink';
 import {buildErrorActivity, upsertActivity} from './activity.js';
 import {completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions} from './commands.js';
+import {resolveConfirmDecisionFromInput} from './confirm-choice.js';
 import {DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl} from './constants.js';
 import {DynamicShell, isGenericAuthSetup, LoginScreen} from './components.js';
 import {clamp, trimList} from './chat-window.js';
@@ -359,6 +360,15 @@ export const App = () => {
         const text = value.trim();
         if (!text) return;
 
+        if (confirm) {
+            const decision = resolveConfirmDecisionFromInput(text, confirm.choices);
+            if (!decision) return;
+            setInput("");
+            send({type: "confirm_result", id: confirm.id, decision});
+            setConfirm(null);
+            return;
+        }
+
         const command = matchingSlashCommand(text);
         const suggestions = slashCommandSuggestions(text);
         if (!authSetup?.active && !spotifySetup?.active && (command?.name === "bye" || command?.name === "quit")) {
@@ -401,7 +411,7 @@ export const App = () => {
         if (resolvedLayout === "miniPlayer" && !LOCAL_PLAYBACK_COMMANDS.has(command?.name ?? "")) {
             setSmallPlaybackFocus("chat");
         }
-    }, [applySlashCompletion, authSetup?.active, requestSafeExit, resolvedLayout, selectedSlashCommand, send, spotifySetup?.active]);
+    }, [applySlashCompletion, authSetup?.active, confirm, requestSafeExit, resolvedLayout, selectedSlashCommand, send, spotifySetup?.active]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {

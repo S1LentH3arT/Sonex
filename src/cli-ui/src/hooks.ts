@@ -4,7 +4,7 @@ import terminalImage from 'terminal-image';
 import {API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE} from './constants.js';
 import type {ClientEvent, PlayerState, ServerEvent} from './types.js';
 
-export const PLAYBACK_PROGRESS_INTERVAL_MS = 250;
+export const PLAYBACK_PROGRESS_INTERVAL_MS = 1000;
 
 export function playbackProgressAt(player: PlayerState, now: number): number {
     const base = player.progress_ms ?? 0;
@@ -46,21 +46,31 @@ export function useCoverArt(url: string | null, width = 32, height = 16): {art: 
         setFailed(false);
 
         const load = async () => {
+            const start = Date.now();
             try {
                 const response = await fetch(url);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
+                const fetchedAt = Date.now();
                 const arrayBuffer = await response.arrayBuffer();
                 const rendered = await terminalImage.buffer(Buffer.from(arrayBuffer), {
                     width,
                     height,
                     preserveAspectRatio: true,
                 });
+                if (process.env.SONEX_PLAYER_DEBUG === '1') {
+                    const decodedAt = Date.now();
+                    console.error(`[sonex-player-debug] cover fetch ${fetchedAt - start}ms decode ${decodedAt - fetchedAt}ms url=${url}`);
+                }
                 if (!cancelled) {
                     setArt(rendered);
                 }
-            } catch {
+            } catch (err) {
+                if (process.env.SONEX_PLAYER_DEBUG === '1') {
+                    const detail = err instanceof Error ? err.message : String(err);
+                    console.error(`[sonex-player-debug] cover fetch/decode failed after ${Date.now() - start}ms: ${detail}`);
+                }
                 if (!cancelled) {
                     setFailed(true);
                 }
@@ -75,6 +85,10 @@ export function useCoverArt(url: string | null, width = 32, height = 16): {art: 
     }, [url, width, height]);
 
     return {art, failed};
+}
+
+export function isHttpCoverSource(url: string | null): boolean {
+    return Boolean(url && /^https?:\/\//i.test(url));
 }
 
 export function useLatestCallback<T>(callback: T): React.MutableRefObject<T> {

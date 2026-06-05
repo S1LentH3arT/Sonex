@@ -99,7 +99,23 @@ def _merge_provider_details(existing: dict[str, Any], incoming: dict[str, Any]) 
     return merged
 
 
-def _prune(conn: sqlite3.Connection, items_dir: Path) -> None:
+def _delete_cached_audio(item: dict[str, Any], root: Path) -> None:
+    audio_path = _text(item.get("audio_path"))
+    if not audio_path:
+        return
+    try:
+        path = Path(audio_path).expanduser().resolve()
+        audio_dir = (root / "audio").resolve()
+        path.relative_to(audio_dir)
+    except (OSError, ValueError):
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _prune(conn: sqlite3.Connection, root: Path, items_dir: Path) -> None:
     rows = conn.execute(
         "SELECT cache_id FROM songs ORDER BY last_played_at DESC, updated_at DESC LIMIT -1 OFFSET ?",
         (MAX_CACHED_SONGS,),
@@ -109,8 +125,15 @@ def _prune(conn: sqlite3.Connection, items_dir: Path) -> None:
         return
     conn.executemany("DELETE FROM songs WHERE cache_id = ?", [(cache_id,) for cache_id in stale_ids])
     for cache_id in stale_ids:
+        item_path = items_dir / f"{cache_id}.json"
         try:
-            (items_dir / f"{cache_id}.json").unlink()
+            item = json.loads(item_path.read_text(encoding="utf-8"))
+            if isinstance(item, dict):
+                _delete_cached_audio(item, root)
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            pass
+        try:
+            item_path.unlink()
         except FileNotFoundError:
             pass
 
@@ -150,7 +173,7 @@ def upsert_cached_song(
         """,
         (cache_id, name, artist, album, json.dumps(_provider_summary(full_item), ensure_ascii=False), timestamp, timestamp),
     )
-    _prune(conn, items_dir)
+    _prune(conn, root, items_dir)
     conn.commit()
     compact = conn.execute("SELECT * FROM songs WHERE cache_id = ?", (cache_id,)).fetchone()
     conn.close()

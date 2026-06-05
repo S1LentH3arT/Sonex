@@ -5,6 +5,7 @@ from src.tools.player_permission import (
     build_player_confirm_result,
     is_player_allowed,
 )
+from src.tools.cover_sources import extract_embedded_cover
 from src.tools.playback_controller import start_local_playback
 from src.tools.registry import registry, Params
 from src.tools.result import ToolResult
@@ -83,6 +84,14 @@ def play_local_song(query: str, player: str = "auto") -> dict:
         "player": player,
         "method": "local_play",
     }
+    try:
+        cover = extract_embedded_cover(file)
+    except RuntimeError:
+        cover = None
+    if cover:
+        data["album_cover_url"] = cover["cover_source"]
+        data["cover_source"] = cover["cover_source"]
+        data["cover_source_type"] = cover["source_type"]
     success_message = f"Playing '{file}' started."
 
     if not is_player_allowed(player):
