@@ -35,6 +35,9 @@ export type ConfirmChoice = {
     value: string;
     label: string;
     description?: string;
+    input?: {
+        placeholder: string;
+    };
 };
 
 export type ConfirmState = {

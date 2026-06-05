@@ -22,3 +22,9 @@ export function resolveConfirmDecisionFromInput(input: string, choices: ConfirmC
 
     return null;
 }
+
+export function resolveConfirmInputDecision(input: string, choice: ConfirmChoice | null): string | null {
+    const text = input.trim();
+    if (!text || !choice?.input) return null;
+    return `${choice.value}:${encodeURIComponent(text)}`;
+}

@@ -2,7 +2,7 @@ import React, {useState} from 'react';
 import {Box, useApp, useInput, useStdin, useStdout} from 'ink';
 import {buildErrorActivity, upsertActivity} from './activity.js';
 import {completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions} from './commands.js';
-import {resolveConfirmDecisionFromInput} from './confirm-choice.js';
+import {resolveConfirmDecisionFromInput, resolveConfirmInputDecision} from './confirm-choice.js';
 import {DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl} from './constants.js';
 import {DynamicShell, isGenericAuthSetup, LoginScreen} from './components.js';
 import {clamp, trimList} from './chat-window.js';
@@ -74,6 +74,8 @@ export const App = () => {
     const isSlashInput = slashInput.startsWith("/");
     const isSlashMenuActive = rawModeAvailable && !confirm && isSlashInput && slashMenuDismissedFor !== input && slashSuggestions.length > 0;
     const selectedSlashCommand = slashSuggestions[Math.min(slashIndex, Math.max(0, slashSuggestions.length - 1))];
+    const selectedConfirmChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
+    const selectedConfirmInput = selectedConfirmChoice?.input ?? null;
     const fullPlaybackLayoutAvailable = canUseFullPlaybackLayout(terminalSize);
     const resolvedLayout = resolveShellLayout({
         ...terminalSize,
@@ -155,11 +157,13 @@ export const App = () => {
 	        setShowRunMetrics(false);
 	    }, []);
 
-    const inputPlaceholder = authSetup?.active && authSetup.prompt
-        ? authSetup.prompt
-        : spotifySetup?.active && spotifySetup.prompt
-            ? spotifySetup.prompt
-            : "Say something to awake Sonex.";
+    const inputPlaceholder = selectedConfirmInput
+        ? selectedConfirmInput.placeholder
+        : authSetup?.active && authSetup.prompt
+            ? authSetup.prompt
+            : spotifySetup?.active && spotifySetup.prompt
+                ? spotifySetup.prompt
+                : "Say something to awake Sonex.";
     const inputMask = authSetup?.active && authSetup.mask
         ? "*"
         : spotifySetup?.active && spotifySetup.mask
@@ -244,6 +248,7 @@ export const App = () => {
             case "confirm":
                 setLaunchPreparing(false);
                 setSmallPlaybackFocus("chat");
+                setInput("");
                 setConfirm({
                     id: evt.id,
                     tool_name: evt.tool_name,
@@ -386,6 +391,17 @@ export const App = () => {
         if (!text) return;
 
         if (confirm) {
+            const inputDecision = resolveConfirmInputDecision(text, selectedConfirmChoice);
+            if (inputDecision) {
+                setInput("");
+                send({
+                    type: "confirm_result",
+                    id: confirm.id,
+                    decision: inputDecision,
+                });
+                setConfirm(null);
+                return;
+            }
             const decision = resolveConfirmDecisionFromInput(text, confirm.choices);
             if (!decision) return;
             setInput("");
@@ -436,7 +452,7 @@ export const App = () => {
         if (resolvedLayout === "miniPlayer" && !LOCAL_PLAYBACK_COMMANDS.has(command?.name ?? "")) {
             setSmallPlaybackFocus("chat");
         }
-    }, [applySlashCompletion, authSetup?.active, confirm, requestSafeExit, resolvedLayout, selectedSlashCommand, send, spotifySetup?.active]);
+    }, [applySlashCompletion, authSetup?.active, confirm, requestSafeExit, resolvedLayout, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -493,10 +509,13 @@ export const App = () => {
         if (!confirm) return;
 
         if (key.upArrow) {
+            setInput("");
             setConfirmIndex((prev) => Math.max(0, prev - 1));
         } else if (key.downArrow) {
+            setInput("");
             setConfirmIndex((prev) => Math.min(confirm.choices.length - 1, prev + 1));
         } else if (key.return) {
+            if (confirm.choices[confirmIndex]?.input) return;
             send({
                 type: "confirm_result",
                 id: confirm.id,
@@ -564,7 +583,7 @@ export const App = () => {
                     onSubmit={submitInput}
                     inputPlaceholder={inputPlaceholder}
                     inputMask={inputMask}
-                    inputFocus={!confirm && rawModeAvailable}
+                    inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable}
                     inputRevision={inputRevision}
                     chatItems={chatItems}
                     queueItems={queueItems}

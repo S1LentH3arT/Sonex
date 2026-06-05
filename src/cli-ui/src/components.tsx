@@ -784,8 +784,12 @@ const InputDock = ({
     helpPanelIndex: number;
     minimal?: boolean;
     switchHint?: string | null;
-}) => (
-    <Box flexDirection="column">
+}) => {
+    const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
+    const showInput = !confirm || Boolean(selectedChoice?.input);
+
+    return (
+        <Box flexDirection="column">
         {!minimal ? (
             <Box flexDirection="column" flexShrink={0} paddingX={1}>
                 <HelpPanel panel={helpPanel} selectedIndex={helpPanelIndex}/>
@@ -794,21 +798,24 @@ const InputDock = ({
                 <CompactSetup spotifySetup={spotifySetup} authSetup={authSetup}/>
             </Box>
         ) : null}
-        <Box borderTop={true} borderStyle="single" borderColor={BORDER_BLUE} paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="row"
-             minHeight={minimal ? 3 : 4} flexShrink={0}>
-            <Text color="#7f5d6b">{minimal && switchHint ? `${switchHint} · > ` : "> "}</Text>
-                <PromptInput
-                    input={input}
-                    setInput={setInput}
-                    onSubmit={onSubmit}
-                    focus={inputFocus}
-                    placeholder={inputPlaceholder}
-                    mask={inputMask}
-                    inputRevision={inputRevision}
-                />
+        {showInput ? (
+            <Box borderTop={true} borderStyle="single" borderColor={BORDER_BLUE} paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="row"
+                 minHeight={minimal ? 3 : 4} flexShrink={0}>
+                <Text color="#7f5d6b">{minimal && switchHint ? `${switchHint} · > ` : "> "}</Text>
+                    <PromptInput
+                        input={input}
+                        setInput={setInput}
+                        onSubmit={onSubmit}
+                        focus={inputFocus}
+                        placeholder={inputPlaceholder}
+                        mask={inputMask}
+                        inputRevision={inputRevision}
+                    />
+            </Box>
+        ) : null}
         </Box>
-    </Box>
-);
+    );
+};
 
 const MiniPlayerInputDock = ({
     input,
@@ -818,6 +825,8 @@ const MiniPlayerInputDock = ({
     inputMask,
     inputFocus,
     inputRevision,
+    confirm,
+    confirmIndex,
     switchHint,
 }: {
     input: string;
@@ -827,6 +836,8 @@ const MiniPlayerInputDock = ({
     inputMask?: string;
     inputFocus: boolean;
     inputRevision: number;
+    confirm: ConfirmState;
+    confirmIndex: number;
     switchHint: string;
 }) => (
     <InputDock
@@ -837,8 +848,8 @@ const MiniPlayerInputDock = ({
         inputMask={inputMask}
         inputFocus={inputFocus}
         inputRevision={inputRevision}
-        confirm={null}
-        confirmIndex={0}
+        confirm={confirm}
+        confirmIndex={confirmIndex}
         spotifySetup={null}
         authSetup={null}
         slashSuggestions={[]}
@@ -1026,6 +1037,8 @@ export const DynamicShell = ({
                     inputMask={inputMask}
                     inputFocus={inputFocus}
                     inputRevision={inputRevision}
+                    confirm={confirm}
+                    confirmIndex={confirmIndex}
                     switchHint={miniChrome.switchHint}
                 />
             </Box>

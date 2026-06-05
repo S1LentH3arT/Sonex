@@ -680,6 +680,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Live", confirm_events[-1]["choices"][1]["description"])
         self.assertIn("1.5M views", confirm_events[-1]["choices"][1]["description"])
         self.assertIn("原音", confirm_events[-1]["choices"][0]["description"])
+        self.assertEqual(confirm_events[-1]["choices"][-1]["label"], "没有想听的歌曲")
+        self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "试试补充更多信息")
+        self.assertNotIn("description", confirm_events[-1]["choices"][-1])
 
     async def test_youtube_candidate_refine_appends_next_input_and_researches(self) -> None:
         runner = WebSocketRunner()
@@ -717,6 +720,48 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await session.handle_choice("online_play")
             await session.handle_choice("refine_query")
             await runner._handle_user_input(ui, "live acoustic")
+
+        self.assertEqual(search.call_args_list[0].args[0], "Song Artist")
+        self.assertEqual(search.call_args_list[1].args[0], "Song Artist live acoustic")
+        self.assertFalse(runner._run_agent_turn.called)
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["choices"][0]["value"], "youtube_candidate:youtube_refined")
+
+    async def test_youtube_candidate_inline_refine_researches(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        first_candidates = [
+            {
+                "cache_id": "youtube_first",
+                "id": "first",
+                "youtube_id": "first",
+                "name": "First",
+                "artist": "Channel",
+                "duration_ms": 60000,
+                "cached": False,
+            }
+        ]
+        refined_candidates = [
+            {
+                "cache_id": "youtube_refined",
+                "id": "refined",
+                "youtube_id": "refined",
+                "name": "Refined",
+                "artist": "Channel",
+                "duration_ms": 65000,
+                "cached": False,
+            }
+        ]
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play Song Artist")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_youtube_songs", side_effect=[first_candidates, refined_candidates]) as search, \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+            await session.handle_choice("refine_query:live%20acoustic")
 
         self.assertEqual(search.call_args_list[0].args[0], "Song Artist")
         self.assertEqual(search.call_args_list[1].args[0], "Song Artist live acoustic")

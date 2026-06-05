@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from urllib.parse import unquote
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -1584,6 +1585,20 @@ class PlaySelectionSession:
         if choice in {"deny", "cancel"}:
             await self._finish("Playback cancelled.", status="error")
             return
+        if choice.startswith("refine_query:"):
+            extra = unquote(choice.partition(":")[2]).strip()
+            if not extra:
+                await self.ui.append_activity(
+                    kind="error",
+                    title="Refine YouTube search",
+                    detail="Search details cannot be empty.",
+                    status="error",
+                )
+                return
+            self.awaiting_youtube_refinement = False
+            self.query = f"{self.query} {extra}".strip()
+            await self._ask_youtube_candidates(self.query)
+            return
         if choice == "refine_query":
             self.awaiting_youtube_refinement = True
             await self.ui.append_activity(
@@ -1694,8 +1709,8 @@ class PlaySelectionSession:
         choices.append(
             {
                 "value": "refine_query",
-                "label": "没有想听的歌曲？试试补充更多信息",
-                "description": "Close this list and use your next message to refine the YouTube search.",
+                "label": "没有想听的歌曲",
+                "input": {"placeholder": "试试补充更多信息"},
             }
         )
         await self._ask_confirm(
