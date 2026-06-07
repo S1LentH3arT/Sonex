@@ -61,8 +61,28 @@ from src.tools.online_play import (
 )
 
 # Backward-compatible runner patch points; these now resolve the unified online-audio layer.
-search_youtube_songs = search_online_audio_candidates
-play_youtube_candidate = play_online_audio_candidate
+def search_youtube_songs(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    return search_online_audio_candidates(*args, **kwargs)
+
+
+def play_youtube_candidate(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return play_online_audio_candidate(*args, **kwargs)
+
+
+_LEGACY_SEARCH_ALIAS = search_youtube_songs
+_LEGACY_PLAY_ALIAS = play_youtube_candidate
+
+
+def _search_online_audio_for_runner(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    if search_youtube_songs is not _LEGACY_SEARCH_ALIAS:
+        return search_youtube_songs(*args, **kwargs)
+    return search_online_audio_candidates(*args, **kwargs)
+
+
+def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    if play_youtube_candidate is not _LEGACY_PLAY_ALIAS:
+        return play_youtube_candidate(*args, **kwargs)
+    return play_online_audio_candidate(*args, **kwargs)
 from src.tools.playback_controller import controller as local_playback_controller
 from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
 from src.tools.cover_sources import cover_bytes_for_source
@@ -1258,23 +1278,38 @@ class OpenAudioSetupSession:
     def __init__(self, ui: WebSocketUIAdapter, provider: str) -> None:
         self.ui = ui
         self.provider = provider
+        self.display_name = "Jamendo" if provider == "jamendo" else "Audius"
+
+    def _prompt_label(self) -> str:
+        return "Jamendo Client ID" if self.provider == "jamendo" else "Audius API key"
+
+    def _setup_message(self) -> str:
+        if self.provider == "jamendo":
+            return (
+                "Open https://developer.jamendo.com, create or open your app, then paste the Client ID below. "
+                "Jamendo does not need a Client Secret for Sonex online playback."
+            )
+        return (
+            "Open https://developer.audius.co, create an Audius app if needed, then paste the API key below. "
+            "Sonex uses this key for Audius online playback search and streaming metadata."
+        )
 
     async def start(self) -> None:
-        label = "Jamendo Client ID" if self.provider == "jamendo" else "Audius API key"
-        message = f"Paste your {label}. It will be saved to auth.json for online playback."
+        label = self._prompt_label()
+        message = self._setup_message()
         await self.ui.append_activity(
             kind="status",
-            title=f"{self.provider} setup",
+            title=f"{self.display_name} setup",
             detail=message,
             status="pending",
         )
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="api_key",
-            title=f"{self.provider} setup",
+            title=f"{self.display_name} setup",
             message=message,
             prompt=label,
-            mask=True,
+            mask=False,
         )
 
     async def handle_input(self, value: str) -> None:
@@ -1283,10 +1318,10 @@ class OpenAudioSetupSession:
             await self.ui.send_auth_setup(
                 provider=self.provider,
                 step="api_key",
-                title=f"{self.provider} setup",
+                title=f"{self.display_name} setup",
                 message="Input cannot be empty.",
-                prompt="API key",
-                mask=True,
+                prompt=self._prompt_label(),
+                mask=False,
             )
             return
         try:
@@ -1295,23 +1330,23 @@ class OpenAudioSetupSession:
             await self.ui.send_auth_setup(
                 provider=self.provider,
                 step="api_key",
-                title=f"{self.provider} setup",
+                title=f"{self.display_name} setup",
                 message=sanitize_error_message(exc),
-                prompt="API key",
-                mask=True,
+                prompt=self._prompt_label(),
+                mask=False,
             )
             return
         await self.ui.append_activity(
             kind="status",
-            title=f"{self.provider} configured",
-            detail=f"{self.provider} is configured for online playback.",
+            title=f"{self.display_name} configured",
+            detail=f"{self.display_name} is configured for online playback.",
             status="success",
         )
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="done",
-            title=f"{self.provider} configured",
-            message=f"{self.provider} is configured for online playback.",
+            title=f"{self.display_name} configured",
+            message=f"{self.display_name} is configured for online playback.",
             active=False,
         )
         setattr(self.ui, "_auth_setup", None)
@@ -1887,25 +1922,25 @@ class PlaySelectionSession:
                 metadata = dict(playback_metadata)
                 metadata["youtube_query"] = query
                 self.online_audio_candidates = await asyncio.to_thread(
-                    search_youtube_songs,
+                    _search_online_audio_for_runner,
                     query,
                     5,
                     playback_metadata=metadata,
                 )
             else:
-                self.online_audio_candidates = await asyncio.to_thread(search_youtube_songs, query, 5)
+                self.online_audio_candidates = await asyncio.to_thread(_search_online_audio_for_runner, query, 5)
         except OnlineAudioSetupRequired:
             await self._show_online_audio_setup_required()
             return
         except Exception as exc:
             result = {
                 "status": "fail",
-                "tool": "play_youtube_song",
+                "tool": "play_online_audio",
                 "message": sanitize_error_message(exc),
                 "error_code": "ONLINE_AUDIO_RESOLVE_FAILED",
                 "data": {"query": query, "provider": "online_audio", "method": "online_play"},
             }
-            await self.runner._sync_tool_result_ui(self.ui, "play_youtube_song", result)
+            await self.runner._sync_tool_result_ui(self.ui, "play_online_audio", result)
             message = _friendly_runtime_error_message(result, fallback="Online audio search failed.")
             await self.ui.append_agent_message(message)
             await self.ui.send_error(message)
@@ -1923,8 +1958,8 @@ class PlaySelectionSession:
         await self._ask_confirm(
             message="选择在线音源候选歌曲",
             choices=choices,
-            tool_args={"query": query, "stage": "youtube_candidates"},
-            tool_name="youtube_candidate",
+            tool_args={"query": query, "stage": "online_audio_candidates"},
+            tool_name="online_audio_candidate",
         )
 
     def _online_audio_candidate_choice(self, candidate: dict[str, Any]) -> dict[str, Any]:
@@ -1933,7 +1968,16 @@ class PlaySelectionSession:
         duration = _duration_text(candidate.get("duration_ms"))
         cached = "cached" if candidate.get("cached") else "not cached"
         provider = str(candidate.get("provider") or "online")
-        parts = [provider, _youtube_variant_label(candidate.get("variant_type"))]
+        if provider == "youtube" and candidate.get("fallback_provider") == "youtube":
+            parts = ["YouTube fallback"]
+            fallback_reason = str(candidate.get("fallback_reason") or "").strip()
+            if fallback_reason:
+                parts.append(fallback_reason)
+        else:
+            parts = [provider]
+        variant_label = _youtube_variant_label(candidate.get("variant_type"))
+        if variant_label:
+            parts.append(variant_label)
         views = _compact_count(candidate.get("raw_view_count"))
         if views:
             parts.append(f"{views} views")
@@ -2047,16 +2091,16 @@ class PlaySelectionSession:
             status="pending",
         )
         try:
-            result = await asyncio.to_thread(play_youtube_candidate, candidate, player="auto")
+            result = await asyncio.to_thread(_play_online_audio_for_runner, candidate, player="auto")
         except Exception as exc:
             result = {
                 "status": "fail",
-                "tool": "play_youtube_song",
+                "tool": "play_online_audio",
                 "message": sanitize_error_message(exc),
                 "error_code": "PLAYBACK_FAILED",
                 "data": candidate,
             }
-        await self.runner._sync_tool_result_ui(self.ui, "play_youtube_song", result)
+        await self.runner._sync_tool_result_ui(self.ui, "play_online_audio", result)
         if _is_player_confirm_result(result):
             await self._ask_player_confirm(result)
             return result

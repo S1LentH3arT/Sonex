@@ -14,6 +14,7 @@ from typing import Any
 import yt_dlp
 
 from src.auth.store import get_provider_auth, load_auth_store
+from src.llm.transport import sanitize_error_message
 from src.log import sonex_home
 from src.tools import cover_sources, spotify_play
 from src.tools.local_play import check_player
@@ -209,14 +210,15 @@ def _resolved_playback_metadata(query: str, playback_metadata: dict[str, Any] | 
         name = _non_placeholder_text(metadata.get("name") or metadata.get("title"))
         metadata["youtube_query"] = f"{artist or ''} {name or ''}".strip() or query.strip()
     if metadata.get("metadata_source") == "spotify":
-        for key in ("album_cover_url", "cover_url", "cover_source", "cover_source_type"):
-            metadata.pop(key, None)
-        cover = cover_sources.resolve_online_cover(metadata)
-        if cover and cover.get("source_type") == "cover_art_archive":
-            metadata["album_cover_url"] = cover["cover_source"]
-            metadata["cover_url"] = cover.get("cover_url") or cover["cover_source"]
-            metadata["cover_source"] = cover["cover_source"]
-            metadata["cover_source_type"] = cover["source_type"]
+        if metadata.get("cover_source_type") != "cover_art_archive":
+            for key in ("album_cover_url", "cover_url", "cover_source", "cover_source_type"):
+                metadata.pop(key, None)
+            cover = cover_sources.resolve_online_cover(metadata)
+            if cover and cover.get("source_type") == "cover_art_archive":
+                metadata["album_cover_url"] = cover["cover_source"]
+                metadata["cover_url"] = cover.get("cover_url") or cover["cover_source"]
+                metadata["cover_source"] = cover["cover_source"]
+                metadata["cover_source_type"] = cover["source_type"]
     return metadata
 
 
@@ -819,6 +821,61 @@ def _credible_online_audio_candidates(candidates: list[dict[str, Any]]) -> list[
     ]
 
 
+def _provider_label(provider: str) -> str:
+    return {"jamendo": "Jamendo", "audius": "Audius", "youtube": "YouTube"}.get(provider, provider.title())
+
+
+def _sanitize_provider_error(error: Any) -> str:
+    message = sanitize_error_message(error)
+    return re.sub(r"(?i)(secret)\s*[:=]\s*([^\s,;]+)", r"\1=[redacted]", message)
+
+
+def _source_attempt(
+    provider: str,
+    *,
+    status: str,
+    candidate_count: int = 0,
+    credible_count: int = 0,
+    message: str | None = None,
+) -> dict[str, Any]:
+    label = _provider_label(provider)
+    if not message:
+        if status == "success":
+            message = f"{label} returned {credible_count} credible match{'es' if credible_count != 1 else ''}."
+        elif status == "error":
+            message = f"{label} failed."
+        else:
+            message = f"{label} returned no credible matches."
+    return {
+        "provider": provider,
+        "status": status,
+        "candidate_count": max(0, int(candidate_count or 0)),
+        "credible_count": max(0, int(credible_count or 0)),
+        "message": _sanitize_provider_error(message),
+    }
+
+
+def _fallback_reason(source_attempts: list[dict[str, Any]]) -> str:
+    messages = [str(item.get("message") or "").strip() for item in source_attempts if item.get("message")]
+    return " ".join(messages) or "Configured open-audio providers returned no credible matches."
+
+
+def _with_youtube_fallback_trace(candidate: dict[str, Any], source_attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    traced = dict(candidate)
+    reason = _fallback_reason(source_attempts)
+    traced["fallback_provider"] = "youtube"
+    traced["fallback_reason"] = reason
+    traced["source_attempts"] = [dict(item) for item in source_attempts]
+    return traced
+
+
+def _format_youtube_fallback_failure(candidate: dict[str, Any], youtube_message: str) -> str:
+    reason = str(candidate.get("fallback_reason") or _fallback_reason(candidate.get("source_attempts") or [])).strip()
+    if reason:
+        return f"{reason} Sonex fell back to YouTube. YouTube failed: {sanitize_error_message(youtube_message)}"
+    return f"Sonex fell back to YouTube. YouTube failed: {sanitize_error_message(youtube_message)}"
+
+
 def _json_get(url: str, *, headers: dict[str, str] | None = None, timeout: float = 10.0) -> dict[str, Any]:
     request = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -913,38 +970,71 @@ def resolve_online_audio_candidates(
     resolved_metadata = resolve_online_playback_metadata(query, playback_metadata)
     search_query = str(resolved_metadata.get("youtube_query") or query).strip() or query
     candidates: list[dict[str, Any]] = []
+    source_attempts: list[dict[str, Any]] = []
     tried_open_source = False
     if resolved_config.jamendo_client_id:
         tried_open_source = True
         try:
-            candidates.extend(
-                search_jamendo_audio_candidates(
-                    search_query,
-                    client_id=resolved_config.jamendo_client_id,
-                    limit=limit,
-                    playback_metadata=resolved_metadata,
+            provider_candidates = search_jamendo_audio_candidates(
+                search_query,
+                client_id=resolved_config.jamendo_client_id,
+                limit=limit,
+                playback_metadata=resolved_metadata,
+            )
+            credible = _credible_online_audio_candidates(provider_candidates)
+            source_attempts.append(
+                _source_attempt(
+                    "jamendo",
+                    status="success" if credible else "no_credible_matches",
+                    candidate_count=len(provider_candidates),
+                    credible_count=len(credible),
                 )
             )
-        except Exception:
-            pass
+            candidates.extend(provider_candidates)
+        except Exception as exc:
+            source_attempts.append(
+                _source_attempt(
+                    "jamendo",
+                    status="error",
+                    message=f"Jamendo failed: {sanitize_error_message(exc)}",
+                )
+            )
     if resolved_config.audius_api_key:
         tried_open_source = True
         try:
-            candidates.extend(
-                search_audius_audio_candidates(
-                    search_query,
-                    api_key=resolved_config.audius_api_key,
-                    limit=limit,
-                    playback_metadata=resolved_metadata,
+            provider_candidates = search_audius_audio_candidates(
+                search_query,
+                api_key=resolved_config.audius_api_key,
+                limit=limit,
+                playback_metadata=resolved_metadata,
+            )
+            credible = _credible_online_audio_candidates(provider_candidates)
+            source_attempts.append(
+                _source_attempt(
+                    "audius",
+                    status="success" if credible else "no_credible_matches",
+                    candidate_count=len(provider_candidates),
+                    credible_count=len(credible),
                 )
             )
-        except Exception:
-            pass
+            candidates.extend(provider_candidates)
+        except Exception as exc:
+            source_attempts.append(
+                _source_attempt(
+                    "audius",
+                    status="error",
+                    message=f"Audius failed: {sanitize_error_message(exc)}",
+                )
+            )
 
     candidates = _credible_online_audio_candidates(candidates)
+    if candidates:
+        for candidate in candidates:
+            candidate.setdefault("source_attempts", [dict(item) for item in source_attempts])
     if not candidates and tried_open_source:
         candidates.extend(
-            search_youtube_songs(
+            _with_youtube_fallback_trace(candidate, source_attempts)
+            for candidate in search_youtube_songs(
                 search_query,
                 limit=limit,
                 cache_root=cache_root,
@@ -1210,6 +1300,7 @@ def play_youtube_candidate(
     player: str = "auto",
     cache_root: Path | None = None,
 ) -> dict[str, Any]:
+    is_youtube_fallback = candidate.get("fallback_provider") == "youtube"
     try:
         data = download_youtube_candidate(candidate, cache_root=cache_root)
     except Exception as exc:
@@ -1222,11 +1313,20 @@ def play_youtube_candidate(
             error_code = "YOUTUBE_UNAVAILABLE"
         else:
             error_code = "NO_PLAYABLE_AUDIO" if "No playable audio" in message else "YOUTUBE_RESOLVE_FAILED"
+        display_message = _format_youtube_fallback_failure(candidate, message) if is_youtube_fallback else message
         return ToolResult.fail(
-            tool="play_youtube_song",
-            message=message,
+            tool="play_online_audio" if is_youtube_fallback else "play_youtube_song",
+            message=display_message,
             error_code=error_code,
-            data={"query": candidate.get("query"), "player": player, "method": "online_play", "provider": "youtube"},
+            data={
+                "query": candidate.get("query"),
+                "player": player,
+                "method": "online_play",
+                "provider": "youtube",
+                "fallback_provider": candidate.get("fallback_provider"),
+                "fallback_reason": candidate.get("fallback_reason"),
+                "source_attempts": candidate.get("source_attempts") or [],
+            },
         ).to_dict()
 
     if player != "auto" and not check_player(player):
@@ -1331,6 +1431,23 @@ def play_youtube_song(
     cache_root: Path | None = None,
     playback_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if online_audio_configured():
+        try:
+            candidate = resolve_online_audio_candidates(
+                query,
+                limit=1,
+                cache_root=cache_root,
+                playback_metadata=playback_metadata,
+            )[0]
+        except Exception as exc:
+            return ToolResult.fail(
+                tool="play_online_audio",
+                message=sanitize_error_message(exc),
+                error_code="ONLINE_AUDIO_RESOLVE_FAILED",
+                data={"query": query, "player": player, "method": "online_play", "provider": "online_audio"},
+            ).to_dict()
+        return play_online_audio_candidate(candidate, player=player, cache_root=cache_root)
+
     try:
         candidate = search_youtube_songs(
             query,

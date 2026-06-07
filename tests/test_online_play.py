@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+from yt_dlp.utils import DownloadError
+
 import src.tools.online_play as online
 from src.tools.player_permission import build_player_confirm_result, complete_player_confirm
 from src.tools.result import ToolResult
@@ -221,7 +223,21 @@ class OnlinePlayTests(unittest.TestCase):
         jamendo_search.assert_called_once()
         audius_search.assert_not_called()
         youtube_search.assert_called_once()
-        self.assertEqual(candidates, [youtube_candidate])
+        self.assertEqual(candidates[0]["cache_id"], "youtube_yt-1")
+        self.assertEqual(candidates[0]["fallback_provider"], "youtube")
+        self.assertIn("Jamendo returned no credible matches", candidates[0]["fallback_reason"])
+        self.assertEqual(
+            candidates[0]["source_attempts"],
+            [
+                {
+                    "provider": "jamendo",
+                    "status": "no_credible_matches",
+                    "candidate_count": 0,
+                    "credible_count": 0,
+                    "message": "Jamendo returned no credible matches.",
+                }
+            ],
+        )
 
     def test_resolve_online_audio_filters_low_similarity_before_youtube_fallback(self) -> None:
         config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
@@ -249,7 +265,33 @@ class OnlinePlayTests(unittest.TestCase):
             candidates = online.resolve_online_audio_candidates("Artist Song", config=config)
 
         youtube_search.assert_called_once()
-        self.assertEqual(candidates, [youtube_candidate])
+        self.assertEqual(candidates[0]["cache_id"], "youtube_yt-1")
+        self.assertEqual(candidates[0]["fallback_provider"], "youtube")
+        self.assertIn("Jamendo returned no credible matches", candidates[0]["fallback_reason"])
+        self.assertEqual(candidates[0]["source_attempts"][0]["candidate_count"], 1)
+        self.assertEqual(candidates[0]["source_attempts"][0]["credible_count"], 0)
+
+    def test_resolve_online_audio_keeps_provider_error_trace_before_youtube_fallback(self) -> None:
+        config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
+        youtube_candidate = {
+            "provider": "youtube",
+            "cache_id": "youtube_yt-1",
+            "id": "yt-1",
+            "name": "Song",
+            "artist": "Artist",
+            "quality_label": "clean_audio_match",
+            "similarity_score": 92,
+        }
+
+        with patch("src.tools.online_play.search_jamendo_audio_candidates", side_effect=RuntimeError("token secret=abc123 failed")), \
+             patch("src.tools.online_play.search_youtube_songs", return_value=[youtube_candidate]):
+            candidates = online.resolve_online_audio_candidates("Artist Song", config=config)
+
+        self.assertEqual(candidates[0]["cache_id"], "youtube_yt-1")
+        self.assertEqual(candidates[0]["source_attempts"][0]["status"], "error")
+        self.assertIn("Jamendo failed:", candidates[0]["source_attempts"][0]["message"])
+        self.assertNotIn("secret=abc123", candidates[0]["source_attempts"][0]["message"])
+        self.assertIn("Jamendo failed:", candidates[0]["fallback_reason"])
 
     def test_rank_online_audio_candidates_uses_similarity_quality_before_provider_priority(self) -> None:
         audius = {
@@ -922,6 +964,43 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "NO_PLAYABLE_AUDIO")
         launch.assert_not_called()
 
+    def test_play_youtube_song_uses_open_audio_trace_before_youtube_unavailable_fallback(self) -> None:
+        config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
+        youtube_candidate = {
+            "provider": "youtube",
+            "cache_id": "youtube_wYB9Vu282ZU",
+            "id": "wYB9Vu282ZU",
+            "youtube_id": "wYB9Vu282ZU",
+            "query": "Artist Song",
+            "name": "Artist Song",
+            "artist": "Artist",
+            "quality_label": "clean_audio_match",
+            "similarity_score": 92,
+            "webpage_url": "https://www.youtube.com/watch?v=wYB9Vu282ZU",
+            "url": "https://www.youtube.com/watch?v=wYB9Vu282ZU",
+        }
+        FakeYoutubeDL.responses = [
+            DownloadError("ERROR: [youtube] wYB9Vu282ZU: This video is not available")
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("src.tools.online_play.online_audio_config", return_value=config), \
+                patch("src.tools.online_play.search_jamendo_audio_candidates", return_value=[]), \
+                patch("src.tools.online_play.search_youtube_songs", return_value=[youtube_candidate]), \
+                patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
+                patch("src.tools.online_play.start_local_playback") as launch:
+                result = online.play_youtube_song("Artist Song", player="mpv", cache_root=Path(tmp))
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["tool"], "play_online_audio")
+        self.assertEqual(result["error_code"], "YOUTUBE_UNAVAILABLE")
+        self.assertIn("Jamendo returned no credible matches", result["message"])
+        self.assertIn("fell back to YouTube", result["message"])
+        self.assertIn("Choose another candidate or refine", result["message"])
+        self.assertNotIn("wYB9Vu282ZU", result["message"])
+        self.assertEqual(result["data"]["source_attempts"][0]["provider"], "jamendo")
+        launch.assert_not_called()
+
     def test_play_youtube_candidate_returns_age_restricted_failure_without_cookie_instructions(self) -> None:
         candidate = {
             "provider": "youtube",
@@ -983,6 +1062,46 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertIn("not available", result["message"])
         self.assertNotIn("ERROR: [youtube]", result["message"])
         self.assertNotIn("HvFB6bGCElU", result["message"])
+        launch.assert_not_called()
+
+    def test_play_youtube_fallback_candidate_failure_names_open_audio_attempts(self) -> None:
+        candidate = {
+            "provider": "youtube",
+            "id": "age",
+            "youtube_id": "age",
+            "cache_id": "youtube_age",
+            "query": "Artist Song",
+            "name": "Artist Song",
+            "artist": "Artist",
+            "album": "-",
+            "duration_ms": 200000,
+            "url": "https://www.youtube.com/watch?v=age",
+            "webpage_url": "https://www.youtube.com/watch?v=age",
+            "fallback_provider": "youtube",
+            "fallback_reason": "Jamendo returned no credible matches.",
+            "source_attempts": [
+                {
+                    "provider": "jamendo",
+                    "status": "no_credible_matches",
+                    "candidate_count": 0,
+                    "credible_count": 0,
+                    "message": "Jamendo returned no credible matches.",
+                }
+            ],
+        }
+        FakeYoutubeDL.responses = [RuntimeError("confirm your age")]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
+                patch("src.tools.online_play.start_local_playback") as launch:
+                result = online.play_youtube_candidate(candidate, player="mpv", cache_root=Path(tmp))
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["tool"], "play_online_audio")
+        self.assertIn("Jamendo returned no credible matches", result["message"])
+        self.assertIn("fell back to YouTube", result["message"])
+        self.assertIn("YouTube failed", result["message"])
+        self.assertEqual(result["data"]["source_attempts"], candidate["source_attempts"])
         launch.assert_not_called()
 
     def test_player_confirm_offers_mpv_and_vlc_backend_choices(self) -> None:

@@ -123,7 +123,7 @@ class FakeWebSocket:
                 (
                     str(event["id"])
                     for event in self.sent
-                    if event.get("type") == "confirm" and event.get("tool_name") == "youtube_candidate"
+                    if event.get("type") == "confirm" and event.get("tool_name") == "online_audio_candidate"
                 ),
                 None,
             )
@@ -439,12 +439,39 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
             await runner._handle_user_input(ui, "/setup jamendo")
             setup = getattr(ui, "_auth_setup")
+            auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+            self.assertEqual(auth_events[-1]["title"], "Jamendo setup")
+            self.assertIn("developer.jamendo.com", str(auth_events[-1]["message"]))
+            self.assertIn("Client ID", str(auth_events[-1]["prompt"]))
+            self.assertFalse(auth_events[-1].get("mask", False))
             await setup.handle_input("jamendo-client-id")
             store = load_auth_store()
 
         self.assertEqual(store.providers["jamendo"].api_key, "jamendo-client-id")
         auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
         self.assertEqual(auth_events[-1]["provider"], "jamendo")
+        self.assertFalse(auth_events[-1].get("active", True))
+
+    async def test_setup_audius_guides_api_key_input_and_repeats_empty_values(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
+            await runner._handle_user_input(ui, "/setup audius")
+            setup = getattr(ui, "_auth_setup")
+            await setup.handle_input("   ")
+            await setup.handle_input("audius-api-key")
+            store = load_auth_store()
+
+        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+        self.assertEqual(auth_events[0]["title"], "Audius setup")
+        self.assertIn("developer.audius.co", str(auth_events[0]["message"]))
+        self.assertIn("API key", str(auth_events[0]["prompt"]))
+        self.assertFalse(auth_events[0].get("mask", False))
+        self.assertEqual(auth_events[1]["provider"], "audius")
+        self.assertIn("Input cannot be empty", str(auth_events[1]["message"]))
+        self.assertIn("API key", str(auth_events[1]["prompt"]))
+        self.assertEqual(store.providers["audius"].api_key, "audius-api-key")
         self.assertFalse(auth_events[-1].get("active", True))
 
     def test_queue_payload_prefers_unified_song_cache_recent_10(self) -> None:
@@ -729,14 +756,14 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
             await runner._handle_user_input(ui, "/play Song Artist")
         session = getattr(ui, "_play_selection")
-        with patch("src.api.ws_runner.search_youtube_songs", return_value=candidates), \
+        with patch("src.api.ws_runner.search_online_audio_candidates", return_value=candidates), \
              patch("src.api.ws_runner.online_audio_configured", return_value=True), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
 
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
-        self.assertEqual(confirm_events[-1]["tool_name"], "youtube_candidate")
-        self.assertEqual(confirm_events[-1]["tool_args"]["stage"], "youtube_candidates")
+        self.assertEqual(confirm_events[-1]["tool_name"], "online_audio_candidate")
+        self.assertEqual(confirm_events[-1]["tool_args"]["stage"], "online_audio_candidates")
         self.assertEqual(
             [choice["value"] for choice in confirm_events[-1]["choices"]],
             [
@@ -755,6 +782,48 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["choices"][-1]["label"], "没有想听的歌曲")
         self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "试试补充更多信息")
         self.assertNotIn("description", confirm_events[-1]["choices"][-1])
+
+    async def test_online_play_choice_describes_youtube_fallback_source_attempts(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        candidates = [
+            {
+                "cache_id": "youtube_abc",
+                "id": "abc",
+                "youtube_id": "abc",
+                "provider": "youtube",
+                "fallback_provider": "youtube",
+                "fallback_reason": "Jamendo returned no credible matches.",
+                "source_attempts": [
+                    {
+                        "provider": "jamendo",
+                        "status": "no_credible_matches",
+                        "candidate_count": 0,
+                        "credible_count": 0,
+                        "message": "Jamendo returned no credible matches.",
+                    }
+                ],
+                "name": "Song",
+                "artist": "Artist",
+                "duration_ms": 180000,
+                "cached": False,
+            }
+        ]
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play Song Artist")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_online_audio_candidates", return_value=candidates), \
+             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirm_events[-1]["tool_name"], "online_audio_candidate")
+        self.assertEqual(confirm_events[-1]["choices"][0]["value"], "youtube_candidate:youtube_abc")
+        self.assertIn("YouTube fallback", confirm_events[-1]["choices"][0]["description"])
+        self.assertIn("Jamendo returned no credible matches", confirm_events[-1]["choices"][0]["description"])
 
     async def test_online_play_choice_sends_spotify_candidate_list_before_youtube_search(self) -> None:
         runner = WebSocketRunner()
@@ -837,7 +906,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metadata["uri"], "spotify:track:canonical")
         self.assertEqual(metadata["original_query"], "messy query")
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
-        self.assertEqual(confirm_events[-1]["tool_name"], "youtube_candidate")
+        self.assertEqual(confirm_events[-1]["tool_name"], "online_audio_candidate")
         self.assertEqual(confirm_events[-1]["choices"][0]["value"], "youtube_candidate:youtube_abc")
 
     async def test_spotify_candidate_refine_researches_spotify_not_youtube(self) -> None:
