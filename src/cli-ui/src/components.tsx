@@ -603,6 +603,14 @@ const TrackDetails = React.memo(({player, compact}: {player: PlayerState; compac
     </Box>
 ));
 
+const MiniTrackDetails = React.memo(({name, artist, album}: {name: string; artist: string; album: string}) => (
+    <Box flexDirection="column">
+        <Text bold color="#fff4f6">{name}</Text>
+        <Text color="#bf98a7">{artist}</Text>
+        {album !== "-" ? <Text color="#bf98a7">{album}</Text> : null}
+    </Box>
+));
+
 const PlaybackProgressTime = React.memo(({player, active}: {player: PlayerState; active: boolean}) => {
     const progressMs = usePlaybackProgress(player, active);
     return <Text color="#bf98a7">{formatDuration(progressMs)}</Text>;
@@ -613,17 +621,51 @@ const MiniPlaybackMeter = React.memo(({player, visual, active = true}: {
     visual: CoverVisualModel;
     active?: boolean;
 }) => {
+    const progressMs = usePlaybackProgress(player, active);
     const duration = formatDuration(player.duration_ms);
-    const progressBar = buildProgressBar(player.progress_ms ?? 0, player.duration_ms, 14);
+    const progressBar = buildProgressBar(progressMs, player.duration_ms, 14);
 
     return (
         <Box flexDirection="column" marginTop={1}>
             <Text>
-                <PlaybackProgressTime player={player} active={active}/> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
+                <Text color="#bf98a7">{formatDuration(progressMs)}</Text> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
             </Text>
         </Box>
     );
 });
+
+const MiniPlayerStaticBody = React.memo(({
+    name,
+    artist,
+    album,
+    visual,
+    coverUrl,
+    coverPattern,
+    terminalSpace,
+}: {
+    name: string;
+    artist: string;
+    album: string;
+    visual: CoverVisualModel;
+    coverUrl: string | null;
+    coverPattern: CoverPatternPayload | null;
+    terminalSpace?: TerminalSpace;
+}) => (
+    <>
+        <StaticCover visual={visual} coverUrl={coverUrl} coverPattern={coverPattern} terminalSpace={terminalSpace} compact={true}/>
+        <Box flexDirection="column" marginTop={1} flexShrink={0}>
+            <MiniTrackDetails name={name} artist={artist} album={album}/>
+        </Box>
+    </>
+), (prev, next) => (
+    prev.name === next.name
+    && prev.artist === next.artist
+    && prev.album === next.album
+    && prev.visual === next.visual
+    && prev.coverUrl === next.coverUrl
+    && prev.coverPattern === next.coverPattern
+    && prev.terminalSpace === next.terminalSpace
+));
 
 const PlaybackMeter = ({player, visual, compact = false, active = true}: {
     player: PlayerState;
@@ -664,11 +706,16 @@ const PlayerPane = ({player, coverUrl, coverPattern, terminalSpace, variant = "f
     if (compact) {
         return (
             <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={8} padding={1} paddingX={1}>
-                <StaticCover visual={visual} coverUrl={coverUrl} coverPattern={coverPattern ?? null} terminalSpace={terminalSpace} compact={compact}/>
-                <Box flexDirection="column" marginTop={1} flexShrink={0}>
-                    <TrackDetails player={player} compact={compact}/>
-                    <PlaybackMeter player={player} visual={visual} compact={compact} active={active}/>
-                </Box>
+                <MiniPlayerStaticBody
+                    name={player.name}
+                    artist={player.artist}
+                    album={player.album}
+                    visual={visual}
+                    coverUrl={coverUrl}
+                    coverPattern={coverPattern ?? null}
+                    terminalSpace={terminalSpace}
+                />
+                <PlaybackMeter player={player} visual={visual} compact={compact} active={active}/>
             </Box>
         );
     }

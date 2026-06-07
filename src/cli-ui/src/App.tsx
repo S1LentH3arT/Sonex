@@ -9,7 +9,7 @@ import {clamp, trimList} from './chat-window.js';
 import {formatElapsed} from './format.js';
 import {useSonexSocket} from './hooks.js';
 import {LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing} from './launch-preparing.js';
-import {canUseFullPlaybackLayout, resolvePlayerEventFocus, resolveShellLayout, shouldReturnToChatAfterSubmit, type SmallPlaybackFocus, type TerminalSize} from './layout.js';
+import {canUseFullPlaybackLayout, resolvePlayerEventFocus, resolveShellLayout, shouldReturnToChatAfterSubmit, type ShellLayout, type SmallPlaybackFocus, type TerminalSize} from './layout.js';
 import type {ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LayoutMode, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion} from './types.js';
 
 const LOCAL_PLAYBACK_COMMANDS = new Set(["pause", "resume", "stop", "progress", "volume", "player"]);
@@ -31,6 +31,10 @@ export function authBannerSignature(state: AuthRuntimeState): string {
 
 export function shouldAppendAuthBanner(previousSignature: string | null, state: AuthRuntimeState): boolean {
     return previousSignature !== authBannerSignature(state);
+}
+
+export function shouldRenderStaticBanner(layout: ShellLayout): boolean {
+    return layout !== "miniPlayer";
 }
 
 export const App = () => {
@@ -594,9 +598,11 @@ export const App = () => {
 
     return (
         <>
-            <Static items={bannerItems}>
-                {(item) => <HeaderFrame key={item.id} authState={item.authState}/>}
-            </Static>
+            {shouldRenderStaticBanner(resolvedLayout) ? (
+                <Static items={bannerItems}>
+                    {(item) => <HeaderFrame key={item.id} authState={item.authState}/>}
+                </Static>
+            ) : null}
             {isLoginScreenActive ? (
                 <LoginScreen
                     authSetup={authSetup}

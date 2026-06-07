@@ -12,7 +12,11 @@ assert.match(source, /const fetchableCoverUrl = !hasCoverPattern && isHttpCoverS
 assert.match(source, /useCoverArt\(fetchableCoverUrl/);
 assert.match(source, /const PlaybackProgressTime = React\.memo/);
 assert.match(source, /const MiniPlaybackMeter = React\.memo/);
-assert.match(source, /const progressBar = buildProgressBar\(player\.progress_ms \?\? 0, player\.duration_ms, 14\)/);
+assert.match(source, /const MiniPlayerStaticBody = React\.memo/);
+assert.match(source, /prev\.name === next\.name/);
+assert.match(source, /prev\.artist === next\.artist/);
+assert.match(source, /prev\.album === next\.album/);
+assert.match(source, /const progressBar = buildProgressBar\(progressMs, player\.duration_ms, 14\)/);
 assert.match(source, /const PlaybackMeter = \(\{player, visual, compact = false, active = true\}/);
 assert.match(source, /if \(compact\) \{\s+return <MiniPlaybackMeter player=\{player\} visual=\{visual\} active=\{active\}\/>;\s+\}/);
 assert.match(source, /const progressMs = usePlaybackProgress\(player, active\)/);

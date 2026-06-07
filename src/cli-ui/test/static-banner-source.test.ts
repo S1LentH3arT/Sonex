@@ -5,6 +5,9 @@ const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8
 const componentSource = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
 
 assert.match(appSource, /import \{Box, Static, useApp, useInput, useStdin, useStdout\} from 'ink';/);
+assert.match(appSource, /export function shouldRenderStaticBanner\(layout: ShellLayout\): boolean/);
+assert.match(appSource, /return layout !== "miniPlayer"/);
+assert.match(appSource, /shouldRenderStaticBanner\(resolvedLayout\) \? \(/);
 assert.match(appSource, /<Static items=\{bannerItems\}>/);
 assert.match(appSource, /<HeaderFrame key=\{item\.id\} authState=\{item\.authState\}\/>/);
 assert.match(appSource, /shouldAppendAuthBanner\(lastBannerSignatureRef\.current, nextAuthState\)/);
