@@ -10,6 +10,7 @@ import {formatElapsed} from './format.js';
 import {useSonexSocket} from './hooks.js';
 import {LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing} from './launch-preparing.js';
 import {canUseFullPlaybackLayout, resolvePlayerEventFocus, resolveShellLayout, shouldReturnToChatAfterSubmit, type ShellLayout, type SmallPlaybackFocus, type TerminalSize} from './layout.js';
+import {clearTerminalForLayoutSwitch} from './terminal-clear.js';
 import type {ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LayoutMode, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion} from './types.js';
 
 const LOCAL_PLAYBACK_COMMANDS = new Set(["pause", "resume", "stop", "progress", "volume", "player"]);
@@ -581,6 +582,7 @@ export const App = () => {
         if (!player.is_playing || confirm || isSlashMenuActive) return;
 
         if (key.tab || inputKey === "\t") {
+            clearTerminalForLayoutSwitch(stdout);
             setManualLayoutOverride(true);
             if (!fullPlaybackLayoutAvailable) {
                 setLayoutMode("full");

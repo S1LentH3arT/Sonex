@@ -11,6 +11,11 @@ assert.match(appSource, /shouldRenderStaticBanner\(resolvedLayout\) \? \(/);
 assert.match(appSource, /<Static items=\{bannerItems\}>/);
 assert.match(appSource, /<HeaderFrame key=\{item\.id\} authState=\{item\.authState\}\/>/);
 assert.match(appSource, /shouldAppendAuthBanner\(lastBannerSignatureRef\.current, nextAuthState\)/);
+const tabBranchStart = appSource.indexOf('if (key.tab || inputKey === "\\t") {', appSource.indexOf('if (!player.is_playing'));
+const tabBranchEnd = appSource.indexOf('flashLayoutTransition();', tabBranchStart);
+const tabBranch = appSource.slice(tabBranchStart, tabBranchEnd);
+assert.ok(tabBranch.indexOf('clearTerminalForLayoutSwitch(stdout);') >= 0);
+assert.ok(tabBranch.indexOf('clearTerminalForLayoutSwitch(stdout);') < tabBranch.indexOf('setSmallPlaybackFocus'));
 
 const dynamicShellBody = componentSource.slice(componentSource.indexOf('export const DynamicShell'));
 assert.equal(dynamicShellBody.includes('<HeaderFrame'), false);
