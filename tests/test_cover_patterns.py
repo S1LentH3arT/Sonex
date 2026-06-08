@@ -13,6 +13,7 @@ from PIL import Image
 from src.tools.cover_patterns import (
     COVER_PATTERN_MAX_BYTES,
     COVER_PATTERN_PALETTE,
+    COVER_PATTERN_SIZES,
     CoverPatternError,
     cover_pattern_cache_path,
     fetch_cover_pattern,
@@ -31,6 +32,36 @@ def _png_bytes(size: tuple[int, int] = (96, 80)) -> bytes:
 
 
 class CoverPatternTests(unittest.TestCase):
+    def test_fixed_palette_contains_96_unique_rgb_colors(self) -> None:
+        self.assertEqual(len(COVER_PATTERN_PALETTE), 96)
+        self.assertEqual(len(set(COVER_PATTERN_PALETTE)), 96)
+        self.assertTrue(all(
+            len(color) == 7
+            and color.startswith("#")
+            and all(character in "0123456789abcdef" for character in color[1:])
+            for color in COVER_PATTERN_PALETTE
+        ))
+
+    def test_previous_48_color_cache_is_invalidated(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            source = "https://cdn.example.test/album/legacy-cover.jpg"
+            cache_path = cover_pattern_cache_path(source, cache_root=Path(tempdir))
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({
+                "palette": COVER_PATTERN_PALETTE[:48],
+                "variants": {
+                    str(size): [[0 for _ in range(size)] for _ in range(size)]
+                    for size in COVER_PATTERN_SIZES
+                },
+                "source_hash": "legacy",
+                "generated_at": 1,
+            }), encoding="utf-8")
+
+            payload = generate_cover_pattern(source, _png_bytes(), cache_root=Path(tempdir))
+
+        self.assertEqual(payload["palette"], COVER_PATTERN_PALETTE)
+        self.assertNotEqual(payload["source_hash"], "legacy")
+
     def test_generate_cover_pattern_caches_expected_variants_without_source_bytes(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             source = "https://cdn.example.test/album/cover-640.jpg"
@@ -44,7 +75,7 @@ class CoverPatternTests(unittest.TestCase):
                 size = int(size_text)
                 self.assertEqual(len(grid), size)
                 self.assertTrue(all(len(row) == size for row in grid))
-                self.assertTrue(all(0 <= index < 48 for row in grid for index in row))
+                self.assertTrue(all(0 <= index < 96 for row in grid for index in row))
 
             cache_path = cover_pattern_cache_path(source, cache_root=Path(tempdir))
             self.assertTrue(cache_path.exists())
