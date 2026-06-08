@@ -194,14 +194,65 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidate["cover_url"], "https://img.example/1000.jpg")
         self.assertEqual(candidate["duration_ms"], 202000)
 
-    def test_resolve_online_audio_requires_configured_open_audio_source_before_youtube(self) -> None:
+    def test_resolve_online_audio_records_missing_config_before_youtube(self) -> None:
+        config = online.OnlineAudioConfig(jamendo_client_id=None, audius_api_key=None)
+        youtube_candidate = {
+            "provider": "youtube",
+            "cache_id": "youtube_yt-1",
+            "id": "yt-1",
+            "name": "Song",
+            "artist": "Artist",
+            "quality_label": "clean_audio_match",
+            "similarity_score": 92,
+        }
+
+        with patch("src.tools.online_play.search_jamendo_audio_candidates") as jamendo_search, \
+             patch("src.tools.online_play.search_audius_audio_candidates") as audius_search, \
+             patch("src.tools.online_play.search_youtube_songs", return_value=[youtube_candidate]) as youtube_search:
+            candidates = online.resolve_online_audio_candidates("Artist Song", config=config)
+
+        jamendo_search.assert_not_called()
+        audius_search.assert_not_called()
+        youtube_search.assert_called_once()
+        self.assertEqual(candidates[0]["cache_id"], "youtube_yt-1")
+        self.assertEqual(
+            candidates[0]["source_attempts"],
+            [
+                {
+                    "provider": "jamendo",
+                    "status": "missing_config",
+                    "candidate_count": 0,
+                    "credible_count": 0,
+                    "message": "Jamendo is not configured.",
+                },
+                {
+                    "provider": "audius",
+                    "status": "missing_config",
+                    "candidate_count": 0,
+                    "credible_count": 0,
+                    "message": "Audius is not configured.",
+                },
+            ],
+        )
+        self.assertIn("Jamendo is not configured", candidates[0]["fallback_reason"])
+        self.assertIn("Audius is not configured", candidates[0]["fallback_reason"])
+
+    def test_resolve_online_audio_youtube_search_failure_keeps_attempt_trace(self) -> None:
         config = online.OnlineAudioConfig(jamendo_client_id=None, audius_api_key=None)
 
-        with patch("src.tools.online_play.search_youtube_songs") as youtube_search:
-            with self.assertRaisesRegex(online.OnlineAudioSetupRequired, "Jamendo or Audius"):
+        with patch(
+            "src.tools.online_play.search_youtube_songs",
+            side_effect=RuntimeError("ERROR: [youtube] wYB9Vu282ZU: This video is not available"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Jamendo is not configured") as cm:
                 online.resolve_online_audio_candidates("Artist Song", config=config)
+            message = str(cm.exception)
 
-        youtube_search.assert_not_called()
+        self.assertIn("Audius is not configured", message)
+        self.assertIn("Sonex fell back to YouTube", message)
+        self.assertIn("Selected YouTube result is not available", message)
+        self.assertNotIn("ERROR: [youtube]", message)
+        self.assertNotIn("wYB9Vu282ZU", message)
 
     def test_resolve_online_audio_tries_youtube_only_after_configured_sources_fail(self) -> None:
         config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
@@ -235,7 +286,14 @@ class OnlinePlayTests(unittest.TestCase):
                     "candidate_count": 0,
                     "credible_count": 0,
                     "message": "Jamendo returned no credible matches.",
-                }
+                },
+                {
+                    "provider": "audius",
+                    "status": "missing_config",
+                    "candidate_count": 0,
+                    "credible_count": 0,
+                    "message": "Audius is not configured.",
+                },
             ],
         )
 

@@ -56,6 +56,7 @@ from src.tools.online_play import (
     OnlineAudioSetupRequired,
     online_audio_configured,
     play_online_audio_candidate,
+    resolve_online_playback_metadata,
     search_online_audio_candidates,
     search_spotify_track_candidates,
 )
@@ -1758,7 +1759,7 @@ class PlaySelectionSession:
             self.selected_playback_metadata.setdefault("original_query", self.query)
             youtube_query = str(candidate.get("youtube_query") or f"{candidate.get('artist') or ''} {candidate.get('name') or ''}").strip()
             self.query = youtube_query or self.query
-            await self._ask_online_audio_candidates(self.query, playback_metadata=self.selected_playback_metadata)
+            await self._play_selected_spotify_candidate(self.query, self.selected_playback_metadata)
             return
         if choice.startswith("youtube_candidate:"):
             cache_id = choice.partition(":")[2]
@@ -1794,8 +1795,6 @@ class PlaySelectionSession:
             await self._play_from_provider("apple_music_play", "apple_music")
             return
         if choice == "online_play":
-            if not await self._ensure_online_audio_setup():
-                return
             await self._ask_spotify_candidates(self.query)
             return
         await self._finish("Unknown playback choice.", status="error")
@@ -1961,6 +1960,95 @@ class PlaySelectionSession:
             tool_args={"query": query, "stage": "online_audio_candidates"},
             tool_name="online_audio_candidate",
         )
+
+    async def _play_selected_spotify_candidate(self, query: str, playback_metadata: dict[str, Any]) -> None:
+        await self.ui.append_activity(
+            kind="tool",
+            title="Resolving online audio",
+            detail=f"Trying Jamendo, Audius, then YouTube for {query}.",
+            status="pending",
+        )
+        metadata = dict(playback_metadata)
+        metadata["youtube_query"] = query
+        cover_task = asyncio.create_task(
+            asyncio.to_thread(resolve_online_playback_metadata, query, metadata)
+        )
+        audio_task = asyncio.create_task(
+            asyncio.to_thread(
+                _search_online_audio_for_runner,
+                query,
+                1,
+                playback_metadata=metadata,
+            )
+        )
+        try:
+            candidates = await audio_task
+        except Exception as exc:
+            await self._send_cover_from_task(cover_task)
+            result = {
+                "status": "fail",
+                "tool": "play_online_audio",
+                "message": sanitize_error_message(exc),
+                "error_code": "ONLINE_AUDIO_RESOLVE_FAILED",
+                "data": {"query": query, "provider": "online_audio", "method": "online_play"},
+            }
+            await self.runner._sync_tool_result_ui(self.ui, "play_online_audio", result)
+            message = _friendly_runtime_error_message(result, fallback="Online playback failed.")
+            await self.ui.append_agent_message(message)
+            await self.ui.send_error(message)
+            await self._finish("Online playback failed.", status="error")
+            return
+
+        await self._send_cover_from_task(cover_task)
+        self.online_audio_candidates = list(candidates or [])
+        if not self.online_audio_candidates:
+            message = "No valid online audio matches found."
+            await self.ui.append_agent_message(message)
+            await self.ui.send_error(message)
+            await self._finish("Online playback failed.", status="error")
+            return
+
+        candidate = self.online_audio_candidates[0]
+        await self._append_source_attempts(candidate.get("source_attempts"))
+        result = await self._play_online_audio_candidate(candidate)
+        data = result.get("data") if isinstance(result, dict) and isinstance(result.get("data"), dict) else {}
+        await self._append_source_attempts(data.get("source_attempts"))
+        if _is_failed_tool_result(result):
+            await self._finish("Online playback failed.", status="error")
+        elif _is_player_confirm_result(result):
+            return
+        else:
+            await self._finish("Online playback selected.")
+
+    async def _send_cover_from_task(self, cover_task: asyncio.Task[dict[str, Any]]) -> None:
+        try:
+            metadata = await cover_task
+        except Exception:
+            return
+        cover_url = (
+            metadata.get("cover_source")
+            or metadata.get("album_cover_url")
+            or metadata.get("cover_url")
+        )
+        if cover_url and not _is_youtube_thumbnail(cover_url):
+            await self.ui.send_cover(str(cover_url))
+
+    async def _append_source_attempts(self, attempts: Any) -> None:
+        if not isinstance(attempts, list):
+            return
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            provider = str(attempt.get("provider") or "online_audio")
+            title = {"jamendo": "Jamendo", "audius": "Audius", "youtube": "YouTube"}.get(provider, provider.title())
+            status = str(attempt.get("status") or "")
+            activity_status = "success" if status == "success" else "error"
+            await self.ui.append_activity(
+                kind="tool",
+                title=title,
+                detail=str(attempt.get("message") or ""),
+                status=activity_status,
+            )
 
     def _online_audio_candidate_choice(self, candidate: dict[str, Any]) -> dict[str, Any]:
         name = str(candidate.get("name") or candidate.get("title") or "-")

@@ -842,6 +842,8 @@ def _source_attempt(
     if not message:
         if status == "success":
             message = f"{label} returned {credible_count} credible match{'es' if credible_count != 1 else ''}."
+        elif status == "missing_config":
+            message = f"{label} is not configured."
         elif status == "error":
             message = f"{label} failed."
         else:
@@ -858,6 +860,14 @@ def _source_attempt(
 def _fallback_reason(source_attempts: list[dict[str, Any]]) -> str:
     messages = [str(item.get("message") or "").strip() for item in source_attempts if item.get("message")]
     return " ".join(messages) or "Configured open-audio providers returned no credible matches."
+
+
+def _friendly_youtube_failure_message(message: str) -> str:
+    if _is_age_verification_error(message):
+        return AGE_RESTRICTED_MESSAGE
+    if _is_unavailable_error(message):
+        return UNAVAILABLE_MESSAGE
+    return sanitize_error_message(message)
 
 
 def _with_youtube_fallback_trace(candidate: dict[str, Any], source_attempts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -964,16 +974,12 @@ def resolve_online_audio_candidates(
     config: OnlineAudioConfig | None = None,
 ) -> list[dict[str, Any]]:
     resolved_config = config or online_audio_config()
-    if not online_audio_configured(resolved_config):
-        raise OnlineAudioSetupRequired(ONLINE_AUDIO_SETUP_MESSAGE)
 
     resolved_metadata = resolve_online_playback_metadata(query, playback_metadata)
     search_query = str(resolved_metadata.get("youtube_query") or query).strip() or query
     candidates: list[dict[str, Any]] = []
     source_attempts: list[dict[str, Any]] = []
-    tried_open_source = False
     if resolved_config.jamendo_client_id:
-        tried_open_source = True
         try:
             provider_candidates = search_jamendo_audio_candidates(
                 search_query,
@@ -999,8 +1005,9 @@ def resolve_online_audio_candidates(
                     message=f"Jamendo failed: {sanitize_error_message(exc)}",
                 )
             )
+    else:
+        source_attempts.append(_source_attempt("jamendo", status="missing_config"))
     if resolved_config.audius_api_key:
-        tried_open_source = True
         try:
             provider_candidates = search_audius_audio_candidates(
                 search_query,
@@ -1026,21 +1033,31 @@ def resolve_online_audio_candidates(
                     message=f"Audius failed: {sanitize_error_message(exc)}",
                 )
             )
+    else:
+        source_attempts.append(_source_attempt("audius", status="missing_config"))
 
     candidates = _credible_online_audio_candidates(candidates)
     if candidates:
         for candidate in candidates:
             candidate.setdefault("source_attempts", [dict(item) for item in source_attempts])
-    if not candidates and tried_open_source:
-        candidates.extend(
-            _with_youtube_fallback_trace(candidate, source_attempts)
-            for candidate in search_youtube_songs(
-                search_query,
-                limit=limit,
-                cache_root=cache_root,
-                playback_metadata=resolved_metadata,
+    if not candidates:
+        try:
+            candidates.extend(
+                _with_youtube_fallback_trace(candidate, source_attempts)
+                for candidate in search_youtube_songs(
+                    search_query,
+                    limit=limit,
+                    cache_root=cache_root,
+                    playback_metadata=resolved_metadata,
+                )
             )
-        )
+        except Exception as exc:
+            raise RuntimeError(
+                _format_youtube_fallback_failure(
+                    {"source_attempts": source_attempts, "fallback_reason": _fallback_reason(source_attempts)},
+                    _friendly_youtube_failure_message(str(exc)),
+                )
+            ) from exc
     if not candidates:
         raise RuntimeError("No valid online audio matches found.")
     ranked = rank_online_audio_candidates(search_query, candidates)

@@ -412,25 +412,36 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["tool_name"], "spotify_candidate")
         self.assertEqual(confirm_events[-1]["choices"][0]["label"], "周杰伦-我很忙--青花瓷")
 
-    async def test_online_choice_without_open_audio_provider_shows_setup_required(self) -> None:
+    async def test_online_choice_without_open_audio_provider_still_starts_spotify_candidates(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
+        spotify_candidates = [
+            {
+                "id": "spotify-track",
+                "name": "青花瓷",
+                "artist": "周杰伦",
+                "artists": ["周杰伦"],
+                "album": "我很忙",
+                "duration_ms": 239000,
+                "uri": "spotify:track:qinghuaci",
+            }
+        ]
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to '青花瓷'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
-             patch("src.api.ws_runner.online_audio_configured", return_value=False), \
-             patch("src.api.ws_runner.search_spotify_track_candidates") as spotify_search, \
+             patch("src.api.ws_runner.online_audio_configured", return_value=False) as configured, \
+             patch("src.api.ws_runner.search_spotify_track_candidates", return_value=spotify_candidates) as spotify_search, \
              patch("src.api.ws_runner.search_online_audio_candidates") as online_search:
             await runner._handle_user_input(ui, "/play 青花瓷")
             session = getattr(ui, "_play_selection")
             await session.handle_choice("online_play")
 
-        spotify_search.assert_not_called()
+        configured.assert_not_called()
+        spotify_search.assert_called_once_with("青花瓷", 5)
         online_search.assert_not_called()
-        self.assertTrue(any("Jamendo or Audius" in str(event.get("text")) for event in ui.events))
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
-        self.assertEqual(confirm_events[-1]["tool_name"], "playback_choice")
+        self.assertEqual(confirm_events[-1]["tool_name"], "spotify_candidate")
 
     async def test_setup_jamendo_stores_open_audio_api_key(self) -> None:
         runner = WebSocketRunner()
@@ -863,7 +874,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["choices"][-1]["value"], "refine_spotify_query")
         self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "试试补充更多歌曲信息")
 
-    async def test_spotify_candidate_choice_searches_youtube_with_confirmed_metadata(self) -> None:
+    async def test_spotify_candidate_choice_plays_online_audio_with_confirmed_metadata(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
         spotify_candidate = {
@@ -875,7 +886,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "duration_ms": 201000,
             "uri": "spotify:track:canonical",
         }
-        youtube_candidate = {
+        online_candidate = {
             "cache_id": "youtube_abc",
             "id": "abc",
             "youtube_id": "abc",
@@ -884,30 +895,100 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "duration_ms": 201000,
             "cached": False,
         }
+        playback_result = {
+            "status": "fail",
+            "tool": "play_online_audio",
+            "message": "Jamendo is not configured. Audius is not configured. Sonex fell back to YouTube. YouTube failed: Selected YouTube result is not available. Choose another candidate or refine the search.",
+            "error_code": "YOUTUBE_UNAVAILABLE",
+            "data": {
+                "provider": "youtube",
+                "fallback_provider": "youtube",
+                "source_attempts": [
+                    {"provider": "jamendo", "status": "missing_config", "message": "Jamendo is not configured."},
+                    {"provider": "audius", "status": "missing_config", "message": "Audius is not configured."},
+                ],
+            },
+        }
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'messy query'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
             await runner._handle_user_input(ui, "/play messy query")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=[spotify_candidate]), \
-             patch("src.api.ws_runner.search_youtube_songs", return_value=[youtube_candidate]) as youtube_search, \
-             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
+             patch("src.api.ws_runner.search_online_audio_candidates", return_value=[online_candidate]) as online_search, \
+             patch("src.api.ws_runner.play_online_audio_candidate", return_value=playback_result) as play_candidate, \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("online_play")
             await session.handle_choice("spotify_candidate:0")
 
-        youtube_search.assert_called_once()
-        self.assertEqual(youtube_search.call_args.args[0], "Canonical Artist Canonical Song")
-        self.assertEqual(youtube_search.call_args.args[1], 5)
-        metadata = youtube_search.call_args.kwargs["playback_metadata"]
+        online_search.assert_called_once()
+        self.assertEqual(online_search.call_args.args[0], "Canonical Artist Canonical Song")
+        self.assertEqual(online_search.call_args.args[1], 1)
+        metadata = online_search.call_args.kwargs["playback_metadata"]
         self.assertEqual(metadata["name"], "Canonical Song")
         self.assertEqual(metadata["artist"], "Canonical Artist")
         self.assertEqual(metadata["album"], "Canonical Album")
         self.assertEqual(metadata["uri"], "spotify:track:canonical")
         self.assertEqual(metadata["original_query"], "messy query")
+        play_candidate.assert_called_once_with(online_candidate, player="auto")
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
-        self.assertEqual(confirm_events[-1]["tool_name"], "online_audio_candidate")
-        self.assertEqual(confirm_events[-1]["choices"][0]["value"], "youtube_candidate:youtube_abc")
+        self.assertEqual(confirm_events[-1]["tool_name"], "spotify_candidate")
+        self.assertFalse([event for event in confirm_events if event.get("tool_name") == "online_audio_candidate"])
+        self.assertTrue(any(
+            event.get("type") == "activity"
+            and event.get("title") == "Jamendo"
+            and event.get("status") == "error"
+            for event in ui.events
+        ))
+        self.assertTrue(any(
+            event.get("type") == "error"
+            and "Selected YouTube result is not available" in str(event.get("message"))
+            for event in ui.events
+        ))
+
+    async def test_spotify_candidate_cover_lookup_can_complete_when_audio_fails(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        spotify_candidate = {
+            "id": "spotify-track",
+            "name": "Canonical Song",
+            "artist": "Canonical Artist",
+            "artists": ["Canonical Artist"],
+            "album": "Canonical Album",
+            "duration_ms": 201000,
+            "uri": "spotify:track:canonical",
+        }
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'messy query'."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._handle_user_input(ui, "/play messy query")
+        session = getattr(ui, "_play_selection")
+        with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=[spotify_candidate]), \
+             patch(
+                 "src.api.ws_runner.resolve_online_playback_metadata",
+                 return_value={
+                     **spotify_candidate,
+                     "metadata_source": "spotify",
+                     "original_query": "messy query",
+                     "youtube_query": "Canonical Artist Canonical Song",
+                     "album_cover_url": "https://coverartarchive.org/release-group/mbid/front-500",
+                     "cover_source": "https://coverartarchive.org/release-group/mbid/front-500",
+                     "cover_source_type": "cover_art_archive",
+                 },
+             ), \
+             patch("src.api.ws_runner.search_online_audio_candidates", side_effect=RuntimeError("YouTube unavailable")), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session.handle_choice("online_play")
+            await session.handle_choice("spotify_candidate:0")
+
+        cover_events = [event for event in ui.events if event.get("type") == "cover"]
+        self.assertTrue(cover_events)
+        self.assertEqual(cover_events[-1]["url"], "https://coverartarchive.org/release-group/mbid/front-500")
+        self.assertTrue(any(
+            event.get("type") == "error"
+            and "YouTube unavailable" in str(event.get("message"))
+            for event in ui.events
+        ))
 
     async def test_spotify_candidate_refine_researches_spotify_not_youtube(self) -> None:
         runner = WebSocketRunner()
