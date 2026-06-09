@@ -14,59 +14,58 @@ import src.tools.track_search as track_search
 
 
 class FakeResponse:
-    """Groups fake response tests.
+    """Groups related response cases.
 
-    Collects related assertions for fake response behavior.
+    Collects assertions that exercise response behavior without mixing unrelated fixtures.
     """
     def __init__(self, payload: dict) -> None:
-        """Validate init.
+        """Verifies that init behaves as expected.
 
-        Exercises the init behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the init behavior against regressions.
 
-        Args:
-            payload: Pytest fixture or input used by this test.
+        Example: __init__() -> passes without assertion failures when the behavior remains correct.
         """
         self.payload = payload
 
     def __enter__(self) -> "FakeResponse":
-        """Validate enter.
+        """Verifies that enter behaves as expected.
 
-        Exercises the enter behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the enter behavior against regressions.
+
+        Example: __enter__() -> passes without assertion failures when the behavior remains correct.
         """
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        """Validate exit.
+        """Verifies that exit behaves as expected.
 
-        Exercises the exit behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the exit behavior against regressions.
 
-        Args:
-            exc_type: Pytest fixture or input used by this test.
-            exc: Pytest fixture or input used by this test.
-            tb: Pytest fixture or input used by this test.
+        Example: __exit__() -> passes without assertion failures when the behavior remains correct.
         """
         return None
 
     def read(self, size: int = -1) -> bytes:
-        """Validate read.
+        """Verifies that read behaves as expected.
 
-        Exercises the read behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the read behavior against regressions.
 
-        Args:
-            size: Pytest fixture or input used by this test.
+        Example: read() -> passes without assertion failures when the behavior remains correct.
         """
         return json.dumps(self.payload).encode("utf-8")
 
 
 class TrackSearchTests(unittest.TestCase):
-    """Groups track search tests tests.
+    """Groups related track search tests cases.
 
-    Collects related assertions for track search tests behavior.
+    Collects assertions that exercise track search tests behavior without mixing unrelated fixtures.
     """
     def test_itunes_normalizes_metadata_candidates(self) -> None:
-        """Validate test itunes normalizes metadata candidates.
+        """Verifies that itunes normalizes metadata candidates behaves as expected.
 
-        Exercises the test itunes normalizes metadata candidates behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the itunes normalizes metadata candidates behavior against regressions.
+
+        Example: test_itunes_normalizes_metadata_candidates() -> passes without assertion failures when the behavior remains correct.
         """
         payload = {
             "results": [
@@ -110,9 +109,11 @@ class TrackSearchTests(unittest.TestCase):
         self.assertIn("entity=song", requested_url)
 
     def test_deezer_and_musicbrainz_fill_to_five_with_dedupe(self) -> None:
-        """Validate test deezer and musicbrainz fill to five with dedupe.
+        """Verifies that deezer and musicbrainz fill to five with dedupe behaves as expected.
 
-        Exercises the test deezer and musicbrainz fill to five with dedupe behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the deezer and musicbrainz fill to five with dedupe behavior against regressions.
+
+        Example: test_deezer_and_musicbrainz_fill_to_five_with_dedupe() -> passes without assertion failures when the behavior remains correct.
         """
         payloads = [
             {
@@ -179,13 +180,11 @@ class TrackSearchTests(unittest.TestCase):
         ]
 
         def fake_urlopen(request, timeout=0):
-            """Validate fake urlopen.
+            """Verifies that fake urlopen behaves as expected.
 
-            Exercises the fake urlopen behavior through the test suite.
+            Typical use: Use this in automated tests when guarding the fake urlopen behavior against regressions.
 
-            Args:
-                request: Pytest fixture or input used by this test.
-                timeout: Pytest fixture or input used by this test.
+            Example: fake_urlopen() -> passes without assertion failures when the behavior remains correct.
             """
             return FakeResponse(payloads.pop(0))
 
@@ -206,9 +205,11 @@ class TrackSearchTests(unittest.TestCase):
         self.assertEqual([attempt["provider"] for attempt in result["source_attempts"]], ["itunes", "deezer", "musicbrainz"])
 
     def test_itunes_rate_limit_is_sanitized_and_deezer_still_runs(self) -> None:
-        """Validate test itunes rate limit is sanitized and deezer still runs.
+        """Verifies that itunes rate limit is sanitized and deezer still runs behaves as expected.
 
-        Exercises the test itunes rate limit is sanitized and deezer still runs behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the itunes rate limit is sanitized and deezer still runs behavior against regressions.
+
+        Example: test_itunes_rate_limit_is_sanitized_and_deezer_still_runs() -> passes without assertion failures when the behavior remains correct.
         """
         rate_limit = HTTPError(
             "https://itunes.apple.com/search",

@@ -24,26 +24,11 @@ def normalize_track_shape(
     is_playable: Any = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Normalize track shape.
+    """Coordinates normalize track shape for the current Sonex flow.
 
-    Coordinates normalize track shape logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs normalize track shape as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the normalize track shape operation.
-        track_id: Input value used by the normalize track shape operation.
-        name: Input value used by the normalize track shape operation.
-        artists: Input value used by the normalize track shape operation.
-        album: Input value used by the normalize track shape operation.
-        duration_ms: Input value used by the normalize track shape operation.
-        cover_url: Input value used by the normalize track shape operation.
-        url: Input value used by the normalize track shape operation.
-        uri: Input value used by the normalize track shape operation.
-        play_params: Input value used by the normalize track shape operation.
-        is_playable: Input value used by the normalize track shape operation.
-        extra: Input value used by the normalize track shape operation.
-
-    Returns:
-        The computed result for normalize track shape.
+    Example: normalize_track_shape(provider=..., track_id=..., name=..., artists=..., album=..., duration_ms=..., cover_url=..., url=..., uri=..., play_params=..., is_playable=..., extra=...) -> returns the value used by the surrounding Sonex flow.
     """
     artist_names = [str(artist) for artist in (artists or []) if artist]
     title = str(name) if name is not None else None

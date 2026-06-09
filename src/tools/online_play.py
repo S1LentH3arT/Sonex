@@ -87,40 +87,31 @@ class OnlineAudioConfig:
 
 
 def _song_cache_root(cache_root: Path | None = None) -> Path:
-    """Song cache root.
+    """Prepares song cache root for an internal Sonex flow.
 
-    Coordinates song cache root logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs song cache root without duplicating the local rules.
 
-    Args:
-        cache_root: Input value used by the song cache root operation.
-
-    Returns:
-        The computed result for song cache root.
+    Example: _song_cache_root(cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     return cache_root or sonex_home() / "cache" / "songs"
 
 
 def _audio_cache_dir(cache_root: Path | None = None) -> Path:
-    """Audio cache dir.
+    """Prepares audio cache dir for an internal Sonex flow.
 
-    Coordinates audio cache dir logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs audio cache dir without duplicating the local rules.
 
-    Args:
-        cache_root: Input value used by the audio cache dir operation.
-
-    Returns:
-        The computed result for audio cache dir.
+    Example: _audio_cache_dir(cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     return _song_cache_root(cache_root) / "audio"
 
 
 def online_audio_config() -> OnlineAudioConfig:
-    """Online audio config.
+    """Coordinates online audio config for the current Sonex flow.
 
-    Coordinates online audio config logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs online audio config as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for online audio config.
+    Example: online_audio_config() -> returns the value used by the surrounding Sonex flow.
     """
     jamendo_client_id = _text(
         os_value("SONEX_JAMENDO_CLIENT_ID")
@@ -143,15 +134,11 @@ def online_audio_config() -> OnlineAudioConfig:
 
 
 def os_value(name: str) -> str | None:
-    """Os value.
+    """Coordinates os value for the current Sonex flow.
 
-    Coordinates os value logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs os value as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        name: Input value used by the os value operation.
-
-    Returns:
-        The computed result for os value.
+    Example: os_value("SONEX_PROVIDER") -> "openai" when that environment variable is set.
     """
     import os
 
@@ -159,30 +146,22 @@ def os_value(name: str) -> str | None:
 
 
 def online_audio_configured(config: OnlineAudioConfig | None = None) -> bool:
-    """Online audio configured.
+    """Coordinates online audio configured for the current Sonex flow.
 
-    Coordinates online audio configured logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs online audio configured as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        config: Input value used by the online audio configured operation.
-
-    Returns:
-        The computed result for online audio configured.
+    Example: online_audio_configured(OnlineAudioConfig(jamendo_client_id="id")) -> True.
     """
     resolved = config or online_audio_config()
     return bool(resolved.jamendo_client_id or resolved.audius_api_key)
 
 
 def _text(value: Any) -> str | None:
-    """Text.
+    """Prepares text for an internal Sonex flow.
 
-    Coordinates text logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs text without duplicating the local rules.
 
-    Args:
-        value: Input value used by the text operation.
-
-    Returns:
-        The computed result for text.
+    Example: _text("  song  ") -> "song"; _text("") -> None.
     """
     if value is None:
         return None
@@ -191,15 +170,11 @@ def _text(value: Any) -> str | None:
 
 
 def _joined_text(value: Any) -> str | None:
-    """Joined text.
+    """Prepares joined text for an internal Sonex flow.
 
-    Coordinates joined text logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs joined text without duplicating the local rules.
 
-    Args:
-        value: Input value used by the joined text operation.
-
-    Returns:
-        The computed result for joined text.
+    Example: _joined_text(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(value, list):
         parts = [_text(item) for item in value]
@@ -208,15 +183,11 @@ def _joined_text(value: Any) -> str | None:
 
 
 def _non_placeholder_text(value: Any) -> str | None:
-    """Non placeholder text.
+    """Prepares non placeholder text for an internal Sonex flow.
 
-    Coordinates non placeholder text logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs non placeholder text without duplicating the local rules.
 
-    Args:
-        value: Input value used by the non placeholder text operation.
-
-    Returns:
-        The computed result for non placeholder text.
+    Example: _non_placeholder_text(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     text = _joined_text(value)
     if text in {None, "-"}:
@@ -225,15 +196,11 @@ def _non_placeholder_text(value: Any) -> str | None:
 
 
 def _spotify_tracks_from_result(result: dict[str, Any]) -> list[dict[str, Any]]:
-    """Spotify tracks from result.
+    """Prepares spotify tracks from result for an internal Sonex flow.
 
-    Coordinates spotify tracks from result logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs spotify tracks from result without duplicating the local rules.
 
-    Args:
-        result: Input value used by the spotify tracks from result operation.
-
-    Returns:
-        The computed result for spotify tracks from result.
+    Example: _spotify_tracks_from_result(result=...) -> returns the value used by the surrounding Sonex flow.
     """
     if str(result.get("status") or "").lower() != "success":
         return []
@@ -245,16 +212,11 @@ def _spotify_tracks_from_result(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _spotify_track_metadata(query: str, track: dict[str, Any]) -> dict[str, Any] | None:
-    """Spotify track metadata.
+    """Prepares spotify track metadata for an internal Sonex flow.
 
-    Coordinates spotify track metadata logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs spotify track metadata without duplicating the local rules.
 
-    Args:
-        query: Input value used by the spotify track metadata operation.
-        track: Input value used by the spotify track metadata operation.
-
-    Returns:
-        The computed result for spotify track metadata.
+    Example: _spotify_track_metadata(query=..., track=...) -> returns the value used by the surrounding Sonex flow.
     """
     name = _non_placeholder_text(track.get("name") or track.get("title"))
     artist = _non_placeholder_text(track.get("artist") or track.get("artists"))
@@ -281,16 +243,11 @@ def _spotify_track_metadata(query: str, track: dict[str, Any]) -> dict[str, Any]
 
 
 def search_spotify_track_candidates(query: str, limit: int = 5) -> list[dict[str, Any]]:
-    """Search spotify track candidates.
+    """Coordinates search spotify track candidates for the current Sonex flow.
 
-    Coordinates search spotify track candidates logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs search spotify track candidates as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the search spotify track candidates operation.
-        limit: Input value used by the search spotify track candidates operation.
-
-    Returns:
-        The computed result for search spotify track candidates.
+    Example: search_spotify_track_candidates(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     clean_query = query.strip()
     if not clean_query:
@@ -313,15 +270,11 @@ def search_spotify_track_candidates(query: str, limit: int = 5) -> list[dict[str
 
 
 def _query_fallback_metadata(query: str) -> dict[str, Any]:
-    """Query fallback metadata.
+    """Prepares query fallback metadata for an internal Sonex flow.
 
-    Coordinates query fallback metadata logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs query fallback metadata without duplicating the local rules.
 
-    Args:
-        query: Input value used by the query fallback metadata operation.
-
-    Returns:
-        The computed result for query fallback metadata.
+    Example: _query_fallback_metadata(query=...) -> returns the value used by the surrounding Sonex flow.
     """
     clean_query = query.strip()
     return {
@@ -332,16 +285,11 @@ def _query_fallback_metadata(query: str) -> dict[str, Any]:
 
 
 def _resolved_playback_metadata(query: str, playback_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Resolved playback metadata.
+    """Prepares resolved playback metadata for an internal Sonex flow.
 
-    Coordinates resolved playback metadata logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs resolved playback metadata without duplicating the local rules.
 
-    Args:
-        query: Input value used by the resolved playback metadata operation.
-        playback_metadata: Input value used by the resolved playback metadata operation.
-
-    Returns:
-        The computed result for resolved playback metadata.
+    Example: _resolved_playback_metadata(query=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not isinstance(playback_metadata, dict) or not playback_metadata:
         return _query_fallback_metadata(query)
@@ -374,30 +322,21 @@ def _resolved_playback_metadata(query: str, playback_metadata: dict[str, Any] | 
 
 
 def resolve_online_playback_metadata(query: str, playback_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Resolve online playback metadata.
+    """Resolves online playback metadata from available runtime state.
 
-    Coordinates resolve online playback metadata logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs resolve online playback metadata as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the resolve online playback metadata operation.
-        playback_metadata: Input value used by the resolve online playback metadata operation.
-
-    Returns:
-        The computed result for resolve online playback metadata.
+    Example: resolve_online_playback_metadata(query=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     return _resolved_playback_metadata(query, playback_metadata)
 
 
 def _canonical_metadata(item: dict[str, Any]) -> dict[str, Any]:
-    """Canonical metadata.
+    """Prepares canonical metadata for an internal Sonex flow.
 
-    Coordinates canonical metadata logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs canonical metadata without duplicating the local rules.
 
-    Args:
-        item: Input value used by the canonical metadata operation.
-
-    Returns:
-        The computed result for canonical metadata.
+    Example: _canonical_metadata(item=...) -> returns the value used by the surrounding Sonex flow.
     """
     metadata: dict[str, Any] = {}
     source = str(item.get("metadata_source") or item.get("provider") or "").strip().lower()
@@ -440,16 +379,11 @@ def _canonical_metadata(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _merge_canonical_metadata(item: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
-    """Merge canonical metadata.
+    """Prepares merge canonical metadata for an internal Sonex flow.
 
-    Coordinates merge canonical metadata logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs merge canonical metadata without duplicating the local rules.
 
-    Args:
-        item: Input value used by the merge canonical metadata operation.
-        metadata: Input value used by the merge canonical metadata operation.
-
-    Returns:
-        The computed result for merge canonical metadata.
+    Example: _merge_canonical_metadata(item=..., metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not metadata:
         return item
@@ -480,15 +414,11 @@ def _merge_canonical_metadata(item: dict[str, Any], metadata: dict[str, Any]) ->
 
 
 def _duration_ms(value: Any) -> int:
-    """Duration ms.
+    """Prepares duration ms for an internal Sonex flow.
 
-    Coordinates duration ms logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs duration ms without duplicating the local rules.
 
-    Args:
-        value: Input value used by the duration ms operation.
-
-    Returns:
-        The computed result for duration ms.
+    Example: _duration_ms(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         return max(0, int(float(value or 0) * 1000))
@@ -497,15 +427,11 @@ def _duration_ms(value: Any) -> int:
 
 
 def _count(value: Any) -> int:
-    """Count.
+    """Prepares count for an internal Sonex flow.
 
-    Coordinates count logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs count without duplicating the local rules.
 
-    Args:
-        value: Input value used by the count operation.
-
-    Returns:
-        The computed result for count.
+    Example: _count(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         return max(0, int(float(value or 0)))
@@ -514,75 +440,53 @@ def _count(value: Any) -> int:
 
 
 def _words(value: str) -> list[str]:
-    """Words.
+    """Prepares words for an internal Sonex flow.
 
-    Coordinates words logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs words without duplicating the local rules.
 
-    Args:
-        value: Input value used by the words operation.
-
-    Returns:
-        The computed result for words.
+    Example: _words(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     return re.findall(r"[\w\u4e00-\u9fff]+", value.casefold())
 
 
 def _normalized_rank_text(value: str) -> str:
-    """Normalized rank text.
+    """Prepares normalized rank text for an internal Sonex flow.
 
-    Coordinates normalized rank text logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalized rank text without duplicating the local rules.
 
-    Args:
-        value: Input value used by the normalized rank text operation.
-
-    Returns:
-        The computed result for normalized rank text.
+    Example: _normalized_rank_text(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     return " ".join(_words(value))
 
 
 def _query_terms(query: str) -> list[str]:
-    """Query terms.
+    """Prepares query terms for an internal Sonex flow.
 
-    Coordinates query terms logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs query terms without duplicating the local rules.
 
-    Args:
-        query: Input value used by the query terms operation.
-
-    Returns:
-        The computed result for query terms.
+    Example: _query_terms(query=...) -> returns the value used by the surrounding Sonex flow.
     """
     terms = _words(query)
     return [term for term in terms if term not in QUERY_FILLER_TERMS and term not in LIVE_TERMS]
 
 
 def _contains_any(value: str, terms: tuple[str, ...]) -> bool:
-    """Contains any.
+    """Prepares contains any for an internal Sonex flow.
 
-    Coordinates contains any logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs contains any without duplicating the local rules.
 
-    Args:
-        value: Input value used by the contains any operation.
-        terms: Input value used by the contains any operation.
-
-    Returns:
-        The computed result for contains any.
+    Example: _contains_any(value=..., terms=...) -> returns the value used by the surrounding Sonex flow.
     """
     text = value.casefold()
     return any(term in text for term in terms)
 
 
 def _variant_type(query: str, info: dict[str, Any]) -> str:
-    """Variant type.
+    """Prepares variant type for an internal Sonex flow.
 
-    Coordinates variant type logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs variant type without duplicating the local rules.
 
-    Args:
-        query: Input value used by the variant type operation.
-        info: Input value used by the variant type operation.
-
-    Returns:
-        The computed result for variant type.
+    Example: _variant_type(query=..., info=...) -> returns the value used by the surrounding Sonex flow.
     """
     title = _text(info.get("track") or info.get("title") or info.get("fulltitle") or "") or ""
     channel = _text(info.get("channel") or info.get("uploader") or "") or ""
@@ -595,43 +499,31 @@ def _variant_type(query: str, info: dict[str, Any]) -> str:
 
 
 def _rank_title(info: dict[str, Any]) -> str:
-    """Rank title.
+    """Prepares rank title for an internal Sonex flow.
 
-    Coordinates rank title logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs rank title without duplicating the local rules.
 
-    Args:
-        info: Input value used by the rank title operation.
-
-    Returns:
-        The computed result for rank title.
+    Example: _rank_title(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     return _text(info.get("track") or info.get("title") or info.get("fulltitle") or "") or ""
 
 
 def _rank_channel(info: dict[str, Any]) -> str:
-    """Rank channel.
+    """Prepares rank channel for an internal Sonex flow.
 
-    Coordinates rank channel logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs rank channel without duplicating the local rules.
 
-    Args:
-        info: Input value used by the rank channel operation.
-
-    Returns:
-        The computed result for rank channel.
+    Example: _rank_channel(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     return _text(info.get("channel") or info.get("uploader") or "") or ""
 
 
 def _rank_artist(info: dict[str, Any]) -> str:
-    """Rank artist.
+    """Prepares rank artist for an internal Sonex flow.
 
-    Coordinates rank artist logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs rank artist without duplicating the local rules.
 
-    Args:
-        info: Input value used by the rank artist operation.
-
-    Returns:
-        The computed result for rank artist.
+    Example: _rank_artist(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     return (
         _non_placeholder_text(info.get("artist"))
@@ -643,15 +535,11 @@ def _rank_artist(info: dict[str, Any]) -> str:
 
 
 def _rank_haystack(info: dict[str, Any]) -> str:
-    """Rank haystack.
+    """Prepares rank haystack for an internal Sonex flow.
 
-    Coordinates rank haystack logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs rank haystack without duplicating the local rules.
 
-    Args:
-        info: Input value used by the rank haystack operation.
-
-    Returns:
-        The computed result for rank haystack.
+    Example: _rank_haystack(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     return " ".join(
         str(value or "")
@@ -669,16 +557,11 @@ def _rank_haystack(info: dict[str, Any]) -> str:
 
 
 def _similarity_score(query: str, info: dict[str, Any]) -> int:
-    """Similarity score.
+    """Prepares similarity score for an internal Sonex flow.
 
-    Coordinates similarity score logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs similarity score without duplicating the local rules.
 
-    Args:
-        query: Input value used by the similarity score operation.
-        info: Input value used by the similarity score operation.
-
-    Returns:
-        The computed result for similarity score.
+    Example: _similarity_score(query=..., info=...) -> returns the value used by the surrounding Sonex flow.
     """
     query_norm = _normalized_rank_text(query)
     if not query_norm:
@@ -698,17 +581,11 @@ def _similarity_score(query: str, info: dict[str, Any]) -> int:
 
 
 def _clean_title_match(query: str, info: dict[str, Any], similarity: int) -> bool:
-    """Clean title match.
+    """Prepares clean title match for an internal Sonex flow.
 
-    Coordinates clean title match logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs clean title match without duplicating the local rules.
 
-    Args:
-        query: Input value used by the clean title match operation.
-        info: Input value used by the clean title match operation.
-        similarity: Input value used by the clean title match operation.
-
-    Returns:
-        The computed result for clean title match.
+    Example: _clean_title_match(query=..., info=..., similarity=...) -> returns the value used by the surrounding Sonex flow.
     """
     title = _rank_title(info)
     if similarity < 70:
@@ -719,18 +596,11 @@ def _clean_title_match(query: str, info: dict[str, Any], similarity: int) -> boo
 
 
 def _quality_label(query: str, info: dict[str, Any], variant: str, similarity: int) -> str:
-    """Quality label.
+    """Prepares quality label for an internal Sonex flow.
 
-    Coordinates quality label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs quality label without duplicating the local rules.
 
-    Args:
-        query: Input value used by the quality label operation.
-        info: Input value used by the quality label operation.
-        variant: Input value used by the quality label operation.
-        similarity: Input value used by the quality label operation.
-
-    Returns:
-        The computed result for quality label.
+    Example: _quality_label(query=..., info=..., variant=..., similarity=...) -> returns the value used by the surrounding Sonex flow.
     """
     combined = f"{_rank_title(info)} {_rank_channel(info)}".casefold()
     live_requested = _contains_any(query, LIVE_TERMS)
@@ -748,17 +618,11 @@ def _quality_label(query: str, info: dict[str, Any], variant: str, similarity: i
 
 
 def _provider_cache_id(provider: str, provider_id: str | None, source_url: str | None = None) -> str:
-    """Provider cache id.
+    """Prepares provider cache id for an internal Sonex flow.
 
-    Coordinates provider cache id logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs provider cache id without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the provider cache id operation.
-        provider_id: Input value used by the provider cache id operation.
-        source_url: Input value used by the provider cache id operation.
-
-    Returns:
-        The computed result for provider cache id.
+    Example: _provider_cache_id(provider=..., provider_id=..., source_url=...) -> returns the value used by the surrounding Sonex flow.
     """
     if provider_id:
         return f"{provider}_{provider_id}"
@@ -783,27 +647,11 @@ def _open_audio_candidate(
     playback_metadata: dict[str, Any] | None = None,
     extra_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Open audio candidate.
+    """Prepares open audio candidate for an internal Sonex flow.
 
-    Coordinates open audio candidate logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs open audio candidate without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the open audio candidate operation.
-        provider_id: Input value used by the open audio candidate operation.
-        query: Input value used by the open audio candidate operation.
-        name: Input value used by the open audio candidate operation.
-        artist: Input value used by the open audio candidate operation.
-        album: Input value used by the open audio candidate operation.
-        duration_ms: Input value used by the open audio candidate operation.
-        cover_url: Input value used by the open audio candidate operation.
-        source_url: Input value used by the open audio candidate operation.
-        download_url: Input value used by the open audio candidate operation.
-        webpage_url: Input value used by the open audio candidate operation.
-        playback_metadata: Input value used by the open audio candidate operation.
-        extra_metadata: Input value used by the open audio candidate operation.
-
-    Returns:
-        The computed result for open audio candidate.
+    Example: _open_audio_candidate(provider=..., provider_id=..., query=..., name=..., artist=..., album=..., duration_ms=..., cover_url=..., source_url=..., download_url=..., webpage_url=..., playback_metadata=..., extra_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     info = {
         "id": provider_id,
@@ -855,17 +703,11 @@ def normalize_jamendo_track(
     query: str,
     playback_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Normalize jamendo track.
+    """Coordinates normalize jamendo track for the current Sonex flow.
 
-    Coordinates normalize jamendo track logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs normalize jamendo track as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        track: Input value used by the normalize jamendo track operation.
-        query: Input value used by the normalize jamendo track operation.
-        playback_metadata: Input value used by the normalize jamendo track operation.
-
-    Returns:
-        The computed result for normalize jamendo track.
+    Example: normalize_jamendo_track(track=..., query=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     source_url = _text(track.get("audio"))
     download_url = _text(track.get("audiodownload"))
@@ -893,15 +735,11 @@ def normalize_jamendo_track(
 
 
 def _best_audius_artwork(track: dict[str, Any]) -> str | None:
-    """Best audius artwork.
+    """Prepares best audius artwork for an internal Sonex flow.
 
-    Coordinates best audius artwork logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs best audius artwork without duplicating the local rules.
 
-    Args:
-        track: Input value used by the best audius artwork operation.
-
-    Returns:
-        The computed result for best audius artwork.
+    Example: _best_audius_artwork(track=...) -> returns the value used by the surrounding Sonex flow.
     """
     artwork = track.get("artwork")
     if not isinstance(artwork, dict):
@@ -914,15 +752,11 @@ def _best_audius_artwork(track: dict[str, Any]) -> str | None:
 
 
 def _audius_user_name(track: dict[str, Any]) -> str | None:
-    """Audius user name.
+    """Prepares audius user name for an internal Sonex flow.
 
-    Coordinates audius user name logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs audius user name without duplicating the local rules.
 
-    Args:
-        track: Input value used by the audius user name operation.
-
-    Returns:
-        The computed result for audius user name.
+    Example: _audius_user_name(track=...) -> returns the value used by the surrounding Sonex flow.
     """
     user = track.get("user")
     if isinstance(user, dict):
@@ -931,15 +765,11 @@ def _audius_user_name(track: dict[str, Any]) -> str | None:
 
 
 def _is_audius_stream_gated(track: dict[str, Any]) -> bool:
-    """Is audius stream gated.
+    """Prepares is audius stream gated for an internal Sonex flow.
 
-    Coordinates is audius stream gated logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is audius stream gated without duplicating the local rules.
 
-    Args:
-        track: Input value used by the is audius stream gated operation.
-
-    Returns:
-        The computed result for is audius stream gated.
+    Example: _is_audius_stream_gated(track=...) -> returns the value used by the surrounding Sonex flow.
     """
     if bool(track.get("is_stream_gated")):
         return True
@@ -954,18 +784,11 @@ def normalize_audius_track(
     stream_url: str,
     playback_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Normalize audius track.
+    """Coordinates normalize audius track for the current Sonex flow.
 
-    Coordinates normalize audius track logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs normalize audius track as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        track: Input value used by the normalize audius track operation.
-        query: Input value used by the normalize audius track operation.
-        stream_url: Input value used by the normalize audius track operation.
-        playback_metadata: Input value used by the normalize audius track operation.
-
-    Returns:
-        The computed result for normalize audius track.
+    Example: normalize_audius_track(track=..., query=..., stream_url=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     if _is_audius_stream_gated(track):
         return None
@@ -991,30 +814,21 @@ def normalize_audius_track(
 
 
 def _popularity_tiebreaker(popularity: int) -> int:
-    """Popularity tiebreaker.
+    """Prepares popularity tiebreaker for an internal Sonex flow.
 
-    Coordinates popularity tiebreaker logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs popularity tiebreaker without duplicating the local rules.
 
-    Args:
-        popularity: Input value used by the popularity tiebreaker operation.
-
-    Returns:
-        The computed result for popularity tiebreaker.
+    Example: _popularity_tiebreaker(popularity=...) -> returns the value used by the surrounding Sonex flow.
     """
     return round(math.log10(max(0, popularity) + 1) * 1000)
 
 
 def _relevance_score(query: str, info: dict[str, Any]) -> int:
-    """Relevance score.
+    """Prepares relevance score for an internal Sonex flow.
 
-    Coordinates relevance score logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs relevance score without duplicating the local rules.
 
-    Args:
-        query: Input value used by the relevance score operation.
-        info: Input value used by the relevance score operation.
-
-    Returns:
-        The computed result for relevance score.
+    Example: _relevance_score(query=..., info=...) -> returns the value used by the surrounding Sonex flow.
     """
     terms = _query_terms(query)
     if not terms:
@@ -1024,15 +838,11 @@ def _relevance_score(query: str, info: dict[str, Any]) -> int:
 
 
 def _popularity_score(info: dict[str, Any]) -> int:
-    """Popularity score.
+    """Prepares popularity score for an internal Sonex flow.
 
-    Coordinates popularity score logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs popularity score without duplicating the local rules.
 
-    Args:
-        info: Input value used by the popularity score operation.
-
-    Returns:
-        The computed result for popularity score.
+    Example: _popularity_score(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     view_count = _count(info.get("view_count"))
     like_count = _count(info.get("like_count"))
@@ -1042,19 +852,11 @@ def _popularity_score(info: dict[str, Any]) -> int:
 
 
 def _rank_reason(variant: str, popularity: int, relevance: int, similarity: int, quality: str) -> str:
-    """Rank reason.
+    """Prepares rank reason for an internal Sonex flow.
 
-    Coordinates rank reason logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs rank reason without duplicating the local rules.
 
-    Args:
-        variant: Input value used by the rank reason operation.
-        popularity: Input value used by the rank reason operation.
-        relevance: Input value used by the rank reason operation.
-        similarity: Input value used by the rank reason operation.
-        quality: Input value used by the rank reason operation.
-
-    Returns:
-        The computed result for rank reason.
+    Example: _rank_reason(variant=..., popularity=..., relevance=..., similarity=..., quality=...) -> returns the value used by the surrounding Sonex flow.
     """
     label = {
         "official_original": "official original",
@@ -1065,15 +867,11 @@ def _rank_reason(variant: str, popularity: int, relevance: int, similarity: int,
 
 
 def _is_age_restricted_info(info: dict[str, Any]) -> bool:
-    """Is age restricted info.
+    """Prepares is age restricted info for an internal Sonex flow.
 
-    Coordinates is age restricted info logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is age restricted info without duplicating the local rules.
 
-    Args:
-        info: Input value used by the is age restricted info operation.
-
-    Returns:
-        The computed result for is age restricted info.
+    Example: _is_age_restricted_info(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         age_limit = int(info.get("age_limit") or 0)
@@ -1086,15 +884,11 @@ def _is_age_restricted_info(info: dict[str, Any]) -> bool:
 
 
 def _is_unavailable_info(info: dict[str, Any]) -> bool:
-    """Is unavailable info.
+    """Prepares is unavailable info for an internal Sonex flow.
 
-    Coordinates is unavailable info logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is unavailable info without duplicating the local rules.
 
-    Args:
-        info: Input value used by the is unavailable info operation.
-
-    Returns:
-        The computed result for is unavailable info.
+    Example: _is_unavailable_info(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     availability = str(info.get("availability") or "").casefold()
     return availability in {
@@ -1108,15 +902,11 @@ def _is_unavailable_info(info: dict[str, Any]) -> bool:
 
 
 def _is_age_verification_error(message: str) -> bool:
-    """Is age verification error.
+    """Prepares is age verification error for an internal Sonex flow.
 
-    Coordinates is age verification error logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is age verification error without duplicating the local rules.
 
-    Args:
-        message: Input value used by the is age verification error operation.
-
-    Returns:
-        The computed result for is age verification error.
+    Example: _is_age_verification_error(message=...) -> returns the value used by the surrounding Sonex flow.
     """
     text = message.casefold()
     return (
@@ -1127,15 +917,11 @@ def _is_age_verification_error(message: str) -> bool:
 
 
 def _is_unavailable_error(message: str) -> bool:
-    """Is unavailable error.
+    """Prepares is unavailable error for an internal Sonex flow.
 
-    Coordinates is unavailable error logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is unavailable error without duplicating the local rules.
 
-    Args:
-        message: Input value used by the is unavailable error operation.
-
-    Returns:
-        The computed result for is unavailable error.
+    Example: _is_unavailable_error(message=...) -> returns the value used by the surrounding Sonex flow.
     """
     text = message.casefold()
     return (
@@ -1148,16 +934,11 @@ def _is_unavailable_error(message: str) -> bool:
 
 
 def _should_keep_candidate(query: str, info: dict[str, Any]) -> bool:
-    """Should keep candidate.
+    """Prepares should keep candidate for an internal Sonex flow.
 
-    Coordinates should keep candidate logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs should keep candidate without duplicating the local rules.
 
-    Args:
-        query: Input value used by the should keep candidate operation.
-        info: Input value used by the should keep candidate operation.
-
-    Returns:
-        The computed result for should keep candidate.
+    Example: _should_keep_candidate(query=..., info=...) -> returns the value used by the surrounding Sonex flow.
     """
     if _is_age_restricted_info(info) or _is_unavailable_info(info):
         return False
@@ -1172,15 +953,11 @@ def _should_keep_candidate(query: str, info: dict[str, Any]) -> bool:
 
 
 def _best_thumbnail(info: dict[str, Any]) -> str | None:
-    """Best thumbnail.
+    """Prepares best thumbnail for an internal Sonex flow.
 
-    Coordinates best thumbnail logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs best thumbnail without duplicating the local rules.
 
-    Args:
-        info: Input value used by the best thumbnail operation.
-
-    Returns:
-        The computed result for best thumbnail.
+    Example: _best_thumbnail(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     direct = _text(info.get("thumbnail"))
     if direct:
@@ -1200,15 +977,11 @@ def _best_thumbnail(info: dict[str, Any]) -> str | None:
 
 
 def _audio_stream_url(info: dict[str, Any]) -> str:
-    """Audio stream url.
+    """Prepares audio stream url for an internal Sonex flow.
 
-    Coordinates audio stream url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs audio stream url without duplicating the local rules.
 
-    Args:
-        info: Input value used by the audio stream url operation.
-
-    Returns:
-        The computed result for audio stream url.
+    Example: _audio_stream_url(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     stream_url = _text(info.get("url"))
     if stream_url:
@@ -1230,15 +1003,11 @@ def _audio_stream_url(info: dict[str, Any]) -> str:
 
 
 def _webpage_url(info: dict[str, Any]) -> str | None:
-    """Webpage url.
+    """Prepares webpage url for an internal Sonex flow.
 
-    Coordinates webpage url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs webpage url without duplicating the local rules.
 
-    Args:
-        info: Input value used by the webpage url operation.
-
-    Returns:
-        The computed result for webpage url.
+    Example: _webpage_url(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     url = _text(info.get("webpage_url") or info.get("original_url"))
     if url:
@@ -1250,15 +1019,11 @@ def _webpage_url(info: dict[str, Any]) -> str | None:
 
 
 def _youtube_cache_id(info: dict[str, Any]) -> str:
-    """Youtube cache id.
+    """Prepares youtube cache id for an internal Sonex flow.
 
-    Coordinates youtube cache id logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs youtube cache id without duplicating the local rules.
 
-    Args:
-        info: Input value used by the youtube cache id operation.
-
-    Returns:
-        The computed result for youtube cache id.
+    Example: _youtube_cache_id(info=...) -> returns the value used by the surrounding Sonex flow.
     """
     video_id = _text(info.get("youtube_id") or info.get("id"))
     if video_id:
@@ -1269,16 +1034,11 @@ def _youtube_cache_id(info: dict[str, Any]) -> str:
 
 
 def _cached_audio_item(cache_id: str, *, cache_root: Path | None = None) -> dict[str, Any] | None:
-    """Cached audio item.
+    """Prepares cached audio item for an internal Sonex flow.
 
-    Coordinates cached audio item logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs cached audio item without duplicating the local rules.
 
-    Args:
-        cache_id: Input value used by the cached audio item operation.
-        cache_root: Input value used by the cached audio item operation.
-
-    Returns:
-        The computed result for cached audio item.
+    Example: _cached_audio_item(cache_id=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         item = resolve_cached_song(cache_id, cache_root=cache_root)
@@ -1293,17 +1053,11 @@ def _cached_audio_item(cache_id: str, *, cache_root: Path | None = None) -> dict
 
 
 def _normalize_youtube_info(query: str, info: dict[str, Any], stream_url: str | None = None) -> dict[str, Any]:
-    """Normalize youtube info.
+    """Prepares normalize youtube info for an internal Sonex flow.
 
-    Coordinates normalize youtube info logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalize youtube info without duplicating the local rules.
 
-    Args:
-        query: Input value used by the normalize youtube info operation.
-        info: Input value used by the normalize youtube info operation.
-        stream_url: Input value used by the normalize youtube info operation.
-
-    Returns:
-        The computed result for normalize youtube info.
+    Example: _normalize_youtube_info(query=..., info=..., stream_url=...) -> returns the value used by the surrounding Sonex flow.
     """
     title = _text(info.get("track") or info.get("title") or info.get("fulltitle") or query) or query
     artist = (
@@ -1355,16 +1109,11 @@ def _normalize_youtube_info(query: str, info: dict[str, Any], stream_url: str | 
 
 
 def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Rank youtube candidates.
+    """Prepares rank youtube candidates for an internal Sonex flow.
 
-    Coordinates rank youtube candidates logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs rank youtube candidates without duplicating the local rules.
 
-    Args:
-        query: Input value used by the rank youtube candidates operation.
-        candidates: Input value used by the rank youtube candidates operation.
-
-    Returns:
-        The computed result for rank youtube candidates.
+    Example: _rank_youtube_candidates(query=..., candidates=...) -> returns the value used by the surrounding Sonex flow.
     """
     live_requested = _contains_any(query, LIVE_TERMS)
     quality_priority = {
@@ -1386,15 +1135,11 @@ def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> li
         }
 
     def score(pair: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int, int]:
-        """Score.
+        """Coordinates score for the current Sonex flow.
 
-        Coordinates score logic for the surrounding Sonex flow.
+        Typical use: Use this function when runtime code needs score as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            pair: Input value used by the score operation.
-
-        Returns:
-            The computed result for score.
+        Example: score(pair=...) -> returns the value used by the surrounding Sonex flow.
         """
         index, candidate = pair
         quality = str(candidate.get("quality_label") or "other")
@@ -1416,16 +1161,11 @@ def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> li
 
 
 def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Rank online audio candidates.
+    """Coordinates rank online audio candidates for the current Sonex flow.
 
-    Coordinates rank online audio candidates logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs rank online audio candidates as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the rank online audio candidates operation.
-        candidates: Input value used by the rank online audio candidates operation.
-
-    Returns:
-        The computed result for rank online audio candidates.
+    Example: rank_online_audio_candidates(query=..., candidates=...) -> returns the value used by the surrounding Sonex flow.
     """
     quality_priority = {
         "official_original": 4,
@@ -1438,15 +1178,11 @@ def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -
     provider_priority = {"jamendo": 3, "audius": 2, "youtube": 1}
 
     def score(pair: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int]:
-        """Score.
+        """Coordinates score for the current Sonex flow.
 
-        Coordinates score logic for the surrounding Sonex flow.
+        Typical use: Use this function when runtime code needs score as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            pair: Input value used by the score operation.
-
-        Returns:
-            The computed result for score.
+        Example: score(pair=...) -> returns the value used by the surrounding Sonex flow.
         """
         index, candidate = pair
         return (
@@ -1462,15 +1198,11 @@ def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -
 
 
 def _credible_online_audio_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Credible online audio candidates.
+    """Prepares credible online audio candidates for an internal Sonex flow.
 
-    Coordinates credible online audio candidates logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs credible online audio candidates without duplicating the local rules.
 
-    Args:
-        candidates: Input value used by the credible online audio candidates operation.
-
-    Returns:
-        The computed result for credible online audio candidates.
+    Example: _credible_online_audio_candidates(candidates=...) -> returns the value used by the surrounding Sonex flow.
     """
     return [
         candidate for candidate in candidates
@@ -1479,29 +1211,21 @@ def _credible_online_audio_candidates(candidates: list[dict[str, Any]]) -> list[
 
 
 def _provider_label(provider: str) -> str:
-    """Provider label.
+    """Prepares provider label for an internal Sonex flow.
 
-    Coordinates provider label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs provider label without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the provider label operation.
-
-    Returns:
-        The computed result for provider label.
+    Example: _provider_label(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     return {"jamendo": "Jamendo", "audius": "Audius", "youtube": "YouTube"}.get(provider, provider.title())
 
 
 def _sanitize_provider_error(error: Any) -> str:
-    """Sanitize provider error.
+    """Prepares sanitize provider error for an internal Sonex flow.
 
-    Coordinates sanitize provider error logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs sanitize provider error without duplicating the local rules.
 
-    Args:
-        error: Input value used by the sanitize provider error operation.
-
-    Returns:
-        The computed result for sanitize provider error.
+    Example: _sanitize_provider_error(error=...) -> returns the value used by the surrounding Sonex flow.
     """
     message = sanitize_error_message(error)
     return re.sub(r"(?i)(secret)\s*[:=]\s*([^\s,;]+)", r"\1=[redacted]", message)
@@ -1515,19 +1239,11 @@ def _source_attempt(
     credible_count: int = 0,
     message: str | None = None,
 ) -> dict[str, Any]:
-    """Source attempt.
+    """Prepares source attempt for an internal Sonex flow.
 
-    Coordinates source attempt logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs source attempt without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the source attempt operation.
-        status: Input value used by the source attempt operation.
-        candidate_count: Input value used by the source attempt operation.
-        credible_count: Input value used by the source attempt operation.
-        message: Input value used by the source attempt operation.
-
-    Returns:
-        The computed result for source attempt.
+    Example: _source_attempt(provider=..., status=..., candidate_count=..., credible_count=..., message=...) -> returns the value used by the surrounding Sonex flow.
     """
     label = _provider_label(provider)
     if not message:
@@ -1549,30 +1265,22 @@ def _source_attempt(
 
 
 def _fallback_reason(source_attempts: list[dict[str, Any]]) -> str:
-    """Fallback reason.
+    """Prepares fallback reason for an internal Sonex flow.
 
-    Coordinates fallback reason logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs fallback reason without duplicating the local rules.
 
-    Args:
-        source_attempts: Input value used by the fallback reason operation.
-
-    Returns:
-        The computed result for fallback reason.
+    Example: _fallback_reason(source_attempts=...) -> returns the value used by the surrounding Sonex flow.
     """
     messages = [str(item.get("message") or "").strip() for item in source_attempts if item.get("message")]
     return " ".join(messages) or "Configured open-audio providers returned no credible matches."
 
 
 def _friendly_youtube_failure_message(message: str) -> str:
-    """Friendly youtube failure message.
+    """Prepares friendly youtube failure message for an internal Sonex flow.
 
-    Coordinates friendly youtube failure message logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs friendly youtube failure message without duplicating the local rules.
 
-    Args:
-        message: Input value used by the friendly youtube failure message operation.
-
-    Returns:
-        The computed result for friendly youtube failure message.
+    Example: _friendly_youtube_failure_message(message=...) -> returns the value used by the surrounding Sonex flow.
     """
     if _is_age_verification_error(message):
         return AGE_RESTRICTED_MESSAGE
@@ -1582,16 +1290,11 @@ def _friendly_youtube_failure_message(message: str) -> str:
 
 
 def _with_youtube_fallback_trace(candidate: dict[str, Any], source_attempts: list[dict[str, Any]]) -> dict[str, Any]:
-    """With youtube fallback trace.
+    """Prepares with youtube fallback trace for an internal Sonex flow.
 
-    Coordinates with youtube fallback trace logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs with youtube fallback trace without duplicating the local rules.
 
-    Args:
-        candidate: Input value used by the with youtube fallback trace operation.
-        source_attempts: Input value used by the with youtube fallback trace operation.
-
-    Returns:
-        The computed result for with youtube fallback trace.
+    Example: _with_youtube_fallback_trace(candidate=..., source_attempts=...) -> returns the value used by the surrounding Sonex flow.
     """
     traced = dict(candidate)
     reason = _fallback_reason(source_attempts)
@@ -1602,16 +1305,11 @@ def _with_youtube_fallback_trace(candidate: dict[str, Any], source_attempts: lis
 
 
 def _format_youtube_fallback_failure(candidate: dict[str, Any], youtube_message: str) -> str:
-    """Format youtube fallback failure.
+    """Prepares format youtube fallback failure for an internal Sonex flow.
 
-    Coordinates format youtube fallback failure logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs format youtube fallback failure without duplicating the local rules.
 
-    Args:
-        candidate: Input value used by the format youtube fallback failure operation.
-        youtube_message: Input value used by the format youtube fallback failure operation.
-
-    Returns:
-        The computed result for format youtube fallback failure.
+    Example: _format_youtube_fallback_failure(candidate=..., youtube_message=...) -> returns the value used by the surrounding Sonex flow.
     """
     reason = str(candidate.get("fallback_reason") or _fallback_reason(candidate.get("source_attempts") or [])).strip()
     if reason:
@@ -1620,17 +1318,11 @@ def _format_youtube_fallback_failure(candidate: dict[str, Any], youtube_message:
 
 
 def _json_get(url: str, *, headers: dict[str, str] | None = None, timeout: float = 10.0) -> dict[str, Any]:
-    """Json get.
+    """Prepares json get for an internal Sonex flow.
 
-    Coordinates json get logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs json get without duplicating the local rules.
 
-    Args:
-        url: Input value used by the json get operation.
-        headers: Input value used by the json get operation.
-        timeout: Input value used by the json get operation.
-
-    Returns:
-        The computed result for json get.
+    Example: _json_get(url=..., headers=..., timeout=...) -> returns the value used by the surrounding Sonex flow.
     """
     request = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -1648,18 +1340,11 @@ def search_jamendo_audio_candidates(
     limit: int = 5,
     playback_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Search jamendo audio candidates.
+    """Coordinates search jamendo audio candidates for the current Sonex flow.
 
-    Coordinates search jamendo audio candidates logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs search jamendo audio candidates as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the search jamendo audio candidates operation.
-        client_id: Input value used by the search jamendo audio candidates operation.
-        limit: Input value used by the search jamendo audio candidates operation.
-        playback_metadata: Input value used by the search jamendo audio candidates operation.
-
-    Returns:
-        The computed result for search jamendo audio candidates.
+    Example: search_jamendo_audio_candidates(query=..., client_id=..., limit=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     params = urllib.parse.urlencode(
         {
@@ -1685,15 +1370,11 @@ def search_jamendo_audio_candidates(
 
 
 def _audius_stream_url(track_id: str) -> str:
-    """Audius stream url.
+    """Prepares audius stream url for an internal Sonex flow.
 
-    Coordinates audius stream url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs audius stream url without duplicating the local rules.
 
-    Args:
-        track_id: Input value used by the audius stream url operation.
-
-    Returns:
-        The computed result for audius stream url.
+    Example: _audius_stream_url(track_id=...) -> returns the value used by the surrounding Sonex flow.
     """
     return f"https://discoveryprovider.audius.co/v1/tracks/{urllib.parse.quote(track_id)}/stream?app_name=Sonex"
 
@@ -1705,18 +1386,11 @@ def search_audius_audio_candidates(
     limit: int = 5,
     playback_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Search audius audio candidates.
+    """Coordinates search audius audio candidates for the current Sonex flow.
 
-    Coordinates search audius audio candidates logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs search audius audio candidates as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the search audius audio candidates operation.
-        api_key: Input value used by the search audius audio candidates operation.
-        limit: Input value used by the search audius audio candidates operation.
-        playback_metadata: Input value used by the search audius audio candidates operation.
-
-    Returns:
-        The computed result for search audius audio candidates.
+    Example: search_audius_audio_candidates(query=..., api_key=..., limit=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     params = urllib.parse.urlencode(
         {
@@ -1754,19 +1428,11 @@ def resolve_online_audio_candidates(
     playback_metadata: dict[str, Any] | None = None,
     config: OnlineAudioConfig | None = None,
 ) -> list[dict[str, Any]]:
-    """Resolve online audio candidates.
+    """Resolves online audio candidates from available runtime state.
 
-    Coordinates resolve online audio candidates logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs resolve online audio candidates as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the resolve online audio candidates operation.
-        limit: Input value used by the resolve online audio candidates operation.
-        cache_root: Input value used by the resolve online audio candidates operation.
-        playback_metadata: Input value used by the resolve online audio candidates operation.
-        config: Input value used by the resolve online audio candidates operation.
-
-    Returns:
-        The computed result for resolve online audio candidates.
+    Example: resolve_online_audio_candidates(query=..., limit=..., cache_root=..., playback_metadata=..., config=...) -> returns the value used by the surrounding Sonex flow.
     """
     resolved_config = config or online_audio_config()
 
@@ -1867,18 +1533,11 @@ def search_online_audio_candidates(
     cache_root: Path | None = None,
     playback_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Search online audio candidates.
+    """Coordinates search online audio candidates for the current Sonex flow.
 
-    Coordinates search online audio candidates logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs search online audio candidates as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the search online audio candidates operation.
-        limit: Input value used by the search online audio candidates operation.
-        cache_root: Input value used by the search online audio candidates operation.
-        playback_metadata: Input value used by the search online audio candidates operation.
-
-    Returns:
-        The computed result for search online audio candidates.
+    Example: search_online_audio_candidates(query=..., limit=..., cache_root=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     return resolve_online_audio_candidates(
         query,
@@ -1895,18 +1554,11 @@ def search_youtube_songs(
     cache_root: Path | None = None,
     playback_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Search youtube songs.
+    """Coordinates search youtube songs for the current Sonex flow.
 
-    Coordinates search youtube songs logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs search youtube songs as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the search youtube songs operation.
-        limit: Input value used by the search youtube songs operation.
-        cache_root: Input value used by the search youtube songs operation.
-        playback_metadata: Input value used by the search youtube songs operation.
-
-    Returns:
-        The computed result for search youtube songs.
+    Example: search_youtube_songs(query=..., limit=..., cache_root=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     playback_metadata = resolve_online_playback_metadata(query, playback_metadata)
     youtube_query = str(playback_metadata.get("youtube_query") or query).strip() or query
@@ -1950,16 +1602,11 @@ def search_youtube_songs(
 
 
 def _downloaded_filepath(info: dict[str, Any], fallback: Path) -> Path:
-    """Downloaded filepath.
+    """Prepares downloaded filepath for an internal Sonex flow.
 
-    Coordinates downloaded filepath logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs downloaded filepath without duplicating the local rules.
 
-    Args:
-        info: Input value used by the downloaded filepath operation.
-        fallback: Input value used by the downloaded filepath operation.
-
-    Returns:
-        The computed result for downloaded filepath.
+    Example: _downloaded_filepath(info=..., fallback=...) -> returns the value used by the surrounding Sonex flow.
     """
     downloads = info.get("requested_downloads")
     if isinstance(downloads, list):
@@ -1973,16 +1620,11 @@ def _downloaded_filepath(info: dict[str, Any], fallback: Path) -> Path:
 
 
 def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | None = None) -> dict[str, Any]:
-    """Download youtube candidate.
+    """Coordinates download youtube candidate for the current Sonex flow.
 
-    Coordinates download youtube candidate logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs download youtube candidate as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        candidate: Input value used by the download youtube candidate operation.
-        cache_root: Input value used by the download youtube candidate operation.
-
-    Returns:
-        The computed result for download youtube candidate.
+    Example: download_youtube_candidate(candidate=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     cache_id = _text(candidate.get("cache_id")) or _youtube_cache_id(candidate)
     cached = _cached_audio_item(cache_id, cache_root=cache_root)
@@ -2044,16 +1686,11 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
 
 
 def _extension_from_url(url: str, default: str = "mp3") -> str:
-    """Extension from url.
+    """Prepares extension from url for an internal Sonex flow.
 
-    Coordinates extension from url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs extension from url without duplicating the local rules.
 
-    Args:
-        url: Input value used by the extension from url operation.
-        default: Input value used by the extension from url operation.
-
-    Returns:
-        The computed result for extension from url.
+    Example: _extension_from_url(url=..., default=...) -> returns the value used by the surrounding Sonex flow.
     """
     path = urllib.parse.urlparse(url).path
     suffix = Path(path).suffix.lstrip(".").lower()
@@ -2063,16 +1700,11 @@ def _extension_from_url(url: str, default: str = "mp3") -> str:
 
 
 def download_open_audio_candidate(candidate: dict[str, Any], *, cache_root: Path | None = None) -> dict[str, Any]:
-    """Download open audio candidate.
+    """Coordinates download open audio candidate for the current Sonex flow.
 
-    Coordinates download open audio candidate logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs download open audio candidate as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        candidate: Input value used by the download open audio candidate operation.
-        cache_root: Input value used by the download open audio candidate operation.
-
-    Returns:
-        The computed result for download open audio candidate.
+    Example: download_open_audio_candidate(candidate=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     provider = str(candidate.get("provider") or "online")
     if provider == "youtube":
@@ -2115,17 +1747,11 @@ def play_online_audio_candidate(
     player: str = "auto",
     cache_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Play online audio candidate.
+    """Coordinates play online audio candidate for the current Sonex flow.
 
-    Coordinates play online audio candidate logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs play online audio candidate as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        candidate: Input value used by the play online audio candidate operation.
-        player: Input value used by the play online audio candidate operation.
-        cache_root: Input value used by the play online audio candidate operation.
-
-    Returns:
-        The computed result for play online audio candidate.
+    Example: play_online_audio_candidate(candidate=..., player=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     provider = str(candidate.get("provider") or "online")
     if provider == "youtube":
@@ -2185,15 +1811,11 @@ def play_online_audio_candidate(
 
 
 def sanitize_message(message: str) -> str:
-    """Sanitize message.
+    """Coordinates sanitize message for the current Sonex flow.
 
-    Coordinates sanitize message logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs sanitize message as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        message: Input value used by the sanitize message operation.
-
-    Returns:
-        The computed result for sanitize message.
+    Example: sanitize_message(message=...) -> returns the value used by the surrounding Sonex flow.
     """
     return message.strip() or "Online audio resolve failed."
 
@@ -2204,17 +1826,11 @@ def play_youtube_candidate(
     player: str = "auto",
     cache_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Play youtube candidate.
+    """Coordinates play youtube candidate for the current Sonex flow.
 
-    Coordinates play youtube candidate logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs play youtube candidate as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        candidate: Input value used by the play youtube candidate operation.
-        player: Input value used by the play youtube candidate operation.
-        cache_root: Input value used by the play youtube candidate operation.
-
-    Returns:
-        The computed result for play youtube candidate.
+    Example: play_youtube_candidate(candidate=..., player=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     is_youtube_fallback = candidate.get("fallback_provider") == "youtube"
     try:
@@ -2291,15 +1907,11 @@ def play_youtube_candidate(
 
 # 在youtube上搜索歌曲并解析音频流
 def resolve_youtube_song(query: str) -> dict[str, Any]:
-    """Resolve youtube song.
+    """Resolves youtube song from available runtime state.
 
-    Coordinates resolve youtube song logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs resolve youtube song as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the resolve youtube song operation.
-
-    Returns:
-        The computed result for resolve youtube song.
+    Example: resolve_youtube_song(query=...) -> returns the value used by the surrounding Sonex flow.
     """
     options = {
         "quiet": True,
@@ -2347,15 +1959,11 @@ def resolve_youtube_song(query: str) -> dict[str, Any]:
 
 
 def search_and_resolve_song(query: str) -> str:
-    """Search and resolve song.
+    """Coordinates search and resolve song for the current Sonex flow.
 
-    Coordinates search and resolve song logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs search and resolve song as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the search and resolve song operation.
-
-    Returns:
-        The computed result for search and resolve song.
+    Example: search_and_resolve_song(query=...) -> returns the value used by the surrounding Sonex flow.
     """
     candidate = search_youtube_songs(query, limit=1)[0]
     return str(download_youtube_candidate(candidate)["stream_url"])
@@ -2367,18 +1975,11 @@ def play_youtube_song(
     cache_root: Path | None = None,
     playback_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Play youtube song.
+    """Coordinates play youtube song for the current Sonex flow.
 
-    Coordinates play youtube song logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs play youtube song as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the play youtube song operation.
-        player: Input value used by the play youtube song operation.
-        cache_root: Input value used by the play youtube song operation.
-        playback_metadata: Input value used by the play youtube song operation.
-
-    Returns:
-        The computed result for play youtube song.
+    Example: play_youtube_song(query=..., player=..., cache_root=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     if online_audio_configured():
         try:

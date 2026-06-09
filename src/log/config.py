@@ -10,12 +10,11 @@ from pathlib import Path
 
 
 def sonex_home() -> Path:
-    """Sonex home.
+    """Coordinates sonex home for the current Sonex flow.
 
-    Coordinates sonex home logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs sonex home as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for sonex home.
+    Example: sonex_home() -> returns the value used by the surrounding Sonex flow.
     """
     custom = os.getenv("SONEX_HOME")
     if custom:
@@ -24,12 +23,11 @@ def sonex_home() -> Path:
 
 
 def sonex_log_path() -> Path:
-    """Sonex log path.
+    """Coordinates sonex log path for the current Sonex flow.
 
-    Coordinates sonex log path logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs sonex log path as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for sonex log path.
+    Example: sonex_log_path() -> returns the value used by the surrounding Sonex flow.
     """
     home = sonex_home()
     home.mkdir(parents=True, exist_ok=True)
@@ -37,15 +35,11 @@ def sonex_log_path() -> Path:
 
 
 def configure_file_logging(level: int = logging.INFO) -> Path:
-    """Configure file logging.
+    """Coordinates configure file logging for the current Sonex flow.
 
-    Coordinates configure file logging logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs configure file logging as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        level: Input value used by the configure file logging operation.
-
-    Returns:
-        The computed result for configure file logging.
+    Example: configure_file_logging(level=...) -> returns the value used by the surrounding Sonex flow.
     """
     log_path = sonex_log_path()
     formatter = logging.Formatter(
@@ -69,16 +63,11 @@ def set_logger(
     name: str = "sonex",
     level: int = logging.INFO,
 ) -> logging.Logger:
-    """Set logger.
+    """Coordinates set logger for the current Sonex flow.
 
-    Coordinates set logger logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs set logger as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        name: Input value used by the set logger operation.
-        level: Input value used by the set logger operation.
-
-    Returns:
-        The computed result for set logger.
+    Example: set_logger(name=..., level=...) -> returns the value used by the surrounding Sonex flow.
     """
     log_path = sonex_log_path()
 
@@ -102,14 +91,10 @@ def set_logger(
 
 
 def get_logger(name: str = "sonex") -> logging.Logger:
-    """Get logger.
+    """Returns logger for the current Sonex flow.
 
-    Coordinates get logger logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs get logger as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        name: Input value used by the get logger operation.
-
-    Returns:
-        The computed result for get logger.
+    Example: get_logger(name=...) -> returns the value used by the surrounding Sonex flow.
     """
     return logging.getLogger(name)

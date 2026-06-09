@@ -15,13 +15,11 @@ class WorkspaceBoundaryError(ValueError):
     Encapsulates workspace boundary error data and behavior used by Sonex runtime flows. Extends value error semantics.
     """
     def __init__(self, path: Path, root: Path) -> None:
-        """Init for workspace boundary error.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving workspace boundary error state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            path: Input value used by the init operation.
-            root: Input value used by the init operation.
+        Example: __init__(path=..., root=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.path = path
         self.root = root
@@ -29,27 +27,21 @@ class WorkspaceBoundaryError(ValueError):
 
 
 def user_workspace_root() -> Path:
-    """User workspace root.
+    """Coordinates user workspace root for the current Sonex flow.
 
-    Coordinates user workspace root logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs user workspace root as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for user workspace root.
+    Example: user_workspace_root() -> returns the value used by the surrounding Sonex flow.
     """
     return Path.home().resolve()
 
 
 def ensure_within_user_workspace(path: str | Path, *, root: Path | None = None) -> Path:
-    """Ensure within user workspace.
+    """Coordinates ensure within user workspace for the current Sonex flow.
 
-    Coordinates ensure within user workspace logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs ensure within user workspace as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        path: Input value used by the ensure within user workspace operation.
-        root: Input value used by the ensure within user workspace operation.
-
-    Returns:
-        The computed result for ensure within user workspace.
+    Example: ensure_within_user_workspace(path=..., root=...) -> returns the value used by the surrounding Sonex flow.
     """
     workspace_root = (root or user_workspace_root()).resolve()
     candidate = Path(path).expanduser()
@@ -62,11 +54,10 @@ def ensure_within_user_workspace(path: str | Path, *, root: Path | None = None) 
 
 
 def user_music_dir() -> Path:
-    """User music dir.
+    """Coordinates user music dir for the current Sonex flow.
 
-    Coordinates user music dir logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs user music dir as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for user music dir.
+    Example: user_music_dir() -> returns the value used by the surrounding Sonex flow.
     """
     return ensure_within_user_workspace(user_workspace_root() / "Music")

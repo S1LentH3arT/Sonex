@@ -26,16 +26,11 @@ class DeepSeekTransport:
     Encapsulates deep seek transport data and behavior used by Sonex runtime flows.
     """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Send for deep seek transport.
+        """Coordinates send for the current Sonex flow.
 
-        Coordinates the send method behavior while preserving deep seek transport state and contracts.
+        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            request: Input value used by the send operation.
-            config: Input value used by the send operation.
-
-        Returns:
-            The computed result for send.
+        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
         """
         if not config.api_key:
             raise LLMTransportError("LLM provider 'deepseek' request failed: missing API key")
@@ -71,15 +66,11 @@ class DeepSeekTransport:
 
 
 def _chat_completions_url(base_url: str) -> str:
-    """Chat completions url.
+    """Prepares chat completions url for an internal Sonex flow.
 
-    Coordinates chat completions url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs chat completions url without duplicating the local rules.
 
-    Args:
-        base_url: Input value used by the chat completions url operation.
-
-    Returns:
-        The computed result for chat completions url.
+    Example: _chat_completions_url(base_url=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = base_url.rstrip("/")
     if normalized.endswith("/chat/completions"):
@@ -90,15 +81,11 @@ def _chat_completions_url(base_url: str) -> str:
 
 
 def _describe_transport_error(exc: Exception) -> str:
-    """Describe transport error.
+    """Prepares describe transport error for an internal Sonex flow.
 
-    Coordinates describe transport error logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs describe transport error without duplicating the local rules.
 
-    Args:
-        exc: Input value used by the describe transport error operation.
-
-    Returns:
-        The computed result for describe transport error.
+    Example: _describe_transport_error(exc=...) -> returns the value used by the surrounding Sonex flow.
     """
     safe_error = sanitize_error_message(exc)
     proxy = _loopback_proxy_url()
@@ -117,15 +104,11 @@ def _describe_transport_error(exc: Exception) -> str:
 
 
 def _is_connection_refused(exc: Exception) -> bool:
-    """Is connection refused.
+    """Prepares is connection refused for an internal Sonex flow.
 
-    Coordinates is connection refused logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is connection refused without duplicating the local rules.
 
-    Args:
-        exc: Input value used by the is connection refused operation.
-
-    Returns:
-        The computed result for is connection refused.
+    Example: _is_connection_refused(exc=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(exc, ConnectionRefusedError):
         return True
@@ -136,15 +119,11 @@ def _is_connection_refused(exc: Exception) -> bool:
 
 
 def _is_tls_eof(exc: Exception) -> bool:
-    """Is tls eof.
+    """Prepares is tls eof for an internal Sonex flow.
 
-    Coordinates is tls eof logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is tls eof without duplicating the local rules.
 
-    Args:
-        exc: Input value used by the is tls eof operation.
-
-    Returns:
-        The computed result for is tls eof.
+    Example: _is_tls_eof(exc=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(exc, ssl.SSLError) and exc.errno == ssl.SSL_ERROR_EOF:
         return True
@@ -155,12 +134,11 @@ def _is_tls_eof(exc: Exception) -> bool:
 
 
 def _loopback_proxy_url() -> str | None:
-    """Loopback proxy url.
+    """Prepares loopback proxy url for an internal Sonex flow.
 
-    Coordinates loopback proxy url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs loopback proxy url without duplicating the local rules.
 
-    Returns:
-        The computed result for loopback proxy url.
+    Example: _loopback_proxy_url() -> returns the value used by the surrounding Sonex flow.
     """
     proxies = urllib.request.getproxies()
     for key in ("https", "http", "all"):

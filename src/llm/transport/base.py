@@ -25,16 +25,11 @@ _SECRET_PATTERNS = (
 
 
 def sanitize_error_message(error: Any, *, limit: int = 500) -> str:
-    """Sanitize error message.
+    """Coordinates sanitize error message for the current Sonex flow.
 
-    Coordinates sanitize error message logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs sanitize error message as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        error: Input value used by the sanitize error message operation.
-        limit: Input value used by the sanitize error message operation.
-
-    Returns:
-        The computed result for sanitize error message.
+    Example: sanitize_error_message(error=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     text = str(error).strip() or error.__class__.__name__
     text = " ".join(text.split())
@@ -116,7 +111,7 @@ class ChatResponse:
 
 @dataclass(slots=True)
 class ProviderRequest:
-    """"""
+    """Provider-specific request payloads prepared from a unified chat request."""
     provider: str
     model: str
     payload: dict[str, Any]
@@ -124,41 +119,31 @@ class ProviderRequest:
 
 
 class LLMTransport(Protocol):
-    """Represents l l m transport.
+    """Represents llm transport.
 
-    Encapsulates l l m transport data and behavior used by Sonex runtime flows. Extends protocol semantics.
+    Encapsulates llm transport data and behavior used by Sonex runtime flows. Extends protocol semantics.
     """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Send for l l m transport.
+        """Coordinates send for the current Sonex flow.
 
-        Coordinates the send method behavior while preserving l l m transport state and contracts.
+        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            request: Input value used by the send operation.
-            config: Input value used by the send operation.
-
-        Returns:
-            The computed result for send.
+        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
         """
         ...
 
 
 class LiteLLMTransport(LLMTransport):
-    """Represents lite l l m transport.
+    """Represents lite llm transport.
 
-    Encapsulates lite l l m transport data and behavior used by Sonex runtime flows. Extends l l m transport semantics.
+    Encapsulates lite llm transport data and behavior used by Sonex runtime flows. Extends llm transport semantics.
     """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Send for lite l l m transport.
+        """Coordinates send for the current Sonex flow.
 
-        Coordinates the send method behavior while preserving lite l l m transport state and contracts.
+        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            request: Input value used by the send operation.
-            config: Input value used by the send operation.
-
-        Returns:
-            The computed result for send.
+        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
         """
         from litellm import completion
 
@@ -191,16 +176,11 @@ class LiteLLMTransport(LLMTransport):
 
 
 def _resolve_transport_model(model: str, config: ProviderConfig) -> str:
-    """Resolve transport model.
+    """Prepares resolve transport model for an internal Sonex flow.
 
-    Coordinates resolve transport model logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs resolve transport model without duplicating the local rules.
 
-    Args:
-        model: Input value used by the resolve transport model operation.
-        config: Input value used by the resolve transport model operation.
-
-    Returns:
-        The computed result for resolve transport model.
+    Example: _resolve_transport_model(model=..., config=...) -> returns the value used by the surrounding Sonex flow.
     """
     if "/" in model:
         return model

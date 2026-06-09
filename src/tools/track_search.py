@@ -32,17 +32,11 @@ _last_musicbrainz_request = 0.0
 
 
 def search_track_metadata_candidates(query: str, limit: int = 5, country: str | None = None) -> dict[str, Any]:
-    """Search track metadata candidates.
+    """Coordinates search track metadata candidates for the current Sonex flow.
 
-    Coordinates search track metadata candidates logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs search track metadata candidates as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the search track metadata candidates operation.
-        limit: Input value used by the search track metadata candidates operation.
-        country: Input value used by the search track metadata candidates operation.
-
-    Returns:
-        The computed result for search track metadata candidates.
+    Example: search_track_metadata_candidates(query=..., limit=..., country=...) -> returns the value used by the surrounding Sonex flow.
     """
     clean_query = query.strip()
     bounded_limit = max(1, min(10, int(limit or 5)))
@@ -95,17 +89,11 @@ def search_track_metadata_candidates(query: str, limit: int = 5, country: str | 
 
 
 def _search_itunes(query: str, limit: int, country: str) -> list[dict[str, Any]]:
-    """Search itunes.
+    """Prepares search itunes for an internal Sonex flow.
 
-    Coordinates search itunes logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs search itunes without duplicating the local rules.
 
-    Args:
-        query: Input value used by the search itunes operation.
-        limit: Input value used by the search itunes operation.
-        country: Input value used by the search itunes operation.
-
-    Returns:
-        The computed result for search itunes.
+    Example: _search_itunes(query=..., limit=..., country=...) -> returns the value used by the surrounding Sonex flow.
     """
     params = urllib.parse.urlencode(
         {
@@ -124,16 +112,11 @@ def _search_itunes(query: str, limit: int, country: str) -> list[dict[str, Any]]
 
 
 def _search_deezer(query: str, limit: int) -> list[dict[str, Any]]:
-    """Search deezer.
+    """Prepares search deezer for an internal Sonex flow.
 
-    Coordinates search deezer logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs search deezer without duplicating the local rules.
 
-    Args:
-        query: Input value used by the search deezer operation.
-        limit: Input value used by the search deezer operation.
-
-    Returns:
-        The computed result for search deezer.
+    Example: _search_deezer(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     params = urllib.parse.urlencode({"q": query, "limit": max(1, min(10, int(limit or 5)))})
     payload = _json_request(f"{DEEZER_SEARCH_URL}?{params}", user_agent="Sonex/1.0")
@@ -144,16 +127,11 @@ def _search_deezer(query: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _search_musicbrainz(query: str, limit: int) -> list[dict[str, Any]]:
-    """Search musicbrainz.
+    """Prepares search musicbrainz for an internal Sonex flow.
 
-    Coordinates search musicbrainz logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs search musicbrainz without duplicating the local rules.
 
-    Args:
-        query: Input value used by the search musicbrainz operation.
-        limit: Input value used by the search musicbrainz operation.
-
-    Returns:
-        The computed result for search musicbrainz.
+    Example: _search_musicbrainz(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     params = urllib.parse.urlencode(
         {
@@ -170,16 +148,11 @@ def _search_musicbrainz(query: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _json_request(url: str, *, user_agent: str) -> dict[str, Any]:
-    """Json request.
+    """Prepares json request for an internal Sonex flow.
 
-    Coordinates json request logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs json request without duplicating the local rules.
 
-    Args:
-        url: Input value used by the json request operation.
-        user_agent: Input value used by the json request operation.
-
-    Returns:
-        The computed result for json request.
+    Example: _json_request(url=..., user_agent=...) -> returns the value used by the surrounding Sonex flow.
     """
     request = Request(url, headers={"User-Agent": user_agent, "Accept": "application/json"})
     with urlopen(request, timeout=6) as response:
@@ -187,15 +160,11 @@ def _json_request(url: str, *, user_agent: str) -> dict[str, Any]:
 
 
 def _musicbrainz_json(url: str) -> dict[str, Any]:
-    """Musicbrainz json.
+    """Prepares musicbrainz json for an internal Sonex flow.
 
-    Coordinates musicbrainz json logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs musicbrainz json without duplicating the local rules.
 
-    Args:
-        url: Input value used by the musicbrainz json operation.
-
-    Returns:
-        The computed result for musicbrainz json.
+    Example: _musicbrainz_json(url=...) -> returns the value used by the surrounding Sonex flow.
     """
     global _last_musicbrainz_request
     with _musicbrainz_lock:
@@ -207,16 +176,11 @@ def _musicbrainz_json(url: str) -> dict[str, Any]:
 
 
 def _normalize_itunes(query: str, item: dict[str, Any]) -> dict[str, Any]:
-    """Normalize itunes.
+    """Prepares normalize itunes for an internal Sonex flow.
 
-    Coordinates normalize itunes logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalize itunes without duplicating the local rules.
 
-    Args:
-        query: Input value used by the normalize itunes operation.
-        item: Input value used by the normalize itunes operation.
-
-    Returns:
-        The computed result for normalize itunes.
+    Example: _normalize_itunes(query=..., item=...) -> returns the value used by the surrounding Sonex flow.
     """
     track_id = _text(item.get("trackId"))
     name = _text(item.get("trackName"))
@@ -241,16 +205,11 @@ def _normalize_itunes(query: str, item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_deezer(query: str, item: dict[str, Any]) -> dict[str, Any]:
-    """Normalize deezer.
+    """Prepares normalize deezer for an internal Sonex flow.
 
-    Coordinates normalize deezer logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalize deezer without duplicating the local rules.
 
-    Args:
-        query: Input value used by the normalize deezer operation.
-        item: Input value used by the normalize deezer operation.
-
-    Returns:
-        The computed result for normalize deezer.
+    Example: _normalize_deezer(query=..., item=...) -> returns the value used by the surrounding Sonex flow.
     """
     artist_obj = item.get("artist") if isinstance(item.get("artist"), dict) else {}
     album_obj = item.get("album") if isinstance(item.get("album"), dict) else {}
@@ -273,16 +232,11 @@ def _normalize_deezer(query: str, item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_musicbrainz(query: str, item: dict[str, Any]) -> dict[str, Any]:
-    """Normalize musicbrainz.
+    """Prepares normalize musicbrainz for an internal Sonex flow.
 
-    Coordinates normalize musicbrainz logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalize musicbrainz without duplicating the local rules.
 
-    Args:
-        query: Input value used by the normalize musicbrainz operation.
-        item: Input value used by the normalize musicbrainz operation.
-
-    Returns:
-        The computed result for normalize musicbrainz.
+    Example: _normalize_musicbrainz(query=..., item=...) -> returns the value used by the surrounding Sonex flow.
     """
     recording_id = _text(item.get("id"))
     artist_names = _musicbrainz_artist_names(item.get("artist-credit"))
@@ -320,26 +274,11 @@ def _candidate(
     uri: str | None,
     extra: dict[str, Any],
 ) -> dict[str, Any]:
-    """Candidate.
+    """Prepares candidate for an internal Sonex flow.
 
-    Coordinates candidate logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs candidate without duplicating the local rules.
 
-    Args:
-        query: Input value used by the candidate operation.
-        metadata_source: Input value used by the candidate operation.
-        provider: Input value used by the candidate operation.
-        item_id: Input value used by the candidate operation.
-        name: Input value used by the candidate operation.
-        artist: Input value used by the candidate operation.
-        album: Input value used by the candidate operation.
-        duration_ms: Input value used by the candidate operation.
-        cover_url: Input value used by the candidate operation.
-        url: Input value used by the candidate operation.
-        uri: Input value used by the candidate operation.
-        extra: Input value used by the candidate operation.
-
-    Returns:
-        The computed result for candidate.
+    Example: _candidate(query=..., metadata_source=..., provider=..., item_id=..., name=..., artist=..., album=..., duration_ms=..., cover_url=..., url=..., uri=..., extra=...) -> returns the value used by the surrounding Sonex flow.
     """
     artists = [artist] if artist else []
     candidate: dict[str, Any] = {
@@ -364,15 +303,11 @@ def _candidate(
 
 
 def _musicbrainz_artist_names(value: Any) -> list[str]:
-    """Musicbrainz artist names.
+    """Prepares musicbrainz artist names for an internal Sonex flow.
 
-    Coordinates musicbrainz artist names logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs musicbrainz artist names without duplicating the local rules.
 
-    Args:
-        value: Input value used by the musicbrainz artist names operation.
-
-    Returns:
-        The computed result for musicbrainz artist names.
+    Example: _musicbrainz_artist_names(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not isinstance(value, list):
         return []
@@ -387,15 +322,11 @@ def _musicbrainz_artist_names(value: Any) -> list[str]:
 
 
 def _musicbrainz_album(value: Any) -> str | None:
-    """Musicbrainz album.
+    """Prepares musicbrainz album for an internal Sonex flow.
 
-    Coordinates musicbrainz album logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs musicbrainz album without duplicating the local rules.
 
-    Args:
-        value: Input value used by the musicbrainz album operation.
-
-    Returns:
-        The computed result for musicbrainz album.
+    Example: _musicbrainz_album(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not isinstance(value, list):
         return None
@@ -408,29 +339,21 @@ def _musicbrainz_album(value: Any) -> str | None:
 
 
 def _is_credible(item: dict[str, Any]) -> bool:
-    """Is credible.
+    """Prepares is credible for an internal Sonex flow.
 
-    Coordinates is credible logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is credible without duplicating the local rules.
 
-    Args:
-        item: Input value used by the is credible operation.
-
-    Returns:
-        The computed result for is credible.
+    Example: _is_credible(item=...) -> returns the value used by the surrounding Sonex flow.
     """
     return bool(_text(item.get("name") or item.get("title")) and _text(item.get("artist")))
 
 
 def _dedupe_key(item: dict[str, Any]) -> str | None:
-    """Dedupe key.
+    """Prepares dedupe key for an internal Sonex flow.
 
-    Coordinates dedupe key logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs dedupe key without duplicating the local rules.
 
-    Args:
-        item: Input value used by the dedupe key operation.
-
-    Returns:
-        The computed result for dedupe key.
+    Example: _dedupe_key(item=...) -> returns the value used by the surrounding Sonex flow.
     """
     name = _normalize_key_text(item.get("name") or item.get("title"))
     artist = _normalize_key_text(item.get("artist"))
@@ -441,29 +364,21 @@ def _dedupe_key(item: dict[str, Any]) -> str | None:
 
 
 def _normalize_key_text(value: Any) -> str:
-    """Normalize key text.
+    """Prepares normalize key text for an internal Sonex flow.
 
-    Coordinates normalize key text logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalize key text without duplicating the local rules.
 
-    Args:
-        value: Input value used by the normalize key text operation.
-
-    Returns:
-        The computed result for normalize key text.
+    Example: _normalize_key_text(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     return " ".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").casefold()))
 
 
 def _text(value: Any) -> str | None:
-    """Text.
+    """Prepares text for an internal Sonex flow.
 
-    Coordinates text logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs text without duplicating the local rules.
 
-    Args:
-        value: Input value used by the text operation.
-
-    Returns:
-        The computed result for text.
+    Example: _text("  song  ") -> "song"; _text("") -> None.
     """
     if value is None:
         return None
@@ -472,15 +387,11 @@ def _text(value: Any) -> str | None:
 
 
 def _int_ms(value: Any) -> int:
-    """Int ms.
+    """Prepares int ms for an internal Sonex flow.
 
-    Coordinates int ms logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs int ms without duplicating the local rules.
 
-    Args:
-        value: Input value used by the int ms operation.
-
-    Returns:
-        The computed result for int ms.
+    Example: _int_ms(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         return max(0, int(float(value or 0)))
@@ -489,15 +400,11 @@ def _int_ms(value: Any) -> int:
 
 
 def _seconds_to_ms(value: Any) -> int:
-    """Seconds to ms.
+    """Prepares seconds to ms for an internal Sonex flow.
 
-    Coordinates seconds to ms logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs seconds to ms without duplicating the local rules.
 
-    Args:
-        value: Input value used by the seconds to ms operation.
-
-    Returns:
-        The computed result for seconds to ms.
+    Example: _seconds_to_ms(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         return max(0, int(float(value or 0) * 1000))
@@ -506,16 +413,11 @@ def _seconds_to_ms(value: Any) -> int:
 
 
 def _error_attempt(provider: str, exc: Exception) -> dict[str, Any]:
-    """Error attempt.
+    """Prepares error attempt for an internal Sonex flow.
 
-    Coordinates error attempt logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs error attempt without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the error attempt operation.
-        exc: Input value used by the error attempt operation.
-
-    Returns:
-        The computed result for error attempt.
+    Example: _error_attempt(provider=..., exc=...) -> returns the value used by the surrounding Sonex flow.
     """
     status = "rate_limited" if isinstance(exc, HTTPError) and exc.code == 429 else "error"
     message = f"{_provider_label(provider)} rate limit reached." if status == "rate_limited" else sanitize_error_message(exc)
@@ -529,14 +431,10 @@ def _error_attempt(provider: str, exc: Exception) -> dict[str, Any]:
 
 
 def _provider_label(provider: str) -> str:
-    """Provider label.
+    """Prepares provider label for an internal Sonex flow.
 
-    Coordinates provider label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs provider label without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the provider label operation.
-
-    Returns:
-        The computed result for provider label.
+    Example: _provider_label(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     return {"itunes": "iTunes", "deezer": "Deezer", "musicbrainz": "MusicBrainz"}.get(provider, provider.title())

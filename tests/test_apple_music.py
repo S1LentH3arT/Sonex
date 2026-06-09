@@ -20,34 +20,37 @@ auth_models = importlib.import_module("src.auth.models")
 
 
 def _decode_jwt_part(value: str) -> dict:
-    """Validate decode jwt part.
+    """Verifies that decode jwt part behaves as expected.
 
-    Exercises the decode jwt part behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the decode jwt part behavior against regressions.
 
-    Args:
-        value: Pytest fixture or input used by this test.
+    Example: _decode_jwt_part() -> passes without assertion failures when the behavior remains correct.
     """
     padding = "=" * (-len(value) % 4)
     return json.loads(base64.urlsafe_b64decode(value + padding).decode("utf-8"))
 
 
 class AppleMusicAuthTests(unittest.TestCase):
-    """Groups apple music auth tests tests.
+    """Groups related apple music auth tests cases.
 
-    Collects related assertions for apple music auth tests behavior.
+    Collects assertions that exercise apple music auth tests behavior without mixing unrelated fixtures.
     """
     def setUp(self) -> None:
-        """Validate set up.
+        """Verifies that setUp behaves as expected.
 
-        Exercises the set up behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the setUp behavior against regressions.
+
+        Example: setUp() -> passes without assertion failures when the behavior remains correct.
         """
         apple_auth._DEVELOPER_TOKEN_CACHE.clear()
         apple.reset_recent_tracks()
 
     def _credentials_json(self) -> str:
-        """Validate credentials json.
+        """Verifies that credentials json behaves as expected.
 
-        Exercises the credentials json behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the credentials json behavior against regressions.
+
+        Example: _credentials_json() -> passes without assertion failures when the behavior remains correct.
         """
         return json.dumps(
             {
@@ -59,9 +62,11 @@ class AppleMusicAuthTests(unittest.TestCase):
         )
 
     def test_developer_token_uses_apple_jwt_fields_and_cache(self) -> None:
-        """Validate test developer token uses apple jwt fields and cache.
+        """Verifies that developer token uses apple jwt fields and cache behaves as expected.
 
-        Exercises the test developer token uses apple jwt fields and cache behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the developer token uses apple jwt fields and cache behavior against regressions.
+
+        Example: test_developer_token_uses_apple_jwt_fields_and_cache() -> passes without assertion failures when the behavior remains correct.
         """
         credentials = apple_auth.AppleMusicCredentials.from_dict(json.loads(self._credentials_json()))
         with patch.object(apple_auth, "_sign_es256", return_value=b"1" * 64) as sign:
@@ -76,9 +81,11 @@ class AppleMusicAuthTests(unittest.TestCase):
         self.assertTrue(signature)
 
     def test_credentials_preserve_music_user_token(self) -> None:
-        """Validate test credentials preserve music user token.
+        """Verifies that credentials preserve music user token behaves as expected.
 
-        Exercises the test credentials preserve music user token behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the credentials preserve music user token behavior against regressions.
+
+        Example: test_credentials_preserve_music_user_token() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
             auth_store.set_oauth_token("apple_music", auth_models.OAuthToken(access_token="user-token"))
@@ -92,9 +99,11 @@ class AppleMusicAuthTests(unittest.TestCase):
         self.assertIn("TEAM123", provider.api_key)
 
     def test_missing_config_returns_setup_guidance(self) -> None:
-        """Validate test missing config returns setup guidance.
+        """Verifies that missing config returns setup guidance behaves as expected.
 
-        Exercises the test missing config returns setup guidance behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the missing config returns setup guidance behavior against regressions.
+
+        Example: test_missing_config_returns_setup_guidance() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
             result = apple.apple_music_search("song")
@@ -105,24 +114,25 @@ class AppleMusicAuthTests(unittest.TestCase):
 
 
 class AppleMusicToolTests(unittest.TestCase):
-    """Groups apple music tool tests tests.
+    """Groups related apple music tool tests cases.
 
-    Collects related assertions for apple music tool tests behavior.
+    Collects assertions that exercise apple music tool tests behavior without mixing unrelated fixtures.
     """
     def setUp(self) -> None:
-        """Validate set up.
+        """Verifies that setUp behaves as expected.
 
-        Exercises the set up behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the setUp behavior against regressions.
+
+        Example: setUp() -> passes without assertion failures when the behavior remains correct.
         """
         apple.reset_recent_tracks()
 
     def _song_payload(self, idx: int = 1) -> dict:
-        """Validate song payload.
+        """Verifies that song payload behaves as expected.
 
-        Exercises the song payload behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the song payload behavior against regressions.
 
-        Args:
-            idx: Pytest fixture or input used by this test.
+        Example: _song_payload() -> passes without assertion failures when the behavior remains correct.
         """
         return {
             "id": f"song-{idx}",
@@ -138,9 +148,11 @@ class AppleMusicToolTests(unittest.TestCase):
         }
 
     def test_search_normalizes_catalog_tracks(self) -> None:
-        """Validate test search normalizes catalog tracks.
+        """Verifies that search normalizes catalog tracks behaves as expected.
 
-        Exercises the test search normalizes catalog tracks behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search normalizes catalog tracks behavior against regressions.
+
+        Example: test_search_normalizes_catalog_tracks() -> passes without assertion failures when the behavior remains correct.
         """
         payload = {"results": {"songs": {"data": [self._song_payload()]}}}
         with patch.object(apple, "_apple_music_request", return_value=payload):
@@ -155,9 +167,11 @@ class AppleMusicToolTests(unittest.TestCase):
         self.assertEqual(track["uri"], "apple_music:song:song-1")
 
     def test_recent_queue_persists_dedupes_and_orders_newest_first(self) -> None:
-        """Validate test recent queue persists dedupes and orders newest first.
+        """Verifies that recent queue persists dedupes and orders newest first behaves as expected.
 
-        Exercises the test recent queue persists dedupes and orders newest first behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the recent queue persists dedupes and orders newest first behavior against regressions.
+
+        Example: test_recent_queue_persists_dedupes_and_orders_newest_first() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
             apple.reset_recent_tracks(clear_disk=True)
@@ -178,9 +192,11 @@ class AppleMusicToolTests(unittest.TestCase):
         self.assertNotIn("apple_music:song:song-0", {track["uri"] for track in tracks})
 
     def test_recent_tracks_requires_user_token(self) -> None:
-        """Validate test recent tracks requires user token.
+        """Verifies that recent tracks requires user token behaves as expected.
 
-        Exercises the test recent tracks requires user token behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the recent tracks requires user token behavior against regressions.
+
+        Example: test_recent_tracks_requires_user_token() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
             result = apple.apple_music_recent_tracks()
@@ -189,9 +205,11 @@ class AppleMusicToolTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "APPLE_MUSIC_USER_TOKEN_REQUIRED")
 
     def test_playback_requires_subscription_before_bridge(self) -> None:
-        """Validate test playback requires subscription before bridge.
+        """Verifies that playback requires subscription before bridge behaves as expected.
 
-        Exercises the test playback requires subscription before bridge behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the playback requires subscription before bridge behavior against regressions.
+
+        Example: test_playback_requires_subscription_before_bridge() -> passes without assertion failures when the behavior remains correct.
         """
         account = {
             "status": "success",
@@ -211,9 +229,11 @@ class AppleMusicToolTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "APPLE_MUSIC_SUBSCRIPTION_REQUIRED")
 
     def test_playback_reports_missing_musickit_bridge(self) -> None:
-        """Validate test playback reports missing musickit bridge.
+        """Verifies that playback reports missing musickit bridge behaves as expected.
 
-        Exercises the test playback reports missing musickit bridge behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the playback reports missing musickit bridge behavior against regressions.
+
+        Example: test_playback_reports_missing_musickit_bridge() -> passes without assertion failures when the behavior remains correct.
         """
         account = {
             "status": "success",

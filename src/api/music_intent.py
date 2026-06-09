@@ -54,15 +54,11 @@ _CHINESE_NUMBERS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, 
 
 
 def _recommendation_reference(text: str) -> int | None:
-    """Recommendation reference.
+    """Prepares recommendation reference for an internal Sonex flow.
 
-    Coordinates recommendation reference logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs recommendation reference without duplicating the local rules.
 
-    Args:
-        text: Input value used by the recommendation reference operation.
-
-    Returns:
-        The computed result for recommendation reference.
+    Example: _recommendation_reference(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not any(marker in text for marker in ("第", "刚才", "推荐")):
         return None
@@ -76,15 +72,11 @@ def _recommendation_reference(text: str) -> int | None:
 
 
 def _explicit_play_fast_path(text: str) -> MusicIntentDecision | None:
-    """Explicit play fast path.
+    """Prepares explicit play fast path for an internal Sonex flow.
 
-    Coordinates explicit play fast path logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs explicit play fast path without duplicating the local rules.
 
-    Args:
-        text: Input value used by the explicit play fast path operation.
-
-    Returns:
-        The computed result for explicit play fast path.
+    Example: _explicit_play_fast_path(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     stripped = text.strip()
     lowered = stripped.lower()
@@ -108,29 +100,21 @@ def _explicit_play_fast_path(text: str) -> MusicIntentDecision | None:
 
 
 def classify_music_intent_fast(text: str) -> MusicIntentDecision | None:
-    """Classify music intent fast.
+    """Coordinates classify music intent fast for the current Sonex flow.
 
-    Coordinates classify music intent fast logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs classify music intent fast as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        text: Input value used by the classify music intent fast operation.
-
-    Returns:
-        The computed result for classify music intent fast.
+    Example: classify_music_intent_fast(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     return _explicit_play_fast_path(text)
 
 
 def classify_music_intent(text: str) -> MusicIntentDecision:
-    """Classify music intent.
+    """Coordinates classify music intent for the current Sonex flow.
 
-    Coordinates classify music intent logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs classify music intent as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        text: Input value used by the classify music intent operation.
-
-    Returns:
-        The computed result for classify music intent.
+    Example: classify_music_intent(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     fast_path = classify_music_intent_fast(text)
     if fast_path is not None:

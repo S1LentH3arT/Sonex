@@ -46,13 +46,11 @@ class AppleMusicApiError(RuntimeError):
     Encapsulates apple music api error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
     """
     def __init__(self, message: str, status: int | None = None) -> None:
-        """Init for apple music api error.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving apple music api error state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            message: Input value used by the init operation.
-            status: Input value used by the init operation.
+        Example: __init__(message=..., status=...) -> returns the value used by the surrounding Sonex flow.
         """
         super().__init__(message)
         self.status = status
@@ -75,85 +73,72 @@ class AppleMusicPlaybackUnavailableError(RuntimeError):
 
 
 def _timestamp_ms() -> int:
-    """Timestamp ms.
+    """Prepares timestamp ms for an internal Sonex flow.
 
-    Coordinates timestamp ms logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs timestamp ms without duplicating the local rules.
 
-    Returns:
-        The computed result for timestamp ms.
+    Example: _timestamp_ms() -> returns the value used by the surrounding Sonex flow.
     """
     return int(time.time() * 1000)
 
 
 def _iso_now() -> str:
-    """Iso now.
+    """Prepares iso now for an internal Sonex flow.
 
-    Coordinates iso now logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs iso now without duplicating the local rules.
 
-    Returns:
-        The computed result for iso now.
+    Example: _iso_now() -> returns the value used by the surrounding Sonex flow.
     """
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def _apple_music_cache_dir() -> Path:
-    """Apple music cache dir.
+    """Prepares apple music cache dir for an internal Sonex flow.
 
-    Coordinates apple music cache dir logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs apple music cache dir without duplicating the local rules.
 
-    Returns:
-        The computed result for apple music cache dir.
+    Example: _apple_music_cache_dir() -> returns the value used by the surrounding Sonex flow.
     """
     return sonex_home() / "cache" / "apple_music"
 
 
 def _apple_music_cover_dir() -> Path:
-    """Apple music cover dir.
+    """Prepares apple music cover dir for an internal Sonex flow.
 
-    Coordinates apple music cover dir logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs apple music cover dir without duplicating the local rules.
 
-    Returns:
-        The computed result for apple music cover dir.
+    Example: _apple_music_cover_dir() -> returns the value used by the surrounding Sonex flow.
     """
     return _apple_music_cache_dir() / "covers"
 
 
 def _recent_tracks_path() -> Path:
-    """Recent tracks path.
+    """Prepares recent tracks path for an internal Sonex flow.
 
-    Coordinates recent tracks path logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs recent tracks path without duplicating the local rules.
 
-    Returns:
-        The computed result for recent tracks path.
+    Example: _recent_tracks_path() -> returns the value used by the surrounding Sonex flow.
     """
     return _apple_music_cache_dir() / "recent_tracks.json"
 
 
 def _track_key(track: dict[str, Any]) -> str | None:
-    """Track key.
+    """Prepares track key for an internal Sonex flow.
 
-    Coordinates track key logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs track key without duplicating the local rules.
 
-    Args:
-        track: Input value used by the track key operation.
-
-    Returns:
-        The computed result for track key.
+    Example: _track_key(track=...) -> returns the value used by the surrounding Sonex flow.
     """
     key = track.get("uri") or track.get("id") or track.get("url")
     return str(key) if key else None
 
 
 def _compact_track(track: dict[str, Any]) -> dict[str, Any]:
-    """Compact track.
+    """Prepares compact track for an internal Sonex flow.
 
-    Coordinates compact track logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs compact track without duplicating the local rules.
 
-    Args:
-        track: Input value used by the compact track operation.
-
-    Returns:
-        The computed result for compact track.
+    Example: _compact_track(track=...) -> returns the value used by the surrounding Sonex flow.
     """
     cover_url = track.get("album_cover_url") or track.get("cover_url")
     return normalize_track_shape(
@@ -178,15 +163,11 @@ def _compact_track(track: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cover_filename(track: dict[str, Any]) -> str | None:
-    """Cover filename.
+    """Prepares cover filename for an internal Sonex flow.
 
-    Coordinates cover filename logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs cover filename without duplicating the local rules.
 
-    Args:
-        track: Input value used by the cover filename operation.
-
-    Returns:
-        The computed result for cover filename.
+    Example: _cover_filename(track=...) -> returns the value used by the surrounding Sonex flow.
     """
     key = _track_key(track)
     if not key:
@@ -196,15 +177,11 @@ def _cover_filename(track: dict[str, Any]) -> str | None:
 
 
 def _cache_cover(track: dict[str, Any]) -> str | None:
-    """Cache cover.
+    """Prepares cache cover for an internal Sonex flow.
 
-    Coordinates cache cover logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs cache cover without duplicating the local rules.
 
-    Args:
-        track: Input value used by the cache cover operation.
-
-    Returns:
-        The computed result for cache cover.
+    Example: _cache_cover(track=...) -> returns the value used by the surrounding Sonex flow.
     """
     url = str(track.get("album_cover_url") or track.get("cover_url") or "").strip()
     if not url:
@@ -228,12 +205,11 @@ def _cache_cover(track: dict[str, Any]) -> str | None:
 
 
 def _load_recent_tracks() -> None:
-    """Load recent tracks.
+    """Prepares load recent tracks for an internal Sonex flow.
 
-    Coordinates load recent tracks logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs load recent tracks without duplicating the local rules.
 
-    Returns:
-        The computed result for load recent tracks.
+    Example: _load_recent_tracks() -> returns the value used by the surrounding Sonex flow.
     """
     global _RECENT_TRACKS, _RECENT_TRACKS_LOADED
     if _RECENT_TRACKS_LOADED:
@@ -267,12 +243,11 @@ def _load_recent_tracks() -> None:
 
 
 def _save_recent_tracks() -> None:
-    """Save recent tracks.
+    """Prepares save recent tracks for an internal Sonex flow.
 
-    Coordinates save recent tracks logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs save recent tracks without duplicating the local rules.
 
-    Returns:
-        The computed result for save recent tracks.
+    Example: _save_recent_tracks() -> returns the value used by the surrounding Sonex flow.
     """
     try:
         _apple_music_cache_dir().mkdir(parents=True, exist_ok=True)
@@ -285,15 +260,11 @@ def _save_recent_tracks() -> None:
 
 
 def remember_recent_track(track: dict[str, Any]) -> list[dict[str, Any]]:
-    """Remember recent track.
+    """Coordinates remember recent track for the current Sonex flow.
 
-    Coordinates remember recent track logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs remember recent track as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        track: Input value used by the remember recent track operation.
-
-    Returns:
-        The computed result for remember recent track.
+    Example: remember_recent_track(track=...) -> returns the value used by the surrounding Sonex flow.
     """
     _load_recent_tracks()
     compact = _compact_track(track)
@@ -316,31 +287,22 @@ def remember_recent_track(track: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def recent_tracks_snapshot(limit: int = MAX_RECENT_TRACKS) -> list[dict[str, Any]]:
-    """Recent tracks snapshot.
+    """Coordinates recent tracks snapshot for the current Sonex flow.
 
-    Coordinates recent tracks snapshot logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs recent tracks snapshot as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        limit: Input value used by the recent tracks snapshot operation.
-
-    Returns:
-        The computed result for recent tracks snapshot.
+    Example: recent_tracks_snapshot(limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     _load_recent_tracks()
     return [dict(item) for item in _RECENT_TRACKS[: max(0, limit)]]
 
 
 def reset_recent_tracks(*, clear_disk: bool = False, reload_from_disk: bool = False) -> None:
-    """Reset recent tracks.
+    """Coordinates reset recent tracks for the current Sonex flow.
 
-    Coordinates reset recent tracks logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs reset recent tracks as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        clear_disk: Input value used by the reset recent tracks operation.
-        reload_from_disk: Input value used by the reset recent tracks operation.
-
-    Returns:
-        The computed result for reset recent tracks.
+    Example: reset_recent_tracks(clear_disk=..., reload_from_disk=...) -> returns the value used by the surrounding Sonex flow.
     """
     global _RECENT_TRACKS_LOADED, _BRIDGE_STATE
     _RECENT_TRACKS.clear()
@@ -356,15 +318,11 @@ def reset_recent_tracks(*, clear_disk: bool = False, reload_from_disk: bool = Fa
 
 
 def _artwork_url(artwork: dict[str, Any] | None) -> str | None:
-    """Artwork url.
+    """Prepares artwork url for an internal Sonex flow.
 
-    Coordinates artwork url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs artwork url without duplicating the local rules.
 
-    Args:
-        artwork: Input value used by the artwork url operation.
-
-    Returns:
-        The computed result for artwork url.
+    Example: _artwork_url(artwork=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not artwork:
         return None
@@ -377,15 +335,11 @@ def _artwork_url(artwork: dict[str, Any] | None) -> str | None:
 
 
 def _normalize_song(item: dict[str, Any]) -> dict[str, Any]:
-    """Normalize song.
+    """Prepares normalize song for an internal Sonex flow.
 
-    Coordinates normalize song logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalize song without duplicating the local rules.
 
-    Args:
-        item: Input value used by the normalize song operation.
-
-    Returns:
-        The computed result for normalize song.
+    Example: _normalize_song(item=...) -> returns the value used by the surrounding Sonex flow.
     """
     attrs = item.get("attributes") or {}
     artist_name = attrs.get("artistName")
@@ -412,15 +366,11 @@ def _normalize_song(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_artist(item: dict[str, Any]) -> dict[str, Any]:
-    """Normalize artist.
+    """Prepares normalize artist for an internal Sonex flow.
 
-    Coordinates normalize artist logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalize artist without duplicating the local rules.
 
-    Args:
-        item: Input value used by the normalize artist operation.
-
-    Returns:
-        The computed result for normalize artist.
+    Example: _normalize_artist(item=...) -> returns the value used by the surrounding Sonex flow.
     """
     attrs = item.get("attributes") or {}
     return {
@@ -434,15 +384,11 @@ def _normalize_artist(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_album(item: dict[str, Any]) -> dict[str, Any]:
-    """Normalize album.
+    """Prepares normalize album for an internal Sonex flow.
 
-    Coordinates normalize album logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalize album without duplicating the local rules.
 
-    Args:
-        item: Input value used by the normalize album operation.
-
-    Returns:
-        The computed result for normalize album.
+    Example: _normalize_album(item=...) -> returns the value used by the surrounding Sonex flow.
     """
     attrs = item.get("attributes") or {}
     return {
@@ -469,19 +415,11 @@ def _apple_music_request(
     method: str = "GET",
     body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Apple music request.
+    """Prepares apple music request for an internal Sonex flow.
 
-    Coordinates apple music request logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs apple music request without duplicating the local rules.
 
-    Args:
-        path: Input value used by the apple music request operation.
-        params: Input value used by the apple music request operation.
-        user: Input value used by the apple music request operation.
-        method: Input value used by the apple music request operation.
-        body: Input value used by the apple music request operation.
-
-    Returns:
-        The computed result for apple music request.
+    Example: _apple_music_request(path=..., params=..., user=..., method=..., body=...) -> returns the value used by the surrounding Sonex flow.
     """
     query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
     url = f"{APPLE_MUSIC_API_BASE}{path}"
@@ -514,17 +452,11 @@ def _apple_music_request(
 
 
 def _apple_music_error(tool: str, exc: Exception, default_code: str = "APPLE_MUSIC_API_ERROR") -> dict[str, Any]:
-    """Apple music error.
+    """Prepares apple music error for an internal Sonex flow.
 
-    Coordinates apple music error logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs apple music error without duplicating the local rules.
 
-    Args:
-        tool: Input value used by the apple music error operation.
-        exc: Input value used by the apple music error operation.
-        default_code: Input value used by the apple music error operation.
-
-    Returns:
-        The computed result for apple music error.
+    Example: _apple_music_error(tool=..., exc=..., default_code=...) -> returns the value used by the surrounding Sonex flow.
     """
     message = str(exc)
     code = default_code
@@ -548,16 +480,11 @@ def _apple_music_error(tool: str, exc: Exception, default_code: str = "APPLE_MUS
 
 
 def _normalize_search_payload(payload: dict[str, Any], types: str) -> dict[str, Any]:
-    """Normalize search payload.
+    """Prepares normalize search payload for an internal Sonex flow.
 
-    Coordinates normalize search payload logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs normalize search payload without duplicating the local rules.
 
-    Args:
-        payload: Input value used by the normalize search payload operation.
-        types: Input value used by the normalize search payload operation.
-
-    Returns:
-        The computed result for normalize search payload.
+    Example: _normalize_search_payload(payload=..., types=...) -> returns the value used by the surrounding Sonex flow.
     """
     results = payload.get("results") or {}
     requested = {part.strip() for part in types.split(",") if part.strip()}
@@ -575,15 +502,11 @@ def _normalize_search_payload(payload: dict[str, Any], types: str) -> dict[str, 
 
 
 def _apple_types(types: str) -> str:
-    """Apple types.
+    """Prepares apple types for an internal Sonex flow.
 
-    Coordinates apple types logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs apple types without duplicating the local rules.
 
-    Args:
-        types: Input value used by the apple types operation.
-
-    Returns:
-        The computed result for apple types.
+    Example: _apple_types(types=...) -> returns the value used by the surrounding Sonex flow.
     """
     mapped: list[str] = []
     for item in [part.strip().lower() for part in types.split(",") if part.strip()]:
@@ -602,18 +525,11 @@ def apple_music_search(
     types: str = "songs,artists,albums",
     storefront: str = APPLE_MUSIC_DEFAULT_STOREFRONT,
 ) -> dict[str, Any]:
-    """Apple music search.
+    """Coordinates apple music search for the current Sonex flow.
 
-    Coordinates apple music search logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music search as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the apple music search operation.
-        limit: Input value used by the apple music search operation.
-        types: Input value used by the apple music search operation.
-        storefront: Input value used by the apple music search operation.
-
-    Returns:
-        The computed result for apple music search.
+    Example: apple_music_search(query=..., limit=..., types=..., storefront=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         payload = _apple_music_request(
@@ -633,17 +549,11 @@ def apple_music_search(
 
 
 def _account_capabilities(has_developer_token: bool, logged_in: bool, subscription: dict[str, Any]) -> dict[str, bool]:
-    """Account capabilities.
+    """Prepares account capabilities for an internal Sonex flow.
 
-    Coordinates account capabilities logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs account capabilities without duplicating the local rules.
 
-    Args:
-        has_developer_token: Input value used by the account capabilities operation.
-        logged_in: Input value used by the account capabilities operation.
-        subscription: Input value used by the account capabilities operation.
-
-    Returns:
-        The computed result for account capabilities.
+    Example: _account_capabilities(has_developer_token=..., logged_in=..., subscription=...) -> returns the value used by the surrounding Sonex flow.
     """
     can_play = bool(subscription.get("canPlayCatalogContent"))
     can_library = bool(subscription.get("canPlayCatalogContent") or subscription.get("canPlayLibraryContent"))
@@ -659,12 +569,11 @@ def _account_capabilities(has_developer_token: bool, logged_in: bool, subscripti
 
 
 def apple_music_account() -> dict[str, Any]:
-    """Apple music account.
+    """Coordinates apple music account for the current Sonex flow.
 
-    Coordinates apple music account logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music account as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for apple music account.
+    Example: apple_music_account() -> returns the value used by the surrounding Sonex flow.
     """
     has_developer_token = True
     subscription: dict[str, Any] = {}
@@ -692,15 +601,11 @@ def apple_music_account() -> dict[str, Any]:
 
 
 def apple_music_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
-    """Apple music recent tracks.
+    """Coordinates apple music recent tracks for the current Sonex flow.
 
-    Coordinates apple music recent tracks logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music recent tracks as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        limit: Input value used by the apple music recent tracks operation.
-
-    Returns:
-        The computed result for apple music recent tracks.
+    Example: apple_music_recent_tracks(limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     try:
@@ -719,16 +624,11 @@ def apple_music_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
 
 
 def _dedupe_tracks(tracks: list[dict[str, Any]], limit: int = 40) -> list[dict[str, Any]]:
-    """Dedupe tracks.
+    """Prepares dedupe tracks for an internal Sonex flow.
 
-    Coordinates dedupe tracks logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs dedupe tracks without duplicating the local rules.
 
-    Args:
-        tracks: Input value used by the dedupe tracks operation.
-        limit: Input value used by the dedupe tracks operation.
-
-    Returns:
-        The computed result for dedupe tracks.
+    Example: _dedupe_tracks(tracks=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []
@@ -745,16 +645,11 @@ def _dedupe_tracks(tracks: list[dict[str, Any]], limit: int = 40) -> list[dict[s
 
 
 def _candidate_tracks(query: str, limit: int) -> list[dict[str, Any]]:
-    """Candidate tracks.
+    """Prepares candidate tracks for an internal Sonex flow.
 
-    Coordinates candidate tracks logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs candidate tracks without duplicating the local rules.
 
-    Args:
-        query: Input value used by the candidate tracks operation.
-        limit: Input value used by the candidate tracks operation.
-
-    Returns:
-        The computed result for candidate tracks.
+    Example: _candidate_tracks(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     candidates = recent_tracks_snapshot()
     recent = apple_music_recent_tracks(limit=MAX_RECENT_TRACKS)
@@ -768,12 +663,11 @@ def _candidate_tracks(query: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _user_preferences_text() -> str:
-    """User preferences text.
+    """Prepares user preferences text for an internal Sonex flow.
 
-    Coordinates user preferences text logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs user preferences text without duplicating the local rules.
 
-    Returns:
-        The computed result for user preferences text.
+    Example: _user_preferences_text() -> returns the value used by the surrounding Sonex flow.
     """
     user_path = sonex_home() / "USER.md"
     if not user_path.exists():
@@ -782,15 +676,11 @@ def _user_preferences_text() -> str:
 
 
 def _parse_recommendation_json(text: str) -> list[dict[str, Any]]:
-    """Parse recommendation json.
+    """Prepares parse recommendation json for an internal Sonex flow.
 
-    Coordinates parse recommendation json logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs parse recommendation json without duplicating the local rules.
 
-    Args:
-        text: Input value used by the parse recommendation json operation.
-
-    Returns:
-        The computed result for parse recommendation json.
+    Example: _parse_recommendation_json(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     start = text.find("[")
     end = text.rfind("]")
@@ -811,19 +701,11 @@ def _rank_candidates_with_llm(
     candidates: list[dict[str, Any]],
     limit: int,
 ) -> list[dict[str, str]]:
-    """Rank candidates with llm.
+    """Prepares rank candidates with llm for an internal Sonex flow.
 
-    Coordinates rank candidates with llm logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs rank candidates with llm without duplicating the local rules.
 
-    Args:
-        query: Input value used by the rank candidates with llm operation.
-        preferences: Input value used by the rank candidates with llm operation.
-        recent_tracks: Input value used by the rank candidates with llm operation.
-        candidates: Input value used by the rank candidates with llm operation.
-        limit: Input value used by the rank candidates with llm operation.
-
-    Returns:
-        The computed result for rank candidates with llm.
+    Example: _rank_candidates_with_llm(query=..., preferences=..., recent_tracks=..., candidates=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     compact_candidates = [
         {
@@ -871,16 +753,11 @@ def _rank_candidates_with_llm(
 
 
 def apple_music_recommend(query: str, limit: int = 10) -> dict[str, Any]:
-    """Apple music recommend.
+    """Coordinates apple music recommend for the current Sonex flow.
 
-    Coordinates apple music recommend logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music recommend as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the apple music recommend operation.
-        limit: Input value used by the apple music recommend operation.
-
-    Returns:
-        The computed result for apple music recommend.
+    Example: apple_music_recommend(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     preferences = _user_preferences_text()
@@ -929,12 +806,11 @@ def apple_music_recommend(query: str, limit: int = 10) -> dict[str, Any]:
 
 
 def _bridge_url() -> str | None:
-    """Bridge url.
+    """Prepares bridge url for an internal Sonex flow.
 
-    Coordinates bridge url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs bridge url without duplicating the local rules.
 
-    Returns:
-        The computed result for bridge url.
+    Example: _bridge_url() -> returns the value used by the surrounding Sonex flow.
     """
     import os
 
@@ -943,17 +819,11 @@ def _bridge_url() -> str | None:
 
 
 def _bridge_request(path: str, payload: dict[str, Any] | None = None, method: str = "POST") -> dict[str, Any]:
-    """Bridge request.
+    """Prepares bridge request for an internal Sonex flow.
 
-    Coordinates bridge request logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs bridge request without duplicating the local rules.
 
-    Args:
-        path: Input value used by the bridge request operation.
-        payload: Input value used by the bridge request operation.
-        method: Input value used by the bridge request operation.
-
-    Returns:
-        The computed result for bridge request.
+    Example: _bridge_request(path=..., payload=..., method=...) -> returns the value used by the surrounding Sonex flow.
     """
     base = _bridge_url()
     if not base:
@@ -975,15 +845,11 @@ def _bridge_request(path: str, payload: dict[str, Any] | None = None, method: st
 
 
 def _require_playback_control(tool: str) -> dict[str, Any] | None:
-    """Require playback control.
+    """Prepares require playback control for an internal Sonex flow.
 
-    Coordinates require playback control logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs require playback control without duplicating the local rules.
 
-    Args:
-        tool: Input value used by the require playback control operation.
-
-    Returns:
-        The computed result for require playback control.
+    Example: _require_playback_control(tool=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         ensure_apple_music_user_token()
@@ -1010,15 +876,11 @@ def _require_playback_control(tool: str) -> dict[str, Any] | None:
 
 
 def _cached_track_for_query(query: str) -> dict[str, Any] | None:
-    """Cached track for query.
+    """Prepares cached track for query for an internal Sonex flow.
 
-    Coordinates cached track for query logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs cached track for query without duplicating the local rules.
 
-    Args:
-        query: Input value used by the cached track for query operation.
-
-    Returns:
-        The computed result for cached track for query.
+    Example: _cached_track_for_query(query=...) -> returns the value used by the surrounding Sonex flow.
     """
     needle = " ".join(query.strip().lower().split())
     if not needle:
@@ -1038,12 +900,11 @@ def _cached_track_for_query(query: str) -> dict[str, Any] | None:
 
 
 def apple_music_current_playback() -> dict[str, Any]:
-    """Apple music current playback.
+    """Coordinates apple music current playback for the current Sonex flow.
 
-    Coordinates apple music current playback logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music current playback as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for apple music current playback.
+    Example: apple_music_current_playback() -> returns the value used by the surrounding Sonex flow.
     """
     if _bridge_url():
         try:
@@ -1070,17 +931,11 @@ def apple_music_current_playback() -> dict[str, Any]:
 
 
 def apple_music_play(query: str | None = None, uri: str | None = None, storefront: str = APPLE_MUSIC_DEFAULT_STOREFRONT) -> dict[str, Any]:
-    """Apple music play.
+    """Coordinates apple music play for the current Sonex flow.
 
-    Coordinates apple music play logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music play as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the apple music play operation.
-        uri: Input value used by the apple music play operation.
-        storefront: Input value used by the apple music play operation.
-
-    Returns:
-        The computed result for apple music play.
+    Example: apple_music_play(query=..., uri=..., storefront=...) -> returns the value used by the surrounding Sonex flow.
     """
     blocked = _require_playback_control("apple_music_play")
     if blocked:
@@ -1136,17 +991,11 @@ def apple_music_play(query: str | None = None, uri: str | None = None, storefron
 
 
 def _bridge_control(tool: str, path: str, is_playing: bool | None = None) -> dict[str, Any]:
-    """Bridge control.
+    """Prepares bridge control for an internal Sonex flow.
 
-    Coordinates bridge control logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs bridge control without duplicating the local rules.
 
-    Args:
-        tool: Input value used by the bridge control operation.
-        path: Input value used by the bridge control operation.
-        is_playing: Input value used by the bridge control operation.
-
-    Returns:
-        The computed result for bridge control.
+    Example: _bridge_control(tool=..., path=..., is_playing=...) -> returns the value used by the surrounding Sonex flow.
     """
     blocked = _require_playback_control(tool)
     if blocked:
@@ -1167,45 +1016,41 @@ def _bridge_control(tool: str, path: str, is_playing: bool | None = None) -> dic
 
 
 def apple_music_pause() -> dict[str, Any]:
-    """Apple music pause.
+    """Coordinates apple music pause for the current Sonex flow.
 
-    Coordinates apple music pause logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music pause as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for apple music pause.
+    Example: apple_music_pause() -> returns the value used by the surrounding Sonex flow.
     """
     return _bridge_control("apple_music_pause", "/pause", is_playing=False)
 
 
 def apple_music_resume() -> dict[str, Any]:
-    """Apple music resume.
+    """Coordinates apple music resume for the current Sonex flow.
 
-    Coordinates apple music resume logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music resume as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for apple music resume.
+    Example: apple_music_resume() -> returns the value used by the surrounding Sonex flow.
     """
     return _bridge_control("apple_music_resume", "/resume", is_playing=True)
 
 
 def apple_music_next() -> dict[str, Any]:
-    """Apple music next.
+    """Coordinates apple music next for the current Sonex flow.
 
-    Coordinates apple music next logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music next as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for apple music next.
+    Example: apple_music_next() -> returns the value used by the surrounding Sonex flow.
     """
     return _bridge_control("apple_music_next", "/next")
 
 
 def apple_music_previous() -> dict[str, Any]:
-    """Apple music previous.
+    """Coordinates apple music previous for the current Sonex flow.
 
-    Coordinates apple music previous logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music previous as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for apple music previous.
+    Example: apple_music_previous() -> returns the value used by the surrounding Sonex flow.
     """
     return _bridge_control("apple_music_previous", "/previous")
 
@@ -1219,20 +1064,11 @@ def _register_tool(
     *,
     read_only: bool = True,
 ) -> None:
-    """Register tool.
+    """Prepares register tool for an internal Sonex flow.
 
-    Coordinates register tool logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs register tool without duplicating the local rules.
 
-    Args:
-        name: Input value used by the register tool operation.
-        description: Input value used by the register tool operation.
-        properties: Input value used by the register tool operation.
-        required: Input value used by the register tool operation.
-        fn: Input value used by the register tool operation.
-        read_only: Input value used by the register tool operation.
-
-    Returns:
-        The computed result for register tool.
+    Example: _register_tool(name=..., description=..., properties=..., required=..., fn=..., read_only=...) -> returns the value used by the surrounding Sonex flow.
     """
     registry.register(
         name=name,

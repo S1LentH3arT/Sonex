@@ -1,163 +1,132 @@
-/**
- * Defines the full layout min columns constant.
- *
- * Stores stable configuration or display data consumed by layout.ts.
- */
-export const FULL_LAYOUT_MIN_COLUMNS = 114;
-/**
- * Defines the full layout min rows constant.
- *
- * Stores stable configuration or display data consumed by layout.ts.
- */
-export const FULL_LAYOUT_MIN_ROWS = 24;
+import type { PlayerState } from './types.js';
 
-/**
- * Describes the preferred layout type.
- *
- * Documents the shape shared across layout.ts call sites.
- */
-export type PreferredLayout = "compact" | "full";
-/**
- * Describes the shell layout type.
- *
- * Documents the shape shared across layout.ts call sites.
- */
-export type ShellLayout = "chat" | "full" | "miniPlayer";
-/**
- * Describes the small playback focus type.
- *
- * Documents the shape shared across layout.ts call sites.
- */
-export type SmallPlaybackFocus = "player" | "chat";
-/**
- * Describes the mini player chrome type.
- *
- * Documents the shape shared across layout.ts call sites.
- */
-export type MiniPlayerChrome = {
-    inputOnly: boolean;
-    showConversation: boolean;
-    showStatus: boolean;
-    switchHint: string;
-};
-/**
- * Describes the player event focus input type.
- *
- * Documents the shape shared across layout.ts call sites.
- */
-export type PlayerEventFocusInput = {
-    wasPlaying: boolean;
-    isPlaying: boolean;
-    currentFocus: SmallPlaybackFocus;
+export type ShellRegion = 'chat' | 'miniPlayer';
+
+export type PlayerRegionTransition = {
+    region: ShellRegion;
+    sessionActive: boolean;
 };
 
-/**
- * Describes the terminal size type.
- *
- * Documents the shape shared across layout.ts call sites.
- */
 export type TerminalSize = {
     columns: number | null;
     rows: number | null;
 };
 
-/**
- * Can use full playback layout.
- *
- * Coordinates the can use full playback layout operation for the CLI UI runtime.
- *
- * @param size Input value used by the can use full playback layout operation.
- * @returns The computed result for the surrounding CLI UI flow.
- */
-export function canUseFullPlaybackLayout(size: TerminalSize): boolean {
-    return (size.columns ?? 0) >= FULL_LAYOUT_MIN_COLUMNS && (size.rows ?? 0) >= FULL_LAYOUT_MIN_ROWS;
+export type ChatHeaderVariant = 'full' | 'compact';
+
+export type TerminalLinePosition = {
+    row: number;
+    column: number;
+    width: number;
+};
+
+export type MiniPlayerLayout = {
+    mode: 'artwork' | 'infoOnly';
+    contentColumns: number;
+    contentRows: number;
+    infoWidth: number;
+    infoLeftPadding: number;
+    infoTop: number;
+    gap: number;
+    coverWidth: number;
+    progressSlot: TerminalLinePosition;
+};
+
+const CHAT_HEADER_FULL_MIN_COLUMNS = 72;
+const MINI_FRAME_COLUMNS = 2;
+const MINI_FRAME_ROWS = 2;
+const MINI_COLUMN_GAP = 1;
+const MINI_INFO_RATIO = 0.32;
+const MINI_INFO_MIN_COLUMNS = 24;
+const MINI_INFO_MAX_COLUMNS = 42;
+const MINI_INFO_LEFT_PADDING = 2;
+const MINI_COVER_MIN_COLUMNS = 32;
+const MINI_COVER_MIN_ROWS = 16;
+const MINI_CONTENT_START_ROW = 2;
+const MINI_CONTENT_START_COLUMN = 2;
+const MINI_INFO_ROWS = 3;
+
+export function resolveChatHeaderVariant(columns: number | null): ChatHeaderVariant {
+    return (columns ?? 0) >= CHAT_HEADER_FULL_MIN_COLUMNS ? 'full' : 'compact';
 }
 
-/**
- * Resolve shell layout.
- *
- * Coordinates the resolve shell layout operation for the CLI UI runtime.
- *
- * @param isPlaying,smallPlaybackFocus, Input value used by the resolve shell layout operation.
- * @returns The computed result for the surrounding CLI UI flow.
- */
-export function resolveShellLayout({
-    isPlaying,
-    smallPlaybackFocus,
-}: TerminalSize & {
-    isPlaying: boolean;
-    preferredLayout: PreferredLayout;
-    smallPlaybackFocus: SmallPlaybackFocus;
-}): ShellLayout {
-    if (!isPlaying) {
-        return "chat";
-    }
-    return smallPlaybackFocus === "chat" ? "chat" : "miniPlayer";
-}
+export function resolveMiniPlayerLayout(size: TerminalSize): MiniPlayerLayout {
+    const columns = Math.max(0, size.columns ?? 0);
+    const rows = Math.max(0, size.rows ?? 0);
+    const contentColumns = Math.max(0, columns - MINI_FRAME_COLUMNS);
+    const contentRows = Math.max(0, rows - MINI_FRAME_ROWS);
+    const hasArtworkSpace = contentColumns >= MINI_INFO_MIN_COLUMNS + MINI_COLUMN_GAP + MINI_COVER_MIN_COLUMNS
+        && contentRows >= MINI_COVER_MIN_ROWS;
+    const mode = hasArtworkSpace ? 'artwork' : 'infoOnly';
+    const gap = hasArtworkSpace ? MINI_COLUMN_GAP : 0;
+    const availableSplitColumns = Math.max(0, contentColumns - gap);
+    const preferredInfoWidth = Math.floor(availableSplitColumns * MINI_INFO_RATIO);
+    const maxInfoWidth = Math.min(MINI_INFO_MAX_COLUMNS, Math.max(0, availableSplitColumns - MINI_COVER_MIN_COLUMNS));
+    const infoWidth = hasArtworkSpace
+        ? Math.min(Math.max(preferredInfoWidth, MINI_INFO_MIN_COLUMNS), maxInfoWidth)
+        : contentColumns;
+    const infoLeftPadding = hasArtworkSpace ? MINI_INFO_LEFT_PADDING : 0;
+    const infoInnerWidth = Math.max(0, infoWidth - infoLeftPadding);
+    const coverWidth = hasArtworkSpace ? Math.max(0, availableSplitColumns - infoWidth) : 0;
+    const infoTop = Math.max(0, Math.floor((contentRows - MINI_INFO_ROWS) / 2));
 
-/**
- * Resolve mini player chrome.
- *
- * Coordinates the resolve mini player chrome operation for the CLI UI runtime.
- *
- * @param layout,smallPlaybackFocus, Input value used by the resolve mini player chrome operation.
- * @returns The computed result for the surrounding CLI UI flow.
- */
-export function resolveMiniPlayerChrome({
-    layout,
-    smallPlaybackFocus,
-}: {
-    layout: ShellLayout;
-    smallPlaybackFocus: SmallPlaybackFocus;
-}): MiniPlayerChrome {
-    /**
-     * Defines the is mini player constant.
-     *
-     * Stores stable configuration or display data consumed by layout.ts.
-     */
-    const isMiniPlayer = layout === "miniPlayer";
     return {
-        inputOnly: isMiniPlayer,
-        showConversation: !isMiniPlayer,
-        showStatus: !isMiniPlayer,
-        switchHint: smallPlaybackFocus === "player" ? "Tab to switch to chat" : "Tab to switch to player",
+        mode,
+        contentColumns,
+        contentRows,
+        infoWidth,
+        infoLeftPadding,
+        infoTop,
+        gap,
+        coverWidth,
+        progressSlot: {
+            row: Math.max(1, Math.min(
+                Math.max(1, rows - 1),
+                MINI_CONTENT_START_ROW + infoTop + MINI_INFO_ROWS - 1,
+            )),
+            column: MINI_CONTENT_START_COLUMN + infoLeftPadding,
+            width: infoInnerWidth,
+        },
     };
 }
 
-/**
- * Resolve player event focus.
- *
- * Coordinates the resolve player event focus operation for the CLI UI runtime.
- *
- * @param wasPlaying,isPlaying,currentFocus, Input value used by the resolve player event focus operation.
- * @returns The computed result for the surrounding CLI UI flow.
- */
-export function resolvePlayerEventFocus({
-    wasPlaying,
-    isPlaying,
-    currentFocus,
-}: PlayerEventFocusInput): SmallPlaybackFocus {
-    if (!wasPlaying && isPlaying) {
-        return "player";
-    }
-    return currentFocus;
+function hasTrackIdentity(player: PlayerState): boolean {
+    return Boolean(
+        player.session_id
+        || player.provider
+        || player.source
+        || player.name !== '-'
+        || player.artist !== '-'
+        || player.album !== '-'
+    );
 }
 
-/**
- * Should return to chat after submit.
- *
- * Coordinates the should return to chat after submit operation for the CLI UI runtime.
- *
- * @param layout,commandName, Input value used by the should return to chat after submit operation.
- * @returns The computed result for the surrounding CLI UI flow.
- */
-export function shouldReturnToChatAfterSubmit({
-    layout,
-    commandName,
+export function hasActivePlaybackSession(player: PlayerState, _wasSessionActive: boolean): boolean {
+    if (player.ended === true) return false;
+    if (player.is_playing === true) return true;
+    return hasTrackIdentity(player);
+}
+
+export function resolveRegionAfterPlayerEvent({
+    currentRegion,
+    wasSessionActive,
+    player,
 }: {
-    layout: ShellLayout;
-    commandName?: string | null;
-}): boolean {
-    void commandName;
-    return layout !== "miniPlayer" && false;
+    currentRegion: ShellRegion;
+    wasSessionActive: boolean;
+    player: PlayerState;
+}): PlayerRegionTransition {
+    const sessionActive = hasActivePlaybackSession(player, wasSessionActive);
+    if (!sessionActive) {
+        return { region: 'chat', sessionActive: false };
+    }
+    if (!wasSessionActive) {
+        return { region: 'miniPlayer', sessionActive: true };
+    }
+    return { region: currentRegion, sessionActive: true };
+}
+
+export function toggleShellRegion(currentRegion: ShellRegion, sessionActive: boolean): ShellRegion {
+    if (!sessionActive) return 'chat';
+    return currentRegion === 'chat' ? 'miniPlayer' : 'chat';
 }

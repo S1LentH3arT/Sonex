@@ -11,21 +11,25 @@ from src.api.builtin_commands import command_suggestions, format_help, parse_bui
 
 
 class BuiltinCommandParserTests(unittest.TestCase):
-    """Groups builtin command parser tests tests.
+    """Groups related builtin command parser tests cases.
 
-    Collects related assertions for builtin command parser tests behavior.
+    Collects assertions that exercise builtin command parser tests behavior without mixing unrelated fixtures.
     """
     def test_ignores_plain_text(self) -> None:
-        """Validate test ignores plain text.
+        """Verifies that ignores plain text behaves as expected.
 
-        Exercises the test ignores plain text behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the ignores plain text behavior against regressions.
+
+        Example: test_ignores_plain_text() -> passes without assertion failures when the behavior remains correct.
         """
         self.assertIsNone(parse_builtin_command("recommend music"))
 
     def test_help_command(self) -> None:
-        """Validate test help command.
+        """Verifies that help command behaves as expected.
 
-        Exercises the test help command behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the help command behavior against regressions.
+
+        Example: test_help_command() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/help")
         self.assertIsNotNone(parsed)
@@ -35,9 +39,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertTrue(parsed.known)
 
     def test_model_command(self) -> None:
-        """Validate test model command.
+        """Verifies that model command behaves as expected.
 
-        Exercises the test model command behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the model command behavior against regressions.
+
+        Example: test_model_command() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/model")
         self.assertIsNotNone(parsed)
@@ -47,9 +53,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertTrue(parsed.known)
 
     def test_recommend_with_args(self) -> None:
-        """Validate test recommend with args.
+        """Verifies that recommend with args behaves as expected.
 
-        Exercises the test recommend with args behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the recommend with args behavior against regressions.
+
+        Example: test_recommend_with_args() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/recommend 华语女声")
         self.assertIsNotNone(parsed)
@@ -66,9 +74,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertIn("spotify_recommend", intent.allowed_tools)
 
     def test_search_with_query(self) -> None:
-        """Validate test search with query.
+        """Verifies that search with query behaves as expected.
 
-        Exercises the test search with query behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search with query behavior against regressions.
+
+        Example: test_search_with_query() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/search jay chou")
         self.assertIsNotNone(parsed)
@@ -82,9 +92,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertNotIn("play_youtube_song", intent.allowed_tools)
 
     def test_play_number_is_plain_query_not_recent_result_intent(self) -> None:
-        """Validate test play number is plain query not recent result intent.
+        """Verifies that play number is plain query not recent result intent behaves as expected.
 
-        Exercises the test play number is plain query not recent result intent behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play number is plain query not recent result intent behavior against regressions.
+
+        Example: test_play_number_is_plain_query_not_recent_result_intent() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/play 1")
         self.assertIsNotNone(parsed)
@@ -95,9 +107,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertIsNone(parsed.command_intent())
 
     def test_volume_and_player_are_local_commands(self) -> None:
-        """Validate test volume and player are local commands.
+        """Verifies that volume and player are local commands behaves as expected.
 
-        Exercises the test volume and player are local commands behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the volume and player are local commands behavior against regressions.
+
+        Example: test_volume_and_player_are_local_commands() -> passes without assertion failures when the behavior remains correct.
         """
         volume = parse_builtin_command("/volume 50")
         player = parse_builtin_command("/player cvlc")
@@ -114,9 +128,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertEqual(player.args, "cvlc")
 
     def test_random_includes_online_playback_fallback(self) -> None:
-        """Validate test random includes online playback fallback.
+        """Verifies that random includes online playback fallback behaves as expected.
 
-        Exercises the test random includes online playback fallback behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the random includes online playback fallback behavior against regressions.
+
+        Example: test_random_includes_online_playback_fallback() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/random")
         self.assertIsNotNone(parsed)
@@ -131,9 +147,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertIn("play_youtube_song", intent.allowed_tools)
 
     def test_setup_provider(self) -> None:
-        """Validate test setup provider.
+        """Verifies that setup provider behaves as expected.
 
-        Exercises the test setup provider behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the setup provider behavior against regressions.
+
+        Example: test_setup_provider() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/setup spotify")
         self.assertIsNotNone(parsed)
@@ -143,9 +161,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertTrue(parsed.known)
 
     def test_bye_command_and_aliases(self) -> None:
-        """Validate test bye command and aliases.
+        """Verifies that bye command and aliases behaves as expected.
 
-        Exercises the test bye command and aliases behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the bye command and aliases behavior against regressions.
+
+        Example: test_bye_command_and_aliases() -> passes without assertion failures when the behavior remains correct.
         """
         for text in ("/bye", "/exit"):
             with self.subTest(text=text):
@@ -156,9 +176,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
                 self.assertTrue(parsed.known)
 
     def test_quit_command(self) -> None:
-        """Validate test quit command.
+        """Verifies that quit command behaves as expected.
 
-        Exercises the test quit command behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the quit command behavior against regressions.
+
+        Example: test_quit_command() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/quit")
         self.assertIsNotNone(parsed)
@@ -167,9 +189,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertTrue(parsed.known)
 
     def test_logout_command(self) -> None:
-        """Validate test logout command.
+        """Verifies that logout command behaves as expected.
 
-        Exercises the test logout command behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the logout command behavior against regressions.
+
+        Example: test_logout_command() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/logout")
         self.assertIsNotNone(parsed)
@@ -178,9 +202,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertTrue(parsed.known)
 
     def test_unknown_command(self) -> None:
-        """Validate test unknown command.
+        """Verifies that unknown command behaves as expected.
 
-        Exercises the test unknown command behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the unknown command behavior against regressions.
+
+        Example: test_unknown_command() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/foo")
         self.assertIsNotNone(parsed)
@@ -189,9 +215,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertFalse(parsed.known)
 
     def test_prefix_suggestions(self) -> None:
-        """Validate test prefix suggestions.
+        """Verifies that prefix suggestions behaves as expected.
 
-        Exercises the test prefix suggestions behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the prefix suggestions behavior against regressions.
+
+        Example: test_prefix_suggestions() -> passes without assertion failures when the behavior remains correct.
         """
         self.assertEqual([command.name for command in command_suggestions("/re")], ["recommend", "resume"])
         self.assertIn("bye", [command.name for command in command_suggestions("/b")])
@@ -203,9 +231,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertIn("/logout", format_help("log"))
 
     def test_suggestions_are_sorted(self) -> None:
-        """Validate test suggestions are sorted.
+        """Verifies that suggestions are sorted behaves as expected.
 
-        Exercises the test suggestions are sorted behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the suggestions are sorted behavior against regressions.
+
+        Example: test_suggestions_are_sorted() -> passes without assertion failures when the behavior remains correct.
         """
         all_names = [command.name for command in command_suggestions()]
         self.assertEqual(all_names, sorted(all_names))
@@ -214,9 +244,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertEqual(r_names, sorted(r_names))
 
     def test_help_usages_and_descriptions_are_concise(self) -> None:
-        """Validate test help usages and descriptions are concise.
+        """Verifies that help usages and descriptions are concise behaves as expected.
 
-        Exercises the test help usages and descriptions are concise behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the help usages and descriptions are concise behavior against regressions.
+
+        Example: test_help_usages_and_descriptions_are_concise() -> passes without assertion failures when the behavior remains correct.
         """
         commands = {command.name: command for command in command_suggestions()}
 
@@ -226,9 +258,11 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertEqual(commands["search"].description, "Search songs by keywords.")
 
     def test_local_commands_are_marked_local(self) -> None:
-        """Validate test local commands are marked local.
+        """Verifies that local commands are markedlocal behaves as expected.
 
-        Exercises the test local commands are marked local behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the local commands are markedlocal behavior against regressions.
+
+        Example: test_local_commands_are_marked_local() -> passes without assertion failures when the behavior remains correct.
         """
         commands = {command.name: command for command in command_suggestions()}
 

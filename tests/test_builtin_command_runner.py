@@ -27,91 +27,85 @@ from src.thinking.config import ThinkingConfig
 
 
 class FakeUI:
-    """Groups fake u i tests.
+    """Groups related ui cases.
 
-    Collects related assertions for fake u i behavior.
+    Collects assertions that exercise ui behavior without mixing unrelated fixtures.
     """
     def __init__(self) -> None:
-        """Validate init.
+        """Verifies that init behaves as expected.
 
-        Exercises the init behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the init behavior against regressions.
+
+        Example: __init__() -> passes without assertion failures when the behavior remains correct.
         """
         self.events: list[dict[str, object]] = []
         self.statuses: list[object] = []
         self.transcript: list[dict[str, str]] = []
 
     async def append_user_message(self, text: str) -> None:
-        """Validate append user message.
+        """Verifies that append user message behaves as expected.
 
-        Exercises the append user message behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the append user message behavior against regressions.
 
-        Args:
-            text: Pytest fixture or input used by this test.
+        Example: append_user_message() -> passes without assertion failures when the behavior remains correct.
         """
         self.transcript.append({"role": "user", "content": text})
         self.events.append({"type": "chat", "role": "user", "text": text})
 
     async def append_agent_message(self, text: str) -> None:
-        """Validate append agent message.
+        """Verifies that append agent message behaves as expected.
 
-        Exercises the append agent message behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the append agent message behavior against regressions.
 
-        Args:
-            text: Pytest fixture or input used by this test.
+        Example: append_agent_message() -> passes without assertion failures when the behavior remains correct.
         """
         self.transcript.append({"role": "agent", "content": text})
         self.events.append({"type": "chat", "role": "agent", "text": text})
 
     async def append_activity(self, **kwargs: object) -> str:
-        """Validate append activity.
+        """Verifies that append activity behaves as expected.
 
-        Exercises the append activity behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the append activity behavior against regressions.
 
-        Args:
-            kwargs: Pytest fixture or input used by this test.
+        Example: append_activity() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "activity", **kwargs})
         return str(kwargs.get("activity_id") or "activity_test")
 
     async def send_spotify_setup(self, **kwargs: object) -> None:
-        """Validate send spotify setup.
+        """Verifies that send spotify setup behaves as expected.
 
-        Exercises the send spotify setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send spotify setup behavior against regressions.
 
-        Args:
-            kwargs: Pytest fixture or input used by this test.
+        Example: send_spotify_setup() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "spotify_setup", **kwargs})
 
     async def send_auth_setup(self, **kwargs: object) -> None:
-        """Validate send auth setup.
+        """Verifies that send auth setup behaves as expected.
 
-        Exercises the send auth setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send auth setup behavior against regressions.
 
-        Args:
-            kwargs: Pytest fixture or input used by this test.
+        Example: send_auth_setup() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "auth_setup", **kwargs})
 
     async def send_auth_state(self, state: object) -> None:
-        """Validate send auth state.
+        """Verifies that send auth state behaves as expected.
 
-        Exercises the send auth state behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send auth state behavior against regressions.
 
-        Args:
-            state: Pytest fixture or input used by this test.
+        Example: send_auth_state() -> passes without assertion failures when the behavior remains correct.
         """
         payload = state.to_event() if hasattr(state, "to_event") else {"type": "auth_state", "state": state}
         self.events.append(payload)
 
     async def send_help_panel(self, commands: list[object], **kwargs: object) -> None:
-        """Validate send help panel.
+        """Verifies that send help panel behaves as expected.
 
-        Exercises the send help panel behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send help panel behavior against regressions.
 
-        Args:
-            commands: Pytest fixture or input used by this test.
-            kwargs: Pytest fixture or input used by this test.
+        Example: send_help_panel() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append(
             {
@@ -122,22 +116,20 @@ class FakeUI:
         )
 
     async def send_error(self, message: str) -> None:
-        """Validate send error.
+        """Verifies that send error behaves as expected.
 
-        Exercises the send error behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send error behavior against regressions.
 
-        Args:
-            message: Pytest fixture or input used by this test.
+        Example: send_error() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "error", "message": message})
 
     async def ask_confirm(self, attached: dict[str, object]) -> None:
-        """Validate ask confirm.
+        """Verifies that ask confirm behaves as expected.
 
-        Exercises the ask confirm behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the ask confirm behavior against regressions.
 
-        Args:
-            attached: Pytest fixture or input used by this test.
+        Example: ask_confirm() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append(
             {
@@ -151,63 +143,62 @@ class FakeUI:
         )
 
     async def send_cover(self, url: str) -> None:
-        """Validate send cover.
+        """Verifies that send cover behaves as expected.
 
-        Exercises the send cover behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send cover behavior against regressions.
 
-        Args:
-            url: Pytest fixture or input used by this test.
+        Example: send_cover() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "cover", "url": url})
 
     async def send_status(self, status: object, **kwargs: object) -> None:
-        """Validate send status.
+        """Verifies that send status behaves as expected.
 
-        Exercises the send status behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send status behavior against regressions.
 
-        Args:
-            status: Pytest fixture or input used by this test.
-            kwargs: Pytest fixture or input used by this test.
+        Example: send_status() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "status", "status": status, **kwargs})
 
     async def _send(self, payload: dict[str, object]) -> None:
-        """Validate send.
+        """Verifies that send behaves as expected.
 
-        Exercises the send behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send behavior against regressions.
 
-        Args:
-            payload: Pytest fixture or input used by this test.
+        Example: _send() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append(payload)
 
     async def close(self) -> None:
-        """Validate close.
+        """Verifies that close behaves as expected.
 
-        Exercises the close behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the close behavior against regressions.
+
+        Example: close() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "closed"})
 
     def set_status(self, status: object) -> None:
-        """Validate set status.
+        """Verifies that set status behaves as expected.
 
-        Exercises the set status behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the set status behavior against regressions.
 
-        Args:
-            status: Pytest fixture or input used by this test.
+        Example: set_status() -> passes without assertion failures when the behavior remains correct.
         """
         self.statuses.append(status)
 
 
 class FakeWebSocket:
-    """Groups fake web socket tests.
+    """Groups related web socket cases.
 
-    Collects related assertions for fake web socket behavior.
+    Collects assertions that exercise web socket behavior without mixing unrelated fixtures.
     """
     def __init__(self) -> None:
-        """Validate init.
+        """Verifies that init behaves as expected.
 
-        Exercises the init behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the init behavior against regressions.
+
+        Example: __init__() -> passes without assertion failures when the behavior remains correct.
         """
         self.sent: list[dict[str, object]] = []
         self.accepted = False
@@ -216,26 +207,29 @@ class FakeWebSocket:
         self._sent_youtube_candidate = False
 
     async def accept(self) -> None:
-        """Validate accept.
+        """Verifies that accept behaves as expected.
 
-        Exercises the accept behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the accept behavior against regressions.
+
+        Example: accept() -> passes without assertion failures when the behavior remains correct.
         """
         self.accepted = True
 
     async def send_text(self, text: str) -> None:
-        """Validate send text.
+        """Verifies that send text behaves as expected.
 
-        Exercises the send text behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send text behavior against regressions.
 
-        Args:
-            text: Pytest fixture or input used by this test.
+        Example: send_text() -> passes without assertion failures when the behavior remains correct.
         """
         self.sent.append(json.loads(text))
 
     async def receive_text(self) -> str:
-        """Validate receive text.
+        """Verifies that receive text behaves as expected.
 
-        Exercises the receive text behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the receive text behavior against regressions.
+
+        Example: receive_text() -> passes without assertion failures when the behavior remains correct.
         """
         if not self._sent_user_input:
             self._sent_user_input = True
@@ -269,14 +263,16 @@ class FakeWebSocket:
 
 
 class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
-    """Groups builtin command runner tests tests.
+    """Groups related builtin command runner tests cases.
 
-    Collects related assertions for builtin command runner tests behavior.
+    Collects assertions that exercise builtin command runner tests behavior without mixing unrelated fixtures.
     """
     async def test_auth_resume_reenters_music_router_without_duplicate_user_message(self) -> None:
-        """Validate test auth resume reenters music router without duplicate user message.
+        """Verifies that auth resume reenters music router without duplicate user message behaves as expected.
 
-        Exercises the test auth resume reenters music router without duplicate user message behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the auth resume reenters music router without duplicate user message behavior against regressions.
+
+        Example: test_auth_resume_reenters_music_router_without_duplicate_user_message() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._handle_user_input = AsyncMock()
@@ -296,9 +292,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_recommendation_tool_result_is_saved_for_number_references(self) -> None:
-        """Validate test recommendation tool result is saved for number references.
+        """Verifies that recommendation tool result is saved for number references behaves as expected.
 
-        Exercises the test recommendation tool result is saved for number references behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the recommendation tool result is saved for number references behavior against regressions.
+
+        Example: test_recommendation_tool_result_is_saved_for_number_references() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -322,9 +320,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
 
     async def test_help_does_not_trigger_agent_or_auth_setup(self) -> None:
-        """Validate test help does not trigger agent or auth setup.
+        """Verifies that help does not trigger agent or auth setup behaves as expected.
 
-        Exercises the test help does not trigger agent or auth setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the help does not trigger agent or auth setup behavior against regressions.
+
+        Example: test_help_does_not_trigger_agent_or_auth_setup() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -340,9 +340,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any("Available commands" in str(event.get("text")) for event in ui.events))
 
     async def test_help_prefix_filters_help_panel_commands(self) -> None:
-        """Validate test help prefix filters help panel commands.
+        """Verifies that help prefix filters help panel commands behaves as expected.
 
-        Exercises the test help prefix filters help panel commands behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the help prefix filters help panel commands behavior against regressions.
+
+        Example: test_help_prefix_filters_help_panel_commands() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -356,9 +358,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner._run_agent_turn.called)
 
     async def test_bare_slash_opens_help_panel(self) -> None:
-        """Validate test bare slash opens help panel.
+        """Verifies that bare slash opens help panel behaves as expected.
 
-        Exercises the test bare slash opens help panel behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the bare slash opens help panel behavior against regressions.
+
+        Example: test_bare_slash_opens_help_panel() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -370,9 +374,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner._run_agent_turn.called)
 
     async def test_setup_spotify_starts_spotify_setup(self) -> None:
-        """Validate test setup spotify starts spotify setup.
+        """Verifies that setup spotify starts spotify setup behaves as expected.
 
-        Exercises the test setup spotify starts spotify setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the setup spotify starts spotify setup behavior against regressions.
+
+        Example: test_setup_spotify_starts_spotify_setup() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -386,9 +392,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue([event for event in ui.events if event.get("type") == "spotify_setup"])
 
     async def test_unknown_command_does_not_trigger_agent(self) -> None:
-        """Validate test unknown command does not trigger agent.
+        """Verifies that unknown command does not trigger agent behaves as expected.
 
-        Exercises the test unknown command does not trigger agent behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the unknown command does not trigger agent behavior against regressions.
+
+        Example: test_unknown_command_does_not_trigger_agent() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -400,9 +408,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("Unknown command" in str(event.get("text")) for event in ui.events))
 
     async def test_bye_saves_transcript_and_does_not_trigger_agent(self) -> None:
-        """Validate test bye saves transcript and does not trigger agent.
+        """Verifies that bye saves transcript and does not trigger agent behaves as expected.
 
-        Exercises the test bye saves transcript and does not trigger agent behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the bye saves transcript and does not trigger agent behavior against regressions.
+
+        Example: test_bye_saves_transcript_and_does_not_trigger_agent() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -423,9 +433,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("Session saved" in str(event.get("text")) for event in ui.events))
 
     async def test_quit_saves_transcript_and_does_not_trigger_agent(self) -> None:
-        """Validate test quit saves transcript and does not trigger agent.
+        """Verifies that quit saves transcript and does not trigger agent behaves as expected.
 
-        Exercises the test quit saves transcript and does not trigger agent behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the quit saves transcript and does not trigger agent behavior against regressions.
+
+        Example: test_quit_saves_transcript_and_does_not_trigger_agent() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -446,9 +458,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("Session saved" in str(event.get("text")) for event in ui.events))
 
     async def test_logout_removes_current_auth_provider_and_exits(self) -> None:
-        """Validate test logout removes current auth provider and exits.
+        """Verifies that logout removes current auth provider and exits behaves as expected.
 
-        Exercises the test logout removes current auth provider and exits behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the logout removes current auth provider and exits behavior against regressions.
+
+        Example: test_logout_removes_current_auth_provider_and_exits() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -474,9 +488,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.get("text") == "Successfully log out." for event in ui.events))
 
     async def test_logout_env_credentials_warns_and_exits_without_success_message(self) -> None:
-        """Validate test logout env credentials warns and exits without success message.
+        """Verifies that logout env credentials warns and exits without success message behaves as expected.
 
-        Exercises the test logout env credentials warns and exits without success message behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the logout env credentials warns and exits without success message behavior against regressions.
+
+        Example: test_logout_env_credentials_warns_and_exits_without_success_message() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -496,9 +512,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(event.get("text") == "Successfully log out." for event in ui.events))
 
     async def test_logout_when_not_logged_in_does_not_exit(self) -> None:
-        """Validate test logout when not logged in does not exit.
+        """Verifies that logout when not logged in does not exit behaves as expected.
 
-        Exercises the test logout when not logged in does not exit behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the logout when not logged in does not exit behavior against regressions.
+
+        Example: test_logout_when_not_logged_in_does_not_exit() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -516,9 +534,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.get("text") == "You are not logged in." for event in ui.events))
 
     async def test_recommend_routes_to_agent_with_command_intent(self) -> None:
-        """Validate test recommend routes to agent with command intent.
+        """Verifies that recommend routes to agent with command intent behaves as expected.
 
-        Exercises the test recommend routes to agent with command intent behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the recommend routes to agent with command intent behavior against regressions.
+
+        Example: test_recommend_routes_to_agent_with_command_intent() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -537,9 +557,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("spotify_recommend", intent.allowed_tools)
 
     async def test_search_routes_to_agent_with_search_intent(self) -> None:
-        """Validate test search routes to agent with search intent.
+        """Verifies that search routes to agent with search intent behaves as expected.
 
-        Exercises the test search routes to agent with search intent behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search routes to agent with search intent behavior against regressions.
+
+        Example: test_search_routes_to_agent_with_search_intent() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -556,9 +578,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("spotify_search", intent.allowed_tools)
 
     async def test_play_number_starts_play_selection_without_agent_turn(self) -> None:
-        """Validate test play number starts play selection without agent turn.
+        """Verifies that play number starts play selection without agent turn behaves as expected.
 
-        Exercises the test play number starts play selection without agent turn behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play number starts play selection without agent turn behavior against regressions.
+
+        Example: test_play_number_starts_play_selection_without_agent_turn() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -578,9 +602,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("spotify_play", [choice["value"] for choice in confirm_events[-1]["choices"]])
 
     async def test_play_local_match_can_skip_to_playback_method_choices(self) -> None:
-        """Validate test play local match can skip to playback method choices.
+        """Verifies that play local match can skip to playback method choices behaves as expected.
 
-        Exercises the test play local match can skip to playback method choices behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play local match can skip to playback method choices behavior against regressions.
+
+        Example: test_play_local_match_can_skip_to_playback_method_choices() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -605,9 +631,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_explicit_natural_language_playback_starts_selection_session(self) -> None:
-        """Validate test explicit natural language playback starts selection session.
+        """Verifies that explicit natural language playback starts selection session behaves as expected.
 
-        Exercises the test explicit natural language playback starts selection session behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the explicit natural language playback starts selection session behavior against regressions.
+
+        Example: test_explicit_natural_language_playback_starts_selection_session() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -623,10 +651,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["tool_args"]["query"], "青花瓷")
         self.assertEqual(confirm_events[-1]["tool_name"], "playback_choice")
 
-    async def test_track_interest_prompts_before_starting_playback(self) -> None:
-        """Validate test track interest prompts before starting playback.
+    async def test_llm_track_play_intent_starts_play_selection(self) -> None:
+        """Verifies that llm track play intent starts play selection behaves as expected.
 
-        Exercises the test track interest prompts before starting playback behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the llm track play intent starts play selection behavior against regressions.
+
+        Example: test_llm_track_play_intent_starts_play_selection() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -638,21 +668,23 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with patch("src.api.ws_runner.classify_music_intent", return_value=decision), \
-             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), \
+             patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
             await runner._handle_user_input(ui, "最近我对周杰伦的《七里香》很感兴趣")
 
         self.assertFalse(runner._run_agent_turn.called)
+        self.assertIsNone(getattr(ui, "_music_intent_confirmation", None))
         confirm = [event for event in ui.events if event.get("type") == "confirm"][-1]
-        self.assertEqual(confirm["tool_name"], "music_intent")
-        self.assertEqual(
-            [choice["value"] for choice in confirm["choices"]],
-            ["play_track", "discuss_track"],
-        )
+        self.assertEqual(confirm["tool_name"], "playback_choice")
+        self.assertEqual(confirm["tool_args"]["query"], "周杰伦 七里香")
 
     async def test_track_interest_acceptance_starts_play_selection(self) -> None:
-        """Validate test track interest acceptance starts play selection.
+        """Verifies that track interest acceptance starts play selection behaves as expected.
 
-        Exercises the test track interest acceptance starts play selection behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the track interest acceptance starts play selection behavior against regressions.
+
+        Example: test_track_interest_acceptance_starts_play_selection() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -667,41 +699,78 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
              patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
             await runner._handle_user_input(ui, "最近我对周杰伦的《七里香》很感兴趣")
-            confirmation = getattr(ui, "_music_intent_confirmation")
-            await confirmation.handle_choice("play_track")
 
         playback_confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
         self.assertEqual(playback_confirm["tool_args"]["query"], "周杰伦 七里香")
 
-    async def test_track_interest_rejection_uses_text_only_agent(self) -> None:
-        """Validate test track interest rejection uses text only agent.
+    async def test_general_music_question_does_not_start_playback(self) -> None:
+        """Verifies that general music question does not start playback behaves as expected.
 
-        Exercises the test track interest rejection uses text only agent behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the general music question does not start playback behavior against regressions.
+
+        Example: test_general_music_question_does_not_start_playback() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
         decision = MusicIntentDecision(
-            route=MusicIntentRoute.CONFIRM_TRACK_PLAY,
-            query="周杰伦 七里香",
-            confidence=0.93,
+            route=MusicIntentRoute.GENERAL,
+            confidence=0.98,
         )
 
         with patch("src.api.ws_runner.classify_music_intent", return_value=decision), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), \
              patch("src.api.ws_runner._llm_auth_ready", return_value=(True, "openai", None)):
-            await runner._handle_user_input(ui, "最近我对周杰伦的《七里香》很感兴趣")
-            confirmation = getattr(ui, "_music_intent_confirmation")
-            await confirmation.handle_choice("discuss_track")
+            await runner._handle_user_input(ui, "七里香的创作背景是什么")
             await asyncio.sleep(0)
 
         intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
-        self.assertEqual(intent.allowed_tools, ())
+        self.assertIn("request_playback_selection", intent.allowed_tools)
+        self.assertNotIn("spotify_play", intent.allowed_tools)
+        self.assertNotIn("apple_music_play", intent.allowed_tools)
+        self.assertNotIn("play_youtube_song", intent.allowed_tools)
+        self.assertNotIn("play_local_song", intent.allowed_tools)
+        self.assertIsNone(getattr(ui, "_play_selection", None))
+
+    async def test_agent_playback_request_tool_starts_play_selection(self) -> None:
+        """Verifies that agent playback request tool starts play selection behaves as expected.
+
+        Typical use: Use this in automated tests when guarding the agent playback request tool starts play selection behavior against regressions.
+
+        Example: test_agent_playback_request_tool_starts_play_selection() -> passes without assertion failures when the behavior remains correct.
+        """
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        def agent_events(*args: object, **kwargs: object):
+            yield AgentState(
+                type="tool",
+                tool="request_playback_selection",
+                result={
+                    "status": "requires_play_selection",
+                    "tool": "request_playback_selection",
+                    "message": "Entering playback selection for 青花瓷.",
+                    "data": {"query": "青花瓷"},
+                },
+            )
+            yield AgentState(type="complete", content="")
+
+        with patch("src.api.ws_runner.agent_loop", side_effect=agent_events), \
+             patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+            await runner._run_agent_turn(ui, "能不能来点青花瓷")
+
+        session = getattr(ui, "_play_selection")
+        self.assertEqual(session.query, "青花瓷")
+        confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
+        self.assertEqual(confirm["tool_args"]["query"], "青花瓷")
 
     async def test_recommendation_route_uses_restricted_agent_without_confirm(self) -> None:
-        """Validate test recommendation route uses restricted agent without confirm.
+        """Verifies that recommendation route uses restricted agent without confirm behaves as expected.
 
-        Exercises the test recommendation route uses restricted agent without confirm behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the recommendation route uses restricted agent without confirm behavior against regressions.
+
+        Example: test_recommendation_route_uses_restricted_agent_without_confirm() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -725,9 +794,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse([event for event in ui.events if event.get("type") == "confirm"])
 
     async def test_natural_language_recommendation_reference_starts_selected_track(self) -> None:
-        """Validate test natural language recommendation reference starts selected track.
+        """Verifies that natural language recommendation reference starts selected track behaves as expected.
 
-        Exercises the test natural language recommendation reference starts selected track behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the natural language recommendation reference starts selected track behavior against regressions.
+
+        Example: test_natural_language_recommendation_reference_starts_selected_track() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -752,9 +823,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm["tool_args"]["query"], "晴天 周杰伦")
 
     async def test_out_of_range_recommendation_reference_reports_valid_range(self) -> None:
-        """Validate test out of range recommendation reference reports valid range.
+        """Verifies that out of range recommendation reference reports valid range behaves as expected.
 
-        Exercises the test out of range recommendation reference reports valid range behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the out of range recommendation reference reports valid range behavior against regressions.
+
+        Example: test_out_of_range_recommendation_reference_reports_valid_range() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -774,9 +847,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(getattr(ui, "_play_selection", None))
 
     async def test_polite_natural_language_playback_starts_selection_session(self) -> None:
-        """Validate test polite natural language playback starts selection session.
+        """Verifies that polite natural language playback starts selection session behaves as expected.
 
-        Exercises the test polite natural language playback starts selection session behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the polite natural language playback starts selection session behavior against regressions.
+
+        Example: test_polite_natural_language_playback_starts_selection_session() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -794,9 +869,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["tool_name"], "playback_choice")
 
     async def test_want_to_listen_playback_online_choice_starts_song_metadata_candidates(self) -> None:
-        """Validate test want to listen playback online choice starts song metadata candidates.
+        """Verifies that want to listen playback online choice starts song metadata candidates behaves as expected.
 
-        Exercises the test want to listen playback online choice starts song metadata candidates behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the want to listen playback online choice starts song metadata candidates behavior against regressions.
+
+        Example: test_want_to_listen_playback_online_choice_starts_song_metadata_candidates() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -839,9 +916,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.get("type") == "activity" and event.get("title") == "iTunes" for event in ui.events))
 
     async def test_online_choice_without_open_audio_provider_still_starts_song_metadata_candidates(self) -> None:
-        """Validate test online choice without open audio provider still starts song metadata candidates.
+        """Verifies that online choice without open audio provider still starts song metadata candidates behaves as expected.
 
-        Exercises the test online choice without open audio provider still starts song metadata candidates behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online choice without open audio provider still starts song metadata candidates behavior against regressions.
+
+        Example: test_online_choice_without_open_audio_provider_still_starts_song_metadata_candidates() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -880,9 +959,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["tool_name"], "song_candidate")
 
     async def test_setup_jamendo_stores_open_audio_api_key(self) -> None:
-        """Validate test setup jamendo stores open audio api key.
+        """Verifies that setup jamendo stores open audio api key behaves as expected.
 
-        Exercises the test setup jamendo stores open audio api key behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the setup jamendo stores open audio api key behavior against regressions.
+
+        Example: test_setup_jamendo_stores_open_audio_api_key() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -904,9 +985,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(auth_events[-1].get("active", True))
 
     async def test_setup_audius_guides_api_key_input_and_repeats_empty_values(self) -> None:
-        """Validate test setup audius guides api key input and repeats empty values.
+        """Verifies that setup audius guides api key input and repeats empty values behaves as expected.
 
-        Exercises the test setup audius guides api key input and repeats empty values behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the setup audius guides api key input and repeats empty values behavior against regressions.
+
+        Example: test_setup_audius_guides_api_key_input_and_repeats_empty_values() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -930,9 +1013,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(auth_events[-1].get("active", True))
 
     def test_queue_payload_prefers_unified_song_cache_recent_10(self) -> None:
-        """Validate test queue payload prefers unified song cache recent 10.
+        """Verifies that queue payload prefers unified song cache recent 10 behaves as expected.
 
-        Exercises the test queue payload prefers unified song cache recent 10 behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the queue payload prefers unified song cache recent 10 behavior against regressions.
+
+        Example: test_queue_payload_prefers_unified_song_cache_recent_10() -> passes without assertion failures when the behavior remains correct.
         """
         cached_tracks = [
             {"name": f"Cached {idx}", "artist": "Artist", "duration_ms": 60_000}
@@ -947,9 +1032,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queue[-1]["index"], "10")
 
     async def test_pause_command_controls_local_playback_without_agent_turn(self) -> None:
-        """Validate test pause command controls local playback without agent turn.
+        """Verifies that pause command controls local playback without agent turn behaves as expected.
 
-        Exercises the test pause command controls local playback without agent turn behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the pause command controls local playback without agent turn behavior against regressions.
+
+        Example: test_pause_command_controls_local_playback_without_agent_turn() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -984,9 +1071,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(player_events[-1]["state"]["is_playing"])
 
     async def test_volume_command_controls_local_playback_without_agent_turn(self) -> None:
-        """Validate test volume command controls local playback without agent turn.
+        """Verifies that volume command controls local playback without agent turn behaves as expected.
 
-        Exercises the test volume command controls local playback without agent turn behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the volume command controls local playback without agent turn behavior against regressions.
+
+        Example: test_volume_command_controls_local_playback_without_agent_turn() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -1020,9 +1109,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["volume_percent"], 50)
 
     async def test_volume_command_rejects_invalid_argument(self) -> None:
-        """Validate test volume command rejects invalid argument.
+        """Verifies that volume command rejects invalid argument behaves as expected.
 
-        Exercises the test volume command rejects invalid argument behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the volume command rejects invalid argument behavior against regressions.
+
+        Example: test_volume_command_rejects_invalid_argument() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -1038,9 +1129,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/volume <0-100>", activity_events[-1]["detail"])
 
     async def test_player_command_sets_backend_without_agent_turn(self) -> None:
-        """Validate test player command sets backend without agent turn.
+        """Verifies that player command sets backend without agent turn behaves as expected.
 
-        Exercises the test player command sets backend without agent turn behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the player command sets backend without agent turn behavior against regressions.
+
+        Example: test_player_command_sets_backend_without_agent_turn() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -1062,9 +1155,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("cvlc", activity_events[-1]["detail"])
 
     async def test_player_command_rejects_invalid_backend(self) -> None:
-        """Validate test player command rejects invalid backend.
+        """Verifies that player command rejects invalid backend behaves as expected.
 
-        Exercises the test player command rejects invalid backend behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the player command rejects invalid backend behavior against regressions.
+
+        Example: test_player_command_rejects_invalid_backend() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -1080,9 +1175,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/player <auto|mpv|cvlc>", activity_events[-1]["detail"])
 
     async def test_online_play_result_updates_player_and_cover(self) -> None:
-        """Validate test online play result updates player and cover.
+        """Verifies that online play result updates player and cover behaves as expected.
 
-        Exercises the test online play result updates player and cover behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play result updates player and cover behavior against regressions.
+
+        Example: test_online_play_result_updates_player_and_cover() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1117,9 +1214,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cover_events[-1]["url"], "https://coverartarchive.org/release-group/mbid/front-500")
 
     async def test_online_play_result_without_official_cover_does_not_send_youtube_thumbnail(self) -> None:
-        """Validate test online play result without official cover does not send youtube thumbnail.
+        """Verifies that online play result without official cover does not send youtube thumbnail behaves as expected.
 
-        Exercises the test online play result without official cover does not send youtube thumbnail behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play result without official cover does not send youtube thumbnail behavior against regressions.
+
+        Example: test_online_play_result_without_official_cover_does_not_send_youtube_thumbnail() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1146,9 +1245,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse([event for event in ui.events if event.get("type") == "cover"])
 
     async def test_failed_online_play_result_does_not_enter_player_mode(self) -> None:
-        """Validate test failed online play result does not enter player mode.
+        """Verifies that failed online play result does not enter player mode behaves as expected.
 
-        Exercises the test failed online play result does not enter player mode behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the failed online play result does not enter player mode behavior against regressions.
+
+        Example: test_failed_online_play_result_does_not_enter_player_mode() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1179,9 +1280,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         remember_recent_track.assert_not_called()
 
     async def test_online_play_choice_reports_pending_and_enters_player_mode(self) -> None:
-        """Validate test online play choice reports pending and enters player mode.
+        """Verifies that online play choice reports pending and enters player mode behaves as expected.
 
-        Exercises the test online play choice reports pending and enters player mode behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play choice reports pending and enters player mode behavior against regressions.
+
+        Example: test_online_play_choice_reports_pending_and_enters_player_mode() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1230,9 +1333,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["name"], "Song")
 
     async def test_online_play_choice_sends_youtube_candidate_list(self) -> None:
-        """Validate test online play choice sends youtube candidate list.
+        """Verifies that online play choice sends youtube candidate list behaves as expected.
 
-        Exercises the test online play choice sends youtube candidate list behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play choice sends youtube candidate list behavior against regressions.
+
+        Example: test_online_play_choice_sends_youtube_candidate_list() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1283,9 +1388,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("description", confirm_events[-1]["choices"][-1])
 
     async def test_online_play_choice_describes_youtube_fallback_source_attempts(self) -> None:
-        """Validate test online play choice describes youtube fallback source attempts.
+        """Verifies that online play choice describes youtube fallback source attempts behaves as expected.
 
-        Exercises the test online play choice describes youtube fallback source attempts behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play choice describes youtube fallback source attempts behavior against regressions.
+
+        Example: test_online_play_choice_describes_youtube_fallback_source_attempts() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1329,9 +1436,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Jamendo returned no credible matches", confirm_events[-1]["choices"][0]["description"])
 
     async def test_online_play_choice_sends_song_candidate_list_before_audio_search(self) -> None:
-        """Validate test online play choice sends song candidate list before audio search.
+        """Verifies that online play choice sends song candidate list before audio search behaves as expected.
 
-        Exercises the test online play choice sends song candidate list before audio search behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play choice sends song candidate list before audio search behavior against regressions.
+
+        Example: test_online_play_choice_sends_song_candidate_list_before_audio_search() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1377,9 +1486,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.get("type") == "activity" and event.get("title") == "iTunes" for event in ui.events))
 
     async def test_song_candidate_choice_plays_online_audio_with_confirmed_metadata(self) -> None:
-        """Validate test song candidate choice plays online audio with confirmed metadata.
+        """Verifies that song candidate choice plays online audio with confirmed metadata behaves as expected.
 
-        Exercises the test song candidate choice plays online audio with confirmed metadata behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the song candidate choice plays online audio with confirmed metadata behavior against regressions.
+
+        Example: test_song_candidate_choice_plays_online_audio_with_confirmed_metadata() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1457,9 +1568,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ))
 
     async def test_song_candidate_cover_lookup_can_complete_when_audio_fails(self) -> None:
-        """Validate test song candidate cover lookup can complete when audio fails.
+        """Verifies that song candidate cover lookup can complete when audio fails behaves as expected.
 
-        Exercises the test song candidate cover lookup can complete when audio fails behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the song candidate cover lookup can complete when audio fails behavior against regressions.
+
+        Example: test_song_candidate_cover_lookup_can_complete_when_audio_fails() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1506,9 +1619,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ))
 
     async def test_song_candidate_refine_researches_metadata_not_audio(self) -> None:
-        """Validate test song candidate refine researches metadata not audio.
+        """Verifies that song candidate refine researches metadata not audio behaves as expected.
 
-        Exercises the test song candidate refine researches metadata not audio behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the song candidate refine researches metadata not audio behavior against regressions.
+
+        Example: test_song_candidate_refine_researches_metadata_not_audio() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -1542,9 +1657,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["choices"][0]["label"], "Artist-Album--Refined")
 
     async def test_online_play_without_metadata_candidates_falls_back_to_audio_candidates(self) -> None:
-        """Validate test online play without metadata candidates falls back to audio candidates.
+        """Verifies that online play without metadata candidates falls back to audio candidates behaves as expected.
 
-        Exercises the test online play without metadata candidates falls back to audio candidates behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play without metadata candidates falls back to audio candidates behavior against regressions.
+
+        Example: test_online_play_without_metadata_candidates_falls_back_to_audio_candidates() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1588,9 +1705,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ))
 
     async def test_youtube_candidate_refine_appends_next_input_and_researches(self) -> None:
-        """Validate test youtube candidate refine appends next input and researches.
+        """Verifies that youtube candidate refine appends next input and researches behaves as expected.
 
-        Exercises the test youtube candidate refine appends next input and researches behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the youtube candidate refine appends next input and researches behavior against regressions.
+
+        Example: test_youtube_candidate_refine_appends_next_input_and_researches() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -1636,9 +1755,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["choices"][0]["value"], "youtube_candidate:youtube_refined")
 
     async def test_youtube_candidate_inline_refine_researches(self) -> None:
-        """Validate test youtube candidate inline refine researches.
+        """Verifies that youtube candidate inline refine researches behaves as expected.
 
-        Exercises the test youtube candidate inline refine researches behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the youtube candidate inline refine researches behavior against regressions.
+
+        Example: test_youtube_candidate_inline_refine_researches() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -1683,9 +1804,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["choices"][0]["value"], "youtube_candidate:youtube_refined")
 
     async def test_youtube_candidate_choice_downloads_cache_and_plays_local_audio(self) -> None:
-        """Validate test youtube candidate choice downloads cache and plays local audio.
+        """Verifies that youtube candidate choice downloads cache and plays local audio behaves as expected.
 
-        Exercises the test youtube candidate choice downloads cache and plays local audio behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the youtube candidate choice downloads cache and plays local audio behavior against regressions.
+
+        Example: test_youtube_candidate_choice_downloads_cache_and_plays_local_audio() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1738,9 +1861,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["stream_url"], "/cache/audio/youtube_abc.webm")
 
     async def test_online_play_choice_handles_player_launch_confirmation(self) -> None:
-        """Validate test online play choice handles player launch confirmation.
+        """Verifies that online play choice handles player launch confirmation behaves as expected.
 
-        Exercises the test online play choice handles player launch confirmation behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play choice handles player launch confirmation behavior against regressions.
+
+        Example: test_online_play_choice_handles_player_launch_confirmation() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1820,9 +1945,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(getattr(ui, "_play_selection"))
 
     async def test_online_play_confirm_result_from_websocket_invokes_playback(self) -> None:
-        """Validate test online play confirm result from websocket invokes playback.
+        """Verifies that online play confirm result from websocket invokes playback behaves as expected.
 
-        Exercises the test online play confirm result from websocket invokes playback behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play confirm result from websocket invokes playback behavior against regressions.
+
+        Example: test_online_play_confirm_result_from_websocket_invokes_playback() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ws = FakeWebSocket()
@@ -1852,12 +1979,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         }
 
         async def idle_sync(_ui: object) -> None:
-            """Validate idle sync.
+            """Verifies that idle sync behaves as expected.
 
-            Exercises the idle sync behavior through the test suite.
+            Typical use: Use this in automated tests when guarding the idle sync behavior against regressions.
 
-            Args:
-                _ui: Pytest fixture or input used by this test.
+            Example: idle_sync() -> passes without assertion failures when the behavior remains correct.
             """
             return None
 
@@ -1880,9 +2006,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["name"], "Song")
 
     def test_project_local_playback_state_advances_without_status_probe(self) -> None:
-        """Validate test project local playback state advances without status probe.
+        """Verifies that project local playback state advances without status probe behaves as expected.
 
-        Exercises the test project local playback state advances without status probe behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the project local playback state advances without status probe behavior against regressions.
+
+        Example: test_project_local_playback_state_advances_without_status_probe() -> passes without assertion failures when the behavior remains correct.
         """
         state = {
             "name": "Song",
@@ -1901,9 +2029,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(projected["is_playing"])
 
     def test_project_local_playback_state_marks_ended_at_duration(self) -> None:
-        """Validate test project local playback state marks ended at duration.
+        """Verifies that project local playback state marks ended at duration behaves as expected.
 
-        Exercises the test project local playback state marks ended at duration behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the project local playback state marks ended at duration behavior against regressions.
+
+        Example: test_project_local_playback_state_marks_ended_at_duration() -> passes without assertion failures when the behavior remains correct.
         """
         state = {
             "name": "Song",
@@ -1922,9 +2052,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(projected["ended"])
 
     async def test_online_play_choice_reports_failure_to_chat_and_error(self) -> None:
-        """Validate test online play choice reports failure to chat and error.
+        """Verifies that online play choice reports failure to chat and error behaves as expected.
 
-        Exercises the test online play choice reports failure to chat and error behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the online play choice reports failure to chat and error behavior against regressions.
+
+        Example: test_online_play_choice_reports_failure_to_chat_and_error() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1970,17 +2102,21 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ))
 
     def test_sonex_log_path_uses_log_filename(self) -> None:
-        """Validate test sonex log path uses log filename.
+        """Verifies that sonex log path uses log filename behaves as expected.
 
-        Exercises the test sonex log path uses log filename behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the sonex log path uses log filename behavior against regressions.
+
+        Example: test_sonex_log_path_uses_log_filename() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
             self.assertEqual(sonex_log_path(), Path(home) / "log")
 
     def test_configure_file_logging_writes_to_log_filename(self) -> None:
-        """Validate test configure file logging writes to log filename.
+        """Verifies that configure file logging writes to log filename behaves as expected.
 
-        Exercises the test configure file logging writes to log filename behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the configure file logging writes to log filename behavior against regressions.
+
+        Example: test_configure_file_logging_writes_to_log_filename() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
             log_path = configure_file_logging()
@@ -1992,21 +2128,21 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("sonex log filename test", log_path.read_text(encoding="utf-8"))
 
     async def test_agent_turn_reports_live_planning_metrics_while_llm_is_waiting(self) -> None:
-        """Validate test agent turn reports live planning metrics while llm is waiting.
+        """Verifies that agent turn reports live planning metrics while llm is waiting behaves as expected.
 
-        Exercises the test agent turn reports live planning metrics while llm is waiting behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the agent turn reports live planning metrics while llm is waiting behavior against regressions.
+
+        Example: test_agent_turn_reports_live_planning_metrics_while_llm_is_waiting() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
 
         def slow_agent_loop(user_input: str, tools: object):
-            """Validate slow agent loop.
+            """Verifies that slow agent loop behaves as expected.
 
-            Exercises the slow agent loop behavior through the test suite.
+            Typical use: Use this in automated tests when guarding the slow agent loop behavior against regressions.
 
-            Args:
-                user_input: Pytest fixture or input used by this test.
-                tools: Pytest fixture or input used by this test.
+            Example: slow_agent_loop() -> passes without assertion failures when the behavior remains correct.
             """
             time.sleep(0.35)
             yield AgentState(type="status", content="planning", tokens=42)
@@ -2044,21 +2180,21 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(planning_events[-1]["status"], "success")
 
     async def test_agent_turn_marks_planning_activity_error_when_planner_fails(self) -> None:
-        """Validate test agent turn marks planning activity error when planner fails.
+        """Verifies that agent turn marks planning activity error when planner fails behaves as expected.
 
-        Exercises the test agent turn marks planning activity error when planner fails behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the agent turn marks planning activity error when planner fails behavior against regressions.
+
+        Example: test_agent_turn_marks_planning_activity_error_when_planner_fails() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
 
         def failing_agent_loop(user_input: str, tools: object):
-            """Validate failing agent loop.
+            """Verifies that failing agent loop behaves as expected.
 
-            Exercises the failing agent loop behavior through the test suite.
+            Typical use: Use this in automated tests when guarding the failing agent loop behavior against regressions.
 
-            Args:
-                user_input: Pytest fixture or input used by this test.
-                tools: Pytest fixture or input used by this test.
+            Example: failing_agent_loop() -> passes without assertion failures when the behavior remains correct.
             """
             time.sleep(0.05)
             yield AgentState(type="error", content="planner unavailable")
@@ -2087,9 +2223,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_spotify_sync_reports_premium_failure_once_in_chat(self) -> None:
-        """Validate test spotify sync reports premium failure once in chat.
+        """Verifies that spotify sync reports premium failure once in chat behaves as expected.
 
-        Exercises the test spotify sync reports premium failure once in chat behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the spotify sync reports premium failure once in chat behavior against regressions.
+
+        Example: test_spotify_sync_reports_premium_failure_once_in_chat() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -2097,12 +2235,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         sleeps = 0
 
         async def stop_after_two_sleeps(_: float) -> None:
-            """Validate stop after two sleeps.
+            """Verifies that stop after two sleeps behaves as expected.
 
-            Exercises the stop after two sleeps behavior through the test suite.
+            Typical use: Use this in automated tests when guarding the stop after two sleeps behavior against regressions.
 
-            Args:
-                _: Pytest fixture or input used by this test.
+            Example: stop_after_two_sleeps() -> passes without assertion failures when the behavior remains correct.
             """
             nonlocal sleeps
             sleeps += 1
@@ -2131,12 +2268,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Premium account", str(chat_events[0].get("text")))
 
     def _isolated_auth_env(self, extra: dict[str, str] | None = None):
-        """Validate isolated auth env.
+        """Verifies that isolated auth env behaves as expected.
 
-        Exercises the isolated auth env behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the isolated auth env behavior against regressions.
 
-        Args:
-            extra: Pytest fixture or input used by this test.
+        Example: _isolated_auth_env() -> passes without assertion failures when the behavior remains correct.
         """
         home = tempfile.TemporaryDirectory()
         config_path = Path(home.name) / "missing-thinking.json"
@@ -2154,32 +2290,27 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         patcher = patch.dict(os.environ, env, clear=False)
 
         class EnvContext:
-            """Groups env context tests.
+            """Groups related env context cases.
 
-            Collects related assertions for env context behavior.
+            Collects assertions that exercise env context behavior without mixing unrelated fixtures.
             """
             def __enter__(self_nonlocal) -> str:
-                """Validate enter.
+                """Verifies that enter behaves as expected.
 
-                Exercises the enter behavior through the test suite.
+                Typical use: Use this in automated tests when guarding the enter behavior against regressions.
 
-                Args:
-                    self_nonlocal: Pytest fixture or input used by this test.
+                Example: __enter__() -> passes without assertion failures when the behavior remains correct.
                 """
                 patcher.start()
                 ThinkingConfig._state = None
                 return home.name
 
             def __exit__(self_nonlocal, exc_type, exc, tb) -> None:
-                """Validate exit.
+                """Verifies that exit behaves as expected.
 
-                Exercises the exit behavior through the test suite.
+                Typical use: Use this in automated tests when guarding the exit behavior against regressions.
 
-                Args:
-                    self_nonlocal: Pytest fixture or input used by this test.
-                    exc_type: Pytest fixture or input used by this test.
-                    exc: Pytest fixture or input used by this test.
-                    tb: Pytest fixture or input used by this test.
+                Example: __exit__() -> passes without assertion failures when the behavior remains correct.
                 """
                 ThinkingConfig._state = None
                 patcher.stop()
@@ -2189,12 +2320,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:
-    """Validate read jsonl.
+    """Verifies that read jsonl behaves as expected.
 
-    Exercises the read jsonl behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the read jsonl behavior against regressions.
 
-    Args:
-        path: Pytest fixture or input used by this test.
+    Example: _read_jsonl() -> passes without assertion failures when the behavior remains correct.
     """
     return [
         json.loads(line)
@@ -2204,14 +2334,11 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
 
 
 async def _to_thread_inline(fn, /, *args, **kwargs):
-    """Validate to thread inline.
+    """Verifies that to thread inline behaves as expected.
 
-    Exercises the to thread inline behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the to thread inline behavior against regressions.
 
-    Args:
-        fn: Pytest fixture or input used by this test.
-        args: Pytest fixture or input used by this test.
-        kwargs: Pytest fixture or input used by this test.
+    Example: _to_thread_inline() -> passes without assertion failures when the behavior remains correct.
     """
     return fn(*args, **kwargs)
 

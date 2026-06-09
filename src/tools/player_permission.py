@@ -38,29 +38,21 @@ _PRIVATE_CONFIRM_KEYS = {
 
 
 def normalize_player(player: str) -> str:
-    """Normalize player.
+    """Coordinates normalize player for the current Sonex flow.
 
-    Coordinates normalize player logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs normalize player as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        player: Input value used by the normalize player operation.
-
-    Returns:
-        The computed result for normalize player.
+    Example: normalize_player(player=...) -> returns the value used by the surrounding Sonex flow.
     """
     return player.strip().lower()
 
 
 def player_label(player: str) -> str:
-    """Player label.
+    """Coordinates player label for the current Sonex flow.
 
-    Coordinates player label logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs player label as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        player: Input value used by the player label operation.
-
-    Returns:
-        The computed result for player label.
+    Example: player_label(player=...) -> returns the value used by the surrounding Sonex flow.
     """
     known = {
         "auto": "auto local player",
@@ -72,43 +64,31 @@ def player_label(player: str) -> str:
 
 
 def is_player_allowed(player: str) -> bool:
-    """Is player allowed.
+    """Checks whether is player allowed is true for the supplied input.
 
-    Coordinates is player allowed logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs is player allowed as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        player: Input value used by the is player allowed operation.
-
-    Returns:
-        The computed result for is player allowed.
+    Example: is_player_allowed(player=...) -> returns the value used by the surrounding Sonex flow.
     """
     return normalize_player(player) in _ALLOWED_PLAYERS
 
 
 def remember_player(player: str) -> None:
-    """Remember player.
+    """Coordinates remember player for the current Sonex flow.
 
-    Coordinates remember player logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs remember player as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        player: Input value used by the remember player operation.
-
-    Returns:
-        The computed result for remember player.
+    Example: remember_player(player=...) -> returns the value used by the surrounding Sonex flow.
     """
     _ALLOWED_PLAYERS.add(normalize_player(player))
 
 
 def _public_data(data: dict[str, Any]) -> dict[str, Any]:
-    """Public data.
+    """Prepares public data for an internal Sonex flow.
 
-    Coordinates public data logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs public data without duplicating the local rules.
 
-    Args:
-        data: Input value used by the public data operation.
-
-    Returns:
-        The computed result for public data.
+    Example: _public_data(data=...) -> returns the value used by the surrounding Sonex flow.
     """
     return {key: value for key, value in data.items() if key not in _PRIVATE_CONFIRM_KEYS}
 
@@ -121,19 +101,11 @@ def build_player_confirm_result(
     success_message: str,
     data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build player confirm result.
+    """Builds player confirm result from the supplied input.
 
-    Coordinates build player confirm result logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs build player confirm result as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        tool: Input value used by the build player confirm result operation.
-        player: Input value used by the build player confirm result operation.
-        cmd: Input value used by the build player confirm result operation.
-        success_message: Input value used by the build player confirm result operation.
-        data: Input value used by the build player confirm result operation.
-
-    Returns:
-        The computed result for build player confirm result.
+    Example: build_player_confirm_result(tool=..., player=..., cmd=..., success_message=..., data=...) -> returns the value used by the surrounding Sonex flow.
     """
     label = player_label(player)
     return {
@@ -154,15 +126,11 @@ def build_player_confirm_result(
 
 
 def normalize_confirm_decision(decision: Any) -> str:
-    """Normalize confirm decision.
+    """Coordinates normalize confirm decision for the current Sonex flow.
 
-    Coordinates normalize confirm decision logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs normalize confirm decision as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        decision: Input value used by the normalize confirm decision operation.
-
-    Returns:
-        The computed result for normalize confirm decision.
+    Example: normalize_confirm_decision(decision=...) -> returns the value used by the surrounding Sonex flow.
     """
     if decision is True:
         return "allow_once"
@@ -185,19 +153,11 @@ def launch_player_command(
     success_message: str,
     data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Launch player command.
+    """Coordinates launch player command for the current Sonex flow.
 
-    Coordinates launch player command logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs launch player command as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        tool: Input value used by the launch player command operation.
-        player: Input value used by the launch player command operation.
-        cmd: Input value used by the launch player command operation.
-        success_message: Input value used by the launch player command operation.
-        data: Input value used by the launch player command operation.
-
-    Returns:
-        The computed result for launch player command.
+    Example: launch_player_command(tool=..., player=..., cmd=..., success_message=..., data=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         subprocess.Popen(
@@ -222,16 +182,11 @@ def launch_player_command(
 
 
 def complete_player_confirm(pending_result: dict[str, Any], decision: Any) -> dict[str, Any]:
-    """Complete player confirm.
+    """Coordinates complete player confirm for the current Sonex flow.
 
-    Coordinates complete player confirm logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs complete player confirm as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        pending_result: Input value used by the complete player confirm operation.
-        decision: Input value used by the complete player confirm operation.
-
-    Returns:
-        The computed result for complete player confirm.
+    Example: complete_player_confirm(pending_result=..., decision=...) -> returns the value used by the surrounding Sonex flow.
     """
     data = pending_result.get("data") or {}
     tool = str(pending_result.get("tool") or data.get("tool") or "player")

@@ -13,42 +13,42 @@ from src.llm.transport import ChatResponse, Usage
 
 
 class _Client:
-    """Groups client tests.
+    """Groups related client cases.
 
-    Collects related assertions for client behavior.
+    Collects assertions that exercise client behavior without mixing unrelated fixtures.
     """
     def __init__(self, output_text: str) -> None:
-        """Validate init.
+        """Verifies that init behaves as expected.
 
-        Exercises the init behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the init behavior against regressions.
 
-        Args:
-            output_text: Pytest fixture or input used by this test.
+        Example: __init__() -> passes without assertion failures when the behavior remains correct.
         """
         self.output_text = output_text
         self.requests = []
 
     def generate(self, request):
-        """Validate generate.
+        """Verifies that generate behaves as expected.
 
-        Exercises the generate behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the generate behavior against regressions.
 
-        Args:
-            request: Pytest fixture or input used by this test.
+        Example: generate() -> passes without assertion failures when the behavior remains correct.
         """
         self.requests.append(request)
         return ChatResponse(output_text=self.output_text, usage=Usage(total_tokens=1))
 
 
 class MusicIntentTests(unittest.TestCase):
-    """Groups music intent tests tests.
+    """Groups related music intent tests cases.
 
-    Collects related assertions for music intent tests behavior.
+    Collects assertions that exercise music intent tests behavior without mixing unrelated fixtures.
     """
     def test_explicit_play_fast_path(self) -> None:
-        """Validate test explicit play fast path.
+        """Verifies that explicit play fast path behaves as expected.
 
-        Exercises the test explicit play fast path behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the explicit play fast path behavior against regressions.
+
+        Example: test_explicit_play_fast_path() -> passes without assertion failures when the behavior remains correct.
         """
         decision = classify_music_intent("帮我放一首七里香")
 
@@ -56,9 +56,11 @@ class MusicIntentTests(unittest.TestCase):
         self.assertEqual(decision.query, "七里香")
 
     def test_classifier_routes_track_interest_to_confirmation(self) -> None:
-        """Validate test classifier routes track interest to confirmation.
+        """Verifies that classifier routes track interest to confirmation behaves as expected.
 
-        Exercises the test classifier routes track interest to confirmation behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the classifier routes track interest to confirmation behavior against regressions.
+
+        Example: test_classifier_routes_track_interest_to_confirmation() -> passes without assertion failures when the behavior remains correct.
         """
         client = _Client(
             '{"route":"confirm_track_play","query":"周杰伦 七里香",'
@@ -74,9 +76,11 @@ class MusicIntentTests(unittest.TestCase):
         self.assertEqual(client.requests[0].temperature, 0)
 
     def test_classifier_routes_recommendation_requests(self) -> None:
-        """Validate test classifier routes recommendation requests.
+        """Verifies that classifier routes recommendation requests behaves as expected.
 
-        Exercises the test classifier routes recommendation requests behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the classifier routes recommendation requests behavior against regressions.
+
+        Example: test_classifier_routes_recommendation_requests() -> passes without assertion failures when the behavior remains correct.
         """
         for text in ("给我推荐几首周杰伦的歌", "我最近对周杰伦很感兴趣"):
             with self.subTest(text=text):
@@ -90,9 +94,11 @@ class MusicIntentTests(unittest.TestCase):
                 self.assertEqual(decision.route, MusicIntentRoute.RECOMMEND)
 
     def test_classifier_keeps_song_background_question_general(self) -> None:
-        """Validate test classifier keeps song background question general.
+        """Verifies that classifier keeps song background question general behaves as expected.
 
-        Exercises the test classifier keeps song background question general behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the classifier keeps song background question general behavior against regressions.
+
+        Example: test_classifier_keeps_song_background_question_general() -> passes without assertion failures when the behavior remains correct.
         """
         client = _Client(
             '{"route":"general","query":null,'
@@ -105,9 +111,11 @@ class MusicIntentTests(unittest.TestCase):
         self.assertEqual(decision.route, MusicIntentRoute.GENERAL)
 
     def test_invalid_low_confidence_and_errors_fall_back_to_general(self) -> None:
-        """Validate test invalid low confidence and errors fall back to general.
+        """Verifies that invalidlow confidence and errors fall back to general behaves as expected.
 
-        Exercises the test invalid low confidence and errors fall back to general behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the invalidlow confidence and errors fall back to general behavior against regressions.
+
+        Example: test_invalid_low_confidence_and_errors_fall_back_to_general() -> passes without assertion failures when the behavior remains correct.
         """
         outputs = (
             "not json",

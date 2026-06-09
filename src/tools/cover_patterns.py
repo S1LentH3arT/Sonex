@@ -19,7 +19,7 @@ from PIL import Image, ImageFilter, UnidentifiedImageError
 
 from src.log import sonex_home
 
-COVER_PATTERN_SIZES = (32, 48, 64)
+COVER_PATTERN_SIZES = (32, 48, 64, 80, 96)
 COVER_PATTERN_MAX_BYTES = 8 * 1024 * 1024
 COVER_PATTERN_PALETTE = [
     "#0b0c10", "#1b1f2a", "#343946", "#575d6b", "#8d95a3", "#c5ccd6",
@@ -50,56 +50,42 @@ class CoverPatternError(RuntimeError):
 
 
 def cover_pattern_cache_dir() -> Path:
-    """Cover pattern cache dir.
+    """Coordinates cover pattern cache dir for the current Sonex flow.
 
-    Coordinates cover pattern cache dir logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs cover pattern cache dir as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for cover pattern cache dir.
+    Example: cover_pattern_cache_dir() -> returns the value used by the surrounding Sonex flow.
     """
     return sonex_home() / "cache" / "cover_patterns"
 
 
 def _source_hash(source: str) -> str:
-    """Source hash.
+    """Prepares source hash for an internal Sonex flow.
 
-    Coordinates source hash logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs source hash without duplicating the local rules.
 
-    Args:
-        source: Input value used by the source hash operation.
-
-    Returns:
-        The computed result for source hash.
+    Example: _source_hash(source=...) -> returns the value used by the surrounding Sonex flow.
     """
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
 def cover_pattern_cache_path(source: str, *, cache_root: Path | None = None) -> Path:
-    """Cover pattern cache path.
+    """Coordinates cover pattern cache path for the current Sonex flow.
 
-    Coordinates cover pattern cache path logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs cover pattern cache path as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        source: Input value used by the cover pattern cache path operation.
-        cache_root: Input value used by the cover pattern cache path operation.
-
-    Returns:
-        The computed result for cover pattern cache path.
+    Example: cover_pattern_cache_path(source=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     root = cache_root or cover_pattern_cache_dir()
     return root / f"{_source_hash(source)}.json"
 
 
 def fetch_cover_pattern(source_url: str) -> dict[str, Any]:
-    """Fetch cover pattern.
+    """Coordinates fetch cover pattern for the current Sonex flow.
 
-    Coordinates fetch cover pattern logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs fetch cover pattern as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        source_url: Input value used by the fetch cover pattern operation.
-
-    Returns:
-        The computed result for fetch cover pattern.
+    Example: fetch_cover_pattern(source_url=...) -> returns the value used by the surrounding Sonex flow.
     """
     cached = _read_cached_pattern(source_url)
     if cached is not None:
@@ -114,17 +100,11 @@ def generate_cover_pattern(
     *,
     cache_root: Path | None = None,
 ) -> dict[str, Any]:
-    """Generate cover pattern.
+    """Coordinates generate cover pattern for the current Sonex flow.
 
-    Coordinates generate cover pattern logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs generate cover pattern as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        source: Input value used by the generate cover pattern operation.
-        image_bytes: Input value used by the generate cover pattern operation.
-        cache_root: Input value used by the generate cover pattern operation.
-
-    Returns:
-        The computed result for generate cover pattern.
+    Example: generate_cover_pattern(source=..., image_bytes=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     cached = _read_cached_pattern(source, cache_root=cache_root)
     if cached is not None:
@@ -145,16 +125,11 @@ def generate_cover_pattern(
 
 
 def _event_payload(source: str, cached: dict[str, Any]) -> dict[str, Any]:
-    """Event payload.
+    """Prepares event payload for an internal Sonex flow.
 
-    Coordinates event payload logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs event payload without duplicating the local rules.
 
-    Args:
-        source: Input value used by the event payload operation.
-        cached: Input value used by the event payload operation.
-
-    Returns:
-        The computed result for event payload.
+    Example: _event_payload(source=..., cached=...) -> returns the value used by the surrounding Sonex flow.
     """
     return {
         "type": "cover_pattern",
@@ -167,16 +142,11 @@ def _event_payload(source: str, cached: dict[str, Any]) -> dict[str, Any]:
 
 
 def _read_cached_pattern(source: str, *, cache_root: Path | None = None) -> dict[str, Any] | None:
-    """Read cached pattern.
+    """Prepares read cached pattern for an internal Sonex flow.
 
-    Coordinates read cached pattern logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs read cached pattern without duplicating the local rules.
 
-    Args:
-        source: Input value used by the read cached pattern operation.
-        cache_root: Input value used by the read cached pattern operation.
-
-    Returns:
-        The computed result for read cached pattern.
+    Example: _read_cached_pattern(source=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
     path = cover_pattern_cache_path(source, cache_root=cache_root)
     try:
@@ -189,15 +159,11 @@ def _read_cached_pattern(source: str, *, cache_root: Path | None = None) -> dict
 
 
 def _valid_cached_pattern(value: Any) -> bool:
-    """Valid cached pattern.
+    """Prepares valid cached pattern for an internal Sonex flow.
 
-    Coordinates valid cached pattern logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs valid cached pattern without duplicating the local rules.
 
-    Args:
-        value: Input value used by the valid cached pattern operation.
-
-    Returns:
-        The computed result for valid cached pattern.
+    Example: _valid_cached_pattern(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not isinstance(value, dict):
         return False
@@ -214,16 +180,11 @@ def _valid_cached_pattern(value: Any) -> bool:
 
 
 def _valid_grid(grid: Any, size: int) -> bool:
-    """Valid grid.
+    """Prepares valid grid for an internal Sonex flow.
 
-    Coordinates valid grid logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs valid grid without duplicating the local rules.
 
-    Args:
-        grid: Input value used by the valid grid operation.
-        size: Input value used by the valid grid operation.
-
-    Returns:
-        The computed result for valid grid.
+    Example: _valid_grid(grid=..., size=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not isinstance(grid, list) or len(grid) != size:
         return False
@@ -236,15 +197,11 @@ def _valid_grid(grid: Any, size: int) -> bool:
 
 
 def _download_cover(source_url: str) -> bytes:
-    """Download cover.
+    """Prepares download cover for an internal Sonex flow.
 
-    Coordinates download cover logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs download cover without duplicating the local rules.
 
-    Args:
-        source_url: Input value used by the download cover operation.
-
-    Returns:
-        The computed result for download cover.
+    Example: _download_cover(source_url=...) -> returns the value used by the surrounding Sonex flow.
     """
     request = Request(source_url, headers={"User-Agent": "Sonex/1.0"})
     try:
@@ -265,15 +222,11 @@ def _download_cover(source_url: str) -> bytes:
 
 
 def _pattern_from_image_bytes(image_bytes: bytes) -> dict[str, list[list[int]]]:
-    """Pattern from image bytes.
+    """Prepares pattern from image bytes for an internal Sonex flow.
 
-    Coordinates pattern from image bytes logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs pattern from image bytes without duplicating the local rules.
 
-    Args:
-        image_bytes: Input value used by the pattern from image bytes operation.
-
-    Returns:
-        The computed result for pattern from image bytes.
+    Example: _pattern_from_image_bytes(image_bytes=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         with Image.open(io.BytesIO(image_bytes)) as image:
@@ -287,15 +240,11 @@ def _pattern_from_image_bytes(image_bytes: bytes) -> dict[str, list[list[int]]]:
 
 
 def _prepare_image(image: Image.Image) -> Image.Image:
-    """Prepare image.
+    """Prepares prepare image for an internal Sonex flow.
 
-    Coordinates prepare image logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs prepare image without duplicating the local rules.
 
-    Args:
-        image: Input value used by the prepare image operation.
-
-    Returns:
-        The computed result for prepare image.
+    Example: _prepare_image(image=...) -> returns the value used by the surrounding Sonex flow.
     """
     rgb = image.convert("RGB")
     width, height = rgb.size
@@ -309,15 +258,11 @@ def _prepare_image(image: Image.Image) -> Image.Image:
 
 
 def _image_to_palette_indices(image: Image.Image) -> list[list[int]]:
-    """Image to palette indices.
+    """Prepares image to palette indices for an internal Sonex flow.
 
-    Coordinates image to palette indices logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs image to palette indices without duplicating the local rules.
 
-    Args:
-        image: Input value used by the image to palette indices operation.
-
-    Returns:
-        The computed result for image to palette indices.
+    Example: _image_to_palette_indices(image=...) -> returns the value used by the surrounding Sonex flow.
     """
     pixels = image.convert("RGB").load()
     width, height = image.size
@@ -328,15 +273,11 @@ def _image_to_palette_indices(image: Image.Image) -> list[list[int]]:
 
 
 def _nearest_palette_index(rgb: tuple[int, int, int]) -> int:
-    """Nearest palette index.
+    """Prepares nearest palette index for an internal Sonex flow.
 
-    Coordinates nearest palette index logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs nearest palette index without duplicating the local rules.
 
-    Args:
-        rgb: Input value used by the nearest palette index operation.
-
-    Returns:
-        The computed result for nearest palette index.
+    Example: _nearest_palette_index(rgb=...) -> returns the value used by the surrounding Sonex flow.
     """
     red, green, blue = rgb
     best_index = 0

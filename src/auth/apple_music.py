@@ -60,15 +60,11 @@ class AppleMusicCredentials:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "AppleMusicCredentials":
-        """From dict for apple music credentials.
+        """Coordinates from dict for the current Sonex flow.
 
-        Coordinates the from dict method behavior while preserving apple music credentials state and contracts.
+        Typical use: Use this function when runtime code needs from dict as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            data: Input value used by the from dict operation.
-
-        Returns:
-            The computed result for from dict.
+        Example: from_dict(data=...) -> returns the value used by the surrounding Sonex flow.
         """
         team_id = str(data.get("team_id") or "").strip()
         key_id = str(data.get("key_id") or "").strip()
@@ -88,12 +84,11 @@ class AppleMusicCredentials:
         )
 
     def to_json(self) -> str:
-        """To json for apple music credentials.
+        """Coordinates to json for the current Sonex flow.
 
-        Coordinates the to json method behavior while preserving apple music credentials state and contracts.
+        Typical use: Use this function when runtime code needs to json as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for to json.
+        Example: to_json() -> returns the value used by the surrounding Sonex flow.
         """
         data = {
             "team_id": self.team_id,
@@ -108,12 +103,11 @@ class AppleMusicCredentials:
         return json.dumps(data, ensure_ascii=True, sort_keys=True)
 
     def private_key_text(self) -> str:
-        """Private key text for apple music credentials.
+        """Coordinates private key text for the current Sonex flow.
 
-        Coordinates the private key text method behavior while preserving apple music credentials state and contracts.
+        Typical use: Use this function when runtime code needs private key text as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for private key text.
+        Example: private_key_text() -> returns the value used by the surrounding Sonex flow.
         """
         if self.private_key:
             return self.private_key.replace("\\n", "\n")
@@ -126,15 +120,11 @@ class AppleMusicCredentials:
 
 
 def _load_json_or_file(value: str) -> dict[str, Any]:
-    """Load json or file.
+    """Prepares load json or file for an internal Sonex flow.
 
-    Coordinates load json or file logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs load json or file without duplicating the local rules.
 
-    Args:
-        value: Input value used by the load json or file operation.
-
-    Returns:
-        The computed result for load json or file.
+    Example: _load_json_or_file(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     text = value.strip()
     if not text:
@@ -155,27 +145,22 @@ def _load_json_or_file(value: str) -> dict[str, Any]:
 
 
 def save_apple_music_credentials(value: str) -> Path:
-    """Save apple music credentials.
+    """Persists apple music credentials for later use.
 
-    Coordinates save apple music credentials logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs save apple music credentials as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        value: Input value used by the save apple music credentials operation.
-
-    Returns:
-        The computed result for save apple music credentials.
+    Example: save_apple_music_credentials(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     credentials = AppleMusicCredentials.from_dict(_load_json_or_file(value))
     return set_api_key(APPLE_MUSIC_PROVIDER, credentials.to_json())
 
 
 def apple_music_credentials() -> AppleMusicCredentials:
-    """Apple music credentials.
+    """Coordinates apple music credentials for the current Sonex flow.
 
-    Coordinates apple music credentials logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music credentials as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for apple music credentials.
+    Example: apple_music_credentials() -> returns the value used by the surrounding Sonex flow.
     """
     provider = get_provider_auth(load_auth_store(), APPLE_MUSIC_PROVIDER)
     if not provider or not provider.api_key:
@@ -186,15 +171,11 @@ def apple_music_credentials() -> AppleMusicCredentials:
 
 
 def save_apple_music_user_token(token: str) -> Path:
-    """Save apple music user token.
+    """Persists apple music user token for later use.
 
-    Coordinates save apple music user token logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs save apple music user token as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        token: Input value used by the save apple music user token operation.
-
-    Returns:
-        The computed result for save apple music user token.
+    Example: save_apple_music_user_token(token=...) -> returns the value used by the surrounding Sonex flow.
     """
     value = token.strip()
     if not value:
@@ -203,24 +184,22 @@ def save_apple_music_user_token(token: str) -> Path:
 
 
 def load_apple_music_user_token() -> OAuthToken | None:
-    """Load apple music user token.
+    """Loads apple music user token from persistent state.
 
-    Coordinates load apple music user token logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs load apple music user token as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for load apple music user token.
+    Example: load_apple_music_user_token() -> returns the value used by the surrounding Sonex flow.
     """
     provider = get_provider_auth(load_auth_store(), APPLE_MUSIC_PROVIDER)
     return provider.oauth if provider else None
 
 
 def ensure_apple_music_user_token() -> OAuthToken:
-    """Ensure apple music user token.
+    """Coordinates ensure apple music user token for the current Sonex flow.
 
-    Coordinates ensure apple music user token logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs ensure apple music user token as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for ensure apple music user token.
+    Example: ensure_apple_music_user_token() -> returns the value used by the surrounding Sonex flow.
     """
     token = load_apple_music_user_token()
     if not token or not token.access_token:
@@ -231,30 +210,21 @@ def ensure_apple_music_user_token() -> OAuthToken:
 
 
 def _b64url(data: bytes) -> str:
-    """B64url.
+    """Prepares b64url for an internal Sonex flow.
 
-    Coordinates b64url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs b64url without duplicating the local rules.
 
-    Args:
-        data: Input value used by the b64url operation.
-
-    Returns:
-        The computed result for b64url.
+    Example: _b64url(data=...) -> returns the value used by the surrounding Sonex flow.
     """
     return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
 def _sign_es256(payload: bytes, private_key_text: str) -> bytes:
-    """Sign es256.
+    """Prepares sign es256 for an internal Sonex flow.
 
-    Coordinates sign es256 logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs sign es256 without duplicating the local rules.
 
-    Args:
-        payload: Input value used by the sign es256 operation.
-        private_key_text: Input value used by the sign es256 operation.
-
-    Returns:
-        The computed result for sign es256.
+    Example: _sign_es256(payload=..., private_key_text=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         from cryptography.hazmat.primitives import hashes, serialization
@@ -273,16 +243,11 @@ def _sign_es256(payload: bytes, private_key_text: str) -> bytes:
 
 
 def generate_developer_token(credentials: AppleMusicCredentials | None = None, now: int | None = None) -> str:
-    """Generate developer token.
+    """Coordinates generate developer token for the current Sonex flow.
 
-    Coordinates generate developer token logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs generate developer token as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        credentials: Input value used by the generate developer token operation.
-        now: Input value used by the generate developer token operation.
-
-    Returns:
-        The computed result for generate developer token.
+    Example: generate_developer_token(credentials=..., now=...) -> returns the value used by the surrounding Sonex flow.
     """
     resolved = credentials or apple_music_credentials()
     issued_at = int(now or time.time())
@@ -307,15 +272,11 @@ def generate_developer_token(credentials: AppleMusicCredentials | None = None, n
 
 
 def apple_music_auth_headers(*, user: bool = False) -> dict[str, str]:
-    """Apple music auth headers.
+    """Coordinates apple music auth headers for the current Sonex flow.
 
-    Coordinates apple music auth headers logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music auth headers as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        user: Input value used by the apple music auth headers operation.
-
-    Returns:
-        The computed result for apple music auth headers.
+    Example: apple_music_auth_headers(user=...) -> returns the value used by the surrounding Sonex flow.
     """
     headers = {"Authorization": f"Bearer {generate_developer_token()}"}
     if user:
@@ -324,12 +285,11 @@ def apple_music_auth_headers(*, user: bool = False) -> dict[str, str]:
 
 
 def apple_music_setup_message() -> str:
-    """Apple music setup message.
+    """Coordinates apple music setup message for the current Sonex flow.
 
-    Coordinates apple music setup message logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs apple music setup message as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for apple music setup message.
+    Example: apple_music_setup_message() -> returns the value used by the surrounding Sonex flow.
     """
     return (
         "Create an Apple Media ID and Media Services private key in Apple Developer, then run "
@@ -340,14 +300,10 @@ def apple_music_setup_message() -> str:
 
 
 def is_apple_music_provider(provider: str) -> bool:
-    """Is apple music provider.
+    """Checks whether is apple music provider is true for the supplied input.
 
-    Coordinates is apple music provider logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs is apple music provider as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the is apple music provider operation.
-
-    Returns:
-        The computed result for is apple music provider.
+    Example: is_apple_music_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     return normalize_provider(provider) == APPLE_MUSIC_PROVIDER

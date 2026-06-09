@@ -75,31 +75,21 @@ from src.tools.track_search import search_track_metadata_candidates
 
 # Backward-compatible runner patch points; these now resolve the unified online-audio layer.
 def search_youtube_songs(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
-    """Search youtube songs.
+    """Coordinates search youtube songs for the current Sonex flow.
 
-    Coordinates search youtube songs logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs search youtube songs as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        args: Input value used by the search youtube songs operation.
-        kwargs: Input value used by the search youtube songs operation.
-
-    Returns:
-        The computed result for search youtube songs.
+    Example: search_youtube_songs() -> returns the value used by the surrounding Sonex flow.
     """
     return search_online_audio_candidates(*args, **kwargs)
 
 
 def play_youtube_candidate(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    """Play youtube candidate.
+    """Coordinates play youtube candidate for the current Sonex flow.
 
-    Coordinates play youtube candidate logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs play youtube candidate as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        args: Input value used by the play youtube candidate operation.
-        kwargs: Input value used by the play youtube candidate operation.
-
-    Returns:
-        The computed result for play youtube candidate.
+    Example: play_youtube_candidate() -> returns the value used by the surrounding Sonex flow.
     """
     return play_online_audio_candidate(*args, **kwargs)
 
@@ -109,16 +99,11 @@ _LEGACY_PLAY_ALIAS = play_youtube_candidate
 
 
 def _search_online_audio_for_runner(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
-    """Search online audio for runner.
+    """Prepares search online audio for runner for an internal Sonex flow.
 
-    Coordinates search online audio for runner logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs search online audio for runner without duplicating the local rules.
 
-    Args:
-        args: Input value used by the search online audio for runner operation.
-        kwargs: Input value used by the search online audio for runner operation.
-
-    Returns:
-        The computed result for search online audio for runner.
+    Example: _search_online_audio_for_runner() -> returns the value used by the surrounding Sonex flow.
     """
     if search_youtube_songs is not _LEGACY_SEARCH_ALIAS:
         return search_youtube_songs(*args, **kwargs)
@@ -126,16 +111,11 @@ def _search_online_audio_for_runner(*args: Any, **kwargs: Any) -> list[dict[str,
 
 
 def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
-    """Play online audio for runner.
+    """Prepares play online audio for runner for an internal Sonex flow.
 
-    Coordinates play online audio for runner logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs play online audio for runner without duplicating the local rules.
 
-    Args:
-        args: Input value used by the play online audio for runner operation.
-        kwargs: Input value used by the play online audio for runner operation.
-
-    Returns:
-        The computed result for play online audio for runner.
+    Example: _play_online_audio_for_runner() -> returns the value used by the surrounding Sonex flow.
     """
     if play_youtube_candidate is not _LEGACY_PLAY_ALIAS:
         return play_youtube_candidate(*args, **kwargs)
@@ -152,6 +132,7 @@ from src.tools.song_cache import find_best_cached_song, recent_cached_songs, res
 SEARCH_RESULT_TOOLS = {"spotify_search", "search_track", "spotify_recommend", "apple_music_search", "apple_music_recommend"}
 RECOMMENDATION_TOOLS = {"spotify_recommend", "apple_music_recommend"}
 PLAYBACK_AGENT_TOOLS = {"spotify_play", "apple_music_play", "play_youtube_song", "play_local_song"}
+PLAYBACK_ROUTER_TOOLS = {"request_playback_selection"}
 RECOMMEND_AGENT_TOOLS = (
     "spotify_recommend",
     "apple_music_recommend",
@@ -198,15 +179,11 @@ LOCAL_PLAYBACK_CHOICES = [
 
 
 def _player_debug(message: str) -> None:
-    """Player debug.
+    """Prepares player debug for an internal Sonex flow.
 
-    Coordinates player debug logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs player debug without duplicating the local rules.
 
-    Args:
-        message: Input value used by the player debug operation.
-
-    Returns:
-        The computed result for player debug.
+    Example: _player_debug(message=...) -> returns the value used by the surrounding Sonex flow.
     """
     if os.environ.get("SONEX_PLAYER_DEBUG") == "1":
         print(f"[sonex-player-debug] {message}", file=sys.stderr)
@@ -277,12 +254,11 @@ class AuthRuntimeState:
     reason: str | None = None
 
     def to_event(self) -> dict[str, Any]:
-        """To event for auth runtime state.
+        """Coordinates to event for the current Sonex flow.
 
-        Coordinates the to event method behavior while preserving auth runtime state state and contracts.
+        Typical use: Use this function when runtime code needs to event as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for to event.
+        Example: to_event() -> returns the value used by the surrounding Sonex flow.
         """
         return {
             "type": "auth_state",
@@ -296,32 +272,27 @@ class AuthRuntimeState:
 
 
 class WebSocketUIAdapter:
-    """Represents web socket u i adapter.
+    """Represents web socket ui adapter.
 
-    Encapsulates web socket u i adapter data and behavior used by Sonex runtime flows.
+    Encapsulates web socket ui adapter data and behavior used by Sonex runtime flows.
     """
     def __init__(self, ws: WebSocket) -> None:
-        """Init for web socket u i adapter.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            ws: Input value used by the init operation.
+        Example: __init__(ws=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ws = ws
         self.closed = False
         self.transcript: list[dict[str, str]] = []
 
     async def _send(self, payload: dict[str, Any]) -> None:
-        """Send for web socket u i adapter.
+        """Prepares send for an internal Sonex flow.
 
-        Coordinates the send method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this helper when nearby code needs send without duplicating the local rules.
 
-        Args:
-            payload: Input value used by the send operation.
-
-        Returns:
-            The computed result for send.
+        Example: await _send(payload=...) -> returns the value used by the surrounding Sonex flow.
         """
         if self.closed:
             return
@@ -331,56 +302,40 @@ class WebSocketUIAdapter:
             self.closed = True
 
     async def append_user_message(self, text: str) -> None:
-        """Append user message for web socket u i adapter.
+        """Coordinates append user message for the current Sonex flow.
 
-        Coordinates the append user message method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs append user message as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            text: Input value used by the append user message operation.
-
-        Returns:
-            The computed result for append user message.
+        Example: await append_user_message(text=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.transcript.append({"role": "user", "content": text})
         await self._send({"type": "chat", "role": "user", "text": text})
 
     async def append_agent_message(self, text: str) -> None:
-        """Append agent message for web socket u i adapter.
+        """Coordinates append agent message for the current Sonex flow.
 
-        Coordinates the append agent message method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs append agent message as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            text: Input value used by the append agent message operation.
-
-        Returns:
-            The computed result for append agent message.
+        Example: await append_agent_message(text=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.transcript.append({"role": "agent", "content": text})
         await self._send({"type": "chat", "role": "agent", "text": text})
 
     async def send_error(self, message: str) -> None:
-        """Send error for web socket u i adapter.
+        """Sends error to the active runtime client.
 
-        Coordinates the send error method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs send error as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            message: Input value used by the send error operation.
-
-        Returns:
-            The computed result for send error.
+        Example: await send_error(message=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self._send({"type": "error", "message": message, "recoverable": True})
 
     async def append_tool_message(self, text: str) -> None:
-        """Append tool message for web socket u i adapter.
+        """Coordinates append tool message for the current Sonex flow.
 
-        Coordinates the append tool message method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs append tool message as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            text: Input value used by the append tool message operation.
-
-        Returns:
-            The computed result for append tool message.
+        Example: await append_tool_message(text=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self.append_activity(
             kind="tool",
@@ -397,19 +352,11 @@ class WebSocketUIAdapter:
         status: str | None = None,
         activity_id: str | None = None,
     ) -> str:
-        """Append activity for web socket u i adapter.
+        """Coordinates append activity for the current Sonex flow.
 
-        Coordinates the append activity method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs append activity as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            kind: Input value used by the append activity operation.
-            title: Input value used by the append activity operation.
-            detail: Input value used by the append activity operation.
-            status: Input value used by the append activity operation.
-            activity_id: Input value used by the append activity operation.
-
-        Returns:
-            The computed result for append activity.
+        Example: await append_activity(kind=..., title=..., detail=..., status=..., activity_id=...) -> returns the value used by the surrounding Sonex flow.
         """
         activity_id = activity_id or _new_event_id("activity")
         await self._send(
@@ -426,15 +373,11 @@ class WebSocketUIAdapter:
         return activity_id
 
     def set_status(self, status: UiStatus) -> None:
-        """Set status for web socket u i adapter.
+        """Coordinates set status for the current Sonex flow.
 
-        Coordinates the set status method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs set status as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            status: Input value used by the set status operation.
-
-        Returns:
-            The computed result for set status.
+        Example: set_status(status=...) -> returns the value used by the surrounding Sonex flow.
         """
         asyncio.create_task(
             self.send_status(status)
@@ -448,18 +391,11 @@ class WebSocketUIAdapter:
         elapsed_ms: int | None = None,
         active: bool | None = None,
     ) -> None:
-        """Send status for web socket u i adapter.
+        """Sends status to the active runtime client.
 
-        Coordinates the send status method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs send status as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            status: Input value used by the send status operation.
-            tokens: Input value used by the send status operation.
-            elapsed_ms: Input value used by the send status operation.
-            active: Input value used by the send status operation.
-
-        Returns:
-            The computed result for send status.
+        Example: await send_status(status=..., tokens=..., elapsed_ms=..., active=...) -> returns the value used by the surrounding Sonex flow.
         """
         payload = {
             "type": "status",
@@ -476,42 +412,30 @@ class WebSocketUIAdapter:
         await self._send(payload)
 
     async def send_auth_state(self, state: AuthRuntimeState) -> None:
-        """Send auth state for web socket u i adapter.
+        """Sends auth state to the active runtime client.
 
-        Coordinates the send auth state method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs send auth state as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            state: Input value used by the send auth state operation.
-
-        Returns:
-            The computed result for send auth state.
+        Example: await send_auth_state(state=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self._send(state.to_event())
 
     async def send_cover(self, url: str) -> None:
-        """Send cover for web socket u i adapter.
+        """Sends cover to the active runtime client.
 
-        Coordinates the send cover method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs send cover as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            url: Input value used by the send cover operation.
-
-        Returns:
-            The computed result for send cover.
+        Example: await send_cover(url=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self._send({"type": "cover", "url": url})
         asyncio.create_task(_send_cover_pattern(self, url))
 
     async def ask_confirm(self, attached: dict[str, Any]) -> None:
-        """Ask confirm for web socket u i adapter.
+        """Coordinates ask confirm for the current Sonex flow.
 
-        Coordinates the ask confirm method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs ask confirm as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            attached: Input value used by the ask confirm operation.
-
-        Returns:
-            The computed result for ask confirm.
+        Example: await ask_confirm(attached=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self._send(
             {
@@ -534,20 +458,11 @@ class WebSocketUIAdapter:
         mask: bool = False,
         active: bool = True,
     ) -> None:
-        """Send spotify setup for web socket u i adapter.
+        """Sends spotify setup to the active runtime client.
 
-        Coordinates the send spotify setup method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs send spotify setup as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            step: Input value used by the send spotify setup operation.
-            title: Input value used by the send spotify setup operation.
-            message: Input value used by the send spotify setup operation.
-            prompt: Input value used by the send spotify setup operation.
-            mask: Input value used by the send spotify setup operation.
-            active: Input value used by the send spotify setup operation.
-
-        Returns:
-            The computed result for send spotify setup.
+        Example: await send_spotify_setup(step=..., title=..., message=..., prompt=..., mask=..., active=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self._send(
             {
@@ -575,24 +490,11 @@ class WebSocketUIAdapter:
         providers: list[dict[str, str]] | None = None,
         models: list[dict[str, str]] | None = None,
     ) -> None:
-        """Send auth setup for web socket u i adapter.
+        """Sends auth setup to the active runtime client.
 
-        Coordinates the send auth setup method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs send auth setup as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            provider: Input value used by the send auth setup operation.
-            step: Input value used by the send auth setup operation.
-            title: Input value used by the send auth setup operation.
-            message: Input value used by the send auth setup operation.
-            prompt: Input value used by the send auth setup operation.
-            mask: Input value used by the send auth setup operation.
-            active: Input value used by the send auth setup operation.
-            methods: Input value used by the send auth setup operation.
-            providers: Input value used by the send auth setup operation.
-            models: Input value used by the send auth setup operation.
-
-        Returns:
-            The computed result for send auth setup.
+        Example: await send_auth_setup(provider=..., step=..., title=..., message=..., prompt=..., mask=..., active=..., methods=..., providers=..., models=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self._send(
             {
@@ -617,17 +519,11 @@ class WebSocketUIAdapter:
         title: str = "Slash commands",
         hint: str = "press Esc to hide",
     ) -> None:
-        """Send help panel for web socket u i adapter.
+        """Sends help panel to the active runtime client.
 
-        Coordinates the send help panel method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs send help panel as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            commands: Input value used by the send help panel operation.
-            title: Input value used by the send help panel operation.
-            hint: Input value used by the send help panel operation.
-
-        Returns:
-            The computed result for send help panel.
+        Example: await send_help_panel(commands=..., title=..., hint=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self._send(
             {
@@ -646,12 +542,11 @@ class WebSocketUIAdapter:
         )
 
     async def close(self) -> None:
-        """Close for web socket u i adapter.
+        """Coordinates close for the current Sonex flow.
 
-        Coordinates the close method behavior while preserving web socket u i adapter state and contracts.
+        Typical use: Use this function when runtime code needs close as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for close.
+        Example: await close() -> returns the value used by the surrounding Sonex flow.
         """
         if self.closed:
             return
@@ -661,41 +556,31 @@ class WebSocketUIAdapter:
 
 
 def _timestamp_ms() -> int:
-    """Timestamp ms.
+    """Prepares timestamp ms for an internal Sonex flow.
 
-    Coordinates timestamp ms logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs timestamp ms without duplicating the local rules.
 
-    Returns:
-        The computed result for timestamp ms.
+    Example: _timestamp_ms() -> returns the value used by the surrounding Sonex flow.
     """
     return int(time.time() * 1000)
 
 
 def _new_event_id(prefix: str) -> str:
-    """New event id.
+    """Prepares new event id for an internal Sonex flow.
 
-    Coordinates new event id logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs new event id without duplicating the local rules.
 
-    Args:
-        prefix: Input value used by the new event id operation.
-
-    Returns:
-        The computed result for new event id.
+    Example: _new_event_id(prefix=...) -> returns the value used by the surrounding Sonex flow.
     """
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
 async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
-    """Asynchronously send cover pattern.
+    """Prepares send cover pattern for an internal Sonex flow.
 
-    Coordinates non-blocking send cover pattern work for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs send cover pattern without duplicating the local rules.
 
-    Args:
-        ui: Input value used by the send cover pattern operation.
-        source_url: Input value used by the send cover pattern operation.
-
-    Returns:
-        The computed result for send cover pattern.
+    Example: await _send_cover_pattern(ui=..., source_url=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         image_bytes = cover_bytes_for_source(source_url)
@@ -714,30 +599,22 @@ async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
 
 
 def _is_http_cover_source(source: str) -> bool:
-    """Is http cover source.
+    """Prepares is http cover source for an internal Sonex flow.
 
-    Coordinates is http cover source logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is http cover source without duplicating the local rules.
 
-    Args:
-        source: Input value used by the is http cover source operation.
-
-    Returns:
-        The computed result for is http cover source.
+    Example: _is_http_cover_source(source=...) -> returns the value used by the surrounding Sonex flow.
     """
     lowered = source.lower()
     return lowered.startswith("http://") or lowered.startswith("https://")
 
 
 def _coerce_transcript_messages(messages: Any) -> list[dict[str, str]]:
-    """Coerce transcript messages.
+    """Prepares coerce transcript messages for an internal Sonex flow.
 
-    Coordinates coerce transcript messages logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs coerce transcript messages without duplicating the local rules.
 
-    Args:
-        messages: Input value used by the coerce transcript messages operation.
-
-    Returns:
-        The computed result for coerce transcript messages.
+    Example: _coerce_transcript_messages(messages=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not isinstance(messages, list):
         return []
@@ -759,16 +636,11 @@ def _save_session_transcript(
     *,
     reason: str,
 ) -> Path:
-    """Save session transcript.
+    """Prepares save session transcript for an internal Sonex flow.
 
-    Coordinates save session transcript logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs save session transcript without duplicating the local rules.
 
-    Args:
-        messages: Input value used by the save session transcript operation.
-        reason: Input value used by the save session transcript operation.
-
-    Returns:
-        The computed result for save session transcript.
+    Example: _save_session_transcript(messages=..., reason=...) -> returns the value used by the surrounding Sonex flow.
     """
     now = datetime.now(timezone.utc)
     session_id = now.strftime("%Y%m%d%H%M%S%fZ")
@@ -796,16 +668,11 @@ def _save_session_transcript(
 
 
 def _first_line(text: str, limit: int = 160) -> str:
-    """First line.
+    """Prepares first line for an internal Sonex flow.
 
-    Coordinates first line logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs first line without duplicating the local rules.
 
-    Args:
-        text: Input value used by the first line operation.
-        limit: Input value used by the first line operation.
-
-    Returns:
-        The computed result for first line.
+    Example: _first_line(text=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     line = " ".join(str(text).strip().split())
     if len(line) <= limit:
@@ -814,17 +681,11 @@ def _first_line(text: str, limit: int = 160) -> str:
 
 
 def _preview(value: Any, max_lines: int = 3, max_chars: int = 420) -> str:
-    """Preview.
+    """Prepares preview for an internal Sonex flow.
 
-    Coordinates preview logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs preview without duplicating the local rules.
 
-    Args:
-        value: Input value used by the preview operation.
-        max_lines: Input value used by the preview operation.
-        max_chars: Input value used by the preview operation.
-
-    Returns:
-        The computed result for preview.
+    Example: _preview(value=..., max_lines=..., max_chars=...) -> returns the value used by the surrounding Sonex flow.
     """
     if value is None:
         return ""
@@ -843,15 +704,11 @@ def _preview(value: Any, max_lines: int = 3, max_chars: int = 420) -> str:
 
 
 def _format_args(args: Any) -> str:
-    """Format args.
+    """Prepares format args for an internal Sonex flow.
 
-    Coordinates format args logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs format args without duplicating the local rules.
 
-    Args:
-        args: Input value used by the format args operation.
-
-    Returns:
-        The computed result for format args.
+    Example: _format_args(args=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not args:
         return ""
@@ -865,32 +722,22 @@ def _format_args(args: Any) -> str:
 
 
 def _format_tool_start(tool_name: str, args: dict[str, Any]) -> tuple[str, str | None]:
-    """Format tool start.
+    """Prepares format tool start for an internal Sonex flow.
 
-    Coordinates format tool start logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs format tool start without duplicating the local rules.
 
-    Args:
-        tool_name: Input value used by the format tool start operation.
-        args: Input value used by the format tool start operation.
-
-    Returns:
-        The computed result for format tool start.
+    Example: _format_tool_start(tool_name=..., args=...) -> returns the value used by the surrounding Sonex flow.
     """
     detail = _format_args(args)
     return f"Calling {tool_name}", detail or None
 
 
 def _format_tool_result(tool_name: str, result: Any) -> tuple[str, str | None, str]:
-    """Format tool result.
+    """Prepares format tool result for an internal Sonex flow.
 
-    Coordinates format tool result logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs format tool result without duplicating the local rules.
 
-    Args:
-        tool_name: Input value used by the format tool result operation.
-        result: Input value used by the format tool result operation.
-
-    Returns:
-        The computed result for format tool result.
+    Example: _format_tool_result(tool_name=..., result=...) -> returns the value used by the surrounding Sonex flow.
     """
     status_value = "success"
     message = ""
@@ -909,15 +756,11 @@ def _format_tool_result(tool_name: str, result: Any) -> tuple[str, str | None, s
 
 
 def _is_failed_tool_result(result: Any) -> bool:
-    """Is failed tool result.
+    """Prepares is failed tool result for an internal Sonex flow.
 
-    Coordinates is failed tool result logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is failed tool result without duplicating the local rules.
 
-    Args:
-        result: Input value used by the is failed tool result operation.
-
-    Returns:
-        The computed result for is failed tool result.
+    Example: _is_failed_tool_result(result=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not isinstance(result, dict):
         return False
@@ -925,30 +768,35 @@ def _is_failed_tool_result(result: Any) -> bool:
 
 
 def _is_player_confirm_result(result: Any) -> bool:
-    """Is player confirm result.
+    """Prepares is player confirm result for an internal Sonex flow.
 
-    Coordinates is player confirm result logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is player confirm result without duplicating the local rules.
 
-    Args:
-        result: Input value used by the is player confirm result operation.
-
-    Returns:
-        The computed result for is player confirm result.
+    Example: _is_player_confirm_result(result=...) -> returns the value used by the surrounding Sonex flow.
     """
     return isinstance(result, dict) and result.get("status") == "requires_player_confirm"
 
 
+def _is_play_selection_request_result(result: Any) -> bool:
+    """Prepares is play selection request result for an internal Sonex flow."""
+    return isinstance(result, dict) and result.get("status") == "requires_play_selection"
+
+
+def _play_selection_query_from_result(result: Any) -> str | None:
+    """Prepares play selection query from result for an internal Sonex flow."""
+    if not isinstance(result, dict):
+        return None
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    query = str(data.get("query") or result.get("query") or "").strip()
+    return query or None
+
+
 def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something went wrong.") -> str:
-    """Friendly runtime error message.
+    """Prepares friendly runtime error message for an internal Sonex flow.
 
-    Coordinates friendly runtime error message logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs friendly runtime error message without duplicating the local rules.
 
-    Args:
-        result: Input value used by the friendly runtime error message operation.
-        fallback: Input value used by the friendly runtime error message operation.
-
-    Returns:
-        The computed result for friendly runtime error message.
+    Example: _friendly_runtime_error_message(result=..., fallback=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(result, dict):
         code = str(result.get("error_code") or "")
@@ -956,7 +804,7 @@ def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something w
         if code == "SPOTIFY_PREMIUM_REQUIRED":
             return (
                 "Spotify playback state requires a Premium account. "
-                "I will stop polling Spotify playback for this session; search and local playback can still work."
+                "I will stop polling Spotify playback for this session; search andlocal playback can still work."
             )
         if message:
             return sanitize_error_message(message)
@@ -964,15 +812,11 @@ def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something w
 
 
 def _walk_dicts(value: Any) -> list[dict[str, Any]]:
-    """Walk dicts.
+    """Prepares walk dicts for an internal Sonex flow.
 
-    Coordinates walk dicts logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs walk dicts without duplicating the local rules.
 
-    Args:
-        value: Input value used by the walk dicts operation.
-
-    Returns:
-        The computed result for walk dicts.
+    Example: _walk_dicts(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     found: list[dict[str, Any]] = []
     if isinstance(value, dict):
@@ -986,15 +830,11 @@ def _walk_dicts(value: Any) -> list[dict[str, Any]]:
 
 
 def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None]:
-    """Extract music state.
+    """Prepares extract music state for an internal Sonex flow.
 
-    Coordinates extract music state logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs extract music state without duplicating the local rules.
 
-    Args:
-        result: Input value used by the extract music state operation.
-
-    Returns:
-        The computed result for extract music state.
+    Example: _extract_music_state(result=...) -> returns the value used by the surrounding Sonex flow.
     """
     for item in _walk_dicts(result):
         name = item.get("name") or item.get("title")
@@ -1041,29 +881,21 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
 
 
 def _is_youtube_thumbnail(value: Any) -> bool:
-    """Is youtube thumbnail.
+    """Prepares is youtube thumbnail for an internal Sonex flow.
 
-    Coordinates is youtube thumbnail logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is youtube thumbnail without duplicating the local rules.
 
-    Args:
-        value: Input value used by the is youtube thumbnail operation.
-
-    Returns:
-        The computed result for is youtube thumbnail.
+    Example: _is_youtube_thumbnail(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     return isinstance(value, str) and "ytimg.com/" in value
 
 
 def _extract_tracks(result: Any) -> list[dict[str, Any]]:
-    """Extract tracks.
+    """Prepares extract tracks for an internal Sonex flow.
 
-    Coordinates extract tracks logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs extract tracks without duplicating the local rules.
 
-    Args:
-        result: Input value used by the extract tracks operation.
-
-    Returns:
-        The computed result for extract tracks.
+    Example: _extract_tracks(result=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not isinstance(result, dict):
         return []
@@ -1075,15 +907,11 @@ def _extract_tracks(result: Any) -> list[dict[str, Any]]:
 
 
 def _duration_text(ms: Any) -> str:
-    """Duration text.
+    """Prepares duration text for an internal Sonex flow.
 
-    Coordinates duration text logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs duration text without duplicating the local rules.
 
-    Args:
-        ms: Input value used by the duration text operation.
-
-    Returns:
-        The computed result for duration text.
+    Example: _duration_text(ms=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         total_seconds = max(0, int(ms or 0) // 1000)
@@ -1095,15 +923,11 @@ def _duration_text(ms: Any) -> str:
 
 
 def _metadata_provider_label(provider: Any) -> str:
-    """Metadata provider label.
+    """Prepares metadata provider label for an internal Sonex flow.
 
-    Coordinates metadata provider label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs metadata provider label without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the metadata provider label operation.
-
-    Returns:
-        The computed result for metadata provider label.
+    Example: _metadata_provider_label(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = str(provider or "").strip().lower()
     return {
@@ -1115,15 +939,11 @@ def _metadata_provider_label(provider: Any) -> str:
 
 
 def _compact_count(value: Any) -> str | None:
-    """Compact count.
+    """Prepares compact count for an internal Sonex flow.
 
-    Coordinates compact count logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs compact count without duplicating the local rules.
 
-    Args:
-        value: Input value used by the compact count operation.
-
-    Returns:
-        The computed result for compact count.
+    Example: _compact_count(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         count = max(0, int(float(value or 0)))
@@ -1143,15 +963,11 @@ def _compact_count(value: Any) -> str | None:
 
 
 def _youtube_variant_label(value: Any) -> str:
-    """Youtube variant label.
+    """Prepares youtube variant label for an internal Sonex flow.
 
-    Coordinates youtube variant label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs youtube variant label without duplicating the local rules.
 
-    Args:
-        value: Input value used by the youtube variant label operation.
-
-    Returns:
-        The computed result for youtube variant label.
+    Example: _youtube_variant_label(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     variant = str(value or "other")
     if variant == "official_original":
@@ -1162,12 +978,11 @@ def _youtube_variant_label(value: Any) -> str:
 
 
 def _queue_payload() -> list[dict[str, str]]:
-    """Queue payload.
+    """Prepares queue payload for an internal Sonex flow.
 
-    Coordinates queue payload logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs queue payload without duplicating the local rules.
 
-    Returns:
-        The computed result for queue payload.
+    Example: _queue_payload() -> returns the value used by the surrounding Sonex flow.
     """
     try:
         tracks = recent_cached_songs()
@@ -1187,15 +1002,11 @@ def _queue_payload() -> list[dict[str, str]]:
 
 
 def _search_results_payload(result: Any) -> list[dict[str, Any]]:
-    """Search results payload.
+    """Prepares search results payload for an internal Sonex flow.
 
-    Coordinates search results payload logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs search results payload without duplicating the local rules.
 
-    Args:
-        result: Input value used by the search results payload operation.
-
-    Returns:
-        The computed result for search results payload.
+    Example: _search_results_payload(result=...) -> returns the value used by the surrounding Sonex flow.
     """
     tracks = _extract_tracks(result)
     payload: list[dict[str, Any]] = []
@@ -1222,15 +1033,11 @@ def _search_results_payload(result: Any) -> list[dict[str, Any]]:
 
 
 def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
-    """Player sync signature.
+    """Prepares player sync signature for an internal Sonex flow.
 
-    Coordinates player sync signature logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs player sync signature without duplicating the local rules.
 
-    Args:
-        state: Input value used by the player sync signature operation.
-
-    Returns:
-        The computed result for player sync signature.
+    Example: _player_sync_signature(state=...) -> returns the value used by the surrounding Sonex flow.
     """
     progress_bucket = int((state.get("progress_ms") or 0) / 5000)
     return (
@@ -1245,16 +1052,11 @@ def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def _project_local_playback_state(state: dict[str, Any], now_ms: int) -> dict[str, Any]:
-    """Project local playback state.
+    """Prepares project local playback state for an internal Sonex flow.
 
-    Coordinates project local playback state logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs project local playback state without duplicating the local rules.
 
-    Args:
-        state: Input value used by the project local playback state operation.
-        now_ms: Input value used by the project local playback state operation.
-
-    Returns:
-        The computed result for project local playback state.
+    Example: _project_local_playback_state(state=..., now_ms=...) -> returns the value used by the surrounding Sonex flow.
     """
     payload = dict(state)
     progress_ms = int(payload.get("progress_ms") or 0)
@@ -1276,45 +1078,33 @@ def _project_local_playback_state(state: dict[str, Any], now_ms: int) -> dict[st
 
 
 def _is_spotify_setup_request(text: str) -> bool:
-    """Is spotify setup request.
+    """Prepares is spotify setup request for an internal Sonex flow.
 
-    Coordinates is spotify setup request logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is spotify setup request without duplicating the local rules.
 
-    Args:
-        text: Input value used by the is spotify setup request operation.
-
-    Returns:
-        The computed result for is spotify setup request.
+    Example: _is_spotify_setup_request(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = " ".join(text.strip().lower().split())
     return normalized in SPOTIFY_SETUP_TRIGGERS
 
 
 def _is_apple_music_setup_request(text: str) -> bool:
-    """Is apple music setup request.
+    """Prepares is apple music setup request for an internal Sonex flow.
 
-    Coordinates is apple music setup request logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is apple music setup request without duplicating the local rules.
 
-    Args:
-        text: Input value used by the is apple music setup request operation.
-
-    Returns:
-        The computed result for is apple music setup request.
+    Example: _is_apple_music_setup_request(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = " ".join(text.strip().lower().split())
     return normalized in APPLE_MUSIC_SETUP_TRIGGERS
 
 
 def _rule_parse_play_request(text: str) -> PlayRequestParse:
-    """Rule parse play request.
+    """Prepares rule parse play request for an internal Sonex flow.
 
-    Coordinates rule parse play request logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs rule parse play request without duplicating the local rules.
 
-    Args:
-        text: Input value used by the rule parse play request operation.
-
-    Returns:
-        The computed result for rule parse play request.
+    Example: _rule_parse_play_request(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     stripped = text.strip()
     lowered = stripped.lower()
@@ -1328,15 +1118,11 @@ def _rule_parse_play_request(text: str) -> PlayRequestParse:
 
 
 def _should_optimize_play_request(text: str) -> bool:
-    """Should optimize play request.
+    """Prepares should optimize play request for an internal Sonex flow.
 
-    Coordinates should optimize play request logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs should optimize play request without duplicating the local rules.
 
-    Args:
-        text: Input value used by the should optimize play request operation.
-
-    Returns:
-        The computed result for should optimize play request.
+    Example: _should_optimize_play_request(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     lowered = text.strip().lower()
     if not lowered:
@@ -1347,15 +1133,11 @@ def _should_optimize_play_request(text: str) -> bool:
 
 
 def _optimize_play_prompt(text: str) -> PlayRequestParse:
-    """Optimize play prompt.
+    """Prepares optimize play prompt for an internal Sonex flow.
 
-    Coordinates optimize play prompt logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs optimize play prompt without duplicating the local rules.
 
-    Args:
-        text: Input value used by the optimize play prompt operation.
-
-    Returns:
-        The computed result for optimize play prompt.
+    Example: _optimize_play_prompt(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     prompt = (
         "Decide whether the user is clearly asking to play a song now.\n"
@@ -1391,40 +1173,31 @@ def _optimize_play_prompt(text: str) -> PlayRequestParse:
 
 
 def _is_local_search_hit(result: str) -> bool:
-    """Is local search hit.
+    """Prepares is local search hit for an internal Sonex flow.
 
-    Coordinates is local search hit logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is local search hit without duplicating the local rules.
 
-    Args:
-        result: Input value used by the is local search hit operation.
-
-    Returns:
-        The computed result for is local search hit.
+    Example: _is_local_search_hit(result=...) -> returns the value used by the surrounding Sonex flow.
     """
     return bool(result and not result.startswith("No local files found") and not result.startswith("Path outside user workspace"))
 
 
 def _filename(path_text: str) -> str:
-    """Filename.
+    """Prepares filename for an internal Sonex flow.
 
-    Coordinates filename logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs filename without duplicating the local rules.
 
-    Args:
-        path_text: Input value used by the filename operation.
-
-    Returns:
-        The computed result for filename.
+    Example: _filename(path_text=...) -> returns the value used by the surrounding Sonex flow.
     """
     return Path(path_text).name or path_text
 
 
 def _default_provider_name() -> str:
-    """Default provider name.
+    """Prepares default provider name for an internal Sonex flow.
 
-    Coordinates default provider name logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs default provider name without duplicating the local rules.
 
-    Returns:
-        The computed result for default provider name.
+    Example: _default_provider_name() -> returns the value used by the surrounding Sonex flow.
     """
     config_path = os.getenv("SONEX_CONFIG_PATH")
     if config_path:
@@ -1456,12 +1229,11 @@ def _default_provider_name() -> str:
 
 
 def _default_model_name() -> str:
-    """Default model name.
+    """Prepares default model name for an internal Sonex flow.
 
-    Coordinates default model name logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs default model name without duplicating the local rules.
 
-    Returns:
-        The computed result for default model name.
+    Example: _default_model_name() -> returns the value used by the surrounding Sonex flow.
     """
     config_path = os.getenv("SONEX_CONFIG_PATH")
     if config_path:
@@ -1501,15 +1273,11 @@ def _default_model_name() -> str:
 
 
 def _env_api_key_for_provider(provider: str) -> str | None:
-    """Env api key for provider.
+    """Prepares env api key for provider for an internal Sonex flow.
 
-    Coordinates env api key for provider logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs env api key for provider without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the env api key for provider operation.
-
-    Returns:
-        The computed result for env api key for provider.
+    Example: _env_api_key_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     name = normalize_provider(provider)
     value = os.getenv(f"SONEX_{name.upper()}_API_KEY")
@@ -1521,16 +1289,11 @@ def _env_api_key_for_provider(provider: str) -> str | None:
 
 
 def _set_runtime_default_provider(provider: str, model: str | None = None) -> None:
-    """Set runtime default provider.
+    """Prepares set runtime default provider for an internal Sonex flow.
 
-    Coordinates set runtime default provider logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs set runtime default provider without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the set runtime default provider operation.
-        model: Input value used by the set runtime default provider operation.
-
-    Returns:
-        The computed result for set runtime default provider.
+    Example: _set_runtime_default_provider(provider=..., model=...) -> returns the value used by the surrounding Sonex flow.
     """
     name = normalize_provider(provider)
     resolved_model = model or get_provider_capability(name).default_model
@@ -1541,12 +1304,11 @@ def _set_runtime_default_provider(provider: str, model: str | None = None) -> No
 
 
 def _resolved_provider_model() -> tuple[str, str]:
-    """Resolved provider model.
+    """Prepares resolved provider model for an internal Sonex flow.
 
-    Coordinates resolved provider model logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs resolved provider model without duplicating the local rules.
 
-    Returns:
-        The computed result for resolved provider model.
+    Example: _resolved_provider_model() -> returns the value used by the surrounding Sonex flow.
     """
     try:
         ThinkingConfig.reload()
@@ -1559,12 +1321,11 @@ def _resolved_provider_model() -> tuple[str, str]:
 
 
 def _llm_auth_state() -> AuthRuntimeState:
-    """Llm auth state.
+    """Prepares llm auth state for an internal Sonex flow.
 
-    Coordinates llm auth state logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs llm auth state without duplicating the local rules.
 
-    Returns:
-        The computed result for llm auth state.
+    Example: _llm_auth_state() -> returns the value used by the surrounding Sonex flow.
     """
     provider, model = _resolved_provider_model()
 
@@ -1608,27 +1369,22 @@ def _llm_auth_state() -> AuthRuntimeState:
 
 
 def _llm_auth_ready() -> tuple[bool, str, str | None]:
-    """Llm auth ready.
+    """Prepares llm auth ready for an internal Sonex flow.
 
-    Coordinates llm auth ready logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs llm auth ready without duplicating the local rules.
 
-    Returns:
-        The computed result for llm auth ready.
+    Example: _llm_auth_ready() -> returns the value used by the surrounding Sonex flow.
     """
     state = _llm_auth_state()
     return state.ready, state.provider, state.reason
 
 
 def _auth_methods_for_provider(provider: str) -> list[dict[str, str]]:
-    """Auth methods for provider.
+    """Prepares auth methods for provider for an internal Sonex flow.
 
-    Coordinates auth methods for provider logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs auth methods for provider without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the auth methods for provider operation.
-
-    Returns:
-        The computed result for auth methods for provider.
+    Example: _auth_methods_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     capability = get_provider_capability(provider)
     methods: list[dict[str, str]] = []
@@ -1640,15 +1396,11 @@ def _auth_methods_for_provider(provider: str) -> list[dict[str, str]]:
 
 
 def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
-    """Model choices for provider.
+    """Prepares model choices for provider for an internal Sonex flow.
 
-    Coordinates model choices for provider logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs model choices for provider without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the model choices for provider operation.
-
-    Returns:
-        The computed result for model choices for provider.
+    Example: _model_choices_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     name = normalize_provider(provider)
     if name in {"openai", "anthropic", "gemini", "deepseek"}:
@@ -1671,16 +1423,11 @@ def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
 
 
 def _parse_model_choice(value: str, choices: list[dict[str, str]] | None = None) -> tuple[str, str] | None:
-    """Parse model choice.
+    """Prepares parse model choice for an internal Sonex flow.
 
-    Coordinates parse model choice logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs parse model choice without duplicating the local rules.
 
-    Args:
-        value: Input value used by the parse model choice operation.
-        choices: Input value used by the parse model choice operation.
-
-    Returns:
-        The computed result for parse model choice.
+    Example: _parse_model_choice(value=..., choices=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = value.strip()
     if not normalized:
@@ -1707,16 +1454,11 @@ def _parse_model_choice(value: str, choices: list[dict[str, str]] | None = None)
 
 
 def _spotify_loopback_login_for_tui(authorize_url: str, expected_state: str) -> dict[str, Any]:
-    """Spotify loopback login for tui.
+    """Prepares spotify loopback login for tui for an internal Sonex flow.
 
-    Coordinates spotify loopback login for tui logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs spotify loopback login for tui without duplicating the local rules.
 
-    Args:
-        authorize_url: Input value used by the spotify loopback login for tui operation.
-        expected_state: Input value used by the spotify loopback login for tui operation.
-
-    Returns:
-        The computed result for spotify loopback login for tui.
+    Example: _spotify_loopback_login_for_tui(authorize_url=..., expected_state=...) -> returns the value used by the surrounding Sonex flow.
     """
     redirect = urlparse(spotify_redirect_uri())
     host = redirect.hostname or "127.0.0.1"
@@ -1730,12 +1472,11 @@ def _spotify_loopback_login_for_tui(authorize_url: str, expected_state: str) -> 
         Encapsulates spotify callback handler data and behavior used by Sonex runtime flows. Extends base h t t p request handler semantics.
         """
         def do_GET(self) -> None:
-            """Do g e t for spotify callback handler.
+            """Coordinates do GET for the current Sonex flow.
 
-            Coordinates the do g e t method behavior while preserving spotify callback handler state and contracts.
+            Typical use: Use this function when runtime code needs do GET as part of a Sonex command, playback, auth, llm, or ui path.
 
-            Returns:
-                The computed result for do g e t.
+            Example: do_GET() -> returns the value used by the surrounding Sonex flow.
             """
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
@@ -1757,16 +1498,11 @@ def _spotify_loopback_login_for_tui(authorize_url: str, expected_state: str) -> 
             self.wfile.write(b"Spotify connected. You can return to Sonex.")
 
         def log_message(self, format: str, *args: object) -> None:
-            """Log message for spotify callback handler.
+            """Coordinates log message for the current Sonex flow.
 
-            Coordinates the log message method behavior while preserving spotify callback handler state and contracts.
+            Typical use: Use this function when runtime code needs log message as part of a Sonex command, playback, auth, llm, or ui path.
 
-            Args:
-                format: Input value used by the log message operation.
-                args: Input value used by the log message operation.
-
-            Returns:
-                The computed result for log message.
+            Example: log_message(format=...) -> returns the value used by the surrounding Sonex flow.
             """
             return
 
@@ -1798,12 +1534,11 @@ class SpotifySetupSession:
     Encapsulates spotify setup session data and behavior used by Sonex runtime flows.
     """
     def __init__(self, ui: WebSocketUIAdapter) -> None:
-        """Init for spotify setup session.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving spotify setup session state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the init operation.
+        Example: __init__(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ui = ui
         self.client_id: str | None = None
@@ -1811,12 +1546,11 @@ class SpotifySetupSession:
         self.oauth_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        """Start for spotify setup session.
+        """Coordinates start for the current Sonex flow.
 
-        Coordinates the start method behavior while preserving spotify setup session state and contracts.
+        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for start.
+        Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         redirect_uri = spotify_redirect_uri()
         message = (
@@ -1837,15 +1571,11 @@ class SpotifySetupSession:
         )
 
     async def handle_input(self, value: str) -> None:
-        """Handle input for spotify setup session.
+        """Coordinates handle input for the current Sonex flow.
 
-        Coordinates the handle input method behavior while preserving spotify setup session state and contracts.
+        Typical use: Use this function when runtime code needs handle input as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            value: Input value used by the handle input operation.
-
-        Returns:
-            The computed result for handle input.
+        Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
         """
         value = value.strip()
         if not value:
@@ -1907,16 +1637,11 @@ class SpotifySetupSession:
         self.oauth_task = asyncio.create_task(self._finish_oauth(authorize_url, expected_state))
 
     async def _finish_oauth(self, authorize_url: str, expected_state: str) -> None:
-        """Finish oauth for spotify setup session.
+        """Prepares finish oauth for an internal Sonex flow.
 
-        Coordinates the finish oauth method behavior while preserving spotify setup session state and contracts.
+        Typical use: Use this helper when nearby code needs finish oauth without duplicating the local rules.
 
-        Args:
-            authorize_url: Input value used by the finish oauth operation.
-            expected_state: Input value used by the finish oauth operation.
-
-        Returns:
-            The computed result for finish oauth.
+        Example: await _finish_oauth(authorize_url=..., expected_state=...) -> returns the value used by the surrounding Sonex flow.
         """
         try:
             account = await asyncio.to_thread(_spotify_loopback_login_for_tui, authorize_url, expected_state)
@@ -1957,23 +1682,21 @@ class AppleMusicSetupSession:
     Encapsulates apple music setup session data and behavior used by Sonex runtime flows.
     """
     def __init__(self, ui: WebSocketUIAdapter) -> None:
-        """Init for apple music setup session.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving apple music setup session state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the init operation.
+        Example: __init__(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ui = ui
         self.step = "credentials"
 
     async def start(self) -> None:
-        """Start for apple music setup session.
+        """Coordinates start for the current Sonex flow.
 
-        Coordinates the start method behavior while preserving apple music setup session state and contracts.
+        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for start.
+        Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         message = (
             f"{apple_music_setup_message()} Paste the Apple Music credentials JSON or a path to that JSON below."
@@ -1994,15 +1717,11 @@ class AppleMusicSetupSession:
         )
 
     async def handle_input(self, value: str) -> None:
-        """Handle input for apple music setup session.
+        """Coordinates handle input for the current Sonex flow.
 
-        Coordinates the handle input method behavior while preserving apple music setup session state and contracts.
+        Typical use: Use this function when runtime code needs handle input as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            value: Input value used by the handle input operation.
-
-        Returns:
-            The computed result for handle input.
+        Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
         """
         value = value.strip()
         if not value:
@@ -2044,15 +1763,11 @@ class AppleMusicSetupSession:
             await self._finish("Apple Music developer credentials and user token are configured.")
 
     async def _repeat(self, message: str) -> None:
-        """Repeat for apple music setup session.
+        """Prepares repeat for an internal Sonex flow.
 
-        Coordinates the repeat method behavior while preserving apple music setup session state and contracts.
+        Typical use: Use this helper when nearby code needs repeat without duplicating the local rules.
 
-        Args:
-            message: Input value used by the repeat operation.
-
-        Returns:
-            The computed result for repeat.
+        Example: await _repeat(message=...) -> returns the value used by the surrounding Sonex flow.
         """
         if self.step == "user_token":
             await self.ui.send_auth_setup(
@@ -2074,15 +1789,11 @@ class AppleMusicSetupSession:
         )
 
     async def _finish(self, message: str) -> None:
-        """Finish for apple music setup session.
+        """Prepares finish for an internal Sonex flow.
 
-        Coordinates the finish method behavior while preserving apple music setup session state and contracts.
+        Typical use: Use this helper when nearby code needs finish without duplicating the local rules.
 
-        Args:
-            message: Input value used by the finish operation.
-
-        Returns:
-            The computed result for finish.
+        Example: await _finish(message=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self.ui.append_activity(
             kind="status",
@@ -2106,35 +1817,31 @@ class OpenAudioSetupSession:
     Encapsulates open audio setup session data and behavior used by Sonex runtime flows.
     """
     def __init__(self, ui: WebSocketUIAdapter, provider: str) -> None:
-        """Init for open audio setup session.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving open audio setup session state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the init operation.
-            provider: Input value used by the init operation.
+        Example: __init__(ui=..., provider=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ui = ui
         self.provider = provider
         self.display_name = "Jamendo" if provider == "jamendo" else "Audius"
 
     def _prompt_label(self) -> str:
-        """Prompt label for open audio setup session.
+        """Prepares prompt label for an internal Sonex flow.
 
-        Coordinates the prompt label method behavior while preserving open audio setup session state and contracts.
+        Typical use: Use this helper when nearby code needs prompt label without duplicating the local rules.
 
-        Returns:
-            The computed result for prompt label.
+        Example: _prompt_label() -> returns the value used by the surrounding Sonex flow.
         """
         return "Jamendo Client ID" if self.provider == "jamendo" else "Audius API key"
 
     def _setup_message(self) -> str:
-        """Setup message for open audio setup session.
+        """Prepares setup message for an internal Sonex flow.
 
-        Coordinates the setup message method behavior while preserving open audio setup session state and contracts.
+        Typical use: Use this helper when nearby code needs setup message without duplicating the local rules.
 
-        Returns:
-            The computed result for setup message.
+        Example: _setup_message() -> returns the value used by the surrounding Sonex flow.
         """
         if self.provider == "jamendo":
             return (
@@ -2147,12 +1854,11 @@ class OpenAudioSetupSession:
         )
 
     async def start(self) -> None:
-        """Start for open audio setup session.
+        """Coordinates start for the current Sonex flow.
 
-        Coordinates the start method behavior while preserving open audio setup session state and contracts.
+        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for start.
+        Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         label = self._prompt_label()
         message = self._setup_message()
@@ -2172,15 +1878,11 @@ class OpenAudioSetupSession:
         )
 
     async def handle_input(self, value: str) -> None:
-        """Handle input for open audio setup session.
+        """Coordinates handle input for the current Sonex flow.
 
-        Coordinates the handle input method behavior while preserving open audio setup session state and contracts.
+        Typical use: Use this function when runtime code needs handle input as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            value: Input value used by the handle input operation.
-
-        Returns:
-            The computed result for handle input.
+        Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
         """
         value = value.strip()
         if not value:
@@ -2228,24 +1930,22 @@ class ModelSelectionSession:
     Encapsulates model selection session data and behavior used by Sonex runtime flows.
     """
     def __init__(self, ui: WebSocketUIAdapter) -> None:
-        """Init for model selection session.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving model selection session state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the init operation.
+        Example: __init__(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ui = ui
         self.provider = _default_provider_name()
         self.model_choices: list[dict[str, str]] = []
 
     async def start(self) -> None:
-        """Start for model selection session.
+        """Coordinates start for the current Sonex flow.
 
-        Coordinates the start method behavior while preserving model selection session state and contracts.
+        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for start.
+        Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         self.provider = _default_provider_name()
         if normalize_provider(self.provider) == "deepseek":
@@ -2268,15 +1968,11 @@ class ModelSelectionSession:
         )
 
     async def handle_input(self, value: str) -> None:
-        """Handle input for model selection session.
+        """Coordinates handle input for the current Sonex flow.
 
-        Coordinates the handle input method behavior while preserving model selection session state and contracts.
+        Typical use: Use this function when runtime code needs handle input as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            value: Input value used by the handle input operation.
-
-        Returns:
-            The computed result for handle input.
+        Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
         """
         parsed = _parse_model_choice(value, self.model_choices)
         if parsed is None:
@@ -2319,15 +2015,11 @@ class AuthSetupSession:
     Encapsulates auth setup session data and behavior used by Sonex runtime flows.
     """
     def __init__(self, ui: WebSocketUIAdapter, provider: str, pending_input: str | None, runner: "WebSocketRunner") -> None:
-        """Init for auth setup session.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the init operation.
-            provider: Input value used by the init operation.
-            pending_input: Input value used by the init operation.
-            runner: Input value used by the init operation.
+        Example: __init__(ui=..., provider=..., pending_input=..., runner=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ui = ui
         self.provider = normalize_provider(provider)
@@ -2338,15 +2030,11 @@ class AuthSetupSession:
         self.oauth_task: asyncio.Task[None] | None = None
 
     async def start(self, reason: str | None = None) -> None:
-        """Start for auth setup session.
+        """Coordinates start for the current Sonex flow.
 
-        Coordinates the start method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            reason: Input value used by the start operation.
-
-        Returns:
-            The computed result for start.
+        Example: await start(reason=...) -> returns the value used by the surrounding Sonex flow.
         """
         if self.pending_input is None:
             await self.ui.append_activity(
@@ -2367,15 +2055,11 @@ class AuthSetupSession:
         await self._continue_provider_auth(reason)
 
     async def _prompt_provider(self, reason: str | None = None) -> None:
-        """Prompt provider for auth setup session.
+        """Prepares prompt provider for an internal Sonex flow.
 
-        Coordinates the prompt provider method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this helper when nearby code needs prompt provider without duplicating the local rules.
 
-        Args:
-            reason: Input value used by the prompt provider operation.
-
-        Returns:
-            The computed result for prompt provider.
+        Example: await _prompt_provider(reason=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.step = "provider"
         await self.ui.send_auth_setup(
@@ -2388,15 +2072,11 @@ class AuthSetupSession:
         )
 
     async def _continue_provider_auth(self, reason: str | None = None) -> None:
-        """Continue provider auth for auth setup session.
+        """Prepares continue provider auth for an internal Sonex flow.
 
-        Coordinates the continue provider auth method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this helper when nearby code needs continue provider auth without duplicating the local rules.
 
-        Args:
-            reason: Input value used by the continue provider auth operation.
-
-        Returns:
-            The computed result for continue provider auth.
+        Example: await _continue_provider_auth(reason=...) -> returns the value used by the surrounding Sonex flow.
         """
         capability = get_provider_capability(self.provider)
         if not capability.requires_auth:
@@ -2435,15 +2115,11 @@ class AuthSetupSession:
         )
 
     async def handle_input(self, value: str) -> None:
-        """Handle input for auth setup session.
+        """Coordinates handle input for the current Sonex flow.
 
-        Coordinates the handle input method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this function when runtime code needs handle input as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            value: Input value used by the handle input operation.
-
-        Returns:
-            The computed result for handle input.
+        Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
         """
         value = value.strip()
         if not value:
@@ -2504,31 +2180,29 @@ class AuthSetupSession:
             await self._repeat("OAuth is already in progress. Finish the browser flow, or type api_key to use an API key.")
 
     async def _prompt_api_key(self) -> None:
-        """Prompt api key for auth setup session.
+        """Prepares prompt api key for an internal Sonex flow.
 
-        Coordinates the prompt api key method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this helper when nearby code needs prompt api key without duplicating the local rules.
 
-        Returns:
-            The computed result for prompt api key.
+        Example: await _prompt_api_key() -> returns the value used by the surrounding Sonex flow.
         """
         self.step = "api_key"
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="api_key",
             title=f"{self.provider} API key",
-            message=f"Paste your {self.provider} API key. It will be saved to auth.json.",
+            message=f"Paste your {self.provider} API key. It will be saved toauth.json.",
             prompt=f"{self.provider} API key",
             mask=True,
             methods=_auth_methods_for_provider(self.provider),
         )
 
     async def _start_browser_oauth(self) -> None:
-        """Start browser oauth for auth setup session.
+        """Prepares start browser oauth for an internal Sonex flow.
 
-        Coordinates the start browser oauth method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this helper when nearby code needs start browser oauth without duplicating the local rules.
 
-        Returns:
-            The computed result for start browser oauth.
+        Example: await _start_browser_oauth() -> returns the value used by the surrounding Sonex flow.
         """
         self.step = "oauth_wait"
         await self.ui.send_auth_setup(
@@ -2542,12 +2216,11 @@ class AuthSetupSession:
         self.oauth_task = asyncio.create_task(self._finish_browser_oauth())
 
     async def _finish_browser_oauth(self) -> None:
-        """Finish browser oauth for auth setup session.
+        """Prepares finish browser oauth for an internal Sonex flow.
 
-        Coordinates the finish browser oauth method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this helper when nearby code needs finish browser oauth without duplicating the local rules.
 
-        Returns:
-            The computed result for finish browser oauth.
+        Example: await _finish_browser_oauth() -> returns the value used by the surrounding Sonex flow.
         """
         try:
             await asyncio.to_thread(run_browser_oauth, self.provider)
@@ -2566,15 +2239,11 @@ class AuthSetupSession:
         await self._finish()
 
     async def _repeat(self, message: str) -> None:
-        """Repeat for auth setup session.
+        """Prepares repeat for an internal Sonex flow.
 
-        Coordinates the repeat method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this helper when nearby code needs repeat without duplicating the local rules.
 
-        Args:
-            message: Input value used by the repeat operation.
-
-        Returns:
-            The computed result for repeat.
+        Example: await _repeat(message=...) -> returns the value used by the surrounding Sonex flow.
         """
         if self.method == "oauth" and self.step == "oauth_wait":
             await self.ui.send_auth_setup(
@@ -2608,12 +2277,11 @@ class AuthSetupSession:
         )
 
     async def _finish(self) -> None:
-        """Finish for auth setup session.
+        """Prepares finish for an internal Sonex flow.
 
-        Coordinates the finish method behavior while preserving auth setup session state and contracts.
+        Typical use: Use this helper when nearby code needs finish without duplicating the local rules.
 
-        Returns:
-            The computed result for finish.
+        Example: await _finish() -> returns the value used by the surrounding Sonex flow.
         """
         try:
             _set_runtime_default_provider(self.provider)
@@ -2648,15 +2316,11 @@ class MusicIntentConfirmationSession:
     Encapsulates music intent confirmation session data and behavior used by Sonex runtime flows.
     """
     def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner", original_input: str, query: str) -> None:
-        """Init for music intent confirmation session.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving music intent confirmation session state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the init operation.
-            runner: Input value used by the init operation.
-            original_input: Input value used by the init operation.
-            query: Input value used by the init operation.
+        Example: __init__(ui=..., runner=..., original_input=..., query=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ui = ui
         self.runner = runner
@@ -2665,12 +2329,11 @@ class MusicIntentConfirmationSession:
         self.confirm_id = _new_event_id("confirm")
 
     async def start(self) -> None:
-        """Start for music intent confirmation session.
+        """Coordinates start for the current Sonex flow.
 
-        Coordinates the start method behavior while preserving music intent confirmation session state and contracts.
+        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for start.
+        Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         await self.ui.ask_confirm(
             {
@@ -2686,28 +2349,20 @@ class MusicIntentConfirmationSession:
         )
 
     def owns_confirm(self, confirm_id: str) -> bool:
-        """Owns confirm for music intent confirmation session.
+        """Coordinates owns confirm for the current Sonex flow.
 
-        Coordinates the owns confirm method behavior while preserving music intent confirmation session state and contracts.
+        Typical use: Use this function when runtime code needs owns confirm as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            confirm_id: Input value used by the owns confirm operation.
-
-        Returns:
-            The computed result for owns confirm.
+        Example: owns_confirm(confirm_id=...) -> returns the value used by the surrounding Sonex flow.
         """
         return confirm_id == self.confirm_id
 
     async def handle_choice(self, decision: Any) -> None:
-        """Handle choice for music intent confirmation session.
+        """Coordinates handle choice for the current Sonex flow.
 
-        Coordinates the handle choice method behavior while preserving music intent confirmation session state and contracts.
+        Typical use: Use this function when runtime code needs handle choice as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            decision: Input value used by the handle choice operation.
-
-        Returns:
-            The computed result for handle choice.
+        Example: await handle_choice(decision=...) -> returns the value used by the surrounding Sonex flow.
         """
         setattr(self.ui, "_music_intent_confirmation", None)
         if str(decision) == "play_track":
@@ -2740,14 +2395,11 @@ class PlaySelectionSession:
     Encapsulates play selection session data and behavior used by Sonex runtime flows.
     """
     def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner", query: str) -> None:
-        """Init for play selection session.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the init operation.
-            runner: Input value used by the init operation.
-            query: Input value used by the init operation.
+        Example: __init__(ui=..., runner=..., query=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ui = ui
         self.runner = runner
@@ -2763,12 +2415,11 @@ class PlaySelectionSession:
         self.awaiting_online_refinement = False
 
     async def start(self) -> None:
-        """Start for play selection session.
+        """Coordinates start for the current Sonex flow.
 
-        Coordinates the start method behavior while preserving play selection session state and contracts.
+        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for start.
+        Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         if not self.query:
             message = "Usage: /play <query>"
@@ -2786,28 +2437,20 @@ class PlaySelectionSession:
         await self._ask_method_choice()
 
     def owns_confirm(self, confirm_id: str) -> bool:
-        """Owns confirm for play selection session.
+        """Coordinates owns confirm for the current Sonex flow.
 
-        Coordinates the owns confirm method behavior while preserving play selection session state and contracts.
+        Typical use: Use this function when runtime code needs owns confirm as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            confirm_id: Input value used by the owns confirm operation.
-
-        Returns:
-            The computed result for owns confirm.
+        Example: owns_confirm(confirm_id=...) -> returns the value used by the surrounding Sonex flow.
         """
         return bool(self.active_confirm_id and confirm_id == self.active_confirm_id)
 
     async def handle_choice(self, decision: Any) -> None:
-        """Handle choice for play selection session.
+        """Coordinates handle choice for the current Sonex flow.
 
-        Coordinates the handle choice method behavior while preserving play selection session state and contracts.
+        Typical use: Use this function when runtime code needs handle choice as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            decision: Input value used by the handle choice operation.
-
-        Returns:
-            The computed result for handle choice.
+        Example: await handle_choice(decision=...) -> returns the value used by the surrounding Sonex flow.
         """
         choice = str(decision or "cancel")
         if self.pending_player_confirm_result:
@@ -2918,15 +2561,11 @@ class PlaySelectionSession:
         await self._finish("Unknown playback choice.", status="error")
 
     async def handle_refinement(self, text: str) -> bool:
-        """Handle refinement for play selection session.
+        """Coordinates handle refinement for the current Sonex flow.
 
-        Coordinates the handle refinement method behavior while preserving play selection session state and contracts.
+        Typical use: Use this function when runtime code needs handle refinement as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            text: Input value used by the handle refinement operation.
-
-        Returns:
-            The computed result for handle refinement.
+        Example: await handle_refinement(text=...) -> returns the value used by the surrounding Sonex flow.
         """
         if self.awaiting_metadata_refinement:
             extra = text.strip()
@@ -2959,12 +2598,11 @@ class PlaySelectionSession:
         return True
 
     async def _ensure_online_audio_setup(self) -> bool:
-        """Ensure online audio setup for play selection session.
+        """Prepares ensure online audio setup for an internal Sonex flow.
 
-        Coordinates the ensure online audio setup method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs ensure online audio setup without duplicating the local rules.
 
-        Returns:
-            The computed result for ensure online audio setup.
+        Example: await _ensure_online_audio_setup() -> returns the value used by the surrounding Sonex flow.
         """
         if online_audio_configured():
             return True
@@ -2972,12 +2610,11 @@ class PlaySelectionSession:
         return False
 
     async def _show_online_audio_setup_required(self) -> None:
-        """Show online audio setup required for play selection session.
+        """Prepares show online audio setup required for an internal Sonex flow.
 
-        Coordinates the show online audio setup required method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs show online audio setup required without duplicating the local rules.
 
-        Returns:
-            The computed result for show online audio setup required.
+        Example: await _show_online_audio_setup_required() -> returns the value used by the surrounding Sonex flow.
         """
         await self.ui.append_activity(
             kind="error",
@@ -2990,15 +2627,11 @@ class PlaySelectionSession:
         await self._ask_method_choice()
 
     async def _ask_local_choice(self, local_file: str) -> None:
-        """Ask local choice for play selection session.
+        """Prepares ask local choice for an internal Sonex flow.
 
-        Coordinates the ask local choice method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs ask local choice without duplicating the local rules.
 
-        Args:
-            local_file: Input value used by the ask local choice operation.
-
-        Returns:
-            The computed result for ask local choice.
+        Example: await _ask_local_choice(local_file=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self._ask_confirm(
             message=f"💾 播放本地文件 {_filename(local_file)}?",
@@ -3007,12 +2640,11 @@ class PlaySelectionSession:
         )
 
     async def _ask_method_choice(self) -> None:
-        """Ask method choice for play selection session.
+        """Prepares ask method choice for an internal Sonex flow.
 
-        Coordinates the ask method choice method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs ask method choice without duplicating the local rules.
 
-        Returns:
-            The computed result for ask method choice.
+        Example: await _ask_method_choice() -> returns the value used by the surrounding Sonex flow.
         """
         tool_args: dict[str, Any] = {"query": self.query, "stage": "method_choice"}
         if self.cache_hit:
@@ -3025,15 +2657,11 @@ class PlaySelectionSession:
         )
 
     async def _ask_metadata_candidates(self, query: str) -> None:
-        """Ask metadata candidates for play selection session.
+        """Prepares ask metadata candidates for an internal Sonex flow.
 
-        Coordinates the ask metadata candidates method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs ask metadata candidates without duplicating the local rules.
 
-        Args:
-            query: Input value used by the ask metadata candidates operation.
-
-        Returns:
-            The computed result for ask metadata candidates.
+        Example: await _ask_metadata_candidates(query=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self.ui.append_activity(
             kind="tool",
@@ -3087,16 +2715,11 @@ class PlaySelectionSession:
         )
 
     def _metadata_candidate_choice(self, index: int, candidate: dict[str, Any]) -> dict[str, Any]:
-        """Metadata candidate choice for play selection session.
+        """Prepares metadata candidate choice for an internal Sonex flow.
 
-        Coordinates the metadata candidate choice method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs metadata candidate choice without duplicating the local rules.
 
-        Args:
-            index: Input value used by the metadata candidate choice operation.
-            candidate: Input value used by the metadata candidate choice operation.
-
-        Returns:
-            The computed result for metadata candidate choice.
+        Example: _metadata_candidate_choice(index=..., candidate=...) -> returns the value used by the surrounding Sonex flow.
         """
         artist = str(candidate.get("artist") or "-")
         album = str(candidate.get("album") or "-")
@@ -3112,16 +2735,11 @@ class PlaySelectionSession:
         }
 
     async def _ask_online_audio_candidates(self, query: str, playback_metadata: dict[str, Any] | None = None) -> None:
-        """Ask online audio candidates for play selection session.
+        """Prepares ask online audio candidates for an internal Sonex flow.
 
-        Coordinates the ask online audio candidates method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs ask online audio candidates without duplicating the local rules.
 
-        Args:
-            query: Input value used by the ask online audio candidates operation.
-            playback_metadata: Input value used by the ask online audio candidates operation.
-
-        Returns:
-            The computed result for ask online audio candidates.
+        Example: await _ask_online_audio_candidates(query=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self.ui.append_activity(
             kind="tool",
@@ -3175,16 +2793,11 @@ class PlaySelectionSession:
         )
 
     async def _play_selected_metadata_candidate(self, query: str, playback_metadata: dict[str, Any]) -> None:
-        """Play selected metadata candidate for play selection session.
+        """Prepares play selected metadata candidate for an internal Sonex flow.
 
-        Coordinates the play selected metadata candidate method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs play selected metadata candidate without duplicating the local rules.
 
-        Args:
-            query: Input value used by the play selected metadata candidate operation.
-            playback_metadata: Input value used by the play selected metadata candidate operation.
-
-        Returns:
-            The computed result for play selected metadata candidate.
+        Example: await _play_selected_metadata_candidate(query=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self.ui.append_activity(
             kind="tool",
@@ -3245,15 +2858,11 @@ class PlaySelectionSession:
             await self._finish("Online playback selected.")
 
     async def _send_cover_from_task(self, cover_task: asyncio.Task[dict[str, Any]]) -> None:
-        """Send cover from task for play selection session.
+        """Prepares send cover from task for an internal Sonex flow.
 
-        Coordinates the send cover from task method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs send cover from task without duplicating the local rules.
 
-        Args:
-            cover_task: Input value used by the send cover from task operation.
-
-        Returns:
-            The computed result for send cover from task.
+        Example: await _send_cover_from_task(cover_task=...) -> returns the value used by the surrounding Sonex flow.
         """
         try:
             metadata = await cover_task
@@ -3268,15 +2877,11 @@ class PlaySelectionSession:
             await self.ui.send_cover(str(cover_url))
 
     async def _append_source_attempts(self, attempts: Any) -> None:
-        """Append source attempts for play selection session.
+        """Prepares append source attempts for an internal Sonex flow.
 
-        Coordinates the append source attempts method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs append source attempts without duplicating the local rules.
 
-        Args:
-            attempts: Input value used by the append source attempts operation.
-
-        Returns:
-            The computed result for append source attempts.
+        Example: await _append_source_attempts(attempts=...) -> returns the value used by the surrounding Sonex flow.
         """
         if not isinstance(attempts, list):
             return
@@ -3295,15 +2900,11 @@ class PlaySelectionSession:
             )
 
     async def _append_metadata_attempts(self, attempts: Any) -> None:
-        """Append metadata attempts for play selection session.
+        """Prepares append metadata attempts for an internal Sonex flow.
 
-        Coordinates the append metadata attempts method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs append metadata attempts without duplicating the local rules.
 
-        Args:
-            attempts: Input value used by the append metadata attempts operation.
-
-        Returns:
-            The computed result for append metadata attempts.
+        Example: await _append_metadata_attempts(attempts=...) -> returns the value used by the surrounding Sonex flow.
         """
         if not isinstance(attempts, list):
             return
@@ -3321,15 +2922,11 @@ class PlaySelectionSession:
             )
 
     def _online_audio_candidate_choice(self, candidate: dict[str, Any]) -> dict[str, Any]:
-        """Online audio candidate choice for play selection session.
+        """Prepares online audio candidate choice for an internal Sonex flow.
 
-        Coordinates the online audio candidate choice method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs online audio candidate choice without duplicating the local rules.
 
-        Args:
-            candidate: Input value used by the online audio candidate choice operation.
-
-        Returns:
-            The computed result for online audio candidate choice.
+        Example: _online_audio_candidate_choice(candidate=...) -> returns the value used by the surrounding Sonex flow.
         """
         name = str(candidate.get("name") or candidate.get("title") or "-")
         artist = str(candidate.get("artist") or "-")
@@ -3364,18 +2961,11 @@ class PlaySelectionSession:
         tool_args: dict[str, Any],
         tool_name: str = "playback_choice",
     ) -> None:
-        """Ask confirm for play selection session.
+        """Prepares ask confirm for an internal Sonex flow.
 
-        Coordinates the ask confirm method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs ask confirm without duplicating the local rules.
 
-        Args:
-            message: Input value used by the ask confirm operation.
-            choices: Input value used by the ask confirm operation.
-            tool_args: Input value used by the ask confirm operation.
-            tool_name: Input value used by the ask confirm operation.
-
-        Returns:
-            The computed result for ask confirm.
+        Example: await _ask_confirm(message=..., choices=..., tool_args=..., tool_name=...) -> returns the value used by the surrounding Sonex flow.
         """
         confirm_id = _new_event_id("confirm")
         self.active_confirm_id = confirm_id
@@ -3398,16 +2988,11 @@ class PlaySelectionSession:
         )
 
     async def _play_from_provider(self, tool_name: str, provider: str) -> None:
-        """Play from provider for play selection session.
+        """Prepares play from provider for an internal Sonex flow.
 
-        Coordinates the play from provider method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs play from provider without duplicating the local rules.
 
-        Args:
-            tool_name: Input value used by the play from provider operation.
-            provider: Input value used by the play from provider operation.
-
-        Returns:
-            The computed result for play from provider.
+        Example: await _play_from_provider(tool_name=..., provider=...) -> returns the value used by the surrounding Sonex flow.
         """
         args: dict[str, Any] = {"query": self.query}
         cached_item = self._cached_item_for_provider(provider)
@@ -3419,15 +3004,11 @@ class PlaySelectionSession:
         await self._finish(f"{provider.replace('_', ' ').title()} playback selected.")
 
     def _cached_item_for_provider(self, provider: str) -> dict[str, Any] | None:
-        """Cached item for provider for play selection session.
+        """Prepares cached item for provider for an internal Sonex flow.
 
-        Coordinates the cached item for provider method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs cached item for provider without duplicating the local rules.
 
-        Args:
-            provider: Input value used by the cached item for provider operation.
-
-        Returns:
-            The computed result for cached item for provider.
+        Example: _cached_item_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
         """
         if not self.cache_hit:
             return None
@@ -3450,18 +3031,11 @@ class PlaySelectionSession:
         cache_provider: str | None = None,
         pending_detail: str | None = None,
     ) -> dict[str, Any]:
-        """Invoke playback for play selection session.
+        """Prepares invoke playback for an internal Sonex flow.
 
-        Coordinates the invoke playback method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs invoke playback without duplicating the local rules.
 
-        Args:
-            tool_name: Input value used by the invoke playback operation.
-            args: Input value used by the invoke playback operation.
-            cache_provider: Input value used by the invoke playback operation.
-            pending_detail: Input value used by the invoke playback operation.
-
-        Returns:
-            The computed result for invoke playback.
+        Example: await _invoke_playback(tool_name=..., args=..., cache_provider=..., pending_detail=...) -> returns the value used by the surrounding Sonex flow.
         """
         if pending_detail:
             await self.ui.append_activity(
@@ -3499,15 +3073,11 @@ class PlaySelectionSession:
         return result
 
     async def _play_online_audio_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
-        """Play online audio candidate for play selection session.
+        """Prepares play online audio candidate for an internal Sonex flow.
 
-        Coordinates the play online audio candidate method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs play online audio candidate without duplicating the local rules.
 
-        Args:
-            candidate: Input value used by the play online audio candidate operation.
-
-        Returns:
-            The computed result for play online audio candidate.
+        Example: await _play_online_audio_candidate(candidate=...) -> returns the value used by the surrounding Sonex flow.
         """
         await self.ui.append_activity(
             kind="tool",
@@ -3541,15 +3111,11 @@ class PlaySelectionSession:
         return result
 
     async def _ask_player_confirm(self, result: dict[str, Any]) -> None:
-        """Ask player confirm for play selection session.
+        """Prepares ask player confirm for an internal Sonex flow.
 
-        Coordinates the ask player confirm method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs ask player confirm without duplicating the local rules.
 
-        Args:
-            result: Input value used by the ask player confirm operation.
-
-        Returns:
-            The computed result for ask player confirm.
+        Example: await _ask_player_confirm(result=...) -> returns the value used by the surrounding Sonex flow.
         """
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
         self.pending_player_confirm_result = result
@@ -3567,15 +3133,11 @@ class PlaySelectionSession:
         )
 
     async def _complete_player_confirmation(self, decision: Any) -> None:
-        """Complete player confirmation for play selection session.
+        """Prepares complete player confirmation for an internal Sonex flow.
 
-        Coordinates the complete player confirmation method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs complete player confirmation without duplicating the local rules.
 
-        Args:
-            decision: Input value used by the complete player confirmation operation.
-
-        Returns:
-            The computed result for complete player confirmation.
+        Example: await _complete_player_confirmation(decision=...) -> returns the value used by the surrounding Sonex flow.
         """
         pending = self.pending_player_confirm_result
         self.pending_player_confirm_result = None
@@ -3599,16 +3161,11 @@ class PlaySelectionSession:
         await self._finish("Online playback selected.")
 
     async def _finish(self, detail: str, *, status: str = "success") -> None:
-        """Finish for play selection session.
+        """Prepares finish for an internal Sonex flow.
 
-        Coordinates the finish method behavior while preserving play selection session state and contracts.
+        Typical use: Use this helper when nearby code needs finish without duplicating the local rules.
 
-        Args:
-            detail: Input value used by the finish operation.
-            status: Input value used by the finish operation.
-
-        Returns:
-            The computed result for finish.
+        Example: await _finish(detail=..., status=...) -> returns the value used by the surrounding Sonex flow.
         """
         setattr(self.ui, "_play_selection", None)
         await self.ui.append_activity(kind="status", title="Playback selection", detail=detail, status=status)
@@ -3630,15 +3187,11 @@ class WebSocketRunner:
         self._confirm_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
 
     async def handle_ws(self, ws: WebSocket) -> None:
-        """Handle ws for web socket runner.
+        """Coordinates handle ws for the current Sonex flow.
 
-        Coordinates the handle ws method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this function when runtime code needs handle ws as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            ws: Input value used by the handle ws operation.
-
-        Returns:
-            The computed result for handle ws.
+        Example: await handle_ws(ws=...) -> returns the value used by the surrounding Sonex flow.
         """
         await ws.accept()
         ui = WebSocketUIAdapter(ws)
@@ -3738,15 +3291,11 @@ class WebSocketRunner:
             self._confirm_queue.put(("", False))
 
     async def _handle_startup_auth(self, ui: WebSocketUIAdapter) -> None:
-        """Handle startup auth for web socket runner.
+        """Prepares handle startup auth for an internal Sonex flow.
 
-        Coordinates the handle startup auth method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs handle startup auth without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the handle startup auth operation.
-
-        Returns:
-            The computed result for handle startup auth.
+        Example: await _handle_startup_auth(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
         state = _llm_auth_state()
         await ui.send_auth_state(state)
@@ -3757,15 +3306,11 @@ class WebSocketRunner:
         await setup.start(state.reason)
 
     async def _sync_spotify_playback(self, ui: WebSocketUIAdapter) -> None:
-        """Sync spotify playback for web socket runner.
+        """Prepares sync spotify playback for an internal Sonex flow.
 
-        Coordinates the sync spotify playback method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs sync spotify playback without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the sync spotify playback operation.
-
-        Returns:
-            The computed result for sync spotify playback.
+        Example: await _sync_spotify_playback(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
         last_signature: tuple[Any, ...] | None = None
         last_cover_url: str | None = None
@@ -3797,15 +3342,11 @@ class WebSocketRunner:
             await asyncio.sleep(2)
 
     async def _sync_local_playback(self, ui: WebSocketUIAdapter) -> None:
-        """Sync local playback for web socket runner.
+        """Prepares sync local playback for an internal Sonex flow.
 
-        Coordinates the sync local playback method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs sync local playback without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the sync local playback operation.
-
-        Returns:
-            The computed result for sync local playback.
+        Example: await _sync_local_playback(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
         last_signature: tuple[Any, ...] | None = None
         last_payload: dict[str, Any] | None = None
@@ -3842,17 +3383,11 @@ class WebSocketRunner:
         *,
         append_user_message: bool = True,
     ) -> None:
-        """Handle user input for web socket runner.
+        """Prepares handle user input for an internal Sonex flow.
 
-        Coordinates the handle user input method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs handle user input without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the handle user input operation.
-            user_input: Input value used by the handle user input operation.
-            append_user_message: Input value used by the handle user input operation.
-
-        Returns:
-            The computed result for handle user input.
+        Example: await _handle_user_input(ui=..., user_input=..., append_user_message=...) -> returns the value used by the surrounding Sonex flow.
         """
         user_input = user_input.strip()
         if not user_input:
@@ -3928,9 +3463,9 @@ class WebSocketRunner:
             return
 
         if decision.route == MusicIntentRoute.CONFIRM_TRACK_PLAY and decision.query:
-            confirmation = MusicIntentConfirmationSession(ui, self, user_input, decision.query)
-            setattr(ui, "_music_intent_confirmation", confirmation)
-            await confirmation.start()
+            session = PlaySelectionSession(ui, self, decision.query)
+            setattr(ui, "_play_selection", session)
+            await session.start()
             return
 
         ready, provider, reason = _llm_auth_ready()
@@ -3948,16 +3483,11 @@ class WebSocketRunner:
         )
 
     async def _resolve_music_query(self, ui: WebSocketUIAdapter, decision: MusicIntentDecision) -> str | None:
-        """Resolve music query for web socket runner.
+        """Prepares resolve music query for an internal Sonex flow.
 
-        Coordinates the resolve music query method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs resolve music query without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the resolve music query operation.
-            decision: Input value used by the resolve music query operation.
-
-        Returns:
-            The computed result for resolve music query.
+        Example: await _resolve_music_query(ui=..., decision=...) -> returns the value used by the surrounding Sonex flow.
         """
         if decision.recommendation_index is None:
             return decision.query
@@ -3979,16 +3509,11 @@ class WebSocketRunner:
         return " ".join(part for part in (name, artist) if part).strip() or None
 
     def _music_agent_intent(self, user_input: str, decision: MusicIntentDecision) -> CommandIntent:
-        """Music agent intent for web socket runner.
+        """Prepares music agent intent for an internal Sonex flow.
 
-        Coordinates the music agent intent method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs music agent intent without duplicating the local rules.
 
-        Args:
-            user_input: Input value used by the music agent intent operation.
-            decision: Input value used by the music agent intent operation.
-
-        Returns:
-            The computed result for music agent intent.
+        Example: _music_agent_intent(user_input=..., decision=...) -> returns the value used by the surrounding Sonex flow.
         """
         if decision.route == MusicIntentRoute.RECOMMEND:
             return CommandIntent(
@@ -4009,21 +3534,20 @@ class WebSocketRunner:
             command="general",
             raw=user_input,
             args="",
-            intent_prompt="Answer normally. Do not start music playback; playback is owned by the system router.",
+            intent_prompt=(
+                "Answer normally. Do not call direct playback tools. If the user is asking to play music "
+                "and the router did not already catch it, call request_playback_selection with a concise query; "
+                "the system will show the playback choice flow."
+            ),
             allowed_tools=allowed_tools,
         )
 
     async def _handle_builtin_command(self, ui: WebSocketUIAdapter, parsed_command: Any) -> None:
-        """Handle builtin command for web socket runner.
+        """Prepares handle builtin command for an internal Sonex flow.
 
-        Coordinates the handle builtin command method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs handle builtin command without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the handle builtin command operation.
-            parsed_command: Input value used by the handle builtin command operation.
-
-        Returns:
-            The computed result for handle builtin command.
+        Example: await _handle_builtin_command(ui=..., parsed_command=...) -> returns the value used by the surrounding Sonex flow.
         """
         if parsed_command.raw == "/" or not parsed_command.name:
             await ui.send_help_panel(command_suggestions())
@@ -4116,16 +3640,11 @@ class WebSocketRunner:
         await ui.append_activity(kind="status", title="Agent command", detail=message, status="success")
 
     async def _handle_local_playback_control(self, ui: WebSocketUIAdapter, command_name: str) -> None:
-        """Handle local playback control for web socket runner.
+        """Prepares handle local playback control for an internal Sonex flow.
 
-        Coordinates the handle local playback control method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs handle local playback control without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the handle local playback control operation.
-            command_name: Input value used by the handle local playback control operation.
-
-        Returns:
-            The computed result for handle local playback control.
+        Example: await _handle_local_playback_control(ui=..., command_name=...) -> returns the value used by the surrounding Sonex flow.
         """
         tool_name = LOCAL_PLAYBACK_CONTROL_TOOLS[command_name]
         try:
@@ -4141,16 +3660,11 @@ class WebSocketRunner:
         await self._sync_tool_result_ui(ui, tool_name, result)
 
     async def _handle_local_playback_volume(self, ui: WebSocketUIAdapter, args: str) -> None:
-        """Handle local playback volume for web socket runner.
+        """Prepares handle local playback volume for an internal Sonex flow.
 
-        Coordinates the handle local playback volume method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs handle local playback volume without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the handle local playback volume operation.
-            args: Input value used by the handle local playback volume operation.
-
-        Returns:
-            The computed result for handle local playback volume.
+        Example: await _handle_local_playback_volume(ui=..., args=...) -> returns the value used by the surrounding Sonex flow.
         """
         try:
             volume = int(args.strip())
@@ -4176,16 +3690,11 @@ class WebSocketRunner:
         await self._sync_tool_result_ui(ui, tool_name, result)
 
     async def _handle_local_playback_player(self, ui: WebSocketUIAdapter, args: str) -> None:
-        """Handle local playback player for web socket runner.
+        """Prepares handle local playback player for an internal Sonex flow.
 
-        Coordinates the handle local playback player method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs handle local playback player without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the handle local playback player operation.
-            args: Input value used by the handle local playback player operation.
-
-        Returns:
-            The computed result for handle local playback player.
+        Example: await _handle_local_playback_player(ui=..., args=...) -> returns the value used by the surrounding Sonex flow.
         """
         backend = args.strip().lower()
         if backend not in LOCAL_PLAYBACK_BACKENDS:
@@ -4208,15 +3717,11 @@ class WebSocketRunner:
         await self._sync_tool_result_ui(ui, tool_name, result)
 
     async def _handle_logout(self, ui: WebSocketUIAdapter) -> None:
-        """Handle logout for web socket runner.
+        """Prepares handle logout for an internal Sonex flow.
 
-        Coordinates the handle logout method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs handle logout without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the handle logout operation.
-
-        Returns:
-            The computed result for handle logout.
+        Example: await _handle_logout(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
         state = _llm_auth_state()
         if not state.ready:
@@ -4263,17 +3768,11 @@ class WebSocketRunner:
         messages: list[dict[str, str]],
         reason: str,
     ) -> None:
-        """Handle bye for web socket runner.
+        """Prepares handle bye for an internal Sonex flow.
 
-        Coordinates the handle bye method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs handle bye without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the handle bye operation.
-            messages: Input value used by the handle bye operation.
-            reason: Input value used by the handle bye operation.
-
-        Returns:
-            The computed result for handle bye.
+        Example: await _handle_bye(ui=..., messages=..., reason=...) -> returns the value used by the surrounding Sonex flow.
         """
         path = _save_session_transcript(messages, reason=reason)
         message = f"Session saved to {path}. Bye."
@@ -4289,16 +3788,11 @@ class WebSocketRunner:
         await ui.close()
 
     async def _start_builtin_setup(self, ui: WebSocketUIAdapter, args: str) -> None:
-        """Start builtin setup for web socket runner.
+        """Prepares start builtin setup for an internal Sonex flow.
 
-        Coordinates the start builtin setup method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs start builtin setup without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the start builtin setup operation.
-            args: Input value used by the start builtin setup operation.
-
-        Returns:
-            The computed result for start builtin setup.
+        Example: await _start_builtin_setup(ui=..., args=...) -> returns the value used by the surrounding Sonex flow.
         """
         provider = (args or "spotify").strip().lower().replace("-", "_")
         if provider in {"spotify", "sp"}:
@@ -4328,18 +3822,11 @@ class WebSocketRunner:
         tool_result: Any,
         activity_id: str | None = None,
     ) -> None:
-        """Sync tool result ui for web socket runner.
+        """Prepares sync tool result ui for an internal Sonex flow.
 
-        Coordinates the sync tool result ui method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs sync tool result ui without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the sync tool result ui operation.
-            tool_name: Input value used by the sync tool result ui operation.
-            tool_result: Input value used by the sync tool result ui operation.
-            activity_id: Input value used by the sync tool result ui operation.
-
-        Returns:
-            The computed result for sync tool result ui.
+        Example: await _sync_tool_result_ui(ui=..., tool_name=..., tool_result=..., activity_id=...) -> returns the value used by the surrounding Sonex flow.
         """
         title, detail, activity_status = _format_tool_result(tool_name, tool_result)
         await ui.append_activity(
@@ -4380,17 +3867,11 @@ class WebSocketRunner:
         user_input: str,
         command_intent: CommandIntent | None = None,
     ) -> None:
-        """Run agent turn for web socket runner.
+        """Prepares run agent turn for an internal Sonex flow.
 
-        Coordinates the run agent turn method behavior while preserving web socket runner state and contracts.
+        Typical use: Use this helper when nearby code needs run agent turn without duplicating the local rules.
 
-        Args:
-            ui: Input value used by the run agent turn operation.
-            user_input: Input value used by the run agent turn operation.
-            command_intent: Input value used by the run agent turn operation.
-
-        Returns:
-            The computed result for run agent turn.
+        Example: await _run_agent_turn(ui=..., user_input=..., command_intent=...) -> returns the value used by the surrounding Sonex flow.
         """
         event_queue: asyncio.Queue[RunnerEvent] = asyncio.Queue()
         self._confirm_queue = queue.Queue()
@@ -4404,38 +3885,29 @@ class WebSocketRunner:
         planning_finished = False
 
         def elapsed_ms() -> int:
-            """Elapsed ms.
+            """Coordinates elapsed ms for the current Sonex flow.
 
-            Coordinates elapsed ms logic for the surrounding Sonex flow.
+            Typical use: Use this function when runtime code needs elapsed ms as part of a Sonex command, playback, auth, llm, or ui path.
 
-            Returns:
-                The computed result for elapsed ms.
+            Example: elapsed_ms() -> returns the value used by the surrounding Sonex flow.
             """
             return int((time.monotonic() - turn_started) * 1000)
 
         def emit(event: RunnerEvent) -> None:
-            """Emit.
+            """Coordinates emit for the current Sonex flow.
 
-            Coordinates emit logic for the surrounding Sonex flow.
+            Typical use: Use this function when runtime code needs emit as part of a Sonex command, playback, auth, llm, or ui path.
 
-            Args:
-                event: Input value used by the emit operation.
-
-            Returns:
-                The computed result for emit.
+            Example: emit(event=...) -> returns the value used by the surrounding Sonex flow.
             """
             loop.call_soon_threadsafe(event_queue.put_nowait, event)
 
         def wait_for_confirm(confirm_id: str) -> Any:
-            """Wait for confirm.
+            """Coordinates wait for confirm for the current Sonex flow.
 
-            Coordinates wait for confirm logic for the surrounding Sonex flow.
+            Typical use: Use this function when runtime code needs wait for confirm as part of a Sonex command, playback, auth, llm, or ui path.
 
-            Args:
-                confirm_id: Input value used by the wait for confirm operation.
-
-            Returns:
-                The computed result for wait for confirm.
+            Example: wait_for_confirm(confirm_id=...) -> returns the value used by the surrounding Sonex flow.
             """
             while True:
                 incoming_id, decision = self._confirm_queue.get()
@@ -4443,12 +3915,11 @@ class WebSocketRunner:
                     return decision
 
         def producer() -> None:
-            """Producer.
+            """Coordinates producer for the current Sonex flow.
 
-            Coordinates producer logic for the surrounding Sonex flow.
+            Typical use: Use this function when runtime code needs producer as part of a Sonex command, playback, auth, llm, or ui path.
 
-            Returns:
-                The computed result for producer.
+            Example: producer() -> returns the value used by the surrounding Sonex flow.
             """
             decision: Any = None
             try:
@@ -4508,12 +3979,11 @@ class WebSocketRunner:
                 emit(RunnerEvent(type="done", data={}))
 
         async def send_current_status() -> None:
-            """Asynchronously send current status.
+            """Sends current status to the active runtime client.
 
-            Coordinates non-blocking send current status work for the surrounding Sonex flow.
+            Typical use: Use this function when runtime code needs send current status as part of a Sonex command, playback, auth, llm, or ui path.
 
-            Returns:
-                The computed result for send current status.
+            Example: await send_current_status() -> returns the value used by the surrounding Sonex flow.
             """
             await ui.send_status(
                 UiStatus(phase=current_phase, message=current_message),
@@ -4523,16 +3993,11 @@ class WebSocketRunner:
             )
 
         async def finish_planning(status: str, detail: str) -> None:
-            """Asynchronously finish planning.
+            """Coordinates finish planning for the current Sonex flow.
 
-            Coordinates non-blocking finish planning work for the surrounding Sonex flow.
+            Typical use: Use this function when runtime code needs finish planning as part of a Sonex command, playback, auth, llm, or ui path.
 
-            Args:
-                status: Input value used by the finish planning operation.
-                detail: Input value used by the finish planning operation.
-
-            Returns:
-                The computed result for finish planning.
+            Example: await finish_planning(status=..., detail=...) -> returns the value used by the surrounding Sonex flow.
             """
             nonlocal planning_finished
             if planning_finished:
@@ -4631,6 +4096,13 @@ class WebSocketRunner:
                     continue
 
                 await self._sync_tool_result_ui(ui, tool_name, tool_result, active_tool_activity_id)
+
+                if _is_play_selection_request_result(tool_result):
+                    query = _play_selection_query_from_result(tool_result)
+                    if query:
+                        session = PlaySelectionSession(ui, self, query)
+                        setattr(ui, "_play_selection", session)
+                        await session.start()
 
                 active_tool_activity_id = None
                 active_tool_name = None

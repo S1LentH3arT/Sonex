@@ -18,14 +18,16 @@ from src.tools.song_cache import (
 
 
 class SongCacheTests(unittest.TestCase):
-    """Groups song cache tests tests.
+    """Groups related song cache tests cases.
 
-    Collects related assertions for song cache tests behavior.
+    Collects assertions that exercise song cache tests behavior without mixing unrelated fixtures.
     """
     def test_cache_retains_only_recent_100_and_exposes_recent_10(self) -> None:
-        """Validate test cache retains only recent 100 and exposes recent 10.
+        """Verifies that cache retains only recent 100 and exposes recent 10 behaves as expected.
 
-        Exercises the test cache retains only recent 100 and exposes recent 10 behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the cache retains only recent 100 and exposes recent 10 behavior against regressions.
+
+        Example: test_cache_retains_only_recent_100_and_exposes_recent_10() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -55,9 +57,11 @@ class SongCacheTests(unittest.TestCase):
             self.assertEqual(recent[-1]["name"], "Song 91")
 
     def test_prune_deletes_audio_file_referenced_by_stale_item(self) -> None:
-        """Validate test prune deletes audio file referenced by stale item.
+        """Verifies that prune deletes audio file referenced by stale item behaves as expected.
 
-        Exercises the test prune deletes audio file referenced by stale item behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the prune deletes audio file referenced by stale item behavior against regressions.
+
+        Example: test_prune_deletes_audio_file_referenced_by_stale_item() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -94,9 +98,11 @@ class SongCacheTests(unittest.TestCase):
             self.assertIsNone(find_best_cached_song("Stale Song", cache_root=root))
 
     def test_resolve_cached_song_reads_full_item_json(self) -> None:
-        """Validate test resolve cached song reads full item json.
+        """Verifies that resolve cached song reads full item json behaves as expected.
 
-        Exercises the test resolve cached song reads full item json behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the resolve cached song reads full item json behavior against regressions.
+
+        Example: test_resolve_cached_song_reads_full_item_json() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

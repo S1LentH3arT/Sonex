@@ -1,15 +1,5 @@
-/**
- * Describes the cover visual status type.
- *
- * Documents the shape shared across cover-visual.ts call sites.
- */
 export type CoverVisualStatus = 'ready' | 'fallback';
 
-/**
- * Describes the cover visual model type.
- *
- * Documents the shape shared across cover-visual.ts call sites.
- */
 export type CoverVisualModel = {
     status: CoverVisualStatus;
     seed: number;
@@ -20,28 +10,11 @@ export type CoverVisualModel = {
     blocks: string[][];
 };
 
-/**
- * Defines the fallback seed constant.
- *
- * Stores stable configuration or display data consumed by cover-visual.ts.
- */
 const FALLBACK_SEED = 0x5e9ec7;
-/**
- * Defines the block rows constant.
- *
- * Stores stable configuration or display data consumed by cover-visual.ts.
- */
 const BLOCK_ROWS = 8;
-/**
- * Defines the block columns constant.
- *
- * Stores stable configuration or display data consumed by cover-visual.ts.
- */
 const BLOCK_COLUMNS = 14;
 
 /**
- * Cover visual from source.
- *
  * Coordinates the cover visual from source operation for the CLI UI runtime.
  *
  * @param source Input value used by the cover visual from source operation.
@@ -49,23 +22,8 @@ const BLOCK_COLUMNS = 14;
  * @returns The computed result for the surrounding CLI UI flow.
  */
 export function coverVisualFromSource(source: string | null, failed = false): CoverVisualModel {
-    /**
-     * Defines the normalized constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const normalized = source?.trim() || '';
-    /**
-     * Defines the seed constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const seed = normalized && !failed ? hashSource(normalized) : FALLBACK_SEED;
-    /**
-     * Defines the palette constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const palette = paletteFromSeed(seed);
 
     return {
@@ -77,8 +35,6 @@ export function coverVisualFromSource(source: string | null, failed = false): Co
 }
 
 /**
- * Rhythm frame for playback.
- *
  * Coordinates the rhythm frame for playback operation for the CLI UI runtime.
  *
  * @param isPlaying Input value used by the rhythm frame for playback operation.
@@ -91,18 +47,11 @@ export function rhythmFrameForPlayback(isPlaying: boolean, progressMs: number, s
         return 0;
     }
 
-    /**
-     * Defines the phase constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const phase = Math.floor(Math.max(0, progressMs) / 700);
     return (phase + (seed % 4)) % 4;
 }
 
 /**
- * Hash source.
- *
  * Coordinates the hash source operation for the CLI UI runtime.
  *
  * @param source Input value used by the hash source operation.
@@ -118,31 +67,14 @@ function hashSource(source: string): number {
 }
 
 /**
- * Palette from seed.
- *
  * Coordinates the palette from seed operation for the CLI UI runtime.
  *
  * @param seed Input value used by the palette from seed operation.
  * @returns The computed result for the surrounding CLI UI flow.
  */
 function paletteFromSeed(seed: number): Omit<CoverVisualModel, 'status' | 'seed' | 'blocks'> {
-    /**
-     * Defines the hue constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const hue = seed % 360;
-    /**
-     * Defines the secondary hue constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const secondaryHue = (hue + 46 + ((seed >>> 8) % 64)) % 360;
-    /**
-     * Defines the accent hue constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const accentHue = (hue + 172 + ((seed >>> 16) % 38)) % 360;
 
     return {
@@ -154,8 +86,6 @@ function paletteFromSeed(seed: number): Omit<CoverVisualModel, 'status' | 'seed'
 }
 
 /**
- * Build block matrix.
- *
  * Coordinates the build block matrix operation for the CLI UI runtime.
  *
  * @param seed Input value used by the build block matrix operation.
@@ -166,31 +96,11 @@ function buildBlockMatrix(
     seed: number,
     palette: Omit<CoverVisualModel, 'status' | 'seed' | 'blocks'>,
 ): string[][] {
-    /**
-     * Defines the colors constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const colors = [palette.primary, palette.secondary, palette.accent, palette.muted];
     return Array.from({ length: BLOCK_ROWS }, (_, row) => (
         Array.from({ length: BLOCK_COLUMNS }, (_, column) => {
-            /**
-             * Defines the wave constant.
-             *
-             * Stores stable configuration or display data consumed by cover-visual.ts.
-             */
             const wave = Math.sin((row + 1) * 0.9 + (column + seed % 7) * 0.58);
-            /**
-             * Defines the grain constant.
-             *
-             * Stores stable configuration or display data consumed by cover-visual.ts.
-             */
             const grain = seededUnit(seed + row * 97 + column * 53);
-            /**
-             * Defines the index constant.
-             *
-             * Stores stable configuration or display data consumed by cover-visual.ts.
-             */
             const index = Math.abs(Math.floor((wave + grain * 1.8 + row * 0.28) * colors.length)) % colors.length;
             return colors[index] ?? palette.primary;
         })
@@ -198,8 +108,6 @@ function buildBlockMatrix(
 }
 
 /**
- * Seeded unit.
- *
  * Coordinates the seeded unit operation for the CLI UI runtime.
  *
  * @param seed Input value used by the seeded unit operation.
@@ -214,8 +122,6 @@ function seededUnit(seed: number): number {
 }
 
 /**
- * Hsl to hex.
- *
  * Coordinates the hsl to hex operation for the CLI UI runtime.
  *
  * @param hue Input value used by the hsl to hex operation.
@@ -224,56 +130,24 @@ function seededUnit(seed: number): number {
  * @returns The computed result for the surrounding CLI UI flow.
  */
 function hslToHex(hue: number, saturation: number, lightness: number): string {
-    /**
-     * Defines the normalized hue constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const normalizedHue = (((hue % 360) + 360) % 360) / 360;
-    /**
-     * Defines the normalized saturation constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const normalizedSaturation = clamp01(saturation / 100);
-    /**
-     * Defines the normalized lightness constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const normalizedLightness = clamp01(lightness / 100);
 
     if (normalizedSaturation === 0) {
-        /**
-         * Defines the gray constant.
-         *
-         * Stores stable configuration or display data consumed by cover-visual.ts.
-         */
         const gray = toHexChannel(normalizedLightness);
         return `#${gray}${gray}${gray}`;
     }
 
-    /**
-     * Defines the q constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const q = normalizedLightness < 0.5
         ? normalizedLightness * (1 + normalizedSaturation)
         : normalizedLightness + normalizedSaturation - normalizedLightness * normalizedSaturation;
-    /**
-     * Defines the p constant.
-     *
-     * Stores stable configuration or display data consumed by cover-visual.ts.
-     */
     const p = 2 * normalizedLightness - q;
 
     return `#${toHexChannel(hueToRgb(p, q, normalizedHue + 1 / 3))}${toHexChannel(hueToRgb(p, q, normalizedHue))}${toHexChannel(hueToRgb(p, q, normalizedHue - 1 / 3))}`;
 }
 
 /**
- * Hue to rgb.
- *
  * Coordinates the hue to rgb operation for the CLI UI runtime.
  *
  * @param p Input value used by the hue to rgb operation.
@@ -292,8 +166,6 @@ function hueToRgb(p: number, q: number, t: number): number {
 }
 
 /**
- * To hex channel.
- *
  * Coordinates the to hex channel operation for the CLI UI runtime.
  *
  * @param value Input value used by the to hex channel operation.
@@ -304,8 +176,6 @@ function toHexChannel(value: number): string {
 }
 
 /**
- * Clamp01.
- *
  * Coordinates the clamp01 operation for the CLI UI runtime.
  *
  * @param value Input value used by the clamp01 operation.

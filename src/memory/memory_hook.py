@@ -19,18 +19,11 @@ def append_context(
     tags: list[str],
     table_name: str = "context",
 ) -> int:
-    """Append context.
+    """Coordinates append context for the current Sonex flow.
 
-    Coordinates append context logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs append context as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        role: Input value used by the append context operation.
-        context: Input value used by the append context operation.
-        tags: Input value used by the append context operation.
-        table_name: Input value used by the append context operation.
-
-    Returns:
-        The computed result for append context.
+    Example: append_context(role=..., context=..., tags=..., table_name=...) -> returns the value used by the surrounding Sonex flow.
     """
     if table_name != "context":
         raise ValueError("append_context only supports the context table.")
@@ -46,21 +39,11 @@ def append_cache(
     source_context_id: int | None = None,
     kind: str = "turn_summary",
 ) -> None:
-    """Append cache.
+    """Coordinates append cache for the current Sonex flow.
 
-    Coordinates append cache logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs append cache as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        key: Input value used by the append cache operation.
-        summary: Input value used by the append cache operation.
-        tags: Input value used by the append cache operation.
-        importance: Input value used by the append cache operation.
-        source: Input value used by the append cache operation.
-        source_context_id: Input value used by the append cache operation.
-        kind: Input value used by the append cache operation.
-
-    Returns:
-        The computed result for append cache.
+    Example: append_cache(key=..., summary=..., tags=..., importance=..., source=..., source_context_id=..., kind=...) -> returns the value used by the surrounding Sonex flow.
     """
     memory_store.upsert_cache(
         key=key,
@@ -74,18 +57,11 @@ def append_cache(
 
 
 def append_tool_summary(context_id: int, tool: str, args: dict[str, Any], result: Any) -> dict[str, Any]:
-    """Append tool summary.
+    """Coordinates append tool summary for the current Sonex flow.
 
-    Coordinates append tool summary logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs append tool summary as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        context_id: Input value used by the append tool summary operation.
-        tool: Input value used by the append tool summary operation.
-        args: Input value used by the append tool summary operation.
-        result: Input value used by the append tool summary operation.
-
-    Returns:
-        The computed result for append tool summary.
+    Example: append_tool_summary(context_id=..., tool=..., args=..., result=...) -> returns the value used by the surrounding Sonex flow.
     """
     summary = _build_tool_summary(tool=tool, args=args, result=result)
     key = f"tool:{tool}:{context_id}"
@@ -136,17 +112,11 @@ def finalize_turn(user_input: str) -> dict[str, Any]:
 
 
 def _build_tool_summary(tool: str, args: dict[str, Any], result: Any) -> str:
-    """Build tool summary.
+    """Prepares build tool summary for an internal Sonex flow.
 
-    Coordinates build tool summary logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs build tool summary without duplicating the local rules.
 
-    Args:
-        tool: Input value used by the build tool summary operation.
-        args: Input value used by the build tool summary operation.
-        result: Input value used by the build tool summary operation.
-
-    Returns:
-        The computed result for build tool summary.
+    Example: _build_tool_summary(tool=..., args=..., result=...) -> returns the value used by the surrounding Sonex flow.
     """
     args_text = _clip(json.dumps(args, ensure_ascii=False, default=str), 240)
     result_text = _clip(json.dumps(result, ensure_ascii=False, default=str), 700)
@@ -160,18 +130,11 @@ def _build_summary(
     tool_names: list[str],
     error_text: str,
 ) -> str:
-    """Build summary.
+    """Prepares build summary for an internal Sonex flow.
 
-    Coordinates build summary logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs build summary without duplicating the local rules.
 
-    Args:
-        user_input: Input value used by the build summary operation.
-        latest_answer: Input value used by the build summary operation.
-        tool_names: Input value used by the build summary operation.
-        error_text: Input value used by the build summary operation.
-
-    Returns:
-        The computed result for build summary.
+    Example: _build_summary(user_input=..., latest_answer=..., tool_names=..., error_text=...) -> returns the value used by the surrounding Sonex flow.
     """
     parts = [f"User asked: {user_input.strip()}"]
     if tool_names:
@@ -184,17 +147,11 @@ def _build_summary(
 
 
 def _latest_content(events: list[dict[str, Any]], role: str, key: str) -> str:
-    """Latest content.
+    """Prepares latest content for an internal Sonex flow.
 
-    Coordinates latest content logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs latest content without duplicating the local rules.
 
-    Args:
-        events: Input value used by the latest content operation.
-        role: Input value used by the latest content operation.
-        key: Input value used by the latest content operation.
-
-    Returns:
-        The computed result for latest content.
+    Example: _latest_content(events=..., role=..., key=...) -> returns the value used by the surrounding Sonex flow.
     """
     for event in events:
         if event.get("type") != role:
@@ -207,15 +164,11 @@ def _latest_content(events: list[dict[str, Any]], role: str, key: str) -> str:
 
 
 def _tool_names(events: list[dict[str, Any]]) -> list[str]:
-    """Tool names.
+    """Prepares tool names for an internal Sonex flow.
 
-    Coordinates tool names logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs tool names without duplicating the local rules.
 
-    Args:
-        events: Input value used by the tool names operation.
-
-    Returns:
-        The computed result for tool names.
+    Example: _tool_names(events=...) -> returns the value used by the surrounding Sonex flow.
     """
     names: list[str] = []
     for event in events:
@@ -231,15 +184,11 @@ def _tool_names(events: list[dict[str, Any]]) -> list[str]:
 
 
 def _loads(value: Any) -> dict[str, Any]:
-    """Loads.
+    """Prepares loads for an internal Sonex flow.
 
-    Coordinates loads logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs loads without duplicating the local rules.
 
-    Args:
-        value: Input value used by the loads operation.
-
-    Returns:
-        The computed result for loads.
+    Example: _loads(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(value, dict):
         return value
@@ -253,15 +202,11 @@ def _loads(value: Any) -> dict[str, Any]:
 
 
 def _loads_list(value: Any) -> list[str]:
-    """Loads list.
+    """Prepares loads list for an internal Sonex flow.
 
-    Coordinates loads list logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs loads list without duplicating the local rules.
 
-    Args:
-        value: Input value used by the loads list operation.
-
-    Returns:
-        The computed result for loads list.
+    Example: _loads_list(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(value, list):
         return [str(item) for item in value]
@@ -277,32 +222,22 @@ def _loads_list(value: Any) -> list[str]:
 
 
 def _cache_key(user_input: str, summary: str) -> str:
-    """Cache key.
+    """Prepares cache key for an internal Sonex flow.
 
-    Coordinates cache key logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs cache key without duplicating the local rules.
 
-    Args:
-        user_input: Input value used by the cache key operation.
-        summary: Input value used by the cache key operation.
-
-    Returns:
-        The computed result for cache key.
+    Example: _cache_key(user_input=..., summary=...) -> returns the value used by the surrounding Sonex flow.
     """
     payload = f"{user_input.strip()}\n{summary.strip()}".encode("utf-8")
     return f"turn:{hashlib.sha256(payload).hexdigest()[:16]}"
 
 
 def _clip(text: str, limit: int) -> str:
-    """Clip.
+    """Prepares clip for an internal Sonex flow.
 
-    Coordinates clip logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs clip without duplicating the local rules.
 
-    Args:
-        text: Input value used by the clip operation.
-        limit: Input value used by the clip operation.
-
-    Returns:
-        The computed result for clip.
+    Example: _clip(text=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     text = " ".join(text.split())
     if len(text) <= limit:

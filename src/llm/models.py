@@ -31,12 +31,11 @@ class ModelInfo:
     source: str = "api"
 
     def to_choice(self) -> dict[str, str]:
-        """To choice for model info.
+        """Coordinates to choice for the current Sonex flow.
 
-        Coordinates the to choice method behavior while preserving model info state and contracts.
+        Typical use: Use this function when runtime code needs to choice as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for to choice.
+        Example: to_choice() -> returns the value used by the surrounding Sonex flow.
         """
         label = f"{self.label} (deprecated)" if self.deprecated else self.label
         return {
@@ -52,15 +51,11 @@ class ModelCatalog(Protocol):
     Encapsulates model catalog data and behavior used by Sonex runtime flows. Extends protocol semantics.
     """
     def list_models(self, config: ProviderConfig) -> list[ModelInfo]:
-        """List models for model catalog.
+        """Coordinates list models for the current Sonex flow.
 
-        Coordinates the list models method behavior while preserving model catalog state and contracts.
+        Typical use: Use this function when runtime code needs list models as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            config: Input value used by the list models operation.
-
-        Returns:
-            The computed result for list models.
+        Example: list_models(config=...) -> returns the value used by the surrounding Sonex flow.
         """
         ...
 
@@ -129,15 +124,11 @@ class DeepSeekModelCatalog(ModelCatalog):
     Encapsulates deep seek model catalog data and behavior used by Sonex runtime flows. Extends model catalog semantics.
     """
     def list_models(self, config: ProviderConfig) -> list[ModelInfo]:
-        """List models for deep seek model catalog.
+        """Coordinates list models for the current Sonex flow.
 
-        Coordinates the list models method behavior while preserving deep seek model catalog state and contracts.
+        Typical use: Use this function when runtime code needs list models as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            config: Input value used by the list models operation.
-
-        Returns:
-            The computed result for list models.
+        Example: list_models(config=...) -> returns the value used by the surrounding Sonex flow.
         """
         try:
             models = _fetch_deepseek_models(config)
@@ -152,15 +143,11 @@ class OpenAIModelCatalog(ModelCatalog):
     Encapsulates open a i model catalog data and behavior used by Sonex runtime flows. Extends model catalog semantics.
     """
     def list_models(self, config: ProviderConfig) -> list[ModelInfo]:
-        """List models for open a i model catalog.
+        """Coordinates list models for the current Sonex flow.
 
-        Coordinates the list models method behavior while preserving open a i model catalog state and contracts.
+        Typical use: Use this function when runtime code needs list models as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            config: Input value used by the list models operation.
-
-        Returns:
-            The computed result for list models.
+        Example: list_models(config=...) -> returns the value used by the surrounding Sonex flow.
         """
         try:
             models = _fetch_openai_models(config)
@@ -175,15 +162,11 @@ class AnthropicModelCatalog(ModelCatalog):
     Encapsulates anthropic model catalog data and behavior used by Sonex runtime flows. Extends model catalog semantics.
     """
     def list_models(self, config: ProviderConfig) -> list[ModelInfo]:
-        """List models for anthropic model catalog.
+        """Coordinates list models for the current Sonex flow.
 
-        Coordinates the list models method behavior while preserving anthropic model catalog state and contracts.
+        Typical use: Use this function when runtime code needs list models as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            config: Input value used by the list models operation.
-
-        Returns:
-            The computed result for list models.
+        Example: list_models(config=...) -> returns the value used by the surrounding Sonex flow.
         """
         try:
             models = _fetch_anthropic_models(config)
@@ -198,15 +181,11 @@ class GeminiModelCatalog(ModelCatalog):
     Encapsulates gemini model catalog data and behavior used by Sonex runtime flows. Extends model catalog semantics.
     """
     def list_models(self, config: ProviderConfig) -> list[ModelInfo]:
-        """List models for gemini model catalog.
+        """Coordinates list models for the current Sonex flow.
 
-        Coordinates the list models method behavior while preserving gemini model catalog state and contracts.
+        Typical use: Use this function when runtime code needs list models as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            config: Input value used by the list models operation.
-
-        Returns:
-            The computed result for list models.
+        Example: list_models(config=...) -> returns the value used by the surrounding Sonex flow.
         """
         try:
             models = _fetch_gemini_models(config)
@@ -216,15 +195,11 @@ class GeminiModelCatalog(ModelCatalog):
 
 
 def list_provider_models(config: ProviderConfig) -> list[ModelInfo]:
-    """List provider models.
+    """Coordinates list provider models for the current Sonex flow.
 
-    Coordinates list provider models logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs list provider models as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        config: Input value used by the list provider models operation.
-
-    Returns:
-        The computed result for list provider models.
+    Example: list_provider_models(config=...) -> returns the value used by the surrounding Sonex flow.
     """
     catalogs: dict[str, ModelCatalog] = {
         "openai": OpenAIModelCatalog(),
@@ -239,29 +214,21 @@ def list_provider_models(config: ProviderConfig) -> list[ModelInfo]:
 
 
 def model_choices_for_provider(config: ProviderConfig) -> list[dict[str, str]]:
-    """Model choices for provider.
+    """Coordinates model choices for provider for the current Sonex flow.
 
-    Coordinates model choices for provider logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs model choices for provider as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        config: Input value used by the model choices for provider operation.
-
-    Returns:
-        The computed result for model choices for provider.
+    Example: model_choices_for_provider(config=...) -> returns the value used by the surrounding Sonex flow.
     """
     return [model.to_choice() for model in list_provider_models(config)]
 
 
 def _fetch_deepseek_models(config: ProviderConfig) -> list[ModelInfo]:
-    """Fetch deepseek models.
+    """Prepares fetch deepseek models for an internal Sonex flow.
 
-    Coordinates fetch deepseek models logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs fetch deepseek models without duplicating the local rules.
 
-    Args:
-        config: Input value used by the fetch deepseek models operation.
-
-    Returns:
-        The computed result for fetch deepseek models.
+    Example: _fetch_deepseek_models(config=...) -> returns the value used by the surrounding Sonex flow.
     """
     url = _join_deepseek_url(config.base_url or "https://api.deepseek.com", "models")
     request = urllib.request.Request(url, method="GET")
@@ -299,15 +266,11 @@ def _fetch_deepseek_models(config: ProviderConfig) -> list[ModelInfo]:
 
 
 def _fetch_openai_models(config: ProviderConfig) -> list[ModelInfo]:
-    """Fetch openai models.
+    """Prepares fetch openai models for an internal Sonex flow.
 
-    Coordinates fetch openai models logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs fetch openai models without duplicating the local rules.
 
-    Args:
-        config: Input value used by the fetch openai models operation.
-
-    Returns:
-        The computed result for fetch openai models.
+    Example: _fetch_openai_models(config=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not config.api_key:
         raise LLMTransportError("OpenAI model list failed: missing API key")
@@ -331,15 +294,11 @@ def _fetch_openai_models(config: ProviderConfig) -> list[ModelInfo]:
 
 
 def _fetch_anthropic_models(config: ProviderConfig) -> list[ModelInfo]:
-    """Fetch anthropic models.
+    """Prepares fetch anthropic models for an internal Sonex flow.
 
-    Coordinates fetch anthropic models logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs fetch anthropic models without duplicating the local rules.
 
-    Args:
-        config: Input value used by the fetch anthropic models operation.
-
-    Returns:
-        The computed result for fetch anthropic models.
+    Example: _fetch_anthropic_models(config=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not config.api_key:
         raise LLMTransportError("Anthropic model list failed: missing API key")
@@ -365,15 +324,11 @@ def _fetch_anthropic_models(config: ProviderConfig) -> list[ModelInfo]:
 
 
 def _fetch_gemini_models(config: ProviderConfig) -> list[ModelInfo]:
-    """Fetch gemini models.
+    """Prepares fetch gemini models for an internal Sonex flow.
 
-    Coordinates fetch gemini models logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs fetch gemini models without duplicating the local rules.
 
-    Args:
-        config: Input value used by the fetch gemini models operation.
-
-    Returns:
-        The computed result for fetch gemini models.
+    Example: _fetch_gemini_models(config=...) -> returns the value used by the surrounding Sonex flow.
     """
     authorization = config.extra_headers.get("Authorization")
     if not config.api_key and not authorization:
@@ -408,16 +363,11 @@ def _fetch_gemini_models(config: ProviderConfig) -> list[ModelInfo]:
 
 
 def _read_json_response(request: urllib.request.Request, timeout: float | None) -> dict[str, Any]:
-    """Read json response.
+    """Prepares read json response for an internal Sonex flow.
 
-    Coordinates read json response logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs read json response without duplicating the local rules.
 
-    Args:
-        request: Input value used by the read json response operation.
-        timeout: Input value used by the read json response operation.
-
-    Returns:
-        The computed result for read json response.
+    Example: _read_json_response(request=..., timeout=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         with urllib.request.urlopen(request, timeout=timeout or 5) as response:
@@ -429,15 +379,11 @@ def _read_json_response(request: urllib.request.Request, timeout: float | None) 
 
 
 def _static_provider_models(config: ProviderConfig) -> list[ModelInfo]:
-    """Static provider models.
+    """Prepares static provider models for an internal Sonex flow.
 
-    Coordinates static provider models logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs static provider models without duplicating the local rules.
 
-    Args:
-        config: Input value used by the static provider models operation.
-
-    Returns:
-        The computed result for static provider models.
+    Example: _static_provider_models(config=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not config.model:
         return []
@@ -452,31 +398,21 @@ def _static_provider_models(config: ProviderConfig) -> list[ModelInfo]:
 
 
 def _join_url(base_url: str, path: str) -> str:
-    """Join url.
+    """Prepares join url for an internal Sonex flow.
 
-    Coordinates join url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs join url without duplicating the local rules.
 
-    Args:
-        base_url: Input value used by the join url operation.
-        path: Input value used by the join url operation.
-
-    Returns:
-        The computed result for join url.
+    Example: _join_url(base_url=..., path=...) -> returns the value used by the surrounding Sonex flow.
     """
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"
 
 
 def _join_deepseek_url(base_url: str, path: str) -> str:
-    """Join deepseek url.
+    """Prepares join deepseek url for an internal Sonex flow.
 
-    Coordinates join deepseek url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs join deepseek url without duplicating the local rules.
 
-    Args:
-        base_url: Input value used by the join deepseek url operation.
-        path: Input value used by the join deepseek url operation.
-
-    Returns:
-        The computed result for join deepseek url.
+    Example: _join_deepseek_url(base_url=..., path=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = base_url.rstrip("/")
     if normalized.endswith("/v1"):
@@ -485,15 +421,11 @@ def _join_deepseek_url(base_url: str, path: str) -> str:
 
 
 def _deepseek_label(model_id: str) -> str:
-    """Deepseek label.
+    """Prepares deepseek label for an internal Sonex flow.
 
-    Coordinates deepseek label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs deepseek label without duplicating the local rules.
 
-    Args:
-        model_id: Input value used by the deepseek label operation.
-
-    Returns:
-        The computed result for deepseek label.
+    Example: _deepseek_label(model_id=...) -> returns the value used by the surrounding Sonex flow.
     """
     labels = {
         "deepseek-v4-pro": "DeepSeek V4 Pro",
@@ -505,61 +437,44 @@ def _deepseek_label(model_id: str) -> str:
 
 
 def _openai_label(model_id: str) -> str:
-    """Openai label.
+    """Prepares openai label for an internal Sonex flow.
 
-    Coordinates openai label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs openai label without duplicating the local rules.
 
-    Args:
-        model_id: Input value used by the openai label operation.
-
-    Returns:
-        The computed result for openai label.
+    Example: _openai_label(model_id=...) -> returns the value used by the surrounding Sonex flow.
     """
     labels = {model.id: model.label for model in OPENAI_FALLBACK_MODELS}
     return labels.get(model_id, _title_model_id(model_id, upper_tokens={"gpt"}))
 
 
 def _anthropic_label(model_id: str) -> str:
-    """Anthropic label.
+    """Prepares anthropic label for an internal Sonex flow.
 
-    Coordinates anthropic label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs anthropic label without duplicating the local rules.
 
-    Args:
-        model_id: Input value used by the anthropic label operation.
-
-    Returns:
-        The computed result for anthropic label.
+    Example: _anthropic_label(model_id=...) -> returns the value used by the surrounding Sonex flow.
     """
     labels = {model.id: model.label for model in ANTHROPIC_FALLBACK_MODELS}
     return labels.get(model_id, _title_model_id(model_id, upper_tokens={"claude"}))
 
 
 def _gemini_label(model_id: str) -> str:
-    """Gemini label.
+    """Prepares gemini label for an internal Sonex flow.
 
-    Coordinates gemini label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs gemini label without duplicating the local rules.
 
-    Args:
-        model_id: Input value used by the gemini label operation.
-
-    Returns:
-        The computed result for gemini label.
+    Example: _gemini_label(model_id=...) -> returns the value used by the surrounding Sonex flow.
     """
     labels = {model.id: model.label for model in GEMINI_FALLBACK_MODELS}
     return labels.get(model_id, _title_model_id(model_id, upper_tokens={"gemini"}))
 
 
 def _title_model_id(model_id: str, *, upper_tokens: set[str]) -> str:
-    """Title model id.
+    """Prepares title model id for an internal Sonex flow.
 
-    Coordinates title model id logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs title model id without duplicating the local rules.
 
-    Args:
-        model_id: Input value used by the title model id operation.
-        upper_tokens: Input value used by the title model id operation.
-
-    Returns:
-        The computed result for title model id.
+    Example: _title_model_id(model_id=..., upper_tokens=...) -> returns the value used by the surrounding Sonex flow.
     """
     words: list[str] = []
     for token in model_id.replace("_", "-").split("-"):
@@ -575,15 +490,11 @@ def _title_model_id(model_id: str, *, upper_tokens: set[str]) -> str:
 
 
 def _provider_label(provider: str) -> str:
-    """Provider label.
+    """Prepares provider label for an internal Sonex flow.
 
-    Coordinates provider label logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs provider label without duplicating the local rules.
 
-    Args:
-        provider: Input value used by the provider label operation.
-
-    Returns:
-        The computed result for provider label.
+    Example: _provider_label(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     labels = {
         "openai": "OpenAI",
@@ -596,15 +507,11 @@ def _provider_label(provider: str) -> str:
 
 
 def _sort_models(models: list[ModelInfo]) -> list[ModelInfo]:
-    """Sort models.
+    """Prepares sort models for an internal Sonex flow.
 
-    Coordinates sort models logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs sort models without duplicating the local rules.
 
-    Args:
-        models: Input value used by the sort models operation.
-
-    Returns:
-        The computed result for sort models.
+    Example: _sort_models(models=...) -> returns the value used by the surrounding Sonex flow.
     """
     priority = {
         "gpt-5.2": 0,

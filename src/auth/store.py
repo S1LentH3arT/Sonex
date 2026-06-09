@@ -26,37 +26,31 @@ class AuthStoreError(RuntimeError):
 
 
 def auth_store_path() -> Path:
-    """Auth store path.
+    """Coordinates auth store path for the current Sonex flow.
 
-    Coordinates auth store path logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs auth store path as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for auth store path.
+    Example: auth_store_path() -> returns the value used by the surrounding Sonex flow.
     """
     return sonex_home() / "auth.json"
 
 
 def utc_now_iso() -> str:
-    """Utc now iso.
+    """Coordinates utc now iso for the current Sonex flow.
 
-    Coordinates utc now iso logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs utc now iso as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for utc now iso.
+    Example: utc_now_iso() -> returns the value used by the surrounding Sonex flow.
     """
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def load_auth_store(path: Path | None = None) -> AuthStore:
-    """Load auth store.
+    """Loads auth store from persistent state.
 
-    Coordinates load auth store logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs load auth store as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        path: Input value used by the load auth store operation.
-
-    Returns:
-        The computed result for load auth store.
+    Example: load_auth_store(path=...) -> returns the value used by the surrounding Sonex flow.
     """
     resolved = path or auth_store_path()
     if not resolved.exists():
@@ -74,16 +68,11 @@ def load_auth_store(path: Path | None = None) -> AuthStore:
 
 
 def save_auth_store(store: AuthStore, path: Path | None = None) -> Path:
-    """Save auth store.
+    """Persists auth store for later use.
 
-    Coordinates save auth store logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs save auth store as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        store: Input value used by the save auth store operation.
-        path: Input value used by the save auth store operation.
-
-    Returns:
-        The computed result for save auth store.
+    Example: save_auth_store(store=..., path=...) -> returns the value used by the surrounding Sonex flow.
     """
     resolved = path or auth_store_path()
     resolved.parent.mkdir(parents=True, exist_ok=True)
@@ -101,16 +90,11 @@ def save_auth_store(store: AuthStore, path: Path | None = None) -> Path:
 
 
 def get_provider_auth(store: AuthStore, provider: str) -> ProviderAuth | None:
-    """Get provider auth.
+    """Returns provider auth for the current Sonex flow.
 
-    Coordinates get provider auth logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs get provider auth as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        store: Input value used by the get provider auth operation.
-        provider: Input value used by the get provider auth operation.
-
-    Returns:
-        The computed result for get provider auth.
+    Example: get_provider_auth(store=..., provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     return store.providers.get(normalize_provider(provider))
 
@@ -124,20 +108,11 @@ def set_api_key(
     custom_llm_provider: str | None = None,
     path: Path | None = None,
 ) -> Path:
-    """Set api key.
+    """Coordinates set api key for the current Sonex flow.
 
-    Coordinates set api key logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs set api key as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the set api key operation.
-        api_key: Input value used by the set api key operation.
-        model: Input value used by the set api key operation.
-        base_url: Input value used by the set api key operation.
-        custom_llm_provider: Input value used by the set api key operation.
-        path: Input value used by the set api key operation.
-
-    Returns:
-        The computed result for set api key.
+    Example: set_api_key(provider=..., api_key=..., model=..., base_url=..., custom_llm_provider=..., path=...) -> returns the value used by the surrounding Sonex flow.
     """
     store = load_auth_store(path)
     name = normalize_provider(provider)
@@ -161,19 +136,11 @@ def set_provider_config(
     custom_llm_provider: str | None = None,
     path: Path | None = None,
 ) -> Path:
-    """Set provider config.
+    """Coordinates set provider config for the current Sonex flow.
 
-    Coordinates set provider config logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs set provider config as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the set provider config operation.
-        model: Input value used by the set provider config operation.
-        base_url: Input value used by the set provider config operation.
-        custom_llm_provider: Input value used by the set provider config operation.
-        path: Input value used by the set provider config operation.
-
-    Returns:
-        The computed result for set provider config.
+    Example: set_provider_config(provider=..., model=..., base_url=..., custom_llm_provider=..., path=...) -> returns the value used by the surrounding Sonex flow.
     """
     store = load_auth_store(path)
     name = normalize_provider(provider)
@@ -195,19 +162,11 @@ def set_oauth_token(
     base_url: str | None = None,
     path: Path | None = None,
 ) -> Path:
-    """Set oauth token.
+    """Coordinates set oauth token for the current Sonex flow.
 
-    Coordinates set oauth token logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs set oauth token as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the set oauth token operation.
-        token: Input value used by the set oauth token operation.
-        model: Input value used by the set oauth token operation.
-        base_url: Input value used by the set oauth token operation.
-        path: Input value used by the set oauth token operation.
-
-    Returns:
-        The computed result for set oauth token.
+    Example: set_oauth_token(provider=..., token=..., model=..., base_url=..., path=...) -> returns the value used by the surrounding Sonex flow.
     """
     store = load_auth_store(path)
     name = normalize_provider(provider)
@@ -222,16 +181,11 @@ def set_oauth_token(
 
 
 def remove_provider(provider: str, *, path: Path | None = None) -> bool:
-    """Remove provider.
+    """Coordinates remove provider for the current Sonex flow.
 
-    Coordinates remove provider logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs remove provider as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the remove provider operation.
-        path: Input value used by the remove provider operation.
-
-    Returns:
-        The computed result for remove provider.
+    Example: remove_provider(provider=..., path=...) -> returns the value used by the surrounding Sonex flow.
     """
     store = load_auth_store(path)
     name = normalize_provider(provider)
@@ -244,17 +198,11 @@ def remove_provider(provider: str, *, path: Path | None = None) -> bool:
 
 
 def set_default(provider: str, model: str | None = None, *, path: Path | None = None) -> Path:
-    """Set default.
+    """Coordinates set default for the current Sonex flow.
 
-    Coordinates set default logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs set default as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the set default operation.
-        model: Input value used by the set default operation.
-        path: Input value used by the set default operation.
-
-    Returns:
-        The computed result for set default.
+    Example: set_default(provider=..., model=..., path=...) -> returns the value used by the surrounding Sonex flow.
     """
     store = load_auth_store(path)
     store.default_provider = normalize_provider(provider)
@@ -268,16 +216,11 @@ def set_default(provider: str, model: str | None = None, *, path: Path | None = 
 
 
 def redacted(value: str | None, *, visible: int = 4) -> str:
-    """Redacted.
+    """Coordinates redacted for the current Sonex flow.
 
-    Coordinates redacted logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs redacted as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        value: Input value used by the redacted operation.
-        visible: Input value used by the redacted operation.
-
-    Returns:
-        The computed result for redacted.
+    Example: redacted(value=..., visible=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not value:
         return "-"
@@ -287,15 +230,11 @@ def redacted(value: str | None, *, visible: int = 4) -> str:
 
 
 def provider_to_public_dict(provider: ProviderAuth) -> dict[str, Any]:
-    """Provider to public dict.
+    """Coordinates provider to public dict for the current Sonex flow.
 
-    Coordinates provider to public dict logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs provider to public dict as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the provider to public dict operation.
-
-    Returns:
-        The computed result for provider to public dict.
+    Example: provider_to_public_dict(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     return {
         "provider": provider.name,

@@ -13,7 +13,7 @@ from src.memory import memory_store
 
 
 def compile_query(user_input: str) -> list[str]:
-    """Compile user input into a stable keyword list for rough retrieval."""
+    """Compile user input into a stable keywordlist for rough retrieval."""
     text = user_input.strip().lower()
     tokens = re.findall(r"[a-zA-Z0-9_./-]+|[\u4e00-\u9fff]+", text)
 
@@ -28,33 +28,22 @@ def compile_query(user_input: str) -> list[str]:
 
 
 def retrieve_cache(keys: list[str], limit: int = 10) -> list[dict[str, Any]]:
-    """Retrieve cache.
+    """Coordinates retrieve cache for the current Sonex flow.
 
-    Coordinates retrieve cache logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs retrieve cache as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        keys: Input value used by the retrieve cache operation.
-        limit: Input value used by the retrieve cache operation.
-
-    Returns:
-        The computed result for retrieve cache.
+    Example: retrieve_cache(keys=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     query = " ".join(keys).strip()
     return memory_store.search_context(query, table="cache", limit=limit)
 
 
 def retrieve_entries(keys: list[str], target: str, limit: int = 10) -> list[dict[str, Any]]:
-    """Retrieve entries.
+    """Coordinates retrieve entries for the current Sonex flow.
 
-    Coordinates retrieve entries logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs retrieve entries as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        keys: Input value used by the retrieve entries operation.
-        target: Input value used by the retrieve entries operation.
-        limit: Input value used by the retrieve entries operation.
-
-    Returns:
-        The computed result for retrieve entries.
+    Example: retrieve_entries(keys=..., target=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     query = " ".join(keys).strip()
     if target not in {"memory", "user", "all"}:

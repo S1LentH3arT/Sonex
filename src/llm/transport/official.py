@@ -25,26 +25,20 @@ class OpenAICompatibleTransport:
     Encapsulates open a i compatible transport data and behavior used by Sonex runtime flows.
     """
     def __init__(self, *, default_base_url: str) -> None:
-        """Init for open a i compatible transport.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving open a i compatible transport state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            default_base_url: Input value used by the init operation.
+        Example: __init__(default_base_url=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.default_base_url = default_base_url
 
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Send for open a i compatible transport.
+        """Coordinates send for the current Sonex flow.
 
-        Coordinates the send method behavior while preserving open a i compatible transport state and contracts.
+        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            request: Input value used by the send operation.
-            config: Input value used by the send operation.
-
-        Returns:
-            The computed result for send.
+        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
         """
         if not config.api_key:
             raise LLMTransportError(f"LLM provider '{config.name}' request failed: missing API key")
@@ -71,16 +65,11 @@ class AnthropicOfficialTransport:
     Encapsulates anthropic official transport data and behavior used by Sonex runtime flows.
     """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Send for anthropic official transport.
+        """Coordinates send for the current Sonex flow.
 
-        Coordinates the send method behavior while preserving anthropic official transport state and contracts.
+        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            request: Input value used by the send operation.
-            config: Input value used by the send operation.
-
-        Returns:
-            The computed result for send.
+        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
         """
         if not config.api_key:
             raise LLMTransportError("LLM provider 'anthropic' request failed: missing API key")
@@ -109,16 +98,11 @@ class GeminiOfficialTransport:
     Encapsulates gemini official transport data and behavior used by Sonex runtime flows.
     """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Send for gemini official transport.
+        """Coordinates send for the current Sonex flow.
 
-        Coordinates the send method behavior while preserving gemini official transport state and contracts.
+        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            request: Input value used by the send operation.
-            config: Input value used by the send operation.
-
-        Returns:
-            The computed result for send.
+        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
         """
         if not config.api_key and "Authorization" not in config.extra_headers:
             raise LLMTransportError("LLM provider 'gemini' request failed: missing API key or OAuth token")
@@ -140,17 +124,11 @@ class GeminiOfficialTransport:
 
 
 def _json_request(url: str, payload: dict[str, Any], *, timeout: float | None) -> urllib.request.Request:
-    """Json request.
+    """Prepares json request for an internal Sonex flow.
 
-    Coordinates json request logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs json request without duplicating the local rules.
 
-    Args:
-        url: Input value used by the json request operation.
-        payload: Input value used by the json request operation.
-        timeout: Input value used by the json request operation.
-
-    Returns:
-        The computed result for json request.
+    Example: _json_request(url=..., payload=..., timeout=...) -> returns the value used by the surrounding Sonex flow.
     """
     del timeout
     body = json.dumps(payload).encode("utf-8")
@@ -160,17 +138,11 @@ def _json_request(url: str, payload: dict[str, Any], *, timeout: float | None) -
 
 
 def _send_json(http_request: urllib.request.Request, provider: str, *, timeout: float | None) -> Any:
-    """Send json.
+    """Prepares send json for an internal Sonex flow.
 
-    Coordinates send json logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs send json without duplicating the local rules.
 
-    Args:
-        http_request: Input value used by the send json operation.
-        provider: Input value used by the send json operation.
-        timeout: Input value used by the send json operation.
-
-    Returns:
-        The computed result for send json.
+    Example: _send_json(http_request=..., provider=..., timeout=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         with urllib.request.urlopen(http_request, timeout=timeout or 60) as response:
@@ -187,15 +159,11 @@ def _send_json(http_request: urllib.request.Request, provider: str, *, timeout: 
 
 
 def _chat_completions_url(base_url: str) -> str:
-    """Chat completions url.
+    """Prepares chat completions url for an internal Sonex flow.
 
-    Coordinates chat completions url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs chat completions url without duplicating the local rules.
 
-    Args:
-        base_url: Input value used by the chat completions url operation.
-
-    Returns:
-        The computed result for chat completions url.
+    Example: _chat_completions_url(base_url=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = base_url.rstrip("/")
     if normalized.endswith("/chat/completions"):
@@ -204,17 +172,11 @@ def _chat_completions_url(base_url: str) -> str:
 
 
 def _gemini_generate_content_url(base_url: str, model: str, *, api_key: str | None) -> str:
-    """Gemini generate content url.
+    """Prepares gemini generate content url for an internal Sonex flow.
 
-    Coordinates gemini generate content url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs gemini generate content url without duplicating the local rules.
 
-    Args:
-        base_url: Input value used by the gemini generate content url operation.
-        model: Input value used by the gemini generate content url operation.
-        api_key: Input value used by the gemini generate content url operation.
-
-    Returns:
-        The computed result for gemini generate content url.
+    Example: _gemini_generate_content_url(base_url=..., model=..., api_key=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = base_url.rstrip("/")
     encoded_model = urllib.parse.quote(model, safe="")
@@ -225,15 +187,10 @@ def _gemini_generate_content_url(base_url: str, model: str, *, api_key: str | No
 
 
 def _join_url(base_url: str, path: str) -> str:
-    """Join url.
+    """Prepares join url for an internal Sonex flow.
 
-    Coordinates join url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs join url without duplicating the local rules.
 
-    Args:
-        base_url: Input value used by the join url operation.
-        path: Input value used by the join url operation.
-
-    Returns:
-        The computed result for join url.
+    Example: _join_url(base_url=..., path=...) -> returns the value used by the surrounding Sonex flow.
     """
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"

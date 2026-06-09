@@ -16,12 +16,11 @@ from src.tools.registry import Params, ToolRegistry
 
 
 def _registry(*, read_only: bool = True) -> ToolRegistry:
-    """Validate registry.
+    """Verifies that registry behaves as expected.
 
-    Exercises the registry behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the registry behavior against regressions.
 
-    Args:
-        read_only: Pytest fixture or input used by this test.
+    Example: _registry() -> passes without assertion failures when the behavior remains correct.
     """
     tools = ToolRegistry()
     tools.register(
@@ -37,9 +36,11 @@ def _registry(*, read_only: bool = True) -> ToolRegistry:
 
 
 def _youtube_registry() -> ToolRegistry:
-    """Validate youtube registry.
+    """Verifies that youtube registry behaves as expected.
 
-    Exercises the youtube registry behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the youtube registry behavior against regressions.
+
+    Example: _youtube_registry() -> passes without assertion failures when the behavior remains correct.
     """
     tools = ToolRegistry()
     tools.register(
@@ -54,9 +55,11 @@ def _youtube_registry() -> ToolRegistry:
 
 
 def _premium_error_registry() -> ToolRegistry:
-    """Validate premium error registry.
+    """Verifies that premium error registry behaves as expected.
 
-    Exercises the premium error registry behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the premium error registry behavior against regressions.
+
+    Example: _premium_error_registry() -> passes without assertion failures when the behavior remains correct.
     """
     tools = ToolRegistry()
     tools.register(
@@ -76,9 +79,11 @@ def _premium_error_registry() -> ToolRegistry:
 
 
 def _search_premium_error_registry() -> ToolRegistry:
-    """Validate search premium error registry.
+    """Verifies that search premium error registry behaves as expected.
 
-    Exercises the search premium error registry behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the search premium error registry behavior against regressions.
+
+    Example: _search_premium_error_registry() -> passes without assertion failures when the behavior remains correct.
     """
     tools = ToolRegistry()
     tools.register(
@@ -98,14 +103,16 @@ def _search_premium_error_registry() -> ToolRegistry:
 
 
 class AgentLoopCommandIntentTests(unittest.TestCase):
-    """Groups agent loop command intent tests tests.
+    """Groups related agent loop command intent tests cases.
 
-    Collects related assertions for agent loop command intent tests behavior.
+    Collects assertions that exercise agent loop command intent tests behavior without mixing unrelated fixtures.
     """
     def test_empty_allowed_tools_rejects_planner_tool_call(self) -> None:
-        """Validate test empty allowed tools rejects planner tool call.
+        """Verifies that empty allowed tools rejects planner tool call behaves as expected.
 
-        Exercises the test empty allowed tools rejects planner tool call behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the empty allowed tools rejects planner tool call behavior against regressions.
+
+        Example: test_empty_allowed_tools_rejects_planner_tool_call() -> passes without assertion failures when the behavior remains correct.
         """
         tools = _registry()
         intent = CommandIntent(
@@ -125,9 +132,11 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         invoke.assert_not_called()
 
     def test_planner_playback_tool_outside_allowlist_is_rejected(self) -> None:
-        """Validate test planner playback tool outside allowlist is rejected.
+        """Verifies that planner playback tool outside allowlist is rejected behaves as expected.
 
-        Exercises the test planner playback tool outside allowlist is rejected behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the planner playback tool outside allowlist is rejected behavior against regressions.
+
+        Example: test_planner_playback_tool_outside_allowlist_is_rejected() -> passes without assertion failures when the behavior remains correct.
         """
         tools = _youtube_registry()
         intent = CommandIntent(
@@ -147,9 +156,11 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         invoke.assert_not_called()
 
     def test_command_intent_is_passed_to_planner(self) -> None:
-        """Validate test command intent is passed to planner.
+        """Verifies that command intent is passed to planner behaves as expected.
 
-        Exercises the test command intent is passed to planner behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the command intent is passed to planner behavior against regressions.
+
+        Example: test_command_intent_is_passed_to_planner() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/search jay")
         assert parsed is not None
@@ -168,9 +179,11 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         self.assertEqual(states[-1].content, "answer")
 
     def test_rejected_write_tool_is_not_invoked(self) -> None:
-        """Validate test rejected write tool is not invoked.
+        """Verifies that rejected write tool is not invoked behaves as expected.
 
-        Exercises the test rejected write tool is not invoked behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the rejected write tool is not invoked behavior against regressions.
+
+        Example: test_rejected_write_tool_is_not_invoked() -> passes without assertion failures when the behavior remains correct.
         """
         tools = _registry(read_only=False)
         intent = CommandIntent(
@@ -196,9 +209,11 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         invoke.assert_not_called()
 
     def test_youtube_playback_tool_requires_confirmation_before_invocation(self) -> None:
-        """Validate test youtube playback tool requires confirmation before invocation.
+        """Verifies that youtube playback tool requires confirmation before invocation behaves as expected.
 
-        Exercises the test youtube playback tool requires confirmation before invocation behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the youtube playback tool requires confirmation before invocation behavior against regressions.
+
+        Example: test_youtube_playback_tool_requires_confirmation_before_invocation() -> passes without assertion failures when the behavior remains correct.
         """
         tools = _youtube_registry()
         intent = CommandIntent(
@@ -224,9 +239,11 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         invoke.assert_not_called()
 
     def test_finalize_turn_failure_does_not_block_final_answer(self) -> None:
-        """Validate test finalize turn failure does not block final answer.
+        """Verifies that finalize turn failure does not block final answer behaves as expected.
 
-        Exercises the test finalize turn failure does not block final answer behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the finalize turn failure does not block final answer behavior against regressions.
+
+        Example: test_finalize_turn_failure_does_not_block_final_answer() -> passes without assertion failures when the behavior remains correct.
         """
         with patch("src.agent.core.append_context"), \
             patch("src.agent.core.llm_plan", return_value=Action(output="answer", usage=3)), \
@@ -237,9 +254,11 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         self.assertEqual(states[-1].content, "answer")
 
     def test_premium_capability_error_returns_clear_final_answer(self) -> None:
-        """Validate test premium capability error returns clear final answer.
+        """Verifies that premium capability error returns clear final answer behaves as expected.
 
-        Exercises the test premium capability error returns clear final answer behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the premium capability error returns clear final answer behavior against regressions.
+
+        Example: test_premium_capability_error_returns_clear_final_answer() -> passes without assertion failures when the behavior remains correct.
         """
         tools = _premium_error_registry()
 
@@ -256,9 +275,11 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         plan.assert_called_once()
 
     def test_spotify_search_premium_error_does_not_claim_spotify_search_works(self) -> None:
-        """Validate test spotify search premium error does not claim spotify search works.
+        """Verifies that spotify search premium error does not claim spotify search works behaves as expected.
 
-        Exercises the test spotify search premium error does not claim spotify search works behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the spotify search premium error does not claim spotify search works behavior against regressions.
+
+        Example: test_spotify_search_premium_error_does_not_claim_spotify_search_works() -> passes without assertion failures when the behavior remains correct.
         """
         tools = _search_premium_error_registry()
 

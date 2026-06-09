@@ -51,22 +51,20 @@ class ParsedCommand:
 
     @property
     def known(self) -> bool:
-        """Known for parsed command.
+        """Coordinates known for the current Sonex flow.
 
-        Coordinates the known method behavior while preserving parsed command state and contracts.
+        Typical use: Use this function when runtime code needs known as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for known.
+        Example: known() -> returns the value used by the surrounding Sonex flow.
         """
         return self.command is not None
 
     def command_intent(self) -> CommandIntent | None:
-        """Command intent for parsed command.
+        """Coordinates command intent for the current Sonex flow.
 
-        Coordinates the command intent method behavior while preserving parsed command state and contracts.
+        Typical use: Use this function when runtime code needs command intent as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for command intent.
+        Example: command_intent() -> returns the value used by the surrounding Sonex flow.
         """
         if self.command is None or self.command.mode != "agent":
             return None
@@ -156,15 +154,11 @@ _COMMANDS_BY_NAME = {
 
 
 def parse_builtin_command(text: str) -> ParsedCommand | None:
-    """Parse builtin command.
+    """Parses builtin command into structured data.
 
-    Coordinates parse builtin command logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs parse builtin command as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        text: Input value used by the parse builtin command operation.
-
-    Returns:
-        The computed result for parse builtin command.
+    Example: parse_builtin_command("/help") -> ParsedCommand(name="help", args="", known=True).
     """
     stripped = text.strip()
     if not stripped.startswith("/"):
@@ -185,15 +179,11 @@ def parse_builtin_command(text: str) -> ParsedCommand | None:
 
 
 def command_suggestions(prefix: str = "") -> list[BuiltinCommand]:
-    """Command suggestions.
+    """Coordinates command suggestions for the current Sonex flow.
 
-    Coordinates command suggestions logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs command suggestions as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        prefix: Input value used by the command suggestions operation.
-
-    Returns:
-        The computed result for command suggestions.
+    Example: command_suggestions(prefix=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = prefix.strip().lower().removeprefix("/")
     commands = sorted(BUILTIN_COMMANDS, key=lambda command: command.name.lower())
@@ -208,15 +198,11 @@ def command_suggestions(prefix: str = "") -> list[BuiltinCommand]:
 
 
 def format_help(prefix: str = "") -> str:
-    """Format help.
+    """Formats help for display.
 
-    Coordinates format help logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs format help as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        prefix: Input value used by the format help operation.
-
-    Returns:
-        The computed result for format help.
+    Example: format_help(prefix=...) -> returns the value used by the surrounding Sonex flow.
     """
     commands = command_suggestions(prefix)
     if not commands:

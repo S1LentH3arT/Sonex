@@ -15,37 +15,37 @@ from src.tools.registry import Params, ToolRegistry
 
 
 class FakeClient:
-    """Groups fake client tests.
+    """Groups related client cases.
 
-    Collects related assertions for fake client behavior.
+    Collects assertions that exercise client behavior without mixing unrelated fixtures.
     """
     def __init__(self, response: ChatResponse) -> None:
-        """Validate init.
+        """Verifies that init behaves as expected.
 
-        Exercises the init behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the init behavior against regressions.
 
-        Args:
-            response: Pytest fixture or input used by this test.
+        Example: __init__() -> passes without assertion failures when the behavior remains correct.
         """
         self.response = response
         self.requests = []
 
     def generate(self, request):
-        """Validate generate.
+        """Verifies that generate behaves as expected.
 
-        Exercises the generate behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the generate behavior against regressions.
 
-        Args:
-            request: Pytest fixture or input used by this test.
+        Example: generate() -> passes without assertion failures when the behavior remains correct.
         """
         self.requests.append(request)
         return self.response
 
 
 def _registry() -> ToolRegistry:
-    """Validate registry.
+    """Verifies that registry behaves as expected.
 
-    Exercises the registry behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the registry behavior against regressions.
+
+    Example: _registry() -> passes without assertion failures when the behavior remains correct.
     """
     tools = ToolRegistry()
     for name in ["spotify_search", "spotify_recommend", "spotify_play"]:
@@ -62,14 +62,16 @@ def _registry() -> ToolRegistry:
 
 
 class PlannerCommandIntentTests(unittest.TestCase):
-    """Groups planner command intent tests tests.
+    """Groups related planner command intent tests cases.
 
-    Collects related assertions for planner command intent tests behavior.
+    Collects assertions that exercise planner command intent tests behavior without mixing unrelated fixtures.
     """
     def test_empty_allowlist_exposes_no_tools(self) -> None:
-        """Validate test empty allowlist exposes no tools.
+        """Verifies that empty allowlist exposes no tools behaves as expected.
 
-        Exercises the test empty allowlist exposes no tools behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the empty allowlist exposes no tools behavior against regressions.
+
+        Example: test_empty_allowlist_exposes_no_tools() -> passes without assertion failures when the behavior remains correct.
         """
         client = FakeClient(ChatResponse(output_text="answer", usage=Usage(total_tokens=1)))
         intent = parse_builtin_command("/search jay").command_intent()
@@ -90,9 +92,11 @@ class PlannerCommandIntentTests(unittest.TestCase):
         self.assertIn("allowed_tools: none", client.requests[0].messages[1]["content"])
 
     def test_command_intent_prompt_and_args_are_included_and_tools_are_narrowed(self) -> None:
-        """Validate test command intent prompt and args are included and tools are narrowed.
+        """Verifies that command intent prompt and args are included and tools are narrowed behaves as expected.
 
-        Exercises the test command intent prompt and args are included and tools are narrowed behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the command intent prompt and args are included and tools are narrowed behavior against regressions.
+
+        Example: test_command_intent_prompt_and_args_are_included_and_tools_are_narrowed() -> passes without assertion failures when the behavior remains correct.
         """
         parsed = parse_builtin_command("/search jay")
         assert parsed is not None

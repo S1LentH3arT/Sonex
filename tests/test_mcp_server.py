@@ -16,12 +16,11 @@ from src.tools.registry import Params, ToolRegistry
 
 
 def _structured_result(value: object) -> dict[str, object]:
-    """Validate structured result.
+    """Verifies that structured result behaves as expected.
 
-    Exercises the structured result behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the structured result behavior against regressions.
 
-    Args:
-        value: Pytest fixture or input used by this test.
+    Example: _structured_result() -> passes without assertion failures when the behavior remains correct.
     """
     if isinstance(value, tuple) and len(value) == 2 and isinstance(value[1], dict):
         return value[1]
@@ -31,20 +30,20 @@ def _structured_result(value: object) -> dict[str, object]:
 
 
 def _registry() -> ToolRegistry:
-    """Validate registry.
+    """Verifies that registry behaves as expected.
 
-    Exercises the registry behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the registry behavior against regressions.
+
+    Example: _registry() -> passes without assertion failures when the behavior remains correct.
     """
     tools = ToolRegistry()
 
     def read_status(query: str, limit: int = 10) -> dict[str, object]:
-        """Validate read status.
+        """Verifies that read status behaves as expected.
 
-        Exercises the read status behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the read status behavior against regressions.
 
-        Args:
-            query: Pytest fixture or input used by this test.
-            limit: Pytest fixture or input used by this test.
+        Example: read_status() -> passes without assertion failures when the behavior remains correct.
         """
         return {
             "status": "success",
@@ -54,12 +53,11 @@ def _registry() -> ToolRegistry:
         }
 
     def play_song(query: str) -> dict[str, object]:
-        """Validate play song.
+        """Verifies that play song behaves as expected.
 
-        Exercises the play song behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play song behavior against regressions.
 
-        Args:
-            query: Pytest fixture or input used by this test.
+        Example: play_song() -> passes without assertion failures when the behavior remains correct.
         """
         return {
             "status": "success",
@@ -101,14 +99,16 @@ def _registry() -> ToolRegistry:
 
 
 class McpServerTests(unittest.TestCase):
-    """Groups mcp server tests tests.
+    """Groups related mcp server tests cases.
 
-    Collects related assertions for mcp server tests behavior.
+    Collects assertions that exercise mcp server tests behavior without mixing unrelated fixtures.
     """
     def test_visible_tools_are_read_only_by_default(self) -> None:
-        """Validate test visible tools are read only by default.
+        """Verifies that visible tools are read only by default behaves as expected.
 
-        Exercises the test visible tools are read only by default behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the visible tools are read only by default behavior against regressions.
+
+        Example: test_visible_tools_are_read_only_by_default() -> passes without assertion failures when the behavior remains correct.
         """
         names = [spec.name for spec in visible_tool_specs(_registry())]
 
@@ -116,18 +116,22 @@ class McpServerTests(unittest.TestCase):
         self.assertNotIn("play_song", names)
 
     def test_visible_tools_include_mutations_when_enabled(self) -> None:
-        """Validate test visible tools include mutations when enabled.
+        """Verifies that visible tools include mutations when enabled behaves as expected.
 
-        Exercises the test visible tools include mutations when enabled behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the visible tools include mutations when enabled behavior against regressions.
+
+        Example: test_visible_tools_include_mutations_when_enabled() -> passes without assertion failures when the behavior remains correct.
         """
         names = [spec.name for spec in visible_tool_specs(_registry(), allow_mutations=True)]
 
         self.assertEqual(names, ["read_status", "play_song"])
 
     def test_real_registry_hides_playback_mutations_by_default(self) -> None:
-        """Validate test real registry hides playback mutations by default.
+        """Verifies that real registry hides playback mutations by default behaves as expected.
 
-        Exercises the test real registry hides playback mutations by default behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the real registry hides playback mutations by default behavior against regressions.
+
+        Example: test_real_registry_hides_playback_mutations_by_default() -> passes without assertion failures when the behavior remains correct.
         """
         names = [spec.name for spec in visible_tool_specs(registry)]
 
@@ -137,9 +141,11 @@ class McpServerTests(unittest.TestCase):
         self.assertNotIn("play_local_song", names)
 
     def test_normalize_result_preserves_tool_result_shape_and_json_safety(self) -> None:
-        """Validate test normalize result preserves tool result shape and json safety.
+        """Verifies that normalize result preserves tool result shape and json safety behaves as expected.
 
-        Exercises the test normalize result preserves tool result shape and json safety behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the normalize result preserves tool result shape and json safety behavior against regressions.
+
+        Example: test_normalize_result_preserves_tool_result_shape_and_json_safety() -> passes without assertion failures when the behavior remains correct.
         """
         result = normalize_mcp_result(
             "read_status",
@@ -156,14 +162,18 @@ class McpServerTests(unittest.TestCase):
         json.dumps(result)
 
     def test_mcp_server_lists_only_read_only_tools_by_default(self) -> None:
-        """Validate test mcp server lists only read only tools by default.
+        """Verifies that mcp server lists only read only tools by default behaves as expected.
 
-        Exercises the test mcp server lists only read only tools by default behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the mcp server lists only read only tools by default behavior against regressions.
+
+        Example: test_mcp_server_lists_only_read_only_tools_by_default() -> passes without assertion failures when the behavior remains correct.
         """
         async def run() -> list[str]:
-            """Validate run.
+            """Verifies that run behaves as expected.
 
-            Exercises the run behavior through the test suite.
+            Typical use: Use this in automated tests when guarding the run behavior against regressions.
+
+            Example: run() -> passes without assertion failures when the behavior remains correct.
             """
             server = build_mcp_server(_registry())
             tools = await server.list_tools()
@@ -174,9 +184,11 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(names, ["read_status"])
 
     def test_fastapi_mounts_mcp_alongside_websocket(self) -> None:
-        """Validate test fastapi mounts mcp alongside websocket.
+        """Verifies that fastapi mounts mcp alongside websocket behaves as expected.
 
-        Exercises the test fastapi mounts mcp alongside websocket behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the fastapi mounts mcp alongside websocket behavior against regressions.
+
+        Example: test_fastapi_mounts_mcp_alongside_websocket() -> passes without assertion failures when the behavior remains correct.
         """
         from src.api.app import app
 
@@ -186,14 +198,18 @@ class McpServerTests(unittest.TestCase):
         self.assertIn("/ws", paths)
 
     def test_mcp_server_invokes_registry_with_args(self) -> None:
-        """Validate test mcp server invokes registry with args.
+        """Verifies that mcp server invokes registry with args behaves as expected.
 
-        Exercises the test mcp server invokes registry with args behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the mcp server invokes registry with args behavior against regressions.
+
+        Example: test_mcp_server_invokes_registry_with_args() -> passes without assertion failures when the behavior remains correct.
         """
         async def run() -> dict[str, object]:
-            """Validate run.
+            """Verifies that run behaves as expected.
 
-            Exercises the run behavior through the test suite.
+            Typical use: Use this in automated tests when guarding the run behavior against regressions.
+
+            Example: run() -> passes without assertion failures when the behavior remains correct.
             """
             server = build_mcp_server(_registry())
             result = await server.call_tool("read_status", {"query": "jazz", "limit": 3})
@@ -205,16 +221,20 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(result["data"], {"query": "jazz", "limit": 3})
 
     def test_mcp_tool_exception_returns_structured_failure(self) -> None:
-        """Validate test mcp tool exception returns structured failure.
+        """Verifies that mcp tool exception returns structured failure behaves as expected.
 
-        Exercises the test mcp tool exception returns structured failure behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the mcp tool exception returns structured failure behavior against regressions.
+
+        Example: test_mcp_tool_exception_returns_structured_failure() -> passes without assertion failures when the behavior remains correct.
         """
         tools = _registry()
 
         def broken() -> None:
-            """Validate broken.
+            """Verifies that broken behaves as expected.
 
-            Exercises the broken behavior through the test suite.
+            Typical use: Use this in automated tests when guarding the broken behavior against regressions.
+
+            Example: broken() -> passes without assertion failures when the behavior remains correct.
             """
             raise RuntimeError("boom")
 
@@ -229,9 +249,11 @@ class McpServerTests(unittest.TestCase):
         )
 
         async def run() -> dict[str, object]:
-            """Validate run.
+            """Verifies that run behaves as expected.
 
-            Exercises the run behavior through the test suite.
+            Typical use: Use this in automated tests when guarding the run behavior against regressions.
+
+            Example: run() -> passes without assertion failures when the behavior remains correct.
             """
             server = build_mcp_server(tools)
             result = await server.call_tool("broken", {})

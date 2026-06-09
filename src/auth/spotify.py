@@ -63,12 +63,11 @@ class SpotifyScopeMissingError(SpotifyAuthError):
     Encapsulates spotify scope missing error data and behavior used by Sonex runtime flows. Extends spotify auth error semantics.
     """
     def __init__(self, missing_scopes: set[str]) -> None:
-        """Init for spotify scope missing error.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving spotify scope missing error state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            missing_scopes: Input value used by the init operation.
+        Example: __init__(missing_scopes=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.missing_scopes = missing_scopes
         scopes = ", ".join(sorted(missing_scopes))
@@ -81,36 +80,30 @@ class _NoopCacheHandler(CacheHandler):
     Encapsulates noop cache handler data and behavior used by Sonex runtime flows. Extends cache handler semantics.
     """
     def get_cached_token(self) -> None:
-        """Get cached token for noop cache handler.
+        """Returns cached token for the current Sonex flow.
 
-        Coordinates the get cached token method behavior while preserving noop cache handler state and contracts.
+        Typical use: Use this function when runtime code needs get cached token as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for get cached token.
+        Example: get_cached_token() -> returns the value used by the surrounding Sonex flow.
         """
         return None
 
     def save_token_to_cache(self, token_info: dict[str, Any]) -> None:
-        """Save token to cache for noop cache handler.
+        """Persists token to cache for later use.
 
-        Coordinates the save token to cache method behavior while preserving noop cache handler state and contracts.
+        Typical use: Use this function when runtime code needs save token to cache as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            token_info: Input value used by the save token to cache operation.
-
-        Returns:
-            The computed result for save token to cache.
+        Example: save_token_to_cache(token_info=...) -> returns the value used by the surrounding Sonex flow.
         """
         return None
 
 
 def load_spotify_env() -> None:
-    """Load spotify env.
+    """Loads spotify env from persistent state.
 
-    Coordinates load spotify env logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs load spotify env as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for load spotify env.
+    Example: load_spotify_env() -> returns the value used by the surrounding Sonex flow.
     """
     global _ENV_LOADED
     if _ENV_LOADED:
@@ -121,24 +114,22 @@ def load_spotify_env() -> None:
 
 
 def spotify_redirect_uri() -> str:
-    """Spotify redirect uri.
+    """Coordinates spotify redirect uri for the current Sonex flow.
 
-    Coordinates spotify redirect uri logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs spotify redirect uri as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for spotify redirect uri.
+    Example: spotify_redirect_uri() -> returns the value used by the surrounding Sonex flow.
     """
     load_spotify_env()
     return os.getenv("SPOTIFY_REDIRECT_URI", DEFAULT_SPOTIFY_REDIRECT_URI)
 
 
 def spotify_scopes() -> list[str]:
-    """Spotify scopes.
+    """Coordinates spotify scopes for the current Sonex flow.
 
-    Coordinates spotify scopes logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs spotify scopes as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for spotify scopes.
+    Example: spotify_scopes() -> returns the value used by the surrounding Sonex flow.
     """
     load_spotify_env()
     raw = os.getenv("SPOTIFY_SCOPE")
@@ -148,12 +139,11 @@ def spotify_scopes() -> list[str]:
 
 
 def spotify_app_credentials() -> tuple[str, str]:
-    """Spotify app credentials.
+    """Coordinates spotify app credentials for the current Sonex flow.
 
-    Coordinates spotify app credentials logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs spotify app credentials as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for spotify app credentials.
+    Example: spotify_app_credentials() -> returns the value used by the surrounding Sonex flow.
     """
     load_spotify_env()
     client_id = os.getenv("SPOTIFY_CLIENT_ID")
@@ -174,16 +164,11 @@ def spotify_app_credentials() -> tuple[str, str]:
 
 
 def save_spotify_app_credentials(client_id: str, client_secret: str) -> Path:
-    """Save spotify app credentials.
+    """Persists spotify app credentials for later use.
 
-    Coordinates save spotify app credentials logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs save spotify app credentials as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        client_id: Input value used by the save spotify app credentials operation.
-        client_secret: Input value used by the save spotify app credentials operation.
-
-    Returns:
-        The computed result for save spotify app credentials.
+    Example: save_spotify_app_credentials(client_id=..., client_secret=...) -> returns the value used by the surrounding Sonex flow.
     """
     client_id = client_id.strip()
     client_secret = client_secret.strip()
@@ -193,16 +178,11 @@ def save_spotify_app_credentials(client_id: str, client_secret: str) -> Path:
 
 
 def spotify_oauth_manager(*, state: str | None = None, scopes: list[str] | None = None) -> SpotifyOAuth:
-    """Spotify oauth manager.
+    """Coordinates spotify oauth manager for the current Sonex flow.
 
-    Coordinates spotify oauth manager logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs spotify oauth manager as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        state: Input value used by the spotify oauth manager operation.
-        scopes: Input value used by the spotify oauth manager operation.
-
-    Returns:
-        The computed result for spotify oauth manager.
+    Example: spotify_oauth_manager(state=..., scopes=...) -> returns the value used by the surrounding Sonex flow.
     """
     client_id, client_secret = spotify_app_credentials()
     return SpotifyOAuth(
@@ -217,12 +197,11 @@ def spotify_oauth_manager(*, state: str | None = None, scopes: list[str] | None 
 
 
 def spotify_app_client() -> spotipy.Spotify:
-    """Spotify app client.
+    """Coordinates spotify app client for the current Sonex flow.
 
-    Coordinates spotify app client logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs spotify app client as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for spotify app client.
+    Example: spotify_app_client() -> returns the value used by the surrounding Sonex flow.
     """
     client_id, client_secret = spotify_app_credentials()
     return spotipy.Spotify(
@@ -234,15 +213,11 @@ def spotify_app_client() -> spotipy.Spotify:
 
 
 def _iso_from_epoch(expires_at: int | float | None) -> str | None:
-    """Iso from epoch.
+    """Prepares iso from epoch for an internal Sonex flow.
 
-    Coordinates iso from epoch logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs iso from epoch without duplicating the local rules.
 
-    Args:
-        expires_at: Input value used by the iso from epoch operation.
-
-    Returns:
-        The computed result for iso from epoch.
+    Example: _iso_from_epoch(expires_at=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not expires_at:
         return None
@@ -253,15 +228,11 @@ def _iso_from_epoch(expires_at: int | float | None) -> str | None:
 
 
 def save_spotify_token_info(token_info: dict[str, Any]) -> None:
-    """Save spotify token info.
+    """Persists spotify token info for later use.
 
-    Coordinates save spotify token info logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs save spotify token info as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        token_info: Input value used by the save spotify token info operation.
-
-    Returns:
-        The computed result for save spotify token info.
+    Example: save_spotify_token_info(token_info=...) -> returns the value used by the surrounding Sonex flow.
     """
     access_token = str(token_info.get("access_token") or "")
     if not access_token:
@@ -279,27 +250,22 @@ def save_spotify_token_info(token_info: dict[str, Any]) -> None:
 
 
 def load_spotify_token() -> OAuthToken | None:
-    """Load spotify token.
+    """Loads spotify token from persistent state.
 
-    Coordinates load spotify token logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs load spotify token as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for load spotify token.
+    Example: load_spotify_token() -> returns the value used by the surrounding Sonex flow.
     """
     provider = get_provider_auth(load_auth_store(), SPOTIFY_PROVIDER)
     return provider.oauth if provider else None
 
 
 def _is_expired(token: OAuthToken) -> bool:
-    """Is expired.
+    """Prepares is expired for an internal Sonex flow.
 
-    Coordinates is expired logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is expired without duplicating the local rules.
 
-    Args:
-        token: Input value used by the is expired operation.
-
-    Returns:
-        The computed result for is expired.
+    Example: _is_expired(token=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not token.expires_at:
         return False
@@ -311,15 +277,11 @@ def _is_expired(token: OAuthToken) -> bool:
 
 
 def refresh_spotify_token(token: OAuthToken) -> OAuthToken:
-    """Refresh spotify token.
+    """Coordinates refresh spotify token for the current Sonex flow.
 
-    Coordinates refresh spotify token logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs refresh spotify token as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        token: Input value used by the refresh spotify token operation.
-
-    Returns:
-        The computed result for refresh spotify token.
+    Example: refresh_spotify_token(token=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not token.refresh_token:
         raise SpotifyLoginRequiredError("Spotify token expired and no refresh token is available.")
@@ -336,15 +298,11 @@ def refresh_spotify_token(token: OAuthToken) -> OAuthToken:
 
 
 def ensure_spotify_token(required_scopes: set[str] | None = None) -> OAuthToken:
-    """Ensure spotify token.
+    """Coordinates ensure spotify token for the current Sonex flow.
 
-    Coordinates ensure spotify token logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs ensure spotify token as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        required_scopes: Input value used by the ensure spotify token operation.
-
-    Returns:
-        The computed result for ensure spotify token.
+    Example: ensure_spotify_token(required_scopes=...) -> returns the value used by the surrounding Sonex flow.
     """
     token = load_spotify_token()
     if not token or not token.access_token:
@@ -359,27 +317,22 @@ def ensure_spotify_token(required_scopes: set[str] | None = None) -> OAuthToken:
 
 
 def spotify_user_client(required_scopes: set[str] | None = None) -> spotipy.Spotify:
-    """Spotify user client.
+    """Coordinates spotify user client for the current Sonex flow.
 
-    Coordinates spotify user client logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs spotify user client as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        required_scopes: Input value used by the spotify user client operation.
-
-    Returns:
-        The computed result for spotify user client.
+    Example: spotify_user_client(required_scopes=...) -> returns the value used by the surrounding Sonex flow.
     """
     token = ensure_spotify_token(required_scopes)
     return spotipy.Spotify(auth=token.access_token)
 
 
 def spotify_authorize_url() -> tuple[str, str]:
-    """Spotify authorize url.
+    """Coordinates spotify authorize url for the current Sonex flow.
 
-    Coordinates spotify authorize url logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs spotify authorize url as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Returns:
-        The computed result for spotify authorize url.
+    Example: spotify_authorize_url() -> returns the value used by the surrounding Sonex flow.
     """
     state = secrets.token_urlsafe(24)
     oauth = spotify_oauth_manager(state=state)

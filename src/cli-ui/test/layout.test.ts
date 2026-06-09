@@ -1,126 +1,124 @@
 import assert from 'node:assert/strict';
 
 import {
-    FULL_LAYOUT_MIN_COLUMNS,
-    FULL_LAYOUT_MIN_ROWS,
-    resolveMiniPlayerChrome,
-    resolveShellLayout,
-    resolvePlayerEventFocus,
-    shouldReturnToChatAfterSubmit,
+    resolveChatHeaderVariant,
+    resolveMiniPlayerLayout,
+    hasActivePlaybackSession,
+    resolveRegionAfterPlayerEvent,
+    toggleShellRegion,
 } from '../src/layout.js';
+import type { PlayerState } from '../src/types.js';
 
-assert.equal(FULL_LAYOUT_MIN_COLUMNS, 114);
-assert.equal(FULL_LAYOUT_MIN_ROWS, 24);
+const idle: PlayerState = {
+    name: '-',
+    artist: '-',
+    album: '-',
+    duration_ms: 0,
+    progress_ms: 0,
+    is_playing: false,
+};
 
-assert.equal(
-    resolveShellLayout({
-        columns: 120,
-        rows: 30,
-        isPlaying: true,
-        preferredLayout: 'full',
-        smallPlaybackFocus: 'player',
+const playing: PlayerState = {
+    name: 'Track',
+    artist: 'Artist',
+    album: 'Album',
+    duration_ms: 120_000,
+    progress_ms: 1_000,
+    is_playing: true,
+    session_id: 'session-1',
+    ended: false,
+};
+
+assert.equal(hasActivePlaybackSession(idle, false), false);
+assert.equal(hasActivePlaybackSession(playing, false), true);
+assert.equal(hasActivePlaybackSession({ ...playing, is_playing: false }, true), true);
+assert.equal(hasActivePlaybackSession({ ...playing, is_playing: false, ended: true }, true), false);
+assert.equal(hasActivePlaybackSession(idle, true), false);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'chat',
+        wasSessionActive: false,
+        player: playing,
     }),
-    'miniPlayer',
-);
-
-assert.equal(
-    resolveShellLayout({
-        columns: 120,
-        rows: 30,
-        isPlaying: true,
-        preferredLayout: 'compact',
-        smallPlaybackFocus: 'player',
-    }),
-    'miniPlayer',
-);
-
-assert.equal(
-    resolveShellLayout({
-        columns: 90,
-        rows: 30,
-        isPlaying: true,
-        preferredLayout: 'full',
-        smallPlaybackFocus: 'player',
-    }),
-    'miniPlayer',
-);
-
-assert.equal(
-    resolveShellLayout({
-        columns: 120,
-        rows: 18,
-        isPlaying: true,
-        preferredLayout: 'full',
-        smallPlaybackFocus: 'player',
-    }),
-    'miniPlayer',
-);
-
-assert.equal(
-    resolveShellLayout({
-        columns: 80,
-        rows: 20,
-        isPlaying: false,
-        preferredLayout: 'full',
-        smallPlaybackFocus: 'player',
-    }),
-    'chat',
-);
-
-assert.equal(
-    resolveShellLayout({
-        columns: 80,
-        rows: 20,
-        isPlaying: true,
-        preferredLayout: 'full',
-        smallPlaybackFocus: 'chat',
-    }),
-    'chat',
-);
-
-assert.equal(
-    resolveShellLayout({
-        columns: null,
-        rows: null,
-        isPlaying: true,
-        preferredLayout: 'full',
-        smallPlaybackFocus: 'player',
-    }),
-    'miniPlayer',
+    { region: 'miniPlayer', sessionActive: true },
 );
 
 assert.deepEqual(
-    resolveMiniPlayerChrome({ layout: 'miniPlayer', smallPlaybackFocus: 'player' }),
-    {
-        inputOnly: true,
-        showConversation: false,
-        showStatus: false,
-        switchHint: 'Tab to switch to chat',
-    },
-);
-
-assert.equal(
-    resolveMiniPlayerChrome({ layout: 'chat', smallPlaybackFocus: 'chat' }).switchHint,
-    'Tab to switch to player',
-);
-
-assert.equal(
-    resolvePlayerEventFocus({
-        wasPlaying: false,
-        isPlaying: true,
-        currentFocus: 'chat',
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'miniPlayer',
+        wasSessionActive: true,
+        player: { ...playing, is_playing: false },
     }),
-    'player',
+    { region: 'miniPlayer', sessionActive: true },
 );
 
-assert.equal(
-    resolvePlayerEventFocus({
-        wasPlaying: true,
-        isPlaying: true,
-        currentFocus: 'chat',
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'chat',
+        wasSessionActive: true,
+        player: { ...playing, is_playing: true, name: 'Next Track' },
     }),
-    'chat',
+    { region: 'chat', sessionActive: true },
 );
 
-assert.equal(shouldReturnToChatAfterSubmit({ layout: 'miniPlayer', commandName: 'play' }), false);
-assert.equal(shouldReturnToChatAfterSubmit({ layout: 'miniPlayer', commandName: 'pause' }), false);
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'miniPlayer',
+        wasSessionActive: true,
+        player: { ...playing, is_playing: false, ended: true },
+    }),
+    { region: 'chat', sessionActive: false },
+);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'miniPlayer',
+        wasSessionActive: true,
+        player: idle,
+    }),
+    { region: 'chat', sessionActive: false },
+);
+
+assert.equal(toggleShellRegion('chat', true), 'miniPlayer');
+assert.equal(toggleShellRegion('miniPlayer', true), 'chat');
+assert.equal(toggleShellRegion('chat', false), 'chat');
+assert.equal(toggleShellRegion('miniPlayer', false), 'chat');
+
+assert.equal(resolveChatHeaderVariant(71), 'compact');
+assert.equal(resolveChatHeaderVariant(72), 'full');
+
+const artwork = resolveMiniPlayerLayout({ columns: 124, rows: 44 });
+assert.equal(artwork.mode, 'artwork');
+assert.equal(artwork.contentColumns, 122);
+assert.equal(artwork.contentRows, 42);
+assert.equal(artwork.infoWidth, 38);
+assert.equal(artwork.infoLeftPadding, 2);
+assert.equal(artwork.gap, 1);
+assert.equal(artwork.coverWidth, 83);
+assert.equal(artwork.infoTop, 19);
+assert.deepEqual(artwork.progressSlot, {
+    row: 23,
+    column: 4,
+    width: 36,
+});
+
+const exactMinimumArtwork = resolveMiniPlayerLayout({ columns: 59, rows: 18 });
+assert.equal(exactMinimumArtwork.mode, 'artwork');
+assert.equal(exactMinimumArtwork.coverWidth, 32);
+
+const infoOnly = resolveMiniPlayerLayout({ columns: 58, rows: 18 });
+assert.equal(infoOnly.mode, 'infoOnly');
+assert.equal(infoOnly.infoWidth, 56);
+assert.equal(infoOnly.infoLeftPadding, 0);
+assert.equal(infoOnly.coverWidth, 0);
+assert.equal(infoOnly.gap, 0);
+
+const tooShortForArtwork = resolveMiniPlayerLayout({ columns: 124, rows: 17 });
+assert.equal(tooShortForArtwork.mode, 'infoOnly');
+assert.equal(tooShortForArtwork.coverWidth, 0);
+
+const tinyTerminal = resolveMiniPlayerLayout({ columns: 40, rows: 2 });
+assert.equal(tinyTerminal.progressSlot.row, 1);
+assert.ok(tinyTerminal.progressSlot.width >= 0);
+assert.ok(tinyTerminal.infoWidth >= 0);

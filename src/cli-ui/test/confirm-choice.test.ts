@@ -3,11 +3,6 @@ import assert from 'node:assert/strict';
 import { resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from '../src/confirm-choice.js';
 import type { ConfirmChoice } from '../src/types.js';
 
-/**
- * Defines the choices constant.
- *
- * Stores stable configuration or display data consumed by src/cli-ui/test/confirm-choice.test.ts.
- */
 const choices: ConfirmChoice[] = [
     { value: 'spotify_play', label: '🎧 Spotify 播放' },
     { value: 'apple_music_play', label: '🍎 Apple Music 播放' },

@@ -14,31 +14,27 @@ from src.auth.store import set_oauth_token
 
 
 class OAuthUnsupportedError(RuntimeError):
-    """Represents o auth unsupported error.
+    """Represents oauth unsupported error.
 
-    Encapsulates o auth unsupported error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
+    Encapsulates oauth unsupported error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
     """
     pass
 
 
 class OAuthTokenExpiredError(RuntimeError):
-    """Represents o auth token expired error.
+    """Represents oauth token expired error.
 
-    Encapsulates o auth token expired error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
+    Encapsulates oauth token expired error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
     """
     pass
 
 
 def provider_supports_oauth(provider: str) -> bool:
-    """Provider supports oauth.
+    """Coordinates provider supports oauth for the current Sonex flow.
 
-    Coordinates provider supports oauth logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs provider supports oauth as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the provider supports oauth operation.
-
-    Returns:
-        The computed result for provider supports oauth.
+    Example: provider_supports_oauth(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     return get_provider_capability(provider).supports_oauth
 
@@ -53,21 +49,11 @@ def save_oauth_token(
     model: str | None = None,
     base_url: str | None = None,
 ) -> None:
-    """Save oauth token.
+    """Persists oauth token for later use.
 
-    Coordinates save oauth token logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs save oauth token as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the save oauth token operation.
-        access_token: Input value used by the save oauth token operation.
-        refresh_token: Input value used by the save oauth token operation.
-        expires_at: Input value used by the save oauth token operation.
-        scopes: Input value used by the save oauth token operation.
-        model: Input value used by the save oauth token operation.
-        base_url: Input value used by the save oauth token operation.
-
-    Returns:
-        The computed result for save oauth token.
+    Example: save_oauth_token(provider=..., access_token=..., refresh_token=..., expires_at=..., scopes=..., model=..., base_url=...) -> returns the value used by the surrounding Sonex flow.
     """
     name = normalize_provider(provider)
     if not provider_supports_oauth(name):
@@ -84,16 +70,11 @@ def save_oauth_token(
 
 
 def ensure_oauth_token_usable(provider: str, token: OAuthToken) -> None:
-    """Ensure oauth token usable.
+    """Coordinates ensure oauth token usable for the current Sonex flow.
 
-    Coordinates ensure oauth token usable logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs ensure oauth token usable as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        provider: Input value used by the ensure oauth token usable operation.
-        token: Input value used by the ensure oauth token usable operation.
-
-    Returns:
-        The computed result for ensure oauth token usable.
+    Example: ensure_oauth_token_usable(provider=..., token=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not token.access_token:
         raise OAuthTokenExpiredError(

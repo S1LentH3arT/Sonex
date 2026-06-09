@@ -20,15 +20,11 @@ from src.workspace import WorkspaceBoundaryError, user_music_dir
 
 # 搜索本地音乐文件
 def search_local_file(query: str) -> str:
-    """Search local file.
+    """Coordinates search local file for the current Sonex flow.
 
-    Coordinates search local file logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs search local file as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the search local file operation.
-
-    Returns:
-        The computed result for search local file.
+    Example: search_local_file(query=...) -> returns the value used by the surrounding Sonex flow.
     """
     query = query.strip()
     if not query:
@@ -48,29 +44,20 @@ def search_local_file(query: str) -> str:
 
 # 检查本地播放器
 def check_player(player: str) -> bool:
-    """Check player.
+    """Coordinates check player for the current Sonex flow.
 
-    Coordinates check player logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs check player as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        player: Input value used by the check player operation.
-
-    Returns:
-        The computed result for check player.
+    Example: check_player(player=...) -> returns the value used by the surrounding Sonex flow.
     """
     return shutil.which(player) is not None
 
 def _player_command(player: str, file: str) -> list[str] | None:
-    """Player command.
+    """Prepares player command for an internal Sonex flow.
 
-    Coordinates player command logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs player command without duplicating the local rules.
 
-    Args:
-        player: Input value used by the player command operation.
-        file: Input value used by the player command operation.
-
-    Returns:
-        The computed result for player command.
+    Example: _player_command(player=..., file=...) -> returns the value used by the surrounding Sonex flow.
     """
     if player == "auto":
         return ["sonex-local-playback", "auto", file]
@@ -84,16 +71,11 @@ def _player_command(player: str, file: str) -> list[str] | None:
 
 # 使用本地播放器播放音乐(默认策略为auto)
 def play_local_song(query: str, player: str = "auto") -> dict:
-    """Play local song.
+    """Coordinates play local song for the current Sonex flow.
 
-    Coordinates play local song logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs play local song as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        query: Input value used by the play local song operation.
-        player: Input value used by the play local song operation.
-
-    Returns:
-        The computed result for play local song.
+    Example: play_local_song(query=..., player=...) -> returns the value used by the surrounding Sonex flow.
     """
     file = search_local_file(query)
     if file.startswith("Path outside user workspace"):

@@ -21,54 +21,58 @@ from src.llm.transport.official import (
 
 
 class _FakeResponse:
-    """Groups fake response tests.
+    """Groups related fake response cases.
 
-    Collects related assertions for fake response behavior.
+    Collects assertions that exercise fake response behavior without mixing unrelated fixtures.
     """
     def __init__(self, payload: dict[str, Any]) -> None:
-        """Validate init.
+        """Verifies that init behaves as expected.
 
-        Exercises the init behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the init behavior against regressions.
 
-        Args:
-            payload: Pytest fixture or input used by this test.
+        Example: __init__() -> passes without assertion failures when the behavior remains correct.
         """
         self.payload = payload
 
     def __enter__(self) -> "_FakeResponse":
-        """Validate enter.
+        """Verifies that enter behaves as expected.
 
-        Exercises the enter behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the enter behavior against regressions.
+
+        Example: __enter__() -> passes without assertion failures when the behavior remains correct.
         """
         return self
 
     def __exit__(self, *args: object) -> None:
-        """Validate exit.
+        """Verifies that exit behaves as expected.
 
-        Exercises the exit behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the exit behavior against regressions.
 
-        Args:
-            args: Pytest fixture or input used by this test.
+        Example: __exit__() -> passes without assertion failures when the behavior remains correct.
         """
         return None
 
     def read(self) -> bytes:
-        """Validate read.
+        """Verifies that read behaves as expected.
 
-        Exercises the read behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the read behavior against regressions.
+
+        Example: read() -> passes without assertion failures when the behavior remains correct.
         """
         return json.dumps(self.payload).encode("utf-8")
 
 
 class OfficialProviderTransportTests(unittest.TestCase):
-    """Groups official provider transport tests tests.
+    """Groups related official provider transport tests cases.
 
-    Collects related assertions for official provider transport tests behavior.
+    Collects assertions that exercise official provider transport tests behavior without mixing unrelated fixtures.
     """
     def test_openai_compatible_transport_builds_chat_completions_request(self) -> None:
-        """Validate test openai compatible transport builds chat completions request.
+        """Verifies that openai compatible transport builds chat completions request behaves as expected.
 
-        Exercises the test openai compatible transport builds chat completions request behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the openai compatible transport builds chat completions request behavior against regressions.
+
+        Example: test_openai_compatible_transport_builds_chat_completions_request() -> passes without assertion failures when the behavior remains correct.
         """
         config = ProviderConfig(name="openai", api_key="sk-test", base_url="https://api.openai.com/v1")
         request = ProviderRequest(
@@ -92,9 +96,11 @@ class OfficialProviderTransportTests(unittest.TestCase):
         self.assertEqual(payload["messages"], [{"role": "user", "content": "hello"}])
 
     def test_anthropic_transport_uses_native_messages_request(self) -> None:
-        """Validate test anthropic transport uses native messages request.
+        """Verifies that anthropic transport uses native messages request behaves as expected.
 
-        Exercises the test anthropic transport uses native messages request behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the anthropic transport uses native messages request behavior against regressions.
+
+        Example: test_anthropic_transport_uses_native_messages_request() -> passes without assertion failures when the behavior remains correct.
         """
         config = ProviderConfig(name="anthropic", api_key="sk-ant", api_version="2023-06-01")
         request = ProviderRequest(
@@ -122,9 +128,11 @@ class OfficialProviderTransportTests(unittest.TestCase):
         self.assertEqual(payload["max_tokens"], 2048)
 
     def test_gemini_transport_builds_generate_content_request_with_api_key(self) -> None:
-        """Validate test gemini transport builds generate content request with api key.
+        """Verifies that gemini transport builds generate content request with api key behaves as expected.
 
-        Exercises the test gemini transport builds generate content request with api key behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the gemini transport builds generate content request with api key behavior against regressions.
+
+        Example: test_gemini_transport_builds_generate_content_request_with_api_key() -> passes without assertion failures when the behavior remains correct.
         """
         config = ProviderConfig(name="gemini", api_key="gemini-key", base_url="https://generativelanguage.googleapis.com/v1beta")
         request = ProviderRequest(
@@ -153,14 +161,16 @@ class OfficialProviderTransportTests(unittest.TestCase):
 
 
 class ProviderClientRoutingTests(unittest.TestCase):
-    """Groups provider client routing tests tests.
+    """Groups related provider client routing tests cases.
 
-    Collects related assertions for provider client routing tests behavior.
+    Collects assertions that exercise provider client routing tests behavior without mixing unrelated fixtures.
     """
     def test_known_cloud_provider_uses_official_transport_before_litellm_fallback(self) -> None:
-        """Validate test known cloud provider uses official transport before litellm fallback.
+        """Verifies that known cloud provider uses official transport before litellm fallback behaves as expected.
 
-        Exercises the test known cloud provider uses official transport before litellm fallback behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the known cloud provider uses official transport before litellm fallback behavior against regressions.
+
+        Example: test_known_cloud_provider_uses_official_transport_before_litellm_fallback() -> passes without assertion failures when the behavior remains correct.
         """
         runtime = RuntimeConfig(
             default_provider="openai",
@@ -180,9 +190,11 @@ class ProviderClientRoutingTests(unittest.TestCase):
         fallback.send.assert_not_called()
 
     def test_anthropic_client_builds_native_payload_for_official_transport(self) -> None:
-        """Validate test anthropic client builds native payload for official transport.
+        """Verifies that anthropic client builds native payload for official transport behaves as expected.
 
-        Exercises the test anthropic client builds native payload for official transport behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the anthropic client builds native payload for official transport behavior against regressions.
+
+        Example: test_anthropic_client_builds_native_payload_for_official_transport() -> passes without assertion failures when the behavior remains correct.
         """
         runtime = RuntimeConfig(
             default_provider="anthropic",
@@ -201,9 +213,11 @@ class ProviderClientRoutingTests(unittest.TestCase):
         self.assertEqual(provider_request.native_payload["max_tokens"], 128)
 
     def test_unknown_provider_uses_litellm_fallback(self) -> None:
-        """Validate test unknown provider uses litellm fallback.
+        """Verifies that unknown provider uses litellm fallback behaves as expected.
 
-        Exercises the test unknown provider uses litellm fallback behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the unknown provider uses litellm fallback behavior against regressions.
+
+        Example: test_unknown_provider_uses_litellm_fallback() -> passes without assertion failures when the behavior remains correct.
         """
         runtime = RuntimeConfig(
             default_provider="custom",

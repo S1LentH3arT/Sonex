@@ -49,15 +49,11 @@ class ProviderClient:
         adapters: dict[str, LLMAdapter] = None,
         provider_transports: dict[str, LLMTransport] | None = None,
     ) -> None:
-        """Init for provider client.
+        """Prepares init for an internal Sonex flow.
 
-        Coordinates the init method behavior while preserving provider client state and contracts.
+        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Args:
-            runtime_config: Input value used by the init operation.
-            transport: Input value used by the init operation.
-            adapters: Input value used by the init operation.
-            provider_transports: Input value used by the init operation.
+        Example: __init__(runtime_config=..., transport=..., adapters=..., provider_transports=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.runtime_config = runtime_config
         self.transport = transport or LiteLLMTransport()

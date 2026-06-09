@@ -10,6 +10,7 @@ from src.tools.playback_controller import (
 )
 from src.tools.registry import ToolRegistry, registry
 from src.tools.result import ToolResult
+from src.tools.playback_request import request_playback_selection
 from src.tools.apple_music import (
     apple_music_account,
     apple_music_current_playback,
@@ -46,6 +47,7 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "registry",
+    "request_playback_selection",
     "play_local_song",
     "play_youtube_song",
     "local_playback_pause",

@@ -21,15 +21,11 @@ TRUE_VALUES = {"1", "true", "yes", "on", "allow", "enabled"}
 
 
 def mcp_tools_enabled(allow_mutations: bool | None = None) -> bool:
-    """Mcp tools enabled.
+    """Coordinates mcp tools enabled for the current Sonex flow.
 
-    Coordinates mcp tools enabled logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs mcp tools enabled as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        allow_mutations: Input value used by the mcp tools enabled operation.
-
-    Returns:
-        The computed result for mcp tools enabled.
+    Example: mcp_tools_enabled(allow_mutations=...) -> returns the value used by the surrounding Sonex flow.
     """
     if allow_mutations is not None:
         return bool(allow_mutations)
@@ -41,16 +37,11 @@ def visible_tool_specs(
     *,
     allow_mutations: bool | None = None,
 ) -> list[ToolSpec]:
-    """Visible tool specs.
+    """Coordinates visible tool specs for the current Sonex flow.
 
-    Coordinates visible tool specs logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs visible tool specs as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        tool_registry: Input value used by the visible tool specs operation.
-        allow_mutations: Input value used by the visible tool specs operation.
-
-    Returns:
-        The computed result for visible tool specs.
+    Example: visible_tool_specs(tool_registry=..., allow_mutations=...) -> returns the value used by the surrounding Sonex flow.
     """
     include_mutations = mcp_tools_enabled(allow_mutations)
     return [
@@ -61,16 +52,11 @@ def visible_tool_specs(
 
 
 def normalize_mcp_result(tool_name: str, value: Any) -> dict[str, Any]:
-    """Normalize mcp result.
+    """Coordinates normalize mcp result for the current Sonex flow.
 
-    Coordinates normalize mcp result logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs normalize mcp result as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        tool_name: Input value used by the normalize mcp result operation.
-        value: Input value used by the normalize mcp result operation.
-
-    Returns:
-        The computed result for normalize mcp result.
+    Example: normalize_mcp_result(tool_name=..., value=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(value, dict):
         result = dict(value)
@@ -93,16 +79,11 @@ def normalize_mcp_result(tool_name: str, value: Any) -> dict[str, Any]:
 
 
 def _error_result(tool_name: str, exc: Exception) -> dict[str, Any]:
-    """Error result.
+    """Prepares error result for an internal Sonex flow.
 
-    Coordinates error result logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs error result without duplicating the local rules.
 
-    Args:
-        tool_name: Input value used by the error result operation.
-        exc: Input value used by the error result operation.
-
-    Returns:
-        The computed result for error result.
+    Example: _error_result(tool_name=..., exc=...) -> returns the value used by the surrounding Sonex flow.
     """
     return {
         "status": "fail",
@@ -114,15 +95,11 @@ def _error_result(tool_name: str, exc: Exception) -> dict[str, Any]:
 
 
 def _to_json_safe(value: Any) -> Any:
-    """To json safe.
+    """Prepares to json safe for an internal Sonex flow.
 
-    Coordinates to json safe logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs to json safe without duplicating the local rules.
 
-    Args:
-        value: Input value used by the to json safe operation.
-
-    Returns:
-        The computed result for to json safe.
+    Example: _to_json_safe(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(value, dict):
         return {str(key): _to_json_safe(item) for key, item in value.items()}
@@ -140,15 +117,11 @@ def _to_json_safe(value: Any) -> Any:
 
 
 def _annotation_for_json_type(value: Any) -> Any:
-    """Annotation for json type.
+    """Prepares annotation for json type for an internal Sonex flow.
 
-    Coordinates annotation for json type logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs annotation for json type without duplicating the local rules.
 
-    Args:
-        value: Input value used by the annotation for json type operation.
-
-    Returns:
-        The computed result for annotation for json type.
+    Example: _annotation_for_json_type(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(value, list):
         return list
@@ -168,15 +141,11 @@ def _annotation_for_json_type(value: Any) -> Any:
 
 
 def _tool_signature(spec: ToolSpec) -> inspect.Signature:
-    """Tool signature.
+    """Prepares tool signature for an internal Sonex flow.
 
-    Coordinates tool signature logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs tool signature without duplicating the local rules.
 
-    Args:
-        spec: Input value used by the tool signature operation.
-
-    Returns:
-        The computed result for tool signature.
+    Example: _tool_signature(spec=...) -> returns the value used by the surrounding Sonex flow.
     """
     properties = spec.parameters.properties or {}
     required = set(spec.parameters.required or [])
@@ -204,24 +173,18 @@ def _tool_signature(spec: ToolSpec) -> inspect.Signature:
 
 
 def _wrapper_for_tool(tool_registry: ToolRegistry, spec: ToolSpec):
-    """Wrapper for tool.
+    """Prepares wrapper for tool for an internal Sonex flow.
 
-    Coordinates wrapper for tool logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs wrapper for tool without duplicating the local rules.
 
-    Args:
-        tool_registry: Input value used by the wrapper for tool operation.
-        spec: Input value used by the wrapper for tool operation.
+    Example: _wrapper_for_tool(tool_registry=..., spec=...) -> returns the value used by the surrounding Sonex flow.
     """
     def call_tool(**kwargs: Any) -> dict[str, Any]:
-        """Call tool.
+        """Coordinates call tool for the current Sonex flow.
 
-        Coordinates call tool logic for the surrounding Sonex flow.
+        Typical use: Use this function when runtime code needs call tool as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            kwargs: Input value used by the call tool operation.
-
-        Returns:
-            The computed result for call tool.
+        Example: call_tool() -> returns the value used by the surrounding Sonex flow.
         """
         try:
             result = tool_registry.invoke(spec.name, kwargs)
@@ -243,18 +206,11 @@ def build_mcp_server(
     name: str = "Sonex",
     streamable_http_path: str = "/mcp",
 ) -> FastMCP:
-    """Build mcp server.
+    """Builds mcp server from the supplied input.
 
-    Coordinates build mcp server logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs build mcp server as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        tool_registry: Input value used by the build mcp server operation.
-        allow_mutations: Input value used by the build mcp server operation.
-        name: Input value used by the build mcp server operation.
-        streamable_http_path: Input value used by the build mcp server operation.
-
-    Returns:
-        The computed result for build mcp server.
+    Example: build_mcp_server(tool_registry=..., allow_mutations=..., name=..., streamable_http_path=...) -> returns the value used by the surrounding Sonex flow.
     """
     mcp = FastMCP(
         name,
@@ -290,18 +246,11 @@ def run_mcp_server(
     port: int = 9002,
     allow_mutations: bool | None = None,
 ) -> None:
-    """Run mcp server.
+    """Coordinates run mcp server for the current Sonex flow.
 
-    Coordinates run mcp server logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs run mcp server as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        transport: Input value used by the run mcp server operation.
-        host: Input value used by the run mcp server operation.
-        port: Input value used by the run mcp server operation.
-        allow_mutations: Input value used by the run mcp server operation.
-
-    Returns:
-        The computed result for run mcp server.
+    Example: run_mcp_server(transport=..., host=..., port=..., allow_mutations=...) -> returns the value used by the surrounding Sonex flow.
     """
     mcp = build_mcp_server(allow_mutations=allow_mutations)
     if transport == "stdio":

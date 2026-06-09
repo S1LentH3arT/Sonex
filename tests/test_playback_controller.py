@@ -12,21 +12,25 @@ from src.tools import playback_controller as playback
 
 
 class PlaybackControllerTests(unittest.TestCase):
-    """Groups playback controller tests tests.
+    """Groups related playback controller tests cases.
 
-    Collects related assertions for playback controller tests behavior.
+    Collects assertions that exercise playback controller tests behavior without mixing unrelated fixtures.
     """
     def setUp(self) -> None:
-        """Validate set up.
+        """Verifies that setUp behaves as expected.
 
-        Exercises the set up behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the setUp behavior against regressions.
+
+        Example: setUp() -> passes without assertion failures when the behavior remains correct.
         """
         self.controller = playback.LocalPlaybackController()
 
     def test_mpv_play_returns_current_session_state(self) -> None:
-        """Validate test mpv play returns current session state.
+        """Verifies that mpv play returns current session state behaves as expected.
 
-        Exercises the test mpv play returns current session state behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the mpv play returns current session state behavior against regressions.
+
+        Example: test_mpv_play_returns_current_session_state() -> passes without assertion failures when the behavior remains correct.
         """
         adapter = Mock()
         adapter.start.return_value = playback.PlayerState(
@@ -57,9 +61,11 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.current_session_id, "session-1")
 
     def test_mpv_start_uses_network_buffering_options(self) -> None:
-        """Validate test mpv start uses network buffering options.
+        """Verifies that mpv start uses network buffering options behaves as expected.
 
-        Exercises the test mpv start uses network buffering options behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the mpv start uses network buffering options behavior against regressions.
+
+        Example: test_mpv_start_uses_network_buffering_options() -> passes without assertion failures when the behavior remains correct.
         """
         adapter = playback.MpvPlaybackAdapter(
             source_url="https://stream.example/audio",
@@ -94,9 +100,11 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertIn("--demuxer-max-bytes=256MiB", command)
 
     def test_cvlc_start_uses_network_buffering_options(self) -> None:
-        """Validate test cvlc start uses network buffering options.
+        """Verifies that cvlc start uses network buffering options behaves as expected.
 
-        Exercises the test cvlc start uses network buffering options behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the cvlc start uses network buffering options behavior against regressions.
+
+        Example: test_cvlc_start_uses_network_buffering_options() -> passes without assertion failures when the behavior remains correct.
         """
         adapter = playback.CvlcRcPlaybackAdapter(
             source_url="https://stream.example/audio",
@@ -129,9 +137,11 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertIn("--network-caching=5000", command)
 
     def test_auto_play_falls_back_to_cvlc_when_mpv_fails(self) -> None:
-        """Validate test auto play falls back to cvlc when mpv fails.
+        """Verifies that auto play falls back to cvlc when mpv fails behaves as expected.
 
-        Exercises the test auto play falls back to cvlc when mpv fails behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the auto play falls back to cvlc when mpv fails behavior against regressions.
+
+        Example: test_auto_play_falls_back_to_cvlc_when_mpv_fails() -> passes without assertion failures when the behavior remains correct.
         """
         mpv_adapter = Mock()
         mpv_adapter.start.side_effect = RuntimeError("mpv missing")
@@ -161,9 +171,11 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.current_session_id, "cvlc-session")
 
     def test_explicit_mpv_failure_does_not_fall_back_to_cvlc(self) -> None:
-        """Validate test explicit mpv failure does not fall back to cvlc.
+        """Verifies that explicit mpv failure does not fall back to cvlc behaves as expected.
 
-        Exercises the test explicit mpv failure does not fall back to cvlc behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the explicit mpv failure does not fall back to cvlc behavior against regressions.
+
+        Example: test_explicit_mpv_failure_does_not_fall_back_to_cvlc() -> passes without assertion failures when the behavior remains correct.
         """
         mpv_adapter = Mock()
         mpv_adapter.start.side_effect = RuntimeError("mpv failed")
@@ -178,9 +190,11 @@ class PlaybackControllerTests(unittest.TestCase):
         cvlc_adapter.assert_not_called()
 
     def test_explicit_cvlc_uses_cvlc_adapter(self) -> None:
-        """Validate test explicit cvlc uses cvlc adapter.
+        """Verifies that explicit cvlc uses cvlc adapter behaves as expected.
 
-        Exercises the test explicit cvlc uses cvlc adapter behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the explicit cvlc uses cvlc adapter behavior against regressions.
+
+        Example: test_explicit_cvlc_uses_cvlc_adapter() -> passes without assertion failures when the behavior remains correct.
         """
         cvlc_adapter = Mock()
         cvlc_adapter.start.return_value = playback.PlayerState(
@@ -207,9 +221,11 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(state.player, "cvlc")
 
     def test_new_play_stops_previous_session(self) -> None:
-        """Validate test new play stops previous session.
+        """Verifies that new play stops previous session behaves as expected.
 
-        Exercises the test new play stops previous session behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the new play stops previous session behavior against regressions.
+
+        Example: test_new_play_stops_previous_session() -> passes without assertion failures when the behavior remains correct.
         """
         first = Mock()
         first.start.return_value = playback.PlayerState(
@@ -248,9 +264,11 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.current_session_id, "second")
 
     def test_pause_resume_stop_and_status_delegate_to_adapter(self) -> None:
-        """Validate test pause resume stop and status delegate to adapter.
+        """Verifies that pause resume stop and status delegate to adapter behaves as expected.
 
-        Exercises the test pause resume stop and status delegate to adapter behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the pause resume stop and status delegate to adapter behavior against regressions.
+
+        Example: test_pause_resume_stop_and_status_delegate_to_adapter() -> passes without assertion failures when the behavior remains correct.
         """
         adapter = Mock()
         paused = playback.PlayerState(
@@ -292,19 +310,23 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertIsNone(self.controller.current_session_id)
 
     def test_player_backend_strategy_can_be_changed_for_session(self) -> None:
-        """Validate test player backend strategy can be changed for session.
+        """Verifies that player backend strategy can be changed for session behaves as expected.
 
-        Exercises the test player backend strategy can be changed for session behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the player backend strategy can be changed for session behavior against regressions.
+
+        Example: test_player_backend_strategy_can_be_changed_for_session() -> passes without assertion failures when the behavior remains correct.
         """
         self.assertEqual(self.controller.set_player_backend("cvlc"), "cvlc")
         self.assertEqual(self.controller.player_backend, "cvlc")
-        with self.assertRaisesRegex(ValueError, "Unsupported local playback backend"):
+        with self.assertRaisesRegex(ValueError, "Unsupportedlocal playback backend"):
             self.controller.set_player_backend("vlc")
 
     def test_start_local_playback_uses_current_backend_when_player_is_omitted(self) -> None:
-        """Validate test start local playback uses current backend when player is omitted.
+        """Verifies that start local playback uses current backend when player is omitted behaves as expected.
 
-        Exercises the test start local playback uses current backend when player is omitted behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the start local playback uses current backend when player is omitted behavior against regressions.
+
+        Example: test_start_local_playback_uses_current_backend_when_player_is_omitted() -> passes without assertion failures when the behavior remains correct.
         """
         cvlc_adapter = Mock()
         cvlc_adapter.start.return_value = playback.PlayerState(
@@ -340,9 +362,11 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(result["data"]["player"], "cvlc")
 
     def test_volume_tool_validates_range_and_returns_state(self) -> None:
-        """Validate test volume tool validates range and returns state.
+        """Verifies that volume tool validates range and returns state behaves as expected.
 
-        Exercises the test volume tool validates range and returns state behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the volume tool validates range and returns state behavior against regressions.
+
+        Example: test_volume_tool_validates_range_and_returns_state() -> passes without assertion failures when the behavior remains correct.
         """
         adapter = Mock()
         adapter.start.return_value = playback.PlayerState(

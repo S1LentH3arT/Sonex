@@ -23,15 +23,11 @@ Do not mention internal memory mechanics unless the user asks about them."""
 
 
 def _format_command_intent(command_intent: CommandIntent | None) -> str:
-    """Format command intent.
+    """Prepares format command intent for an internal Sonex flow.
 
-    Coordinates format command intent logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs format command intent without duplicating the local rules.
 
-    Args:
-        command_intent: Input value used by the format command intent operation.
-
-    Returns:
-        The computed result for format command intent.
+    Example: _format_command_intent(command_intent=...) -> returns the value used by the surrounding Sonex flow.
     """
     if command_intent is None:
         return ""
@@ -47,15 +43,11 @@ def _format_command_intent(command_intent: CommandIntent | None) -> str:
 
 
 def _planner_system_prompt(command_intent: CommandIntent | None) -> str:
-    """Planner system prompt.
+    """Prepares planner system prompt for an internal Sonex flow.
 
-    Coordinates planner system prompt logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs planner system prompt without duplicating the local rules.
 
-    Args:
-        command_intent: Input value used by the planner system prompt operation.
-
-    Returns:
-        The computed result for planner system prompt.
+    Example: _planner_system_prompt(command_intent=...) -> returns the value used by the surrounding Sonex flow.
     """
     if command_intent is None or not command_intent.intent_prompt:
         return PLANNER_SYSTEM_PROMPT
@@ -71,17 +63,11 @@ def llm_plan(
     tools: ToolRegistry,
     command_intent: CommandIntent | None = None,
 ) -> Action:
-    """Llm plan.
+    """Coordinates llm plan for the current Sonex flow.
 
-    Coordinates llm plan logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs llm plan as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        user_input: Input value used by the llm plan operation.
-        tools: Input value used by the llm plan operation.
-        command_intent: Input value used by the llm plan operation.
-
-    Returns:
-        The computed result for llm plan.
+    Example: llm_plan(user_input=..., tools=..., command_intent=...) -> returns the value used by the surrounding Sonex flow.
     """
     client = ThinkingConfig.get_client()
     model = ThinkingConfig.get_model()

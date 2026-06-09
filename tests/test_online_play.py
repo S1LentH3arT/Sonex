@@ -19,50 +19,46 @@ from src.tools.song_cache import upsert_cached_song
 
 
 class FakeYoutubeDL:
-    """Groups fake youtube d l tests.
+    """Groups related youtube d l cases.
 
-    Collects related assertions for fake youtube d l behavior.
+    Collects assertions that exercise youtube d l behavior without mixing unrelated fixtures.
     """
     responses: list[dict] = []
     calls: list[dict] = []
 
     def __init__(self, options: dict) -> None:
-        """Validate init.
+        """Verifies that init behaves as expected.
 
-        Exercises the init behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the init behavior against regressions.
 
-        Args:
-            options: Pytest fixture or input used by this test.
+        Example: __init__() -> passes without assertion failures when the behavior remains correct.
         """
         self.options = options
 
     def __enter__(self) -> "FakeYoutubeDL":
-        """Validate enter.
+        """Verifies that enter behaves as expected.
 
-        Exercises the enter behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the enter behavior against regressions.
+
+        Example: __enter__() -> passes without assertion failures when the behavior remains correct.
         """
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        """Validate exit.
+        """Verifies that exit behaves as expected.
 
-        Exercises the exit behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the exit behavior against regressions.
 
-        Args:
-            exc_type: Pytest fixture or input used by this test.
-            exc: Pytest fixture or input used by this test.
-            tb: Pytest fixture or input used by this test.
+        Example: __exit__() -> passes without assertion failures when the behavior remains correct.
         """
         return None
 
     def extract_info(self, target: str, download: bool = False) -> dict:
-        """Validate extract info.
+        """Verifies that extract info behaves as expected.
 
-        Exercises the extract info behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the extract info behavior against regressions.
 
-        Args:
-            target: Pytest fixture or input used by this test.
-            download: Pytest fixture or input used by this test.
+        Example: extract_info() -> passes without assertion failures when the behavior remains correct.
         """
         self.calls.append({"target": target, "download": download, "options": self.options})
         if not self.responses:
@@ -82,12 +78,11 @@ class FakeYoutubeDL:
 
 
 def _playback_success(**kwargs):
-    """Validate playback success.
+    """Verifies that playback success behaves as expected.
 
-    Exercises the playback success behavior through the test suite.
+    Typical use: Use this in automated tests when guarding the playback success behavior against regressions.
 
-    Args:
-        kwargs: Pytest fixture or input used by this test.
+    Example: _playback_success() -> passes without assertion failures when the behavior remains correct.
     """
     return ToolResult.success(
         tool=kwargs["tool"],
@@ -97,22 +92,26 @@ def _playback_success(**kwargs):
 
 
 class OnlinePlayTests(unittest.TestCase):
-    """Groups online play tests tests.
+    """Groups related online play tests cases.
 
-    Collects related assertions for online play tests behavior.
+    Collects assertions that exercise online play tests behavior without mixing unrelated fixtures.
     """
     def tearDown(self) -> None:
-        """Validate tear down.
+        """Verifies that tearDown behaves as expected.
 
-        Exercises the tear down behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the tearDown behavior against regressions.
+
+        Example: tearDown() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = []
         FakeYoutubeDL.calls = []
 
     def test_search_spotify_track_candidates_returns_bounded_normalized_tracks(self) -> None:
-        """Validate test search spotify track candidates returns bounded normalized tracks.
+        """Verifies that search spotify track candidates returns bounded normalized tracks behaves as expected.
 
-        Exercises the test search spotify track candidates returns bounded normalized tracks behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search spotify track candidates returns bounded normalized tracks behavior against regressions.
+
+        Example: test_search_spotify_track_candidates_returns_bounded_normalized_tracks() -> passes without assertion failures when the behavior remains correct.
         """
         spotify_result = {
             "status": "success",
@@ -147,17 +146,21 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidates[0]["original_query"], "messy query")
 
     def test_search_spotify_track_candidates_returns_empty_on_failure(self) -> None:
-        """Validate test search spotify track candidates returns empty on failure.
+        """Verifies that search spotify track candidates returns empty on failure behaves as expected.
 
-        Exercises the test search spotify track candidates returns empty on failure behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search spotify track candidates returns empty on failure behavior against regressions.
+
+        Example: test_search_spotify_track_candidates_returns_empty_on_failure() -> passes without assertion failures when the behavior remains correct.
         """
         with patch("src.tools.spotify_play.spotify_search", side_effect=RuntimeError("no token")):
             self.assertEqual(online.search_spotify_track_candidates("query", limit=5), [])
 
     def test_normalize_jamendo_track_keeps_stream_download_cover_and_metadata(self) -> None:
-        """Validate test normalize jamendo track keeps stream download cover and metadata.
+        """Verifies that normalize jamendo track keeps stream download cover and metadata behaves as expected.
 
-        Exercises the test normalize jamendo track keeps stream download cover and metadata behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the normalize jamendo track keeps stream download cover and metadata behavior against regressions.
+
+        Example: test_normalize_jamendo_track_keeps_stream_download_cover_and_metadata() -> passes without assertion failures when the behavior remains correct.
         """
         track = {
             "id": "jam-1",
@@ -194,9 +197,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidate["playback_metadata"]["metadata_source"], "spotify")
 
     def test_normalize_jamendo_track_returns_none_without_playable_url(self) -> None:
-        """Validate test normalize jamendo track returns none without playable url.
+        """Verifies that normalize jamendo track returns none without playable url behaves as expected.
 
-        Exercises the test normalize jamendo track returns none without playable url behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the normalize jamendo track returns none without playable url behavior against regressions.
+
+        Example: test_normalize_jamendo_track_returns_none_without_playable_url() -> passes without assertion failures when the behavior remains correct.
         """
         candidate = online.normalize_jamendo_track(
             {"id": "jam-1", "name": "Song", "artist_name": "Artist"},
@@ -206,9 +211,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertIsNone(candidate)
 
     def test_itunes_metadata_does_not_replace_jamendo_audio_source_identity(self) -> None:
-        """Validate test itunes metadata does not replace jamendo audio source identity.
+        """Verifies that itunes metadata does not replace jamendo audio source identity behaves as expected.
 
-        Exercises the test itunes metadata does not replace jamendo audio source identity behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the itunes metadata does not replace jamendo audio source identity behavior against regressions.
+
+        Example: test_itunes_metadata_does_not_replace_jamendo_audio_source_identity() -> passes without assertion failures when the behavior remains correct.
         """
         candidate = online.normalize_jamendo_track(
             {
@@ -241,9 +248,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidate["playback_metadata"]["itunes_url"], "https://music.apple.com/song/itunes-1")
 
     def test_normalize_jamendo_track_accepts_stream_without_download_url(self) -> None:
-        """Validate test normalize jamendo track accepts stream without download url.
+        """Verifies that normalize jamendo track accepts stream without download url behaves as expected.
 
-        Exercises the test normalize jamendo track accepts stream without download url behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the normalize jamendo track accepts stream without download url behavior against regressions.
+
+        Example: test_normalize_jamendo_track_accepts_stream_without_download_url() -> passes without assertion failures when the behavior remains correct.
         """
         candidate = online.normalize_jamendo_track(
             {
@@ -262,9 +271,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidate["download_url"], "https://audio.example/stream-only.mp3")
 
     def test_normalize_audius_track_uses_best_artwork_and_excludes_gated_tracks(self) -> None:
-        """Validate test normalize audius track uses best artwork and excludes gated tracks.
+        """Verifies that normalize audius track uses best artwork and excludes gated tracks behaves as expected.
 
-        Exercises the test normalize audius track uses best artwork and excludes gated tracks behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the normalize audius track uses best artwork and excludes gated tracks behavior against regressions.
+
+        Example: test_normalize_audius_track_uses_best_artwork_and_excludes_gated_tracks() -> passes without assertion failures when the behavior remains correct.
         """
         gated = online.normalize_audius_track(
             {
@@ -306,9 +317,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidate["duration_ms"], 202000)
 
     def test_resolve_online_audio_records_missing_config_before_youtube(self) -> None:
-        """Validate test resolve online audio records missing config before youtube.
+        """Verifies that resolve online audio records missing config before youtube behaves as expected.
 
-        Exercises the test resolve online audio records missing config before youtube behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the resolve online audio records missing config before youtube behavior against regressions.
+
+        Example: test_resolve_online_audio_records_missing_config_before_youtube() -> passes without assertion failures when the behavior remains correct.
         """
         config = online.OnlineAudioConfig(jamendo_client_id=None, audius_api_key=None)
         youtube_candidate = {
@@ -353,9 +366,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertIn("Audius is not configured", candidates[0]["fallback_reason"])
 
     def test_resolve_online_audio_youtube_search_failure_keeps_attempt_trace(self) -> None:
-        """Validate test resolve online audio youtube search failure keeps attempt trace.
+        """Verifies that resolve online audio youtube search failure keeps attempt trace behaves as expected.
 
-        Exercises the test resolve online audio youtube search failure keeps attempt trace behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the resolve online audio youtube search failure keeps attempt trace behavior against regressions.
+
+        Example: test_resolve_online_audio_youtube_search_failure_keeps_attempt_trace() -> passes without assertion failures when the behavior remains correct.
         """
         config = online.OnlineAudioConfig(jamendo_client_id=None, audius_api_key=None)
 
@@ -374,9 +389,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertNotIn("wYB9Vu282ZU", message)
 
     def test_resolve_online_audio_tries_youtube_only_after_configured_sources_fail(self) -> None:
-        """Validate test resolve online audio tries youtube only after configured sources fail.
+        """Verifies that resolve online audio tries youtube only after configured sources fail behaves as expected.
 
-        Exercises the test resolve online audio tries youtube only after configured sources fail behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the resolve online audio tries youtube only after configured sources fail behavior against regressions.
+
+        Example: test_resolve_online_audio_tries_youtube_only_after_configured_sources_fail() -> passes without assertion failures when the behavior remains correct.
         """
         config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
         youtube_candidate = {
@@ -421,9 +438,11 @@ class OnlinePlayTests(unittest.TestCase):
         )
 
     def test_resolve_online_audio_filters_low_similarity_before_youtube_fallback(self) -> None:
-        """Validate test resolve online audio filters low similarity before youtube fallback.
+        """Verifies that resolve online audio filters low similarity before youtube fallback behaves as expected.
 
-        Exercises the test resolve online audio filters low similarity before youtube fallback behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the resolve online audio filters low similarity before youtube fallback behavior against regressions.
+
+        Example: test_resolve_online_audio_filters_low_similarity_before_youtube_fallback() -> passes without assertion failures when the behavior remains correct.
         """
         config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
         low_similarity = {
@@ -457,9 +476,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidates[0]["source_attempts"][0]["credible_count"], 0)
 
     def test_resolve_online_audio_keeps_provider_error_trace_before_youtube_fallback(self) -> None:
-        """Validate test resolve online audio keeps provider error trace before youtube fallback.
+        """Verifies that resolve online audio keeps provider error trace before youtube fallback behaves as expected.
 
-        Exercises the test resolve online audio keeps provider error trace before youtube fallback behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the resolve online audio keeps provider error trace before youtube fallback behavior against regressions.
+
+        Example: test_resolve_online_audio_keeps_provider_error_trace_before_youtube_fallback() -> passes without assertion failures when the behavior remains correct.
         """
         config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
         youtube_candidate = {
@@ -483,9 +504,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertIn("Jamendo failed:", candidates[0]["fallback_reason"])
 
     def test_rank_online_audio_candidates_uses_similarity_quality_before_provider_priority(self) -> None:
-        """Validate test rank online audio candidates uses similarity quality before provider priority.
+        """Verifies that rank online audio candidates uses similarity quality before provider priority behaves as expected.
 
-        Exercises the test rank online audio candidates uses similarity quality before provider priority behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the rank online audio candidates uses similarity quality before provider priority behavior against regressions.
+
+        Example: test_rank_online_audio_candidates_uses_similarity_quality_before_provider_priority() -> passes without assertion failures when the behavior remains correct.
         """
         audius = {
             "provider": "audius",
@@ -509,9 +532,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual([candidate["provider"] for candidate in ranked], ["audius", "jamendo"])
 
     def test_search_youtube_songs_returns_five_candidates_without_downloading(self) -> None:
-        """Validate test search youtube songs returns five candidates without downloading.
+        """Verifies that search youtube songs returns five candidates without downloading behaves as expected.
 
-        Exercises the test search youtube songs returns five candidates without downloading behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search youtube songs returns five candidates without downloading behavior against regressions.
+
+        Example: test_search_youtube_songs_returns_five_candidates_without_downloading() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -541,9 +566,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertFalse(any(call["download"] for call in FakeYoutubeDL.calls))
 
     def test_search_youtube_songs_uses_confirmed_spotify_metadata_without_spotify_lookup(self) -> None:
-        """Validate test search youtube songs uses confirmed spotify metadata without spotify lookup.
+        """Verifies that search youtube songs uses confirmed spotify metadata without spotify lookup behaves as expected.
 
-        Exercises the test search youtube songs uses confirmed spotify metadata without spotify lookup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search youtube songs uses confirmed spotify metadata without spotify lookup behavior against regressions.
+
+        Example: test_search_youtube_songs_uses_confirmed_spotify_metadata_without_spotify_lookup() -> passes without assertion failures when the behavior remains correct.
         """
         playback_metadata = {
             "metadata_source": "spotify",
@@ -589,9 +616,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidates[0]["metadata_source"], "spotify")
 
     def test_search_youtube_songs_ranks_official_match_above_higher_view_noisy_media(self) -> None:
-        """Validate test search youtube songs ranks official match above higher view noisy media.
+        """Verifies that search youtube songs ranks official match above higher view noisy media behaves as expected.
 
-        Exercises the test search youtube songs ranks official match above higher view noisy media behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search youtube songs ranks official match above higher view noisy media behavior against regressions.
+
+        Example: test_search_youtube_songs_ranks_official_match_above_higher_view_noisy_media() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -640,9 +669,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertIn("official", candidates[0]["rank_reason"])
 
     def test_search_youtube_songs_ranks_clean_match_above_higher_view_show_result(self) -> None:
-        """Validate test search youtube songs ranks clean match above higher view show result.
+        """Verifies that search youtube songs ranks clean match above higher view show result behaves as expected.
 
-        Exercises the test search youtube songs ranks clean match above higher view show result behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search youtube songs ranks clean match above higher view show result behavior against regressions.
+
+        Example: test_search_youtube_songs_ranks_clean_match_above_higher_view_show_result() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -676,9 +707,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidates[1]["quality_label"], "noisy_media")
 
     def test_search_youtube_songs_uses_popularity_as_tiebreaker_for_clean_matches(self) -> None:
-        """Validate test search youtube songs uses popularity as tiebreaker for clean matches.
+        """Verifies that search youtube songs uses popularity as tiebreaker for clean matches behaves as expected.
 
-        Exercises the test search youtube songs uses popularity as tiebreaker for clean matches behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search youtube songs uses popularity as tiebreaker for clean matches behavior against regressions.
+
+        Example: test_search_youtube_songs_uses_popularity_as_tiebreaker_for_clean_matches() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -709,9 +742,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["higher", "lower"])
 
     def test_search_youtube_songs_prioritizes_live_when_query_requests_live(self) -> None:
-        """Validate test search youtube songs prioritizes live when query requests live.
+        """Verifies that search youtube songs prioritizes live when query requests live behaves as expected.
 
-        Exercises the test search youtube songs prioritizes live when query requests live behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search youtube songs prioritizes live when query requests live behavior against regressions.
+
+        Example: test_search_youtube_songs_prioritizes_live_when_query_requests_live() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -745,9 +780,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidates[0]["variant_type"], "live")
 
     def test_search_youtube_songs_handles_missing_popularity_fields(self) -> None:
-        """Validate test search youtube songs handles missing popularity fields.
+        """Verifies that search youtube songs handles missing popularity fields behaves as expected.
 
-        Exercises the test search youtube songs handles missing popularity fields behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search youtube songs handles missing popularity fields behavior against regressions.
+
+        Example: test_search_youtube_songs_handles_missing_popularity_fields() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -772,9 +809,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidates[0]["raw_like_count"], 0)
 
     def test_search_youtube_songs_skips_age_restricted_candidates(self) -> None:
-        """Validate test search youtube songs skips age restricted candidates.
+        """Verifies that search youtube songs skips age restricted candidates behaves as expected.
 
-        Exercises the test search youtube songs skips age restricted candidates behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search youtube songs skips age restricted candidates behavior against regressions.
+
+        Example: test_search_youtube_songs_skips_age_restricted_candidates() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -807,9 +846,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["playable"])
 
     def test_search_youtube_songs_skips_unavailable_candidates(self) -> None:
-        """Validate test search youtube songs skips unavailable candidates.
+        """Verifies that search youtube songs skips unavailable candidates behaves as expected.
 
-        Exercises the test search youtube songs skips unavailable candidates behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the search youtube songs skips unavailable candidates behavior against regressions.
+
+        Example: test_search_youtube_songs_skips_unavailable_candidates() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -842,9 +883,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["playable"])
 
     def test_download_youtube_candidate_writes_cache_item_and_audio_file(self) -> None:
-        """Validate test download youtube candidate writes cache item and audio file.
+        """Verifies that download youtube candidate writes cache item and audio file behaves as expected.
 
-        Exercises the test download youtube candidate writes cache item and audio file behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the download youtube candidate writes cache item and audio file behavior against regressions.
+
+        Example: test_download_youtube_candidate_writes_cache_item_and_audio_file() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -885,9 +928,11 @@ class OnlinePlayTests(unittest.TestCase):
             self.assertEqual(item["stream_url"], str(audio_path))
 
     def test_download_youtube_candidate_reuses_existing_audio_cache(self) -> None:
-        """Validate test download youtube candidate reuses existing audio cache.
+        """Verifies that download youtube candidate reuses existing audio cache behaves as expected.
 
-        Exercises the test download youtube candidate reuses existing audio cache behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the download youtube candidate reuses existing audio cache behavior against regressions.
+
+        Example: test_download_youtube_candidate_reuses_existing_audio_cache() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -929,9 +974,11 @@ class OnlinePlayTests(unittest.TestCase):
             self.assertEqual(FakeYoutubeDL.calls, [])
 
     def test_play_youtube_song_returns_normalized_music_metadata(self) -> None:
-        """Validate test play youtube song returns normalized music metadata.
+        """Verifies that play youtube song returns normalized music metadata behaves as expected.
 
-        Exercises the test play youtube song returns normalized music metadata behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube song returns normalized music metadata behavior against regressions.
+
+        Example: test_play_youtube_song_returns_normalized_music_metadata() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -977,9 +1024,11 @@ class OnlinePlayTests(unittest.TestCase):
             self.assertTrue(data["is_playing"])
 
     def test_play_youtube_song_uses_confirmed_spotify_metadata_for_youtube_and_caa(self) -> None:
-        """Validate test play youtube song uses confirmed spotify metadata for youtube and caa.
+        """Verifies that play youtube song uses confirmed spotify metadata for youtube and caa behaves as expected.
 
-        Exercises the test play youtube song uses confirmed spotify metadata for youtube and caa behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube song uses confirmed spotify metadata for youtube and caa behavior against regressions.
+
+        Example: test_play_youtube_song_uses_confirmed_spotify_metadata_for_youtube_and_caa() -> passes without assertion failures when the behavior remains correct.
         """
         playback_metadata = {
             "metadata_source": "spotify",
@@ -1052,9 +1101,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(data["cover_source_type"], "cover_art_archive")
 
     def test_play_youtube_song_does_not_use_spotify_cover_when_caa_misses(self) -> None:
-        """Validate test play youtube song does not use spotify cover when caa misses.
+        """Verifies that play youtube song does not use spotify cover when caa misses behaves as expected.
 
-        Exercises the test play youtube song does not use spotify cover when caa misses behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube song does not use spotify cover when caa misses behavior against regressions.
+
+        Example: test_play_youtube_song_does_not_use_spotify_cover_when_caa_misses() -> passes without assertion failures when the behavior remains correct.
         """
         playback_metadata = {
             "metadata_source": "spotify",
@@ -1117,9 +1168,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertNotIn("official_album_cover_url", data)
 
     def test_play_youtube_song_does_not_auto_lookup_spotify_and_uses_raw_query(self) -> None:
-        """Validate test play youtube song does not auto lookup spotify and uses raw query.
+        """Verifies that play youtube song does not auto lookup spotify and uses raw query behaves as expected.
 
-        Exercises the test play youtube song does not auto lookup spotify and uses raw query behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube song does not auto lookup spotify and uses raw query behavior against regressions.
+
+        Example: test_play_youtube_song_does_not_auto_lookup_spotify_and_uses_raw_query() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {
@@ -1161,9 +1214,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(data["original_query"], "raw query")
 
     def test_play_youtube_song_falls_back_to_uploader_and_best_audio_format(self) -> None:
-        """Validate test play youtube song falls back to uploader and best audio format.
+        """Verifies that play youtube song falls back to uploader and best audio format behaves as expected.
 
-        Exercises the test play youtube song falls back to uploader and best audio format behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube song falls back to uploader and best audio format behavior against regressions.
+
+        Example: test_play_youtube_song_falls_back_to_uploader_and_best_audio_format() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {"entries": [{"id": "def456"}]},
@@ -1200,9 +1255,11 @@ class OnlinePlayTests(unittest.TestCase):
             self.assertEqual(data["duration_ms"], 12400)
 
     def test_play_youtube_song_returns_failure_when_no_audio_stream_is_available(self) -> None:
-        """Validate test play youtube song returns failure when no audio stream is available.
+        """Verifies that play youtube song returns failure when no audio stream is available behaves as expected.
 
-        Exercises the test play youtube song returns failure when no audio stream is available behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube song returns failure when no audio stream is available behavior against regressions.
+
+        Example: test_play_youtube_song_returns_failure_when_no_audio_stream_is_available() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
             {"entries": [{"id": "ghi789"}]},
@@ -1226,9 +1283,11 @@ class OnlinePlayTests(unittest.TestCase):
         launch.assert_not_called()
 
     def test_play_youtube_song_uses_open_audio_trace_before_youtube_unavailable_fallback(self) -> None:
-        """Validate test play youtube song uses open audio trace before youtube unavailable fallback.
+        """Verifies that play youtube song uses open audio trace before youtube unavailable fallback behaves as expected.
 
-        Exercises the test play youtube song uses open audio trace before youtube unavailable fallback behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube song uses open audio trace before youtube unavailable fallback behavior against regressions.
+
+        Example: test_play_youtube_song_uses_open_audio_trace_before_youtube_unavailable_fallback() -> passes without assertion failures when the behavior remains correct.
         """
         config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
         youtube_candidate = {
@@ -1267,9 +1326,11 @@ class OnlinePlayTests(unittest.TestCase):
         launch.assert_not_called()
 
     def test_play_youtube_candidate_returns_age_restricted_failure_without_cookie_instructions(self) -> None:
-        """Validate test play youtube candidate returns age restricted failure without cookie instructions.
+        """Verifies that play youtube candidate returns age restricted failure without cookie instructions behaves as expected.
 
-        Exercises the test play youtube candidate returns age restricted failure without cookie instructions behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube candidate returns age restricted failure without cookie instructions behavior against regressions.
+
+        Example: test_play_youtube_candidate_returns_age_restricted_failure_without_cookie_instructions() -> passes without assertion failures when the behavior remains correct.
         """
         candidate = {
             "provider": "youtube",
@@ -1304,9 +1365,11 @@ class OnlinePlayTests(unittest.TestCase):
         launch.assert_not_called()
 
     def test_play_youtube_candidate_returns_unavailable_failure_without_raw_extractor_error(self) -> None:
-        """Validate test play youtube candidate returns unavailable failure without raw extractor error.
+        """Verifies that play youtube candidate returns unavailable failure without raw extractor error behaves as expected.
 
-        Exercises the test play youtube candidate returns unavailable failure without raw extractor error behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube candidate returns unavailable failure without raw extractor error behavior against regressions.
+
+        Example: test_play_youtube_candidate_returns_unavailable_failure_without_raw_extractor_error() -> passes without assertion failures when the behavior remains correct.
         """
         candidate = {
             "provider": "youtube",
@@ -1338,9 +1401,11 @@ class OnlinePlayTests(unittest.TestCase):
         launch.assert_not_called()
 
     def test_play_youtube_fallback_candidate_failure_names_open_audio_attempts(self) -> None:
-        """Validate test play youtube fallback candidate failure names open audio attempts.
+        """Verifies that play youtube fallback candidate failure names open audio attempts behaves as expected.
 
-        Exercises the test play youtube fallback candidate failure names open audio attempts behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the play youtube fallback candidate failure names open audio attempts behavior against regressions.
+
+        Example: test_play_youtube_fallback_candidate_failure_names_open_audio_attempts() -> passes without assertion failures when the behavior remains correct.
         """
         candidate = {
             "provider": "youtube",
@@ -1382,9 +1447,11 @@ class OnlinePlayTests(unittest.TestCase):
         launch.assert_not_called()
 
     def test_player_confirm_offers_mpv_and_vlc_backend_choices(self) -> None:
-        """Validate test player confirm offers mpv and vlc backend choices.
+        """Verifies that player confirm offers mpv and vlc backend choices behaves as expected.
 
-        Exercises the test player confirm offers mpv and vlc backend choices behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the player confirm offers mpv and vlc backend choices behavior against regressions.
+
+        Example: test_player_confirm_offers_mpv_and_vlc_backend_choices() -> passes without assertion failures when the behavior remains correct.
         """
         result = build_player_confirm_result(
             tool="play_youtube_song",
@@ -1405,9 +1472,11 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertIn("recommended", choices[0]["description"])
 
     def test_player_confirm_choice_selects_requested_backend(self) -> None:
-        """Validate test player confirm choice selects requested backend.
+        """Verifies that player confirm choice selects requested backend behaves as expected.
 
-        Exercises the test player confirm choice selects requested backend behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the player confirm choice selects requested backend behavior against regressions.
+
+        Example: test_player_confirm_choice_selects_requested_backend() -> passes without assertion failures when the behavior remains correct.
         """
         pending = build_player_confirm_result(
             tool="play_youtube_song",

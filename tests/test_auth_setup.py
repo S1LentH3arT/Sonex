@@ -20,79 +20,78 @@ from src.thinking.config import ThinkingConfig
 
 
 class FakeUI:
-    """Groups fake u i tests.
+    """Groups related ui cases.
 
-    Collects related assertions for fake u i behavior.
+    Collects assertions that exercise ui behavior without mixing unrelated fixtures.
     """
     def __init__(self) -> None:
-        """Validate init.
+        """Verifies that init behaves as expected.
 
-        Exercises the init behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the init behavior against regressions.
+
+        Example: __init__() -> passes without assertion failures when the behavior remains correct.
         """
         self.events: list[dict[str, object]] = []
         self.statuses: list[object] = []
 
     async def append_user_message(self, text: str) -> None:
-        """Validate append user message.
+        """Verifies that append user message behaves as expected.
 
-        Exercises the append user message behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the append user message behavior against regressions.
 
-        Args:
-            text: Pytest fixture or input used by this test.
+        Example: append_user_message() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "chat", "role": "user", "text": text})
 
     async def append_activity(self, **kwargs: object) -> str:
-        """Validate append activity.
+        """Verifies that append activity behaves as expected.
 
-        Exercises the append activity behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the append activity behavior against regressions.
 
-        Args:
-            kwargs: Pytest fixture or input used by this test.
+        Example: append_activity() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "activity", **kwargs})
         return str(kwargs.get("activity_id") or "activity_test")
 
     async def send_auth_setup(self, **kwargs: object) -> None:
-        """Validate send auth setup.
+        """Verifies that send auth setup behaves as expected.
 
-        Exercises the send auth setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send auth setup behavior against regressions.
 
-        Args:
-            kwargs: Pytest fixture or input used by this test.
+        Example: send_auth_setup() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "auth_setup", **kwargs})
 
     async def send_auth_state(self, state: object) -> None:
-        """Validate send auth state.
+        """Verifies that send auth state behaves as expected.
 
-        Exercises the send auth state behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the send auth state behavior against regressions.
 
-        Args:
-            state: Pytest fixture or input used by this test.
+        Example: send_auth_state() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append(state.to_event())
 
     def set_status(self, status: object) -> None:
-        """Validate set status.
+        """Verifies that set status behaves as expected.
 
-        Exercises the set status behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the set status behavior against regressions.
 
-        Args:
-            status: Pytest fixture or input used by this test.
+        Example: set_status() -> passes without assertion failures when the behavior remains correct.
         """
         self.statuses.append(status)
 
 
 class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
-    """Groups auth setup tests tests.
+    """Groups related auth setup tests cases.
 
-    Collects related assertions for auth setup tests behavior.
+    Collects assertions that exercise auth setup tests behavior without mixing unrelated fixtures.
     """
     def setUp(self) -> None:
-        """Validate set up.
+        """Verifies that setUp behaves as expected.
 
-        Exercises the set up behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the setUp behavior against regressions.
+
+        Example: setUp() -> passes without assertion failures when the behavior remains correct.
         """
         ThinkingConfig._state = None
         self.music_intent_patch = patch(
@@ -102,17 +101,21 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
         self.music_intent_patch.start()
 
     def tearDown(self) -> None:
-        """Validate tear down.
+        """Verifies that tearDown behaves as expected.
 
-        Exercises the tear down behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the tearDown behavior against regressions.
+
+        Example: tearDown() -> passes without assertion failures when the behavior remains correct.
         """
         self.music_intent_patch.stop()
         ThinkingConfig._state = None
 
     async def test_missing_openai_login_starts_auth_setup_without_planner(self) -> None:
-        """Validate test missing openai login starts auth setup without planner.
+        """Verifies that missing openai login starts auth setup without planner behaves as expected.
 
-        Exercises the test missing openai login starts auth setup without planner behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the missing openai login starts auth setup without planner behavior against regressions.
+
+        Example: test_missing_openai_login_starts_auth_setup_without_planner() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             runner = WebSocketRunner()
@@ -128,9 +131,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(auth_events[-1]["mask"])
 
     async def test_api_key_login_saves_auth_and_continues_pending_input(self) -> None:
-        """Validate test api key login saves auth and continues pending input.
+        """Verifies that api key login saves auth and continues pending input behaves as expected.
 
-        Exercises the test api key login saves auth and continues pending input behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the api key login saves auth and continues pending input behavior against regressions.
+
+        Example: test_api_key_login_saves_auth_and_continues_pending_input() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             runner = WebSocketRunner()
@@ -150,9 +155,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(call.kwargs["command_intent"].command, "general")
 
     async def test_ollama_default_provider_does_not_require_login(self) -> None:
-        """Validate test ollama default provider does not require login.
+        """Verifies that ollama default provider does not require login behaves as expected.
 
-        Exercises the test ollama default provider does not require login behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the ollama default provider does not require login behavior against regressions.
+
+        Example: test_ollama_default_provider_does_not_require_login() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "ollama"}):
             runner = WebSocketRunner()
@@ -167,9 +174,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
 
     async def test_existing_auth_store_key_does_not_require_login(self) -> None:
-        """Validate test existing auth store key does not require login.
+        """Verifies that existing auth store key does not require login behaves as expected.
 
-        Exercises the test existing auth store key does not require login behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the existing auth store key does not require login behavior against regressions.
+
+        Example: test_existing_auth_store_key_does_not_require_login() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             set_api_key("openai", "sk-existing")
@@ -185,9 +194,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
 
     async def test_plain_input_with_existing_auth_does_not_call_play_optimizer(self) -> None:
-        """Validate test plain input with existing auth does not call play optimizer.
+        """Verifies that plain input with existing auth does not call play optimizer behaves as expected.
 
-        Exercises the test plain input with existing auth does not call play optimizer behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the plain input with existing auth does not call play optimizer behavior against regressions.
+
+        Example: test_plain_input_with_existing_auth_does_not_call_play_optimizer() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             set_api_key("openai", "sk-existing")
@@ -208,9 +219,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
 
     async def test_startup_missing_auth_starts_setup(self) -> None:
-        """Validate test startup missing auth starts setup.
+        """Verifies that startup missing auth starts setup behaves as expected.
 
-        Exercises the test startup missing auth starts setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup missing auth starts setup behavior against regressions.
+
+        Example: test_startup_missing_auth_starts_setup() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             runner = WebSocketRunner()
@@ -231,9 +244,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_startup_existing_auth_store_key_skips_setup(self) -> None:
-        """Validate test startup existing auth store key skips setup.
+        """Verifies that startup existing auth store key skips setup behaves as expected.
 
-        Exercises the test startup existing auth store key skips setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup existing auth store key skips setup behavior against regressions.
+
+        Example: test_startup_existing_auth_store_key_skips_setup() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             set_api_key("openai", "sk-existing")
@@ -249,9 +264,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
 
     async def test_startup_existing_auth_store_oauth_skips_setup(self) -> None:
-        """Validate test startup existing auth store oauth skips setup.
+        """Verifies that startup existing auth store oauth skips setup behaves as expected.
 
-        Exercises the test startup existing auth store oauth skips setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup existing auth store oauth skips setup behavior against regressions.
+
+        Example: test_startup_existing_auth_store_oauth_skips_setup() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "gemini"}):
             set_oauth_token("gemini", OAuthToken(access_token="ya29-token"))
@@ -267,9 +284,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
 
     async def test_startup_empty_auth_store_entry_starts_setup(self) -> None:
-        """Validate test startup empty auth store entry starts setup.
+        """Verifies that startup empty auth store entry starts setup behaves as expected.
 
-        Exercises the test startup empty auth store entry starts setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup empty auth store entry starts setup behavior against regressions.
+
+        Example: test_startup_empty_auth_store_entry_starts_setup() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             auth_path = Path(os.environ["SONEX_HOME"]) / "auth.json"
@@ -288,9 +307,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue([event for event in ui.events if event.get("type") == "auth_setup"])
 
     async def test_startup_env_api_key_skips_setup(self) -> None:
-        """Validate test startup env api key skips setup.
+        """Verifies that startup env api key skips setup behaves as expected.
 
-        Exercises the test startup env api key skips setup behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup env api key skips setup behavior against regressions.
+
+        Example: test_startup_env_api_key_skips_setup() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env({"SONEX_OPENAI_API_KEY": "sk-env"}):
             runner = WebSocketRunner()
@@ -305,9 +326,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
 
     async def test_startup_ollama_skips_setup_as_local(self) -> None:
-        """Validate test startup ollama skips setup as local.
+        """Verifies that startup ollama skips setup as local behaves as expected.
 
-        Exercises the test startup ollama skips setup as local behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup ollama skips setup as local behavior against regressions.
+
+        Example: test_startup_ollama_skips_setup_as_local() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "ollama"}):
             runner = WebSocketRunner()
@@ -322,9 +345,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
 
     async def test_startup_api_key_login_saves_auth_without_agent_turn(self) -> None:
-        """Validate test startup api key login saves auth without agent turn.
+        """Verifies that startup api key login saves auth without agent turn behaves as expected.
 
-        Exercises the test startup api key login saves auth without agent turn behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup api key login saves auth without agent turn behavior against regressions.
+
+        Example: test_startup_api_key_login_saves_auth_without_agent_turn() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             runner = WebSocketRunner()
@@ -347,9 +372,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(auth_states[-1]["credential_source"], "auth.json")
 
     async def test_startup_provider_selection_advances_to_method_choices(self) -> None:
-        """Validate test startup provider selection advances to method choices.
+        """Verifies that startup provider selection advances to method choices behaves as expected.
 
-        Exercises the test startup provider selection advances to method choices behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup provider selection advances to method choices behavior against regressions.
+
+        Example: test_startup_provider_selection_advances_to_method_choices() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             runner = WebSocketRunner()
@@ -366,9 +393,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(load_auth_store().default_provider, "gemini")
 
     async def test_startup_anthropic_api_key_sets_default_provider(self) -> None:
-        """Validate test startup anthropic api key sets default provider.
+        """Verifies that startup anthropic api key sets default provider behaves as expected.
 
-        Exercises the test startup anthropic api key sets default provider behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup anthropic api key sets default provider behavior against regressions.
+
+        Example: test_startup_anthropic_api_key_sets_default_provider() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             runner = WebSocketRunner()
@@ -390,9 +419,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(auth_states[-1]["ready"])
 
     async def test_startup_ollama_selection_completes_as_local(self) -> None:
-        """Validate test startup ollama selection completes as local.
+        """Verifies that startup ollama selection completes as local behaves as expected.
 
-        Exercises the test startup ollama selection completes as local behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the startup ollama selection completes as local behavior against regressions.
+
+        Example: test_startup_ollama_selection_completes_as_local() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env():
             runner = WebSocketRunner()
@@ -415,9 +446,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(auth_states[-1]["auth_type"], "local")
 
     async def test_provider_defaults_apply_to_runtime_config(self) -> None:
-        """Validate test provider defaults apply to runtime config.
+        """Verifies that provider defaults apply to runtime config behaves as expected.
 
-        Exercises the test provider defaults apply to runtime config behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the provider defaults apply to runtime config behavior against regressions.
+
+        Example: test_provider_defaults_apply_to_runtime_config() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "anthropic"}):
             ThinkingConfig.reload()
@@ -429,9 +462,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ThinkingConfig.get_provider_config("deepseek").model, "deepseek-v4-pro")
 
     async def test_model_command_opens_model_choices(self) -> None:
-        """Validate test model command opens model choices.
+        """Verifies that model command opens model choices behaves as expected.
 
-        Exercises the test model command opens model choices behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the model command opens model choices behavior against regressions.
+
+        Example: test_model_command_opens_model_choices() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env({"SONEX_OPENAI_API_KEY": "sk-env"}):
             runner = WebSocketRunner()
@@ -456,9 +491,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertGreater(len(values), 1)
 
     async def test_model_selection_sets_default_provider_and_model(self) -> None:
-        """Validate test model selection sets default provider and model.
+        """Verifies that model selection sets default provider and model behaves as expected.
 
-        Exercises the test model selection sets default provider and model behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the model selection sets default provider and model behavior against regressions.
+
+        Example: test_model_selection_sets_default_provider_and_model() -> passes without assertion failures when the behavior remains correct.
         """
         with self._isolated_auth_env({"SONEX_OPENAI_API_KEY": "sk-env"}):
             runner = WebSocketRunner()
@@ -484,12 +521,11 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(auth_states[-1]["model"], "gpt-5.2")
 
     def _isolated_auth_env(self, extra: dict[str, str] | None = None):
-        """Validate isolated auth env.
+        """Verifies that isolated auth env behaves as expected.
 
-        Exercises the isolated auth env behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the isolated auth env behavior against regressions.
 
-        Args:
-            extra: Pytest fixture or input used by this test.
+        Example: _isolated_auth_env() -> passes without assertion failures when the behavior remains correct.
         """
         home = tempfile.TemporaryDirectory()
         config_path = Path(home.name) / "missing-thinking.json"
@@ -504,32 +540,27 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
         patcher = patch.dict(os.environ, env, clear=False)
 
         class EnvContext:
-            """Groups env context tests.
+            """Groups related env context cases.
 
-            Collects related assertions for env context behavior.
+            Collects assertions that exercise env context behavior without mixing unrelated fixtures.
             """
             def __enter__(self_nonlocal) -> None:
-                """Validate enter.
+                """Verifies that enter behaves as expected.
 
-                Exercises the enter behavior through the test suite.
+                Typical use: Use this in automated tests when guarding the enter behavior against regressions.
 
-                Args:
-                    self_nonlocal: Pytest fixture or input used by this test.
+                Example: __enter__() -> passes without assertion failures when the behavior remains correct.
                 """
                 patcher.start()
                 ThinkingConfig._state = None
                 return None
 
             def __exit__(self_nonlocal, exc_type, exc, tb) -> None:
-                """Validate exit.
+                """Verifies that exit behaves as expected.
 
-                Exercises the exit behavior through the test suite.
+                Typical use: Use this in automated tests when guarding the exit behavior against regressions.
 
-                Args:
-                    self_nonlocal: Pytest fixture or input used by this test.
-                    exc_type: Pytest fixture or input used by this test.
-                    exc: Pytest fixture or input used by this test.
-                    tb: Pytest fixture or input used by this test.
+                Example: __exit__() -> passes without assertion failures when the behavior remains correct.
                 """
                 ThinkingConfig._state = None
                 patcher.stop()

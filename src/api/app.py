@@ -21,12 +21,11 @@ mcp_app = mcp_server.streamable_http_app()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Asynchronously lifespan.
+    """Coordinates lifespan for the current Sonex flow.
 
-    Coordinates non-blocking lifespan work for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs lifespan as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        app: Input value used by the lifespan operation.
+    Example: await lifespan(app=...) -> returns the value used by the surrounding Sonex flow.
     """
     configure_file_logging()
     async with mcp_server.session_manager.run():
@@ -39,14 +38,10 @@ app.mount("/mcp", mcp_app)
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
-    """Asynchronously websocket endpoint.
+    """Coordinates websocket endpoint for the current Sonex flow.
 
-    Coordinates non-blocking websocket endpoint work for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs websocket endpoint as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        ws: Input value used by the websocket endpoint operation.
-
-    Returns:
-        The computed result for websocket endpoint.
+    Example: await websocket_endpoint(ws=...) -> returns the value used by the surrounding Sonex flow.
     """
     await runner.handle_ws(ws)

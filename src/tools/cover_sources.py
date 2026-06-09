@@ -26,29 +26,21 @@ _last_musicbrainz_request = 0.0
 
 
 def cover_bytes_for_source(source: str) -> bytes | None:
-    """Cover bytes for source.
+    """Coordinates cover bytes for source for the current Sonex flow.
 
-    Coordinates cover bytes for source logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs cover bytes for source as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        source: Input value used by the cover bytes for source operation.
-
-    Returns:
-        The computed result for cover bytes for source.
+    Example: cover_bytes_for_source(source=...) -> returns the value used by the surrounding Sonex flow.
     """
     return _embedded_cover_bytes.get(source)
 
 
 def register_cover_bytes(image_bytes: bytes) -> str:
-    """Register cover bytes.
+    """Coordinates register cover bytes for the current Sonex flow.
 
-    Coordinates register cover bytes logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs register cover bytes as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        image_bytes: Input value used by the register cover bytes operation.
-
-    Returns:
-        The computed result for register cover bytes.
+    Example: register_cover_bytes(image_bytes=...) -> returns the value used by the surrounding Sonex flow.
     """
     digest = hashlib.sha256(image_bytes).hexdigest()
     source = f"embedded:{digest}"
@@ -57,15 +49,11 @@ def register_cover_bytes(image_bytes: bytes) -> str:
 
 
 def extract_embedded_cover(path: str | Path) -> dict[str, Any] | None:
-    """Extract embedded cover.
+    """Coordinates extract embedded cover for the current Sonex flow.
 
-    Coordinates extract embedded cover logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs extract embedded cover as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        path: Input value used by the extract embedded cover operation.
-
-    Returns:
-        The computed result for extract embedded cover.
+    Example: extract_embedded_cover(path=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         from mutagen import File
@@ -76,12 +64,11 @@ def extract_embedded_cover(path: str | Path) -> dict[str, Any] | None:
         raise RuntimeError("mutagen is required to read embedded cover art.") from exc
 
     def id3_fallback() -> dict[str, Any] | None:
-        """Id3 fallback.
+        """Coordinates id3 fallback for the current Sonex flow.
 
-        Coordinates id3 fallback logic for the surrounding Sonex flow.
+        Typical use: Use this function when runtime code needs id3 fallback as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for id3 fallback.
+        Example: id3_fallback() -> returns the value used by the surrounding Sonex flow.
         """
         try:
             tags = ID3(str(path))
@@ -148,15 +135,11 @@ def extract_embedded_cover(path: str | Path) -> dict[str, Any] | None:
 
 
 def resolve_online_cover(metadata: dict[str, Any]) -> dict[str, Any]:
-    """Resolve online cover.
+    """Resolves online cover from available runtime state.
 
-    Coordinates resolve online cover logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs resolve online cover as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        metadata: Input value used by the resolve online cover operation.
-
-    Returns:
-        The computed result for resolve online cover.
+    Example: resolve_online_cover(metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     provider_cover = _provider_cover_url(metadata)
     if provider_cover:
@@ -181,15 +164,11 @@ def resolve_online_cover(metadata: dict[str, Any]) -> dict[str, Any]:
 
 
 def _provider_cover_url(metadata: dict[str, Any]) -> str | None:
-    """Provider cover url.
+    """Prepares provider cover url for an internal Sonex flow.
 
-    Coordinates provider cover url logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs provider cover url without duplicating the local rules.
 
-    Args:
-        metadata: Input value used by the provider cover url operation.
-
-    Returns:
-        The computed result for provider cover url.
+    Example: _provider_cover_url(metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
     explicit = _text(metadata.get("official_album_cover_url") or metadata.get("provider_album_cover_url"))
     if explicit:
@@ -204,17 +183,11 @@ def _provider_cover_url(metadata: dict[str, Any]) -> str | None:
 
 
 def lookup_cover_art_url(*, name: str, artist: str, album: str = "") -> str | None:
-    """Lookup cover art url.
+    """Coordinates lookup cover art url for the current Sonex flow.
 
-    Coordinates lookup cover art url logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs lookup cover art url as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        name: Input value used by the lookup cover art url operation.
-        artist: Input value used by the lookup cover art url operation.
-        album: Input value used by the lookup cover art url operation.
-
-    Returns:
-        The computed result for lookup cover art url.
+    Example: lookup_cover_art_url(name=..., artist=..., album=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not name or not artist:
         return None
@@ -230,17 +203,11 @@ def lookup_cover_art_url(*, name: str, artist: str, album: str = "") -> str | No
 
 
 def _musicbrainz_cover_candidates(*, name: str, artist: str, album: str) -> tuple[str | None, str | None]:
-    """Musicbrainz cover candidates.
+    """Prepares musicbrainz cover candidates for an internal Sonex flow.
 
-    Coordinates musicbrainz cover candidates logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs musicbrainz cover candidates without duplicating the local rules.
 
-    Args:
-        name: Input value used by the musicbrainz cover candidates operation.
-        artist: Input value used by the musicbrainz cover candidates operation.
-        album: Input value used by the musicbrainz cover candidates operation.
-
-    Returns:
-        The computed result for musicbrainz cover candidates.
+    Example: _musicbrainz_cover_candidates(name=..., artist=..., album=...) -> returns the value used by the surrounding Sonex flow.
     """
     query_parts = [f'recording:"{name}"', f'artist:"{artist}"']
     if album and album != "-":
@@ -272,15 +239,11 @@ def _musicbrainz_cover_candidates(*, name: str, artist: str, album: str) -> tupl
 
 
 def _musicbrainz_json(url: str) -> dict[str, Any]:
-    """Musicbrainz json.
+    """Prepares musicbrainz json for an internal Sonex flow.
 
-    Coordinates musicbrainz json logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs musicbrainz json without duplicating the local rules.
 
-    Args:
-        url: Input value used by the musicbrainz json operation.
-
-    Returns:
-        The computed result for musicbrainz json.
+    Example: _musicbrainz_json(url=...) -> returns the value used by the surrounding Sonex flow.
     """
     global _last_musicbrainz_request
     with _musicbrainz_lock:
@@ -295,15 +258,11 @@ def _musicbrainz_json(url: str) -> dict[str, Any]:
 
 
 def _recording_cover_ids(recording: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Recording cover ids.
+    """Prepares recording cover ids for an internal Sonex flow.
 
-    Coordinates recording cover ids logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs recording cover ids without duplicating the local rules.
 
-    Args:
-        recording: Input value used by the recording cover ids operation.
-
-    Returns:
-        The computed result for recording cover ids.
+    Example: _recording_cover_ids(recording=...) -> returns the value used by the surrounding Sonex flow.
     """
     releases = recording.get("releases")
     if not isinstance(releases, list):
@@ -326,18 +285,11 @@ def _score_recording(
     artist_terms: set[str],
     album_terms: set[str],
 ) -> int:
-    """Score recording.
+    """Prepares score recording for an internal Sonex flow.
 
-    Coordinates score recording logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs score recording without duplicating the local rules.
 
-    Args:
-        recording: Input value used by the score recording operation.
-        name_terms: Input value used by the score recording operation.
-        artist_terms: Input value used by the score recording operation.
-        album_terms: Input value used by the score recording operation.
-
-    Returns:
-        The computed result for score recording.
+    Example: _score_recording(recording=..., name_terms=..., artist_terms=..., album_terms=...) -> returns the value used by the surrounding Sonex flow.
     """
     score = 0
     title_terms = _terms(str(recording.get("title") or ""))
@@ -367,16 +319,11 @@ def _score_recording(
 
 
 def _caa_front_endpoints(release_group_mbid: str | None, release_mbid: str | None) -> list[str]:
-    """Caa front endpoints.
+    """Prepares caa front endpoints for an internal Sonex flow.
 
-    Coordinates caa front endpoints logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs caa front endpoints without duplicating the local rules.
 
-    Args:
-        release_group_mbid: Input value used by the caa front endpoints operation.
-        release_mbid: Input value used by the caa front endpoints operation.
-
-    Returns:
-        The computed result for caa front endpoints.
+    Example: _caa_front_endpoints(release_group_mbid=..., release_mbid=...) -> returns the value used by the surrounding Sonex flow.
     """
     endpoints: list[str] = []
     if release_group_mbid:
@@ -387,15 +334,11 @@ def _caa_front_endpoints(release_group_mbid: str | None, release_mbid: str | Non
 
 
 def _cover_art_exists(url: str) -> bool:
-    """Cover art exists.
+    """Prepares cover art exists for an internal Sonex flow.
 
-    Coordinates cover art exists logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs cover art exists without duplicating the local rules.
 
-    Args:
-        url: Input value used by the cover art exists operation.
-
-    Returns:
-        The computed result for cover art exists.
+    Example: _cover_art_exists(url=...) -> returns the value used by the surrounding Sonex flow.
     """
     request = Request(url, headers={"User-Agent": MUSICBRAINZ_USER_AGENT})
     try:
@@ -406,29 +349,21 @@ def _cover_art_exists(url: str) -> bool:
 
 
 def _terms(value: str) -> set[str]:
-    """Terms.
+    """Prepares terms for an internal Sonex flow.
 
-    Coordinates terms logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs terms without duplicating the local rules.
 
-    Args:
-        value: Input value used by the terms operation.
-
-    Returns:
-        The computed result for terms.
+    Example: _terms(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     return {part.casefold() for part in value.replace("-", " ").split() if part.strip() and part != "-"}
 
 
 def _text(value: Any) -> str | None:
-    """Text.
+    """Prepares text for an internal Sonex flow.
 
-    Coordinates text logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs text without duplicating the local rules.
 
-    Args:
-        value: Input value used by the text operation.
-
-    Returns:
-        The computed result for text.
+    Example: _text("  song  ") -> "song"; _text("") -> None.
     """
     if value is None:
         return None

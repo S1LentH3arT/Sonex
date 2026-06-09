@@ -40,12 +40,11 @@ class ToolSpec:
     confirm_required: bool = True
 
     def to_openai_schema(self) -> dict[str, Any]:
-        """To openai schema for tool spec.
+        """Coordinates to openai schema for the current Sonex flow.
 
-        Coordinates the to openai schema method behavior while preserving tool spec state and contracts.
+        Typical use: Use this function when runtime code needs to openai schema as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for to openai schema.
+        Example: to_openai_schema() -> returns the value used by the surrounding Sonex flow.
         """
         return {
             "type": "function",
@@ -74,16 +73,11 @@ class ToolRegistry:
         self.tools: dict[str, ToolSpec] = {}
 
     def register(self, spec: ToolSpec | None = None, **kwargs: Any) -> None:
-        """Register for tool registry.
+        """Coordinates register for the current Sonex flow.
 
-        Coordinates the register method behavior while preserving tool registry state and contracts.
+        Typical use: Use this function when runtime code needs register as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            spec: Input value used by the register operation.
-            kwargs: Input value used by the register operation.
-
-        Returns:
-            The computed result for register.
+        Example: register(spec=...) -> returns the value used by the surrounding Sonex flow.
         """
         if spec is None:
             spec = ToolSpec(
@@ -104,15 +98,11 @@ class ToolRegistry:
         self.tools[spec.name] = spec
 
     def get(self, name: str) -> ToolSpec | None:
-        """Get for tool registry.
+        """Coordinates get for the current Sonex flow.
 
-        Coordinates the get method behavior while preserving tool registry state and contracts.
+        Typical use: Use this function when runtime code needs get as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            name: Input value used by the get operation.
-
-        Returns:
-            The computed result for get.
+        Example: get(name=...) -> returns the value used by the surrounding Sonex flow.
         """
         spec = self.tools.get(name)
         if not spec or not spec.enabled:
@@ -120,15 +110,11 @@ class ToolRegistry:
         return spec
 
     def schemas(self, allowed_tools: tuple[str, ...] | set[str] | None = None) -> list[dict[str, Any]]:
-        """Schemas for tool registry.
+        """Coordinates schemas for the current Sonex flow.
 
-        Coordinates the schemas method behavior while preserving tool registry state and contracts.
+        Typical use: Use this function when runtime code needs schemas as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            allowed_tools: Input value used by the schemas operation.
-
-        Returns:
-            The computed result for schemas.
+        Example: schemas(allowed_tools=...) -> returns the value used by the surrounding Sonex flow.
         """
         allowed = None if allowed_tools is None else set(allowed_tools)
         return [
@@ -138,16 +124,11 @@ class ToolRegistry:
         ]
 
     def invoke(self, name: str, args: dict[str, Any] | None = None) -> Any:
-        """Invoke for tool registry.
+        """Coordinates invoke for the current Sonex flow.
 
-        Coordinates the invoke method behavior while preserving tool registry state and contracts.
+        Typical use: Use this function when runtime code needs invoke as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            name: Input value used by the invoke operation.
-            args: Input value used by the invoke operation.
-
-        Returns:
-            The computed result for invoke.
+        Example: invoke(name=..., args=...) -> returns the value used by the surrounding Sonex flow.
         """
         spec = self.get(name)
         if not spec:

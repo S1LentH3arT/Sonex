@@ -17,22 +17,26 @@ from src.workspace import WorkspaceBoundaryError, ensure_within_user_workspace, 
 
 
 class WorkspaceTests(unittest.TestCase):
-    """Groups workspace tests tests.
+    """Groups related workspace tests cases.
 
-    Collects related assertions for workspace tests behavior.
+    Collects assertions that exercise workspace tests behavior without mixing unrelated fixtures.
     """
     def test_user_workspace_root_defaults_to_home(self) -> None:
-        """Validate test user workspace root defaults to home.
+        """Verifies that user workspace root defaults to home behaves as expected.
 
-        Exercises the test user workspace root defaults to home behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the user workspace root defaults to home behavior against regressions.
+
+        Example: test_user_workspace_root_defaults_to_home() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home, patch.object(Path, "home", return_value=Path(home)):
             self.assertEqual(user_workspace_root(), Path(home).resolve())
 
     def test_user_workspace_rejects_system_paths(self) -> None:
-        """Validate test user workspace rejects system paths.
+        """Verifies that user workspace rejects system paths behaves as expected.
 
-        Exercises the test user workspace rejects system paths behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the user workspace rejects system paths behavior against regressions.
+
+        Example: test_user_workspace_rejects_system_paths() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home, patch.object(Path, "home", return_value=Path(home)):
             with self.assertRaises(WorkspaceBoundaryError):
@@ -46,9 +50,11 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(allowed, Path(home, "Music", "song.mp3").resolve())
 
     def test_local_music_search_uses_user_workspace_music_dir(self) -> None:
-        """Validate test local music search uses user workspace music dir.
+        """Verifies that local music search uses user workspace music dir behaves as expected.
 
-        Exercises the test local music search uses user workspace music dir behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the local music search uses user workspace music dir behavior against regressions.
+
+        Example: test_local_music_search_uses_user_workspace_music_dir() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home, patch.object(Path, "home", return_value=Path(home)):
             music_dir = Path(home) / "Music"
@@ -61,9 +67,11 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(result, str(song))
 
     def test_ink_tui_runs_from_user_workspace(self) -> None:
-        """Validate test ink tui runs from user workspace.
+        """Verifies that ink tui runs from user workspace behaves as expected.
 
-        Exercises the test ink tui runs from user workspace behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the ink tui runs from user workspace behavior against regressions.
+
+        Example: test_ink_tui_runs_from_user_workspace() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home:
             with (
@@ -78,9 +86,11 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["env"]["SONEX_WS_URL"], "ws://127.0.0.1:9001/ws")
 
     def test_api_process_runs_from_user_workspace_with_project_pythonpath(self) -> None:
-        """Validate test api process runs from user workspace with project pythonpath.
+        """Verifies that api process runs from user workspace with project pythonpath behaves as expected.
 
-        Exercises the test api process runs from user workspace with project pythonpath behavior through the test suite.
+        Typical use: Use this in automated tests when guarding the api process runs from user workspace with project pythonpath behavior against regressions.
+
+        Example: test_api_process_runs_from_user_workspace_with_project_pythonpath() -> passes without assertion failures when the behavior remains correct.
         """
         with tempfile.TemporaryDirectory() as home:
             with (

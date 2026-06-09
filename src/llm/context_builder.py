@@ -33,15 +33,11 @@ class PlanningContextBuilder:
     token_budget: int = DEFAULT_PLANNING_TOKEN_BUDGET
 
     def build(self, user_input: str) -> str:
-        """Build for planning context builder.
+        """Coordinates build for the current Sonex flow.
 
-        Coordinates the build method behavior while preserving planning context builder state and contracts.
+        Typical use: Use this function when runtime code needs build as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            user_input: Input value used by the build operation.
-
-        Returns:
-            The computed result for build.
+        Example: build(user_input=...) -> returns the value used by the surrounding Sonex flow.
         """
         budget = max(500, min(int(self.token_budget), MAX_PLANNING_TOKEN_BUDGET))
         payload = {
@@ -75,31 +71,22 @@ class PlanningContextBuilder:
 
 
 def build_planning_context(user_input: str, token_budget: int = DEFAULT_PLANNING_TOKEN_BUDGET) -> str:
-    """Build planning context.
+    """Builds planning context from the supplied input.
 
-    Coordinates build planning context logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs build planning context as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        user_input: Input value used by the build planning context operation.
-        token_budget: Input value used by the build planning context operation.
-
-    Returns:
-        The computed result for build planning context.
+    Example: build_planning_context(user_input=..., token_budget=...) -> returns the value used by the surrounding Sonex flow.
     """
     return PlanningContextBuilder(token_budget=token_budget).build(user_input)
 
 
 def estimate_tokens(text: str) -> int:
     # Lightweight approximation: English averages ~4 chars/token; CJK is denser.
-    """Estimate tokens.
+    """Coordinates estimate tokens for the current Sonex flow.
 
-    Coordinates estimate tokens logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs estimate tokens as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        text: Input value used by the estimate tokens operation.
-
-    Returns:
-        The computed result for estimate tokens.
+    Example: estimate_tokens(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
     non_cjk = max(0, len(text) - cjk)
@@ -107,27 +94,18 @@ def estimate_tokens(text: str) -> int:
 
 
 def _select_recent_events(events: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
-    """Select recent events.
+    """Prepares select recent events for an internal Sonex flow.
 
-    Coordinates select recent events logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs select recent events without duplicating the local rules.
 
-    Args:
-        events: Input value used by the select recent events operation.
-        limit: Input value used by the select recent events operation.
-
-    Returns:
-        The computed result for select recent events.
+    Example: _select_recent_events(events=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     def score(item: dict[str, Any]) -> tuple[int, int, int]:
-        """Score.
+        """Coordinates score for the current Sonex flow.
 
-        Coordinates score logic for the surrounding Sonex flow.
+        Typical use: Use this function when runtime code needs score as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            item: Input value used by the score operation.
-
-        Returns:
-            The computed result for score.
+        Example: score(item=...) -> returns the value used by the surrounding Sonex flow.
         """
         event_type = str(item.get("type") or "")
         access_count = int(item.get("access_count") or 0)
@@ -139,16 +117,11 @@ def _select_recent_events(events: list[dict[str, Any]], limit: int = 8) -> list[
 
 
 def _trim_items(items: list[dict[str, Any]], max_text: int) -> list[dict[str, Any]]:
-    """Trim items.
+    """Prepares trim items for an internal Sonex flow.
 
-    Coordinates trim items logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs trim items without duplicating the local rules.
 
-    Args:
-        items: Input value used by the trim items operation.
-        max_text: Input value used by the trim items operation.
-
-    Returns:
-        The computed result for trim items.
+    Example: _trim_items(items=..., max_text=...) -> returns the value used by the surrounding Sonex flow.
     """
     trimmed: list[dict[str, Any]] = []
     for item in items:
@@ -162,16 +135,11 @@ def _trim_items(items: list[dict[str, Any]], max_text: int) -> list[dict[str, An
 
 
 def _fit_budget(payload: dict[str, Any], budget: int) -> str:
-    """Fit budget.
+    """Prepares fit budget for an internal Sonex flow.
 
-    Coordinates fit budget logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs fit budget without duplicating the local rules.
 
-    Args:
-        payload: Input value used by the fit budget operation.
-        budget: Input value used by the fit budget operation.
-
-    Returns:
-        The computed result for fit budget.
+    Example: _fit_budget(payload=..., budget=...) -> returns the value used by the surrounding Sonex flow.
     """
     fitted = dict(payload)
     section_order = [
@@ -197,30 +165,21 @@ def _fit_budget(payload: dict[str, Any], budget: int) -> str:
 
 
 def _dump(payload: dict[str, Any]) -> str:
-    """Dump.
+    """Prepares dump for an internal Sonex flow.
 
-    Coordinates dump logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs dump without duplicating the local rules.
 
-    Args:
-        payload: Input value used by the dump operation.
-
-    Returns:
-        The computed result for dump.
+    Example: _dump(payload=...) -> returns the value used by the surrounding Sonex flow.
     """
     return json.dumps(payload, ensure_ascii=False, default=str, indent=2)
 
 
 def _clip(text: str, limit: int) -> str:
-    """Clip.
+    """Prepares clip for an internal Sonex flow.
 
-    Coordinates clip logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs clip without duplicating the local rules.
 
-    Args:
-        text: Input value used by the clip operation.
-        limit: Input value used by the clip operation.
-
-    Returns:
-        The computed result for clip.
+    Example: _clip(text=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     if len(text) <= limit:
         return text

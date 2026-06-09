@@ -37,15 +37,11 @@ class AgentState:
     is_error: bool = False
 
 def _to_serializable(value: Any) -> Any:
-    """To serializable.
+    """Prepares to serializable for an internal Sonex flow.
 
-    Coordinates to serializable logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs to serializable without duplicating the local rules.
 
-    Args:
-        value: Input value used by the to serializable operation.
-
-    Returns:
-        The computed result for to serializable.
+    Example: _to_serializable(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         json.dumps(value, ensure_ascii=True)
@@ -54,41 +50,29 @@ def _to_serializable(value: Any) -> Any:
     return value
 
 def _format_error(exc: Exception) -> str:
-    """Format error.
+    """Prepares format error for an internal Sonex flow.
 
-    Coordinates format error logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs format error without duplicating the local rules.
 
-    Args:
-        exc: Input value used by the format error operation.
-
-    Returns:
-        The computed result for format error.
+    Example: _format_error(exc=...) -> returns the value used by the surrounding Sonex flow.
     """
     return sanitize_error_message(exc)
 
 def _is_player_confirm_result(value: Any) -> bool:
-    """Is player confirm result.
+    """Prepares is player confirm result for an internal Sonex flow.
 
-    Coordinates is player confirm result logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs is player confirm result without duplicating the local rules.
 
-    Args:
-        value: Input value used by the is player confirm result operation.
-
-    Returns:
-        The computed result for is player confirm result.
+    Example: _is_player_confirm_result(value=...) -> returns the value used by the surrounding Sonex flow.
     """
     return isinstance(value, dict) and value.get("status") == "requires_player_confirm"
 
 def _spotify_premium_failure_answer(result: Any) -> str | None:
-    """Spotify premium failure answer.
+    """Prepares spotify premium failure answer for an internal Sonex flow.
 
-    Coordinates spotify premium failure answer logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs spotify premium failure answer without duplicating the local rules.
 
-    Args:
-        result: Input value used by the spotify premium failure answer operation.
-
-    Returns:
-        The computed result for spotify premium failure answer.
+    Example: _spotify_premium_failure_answer(result=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not isinstance(result, dict):
         return None
@@ -102,16 +86,11 @@ def _spotify_premium_failure_answer(result: Any) -> str | None:
     return f"{message} I can search Spotify results, or play the track through YouTube/local playback instead."
 
 def _player_confirm_payload(result: dict[str, Any], tool_args: dict[str, Any]) -> dict[str, Any]:
-    """Player confirm payload.
+    """Prepares player confirm payload for an internal Sonex flow.
 
-    Coordinates player confirm payload logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs player confirm payload without duplicating the local rules.
 
-    Args:
-        result: Input value used by the player confirm payload operation.
-        tool_args: Input value used by the player confirm payload operation.
-
-    Returns:
-        The computed result for player confirm payload.
+    Example: _player_confirm_payload(result=..., tool_args=...) -> returns the value used by the surrounding Sonex flow.
     """
     data = result.get("data") or {}
     return {
@@ -123,33 +102,22 @@ def _player_confirm_payload(result: dict[str, Any], tool_args: dict[str, Any]) -
     }
 
 def _confirm_approved(decision: Any) -> bool:
-    """Confirm approved.
+    """Prepares confirm approved for an internal Sonex flow.
 
-    Coordinates confirm approved logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs confirm approved without duplicating the local rules.
 
-    Args:
-        decision: Input value used by the confirm approved operation.
-
-    Returns:
-        The computed result for confirm approved.
+    Example: _confirm_approved(decision=...) -> returns the value used by the surrounding Sonex flow.
     """
     if isinstance(decision, bool):
         return decision
     return str(decision).strip().lower() in {"allow_always", "allow_once", "yes", "true", "ok"}
 
 def _safe_memory_call(label: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
-    """Safe memory call.
+    """Prepares safe memory call for an internal Sonex flow.
 
-    Coordinates safe memory call logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs safe memory call without duplicating the local rules.
 
-    Args:
-        label: Input value used by the safe memory call operation.
-        fn: Input value used by the safe memory call operation.
-        args: Input value used by the safe memory call operation.
-        kwargs: Input value used by the safe memory call operation.
-
-    Returns:
-        The computed result for safe memory call.
+    Example: _safe_memory_call(label=..., fn=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
         return fn(*args, **kwargs)
@@ -162,17 +130,11 @@ def agent_loop(
     tools: ToolRegistry,
     command_intent: CommandIntent | None = None,
 ) -> Generator[AgentState, AgentState, None]:
-    """Agent loop.
+    """Coordinates agent loop for the current Sonex flow.
 
-    Coordinates agent loop logic for the surrounding Sonex flow.
+    Typical use: Use this function when runtime code needs agent loop as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Args:
-        user_input: Input value used by the agent loop operation.
-        tools: Input value used by the agent loop operation.
-        command_intent: Input value used by the agent loop operation.
-
-    Returns:
-        The computed result for agent loop.
+    Example: agent_loop(user_input=..., tools=..., command_intent=...) -> returns the value used by the surrounding Sonex flow.
     """
     user_context: dict[str, Any]= {"user": user_input}
     if command_intent:

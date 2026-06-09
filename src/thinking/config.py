@@ -42,32 +42,22 @@ class ThinkingConfig:
 
     @classmethod
     def init(cls, model: str | None = None, config_path: Path | None = None) -> "ThinkingConfig":
-        """Init for thinking config.
+        """Coordinates init for the current Sonex flow.
 
-        Coordinates the init method behavior while preserving thinking config state and contracts.
+        Typical use: Use this function when runtime code needs init as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            model: Input value used by the init operation.
-            config_path: Input value used by the init operation.
-
-        Returns:
-            The computed result for init.
+        Example: init(model=..., config_path=...) -> returns the value used by the surrounding Sonex flow.
         """
         cls.reload(model=model, config_path=config_path)
         return cls
 
     @classmethod
     def reload(cls, model: str | None = None, config_path: Path | None = None) -> None:
-        """Reload for thinking config.
+        """Coordinates reload for the current Sonex flow.
 
-        Coordinates the reload method behavior while preserving thinking config state and contracts.
+        Typical use: Use this function when runtime code needs reload as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            model: Input value used by the reload operation.
-            config_path: Input value used by the reload operation.
-
-        Returns:
-            The computed result for reload.
+        Example: reload(model=..., config_path=...) -> returns the value used by the surrounding Sonex flow.
         """
         _load_env_files()
         resolved_path = config_path or _default_config_path()
@@ -80,12 +70,11 @@ class ThinkingConfig:
 
     @classmethod
     def get_client(cls) -> ProviderClient:
-        """Get client for thinking config.
+        """Returns client for the current Sonex flow.
 
-        Coordinates the get client method behavior while preserving thinking config state and contracts.
+        Typical use: Use this function when runtime code needs get client as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for get client.
+        Example: get_client() -> returns the value used by the surrounding Sonex flow.
         """
         if cls._state is None:
             cls.reload()
@@ -93,12 +82,11 @@ class ThinkingConfig:
 
     @classmethod
     def get_runtime_config(cls) -> RuntimeConfig:
-        """Get runtime config for thinking config.
+        """Returns runtime config for the current Sonex flow.
 
-        Coordinates the get runtime config method behavior while preserving thinking config state and contracts.
+        Typical use: Use this function when runtime code needs get runtime config as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for get runtime config.
+        Example: get_runtime_config() -> returns the value used by the surrounding Sonex flow.
         """
         if cls._state is None:
             cls.reload()
@@ -106,49 +94,42 @@ class ThinkingConfig:
 
     @classmethod
     def get_provider(cls) -> str:
-        """Get provider for thinking config.
+        """Returns provider for the current Sonex flow.
 
-        Coordinates the get provider method behavior while preserving thinking config state and contracts.
+        Typical use: Use this function when runtime code needs get provider as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for get provider.
+        Example: get_provider() -> returns the value used by the surrounding Sonex flow.
         """
         return cls.get_runtime_config().default_provider
 
     @classmethod
     def get_model(cls) -> str:
-        """Get model for thinking config.
+        """Returns model for the current Sonex flow.
 
-        Coordinates the get model method behavior while preserving thinking config state and contracts.
+        Typical use: Use this function when runtime code needs get model as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Returns:
-            The computed result for get model.
+        Example: get_model() -> returns the value used by the surrounding Sonex flow.
         """
         return cls.get_runtime_config().default_model
 
     @classmethod
     def get_provider_config(cls, provider: str | None = None) -> ProviderConfig:
-        """Get provider config for thinking config.
+        """Returns provider config for the current Sonex flow.
 
-        Coordinates the get provider config method behavior while preserving thinking config state and contracts.
+        Typical use: Use this function when runtime code needs get provider config as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Args:
-            provider: Input value used by the get provider config operation.
-
-        Returns:
-            The computed result for get provider config.
+        Example: get_provider_config(provider=...) -> returns the value used by the surrounding Sonex flow.
         """
         runtime = cls.get_runtime_config()
         return runtime.get_provider(provider)
 
 
 def _default_config_path() -> Path:
-    """Default config path.
+    """Prepares default config path for an internal Sonex flow.
 
-    Coordinates default config path logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs default config path without duplicating the local rules.
 
-    Returns:
-        The computed result for default config path.
+    Example: _default_config_path() -> returns the value used by the surrounding Sonex flow.
     """
     custom = os.getenv("SONEX_CONFIG_PATH")
     if custom:
@@ -157,15 +138,11 @@ def _default_config_path() -> Path:
 
 
 def _load_config_file(path: Path) -> dict[str, Any]:
-    """Load config file.
+    """Prepares load config file for an internal Sonex flow.
 
-    Coordinates load config file logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs load config file without duplicating the local rules.
 
-    Args:
-        path: Input value used by the load config file operation.
-
-    Returns:
-        The computed result for load config file.
+    Example: _load_config_file(path=...) -> returns the value used by the surrounding Sonex flow.
     """
     if not path.exists():
         return {}
@@ -174,16 +151,11 @@ def _load_config_file(path: Path) -> dict[str, Any]:
 
 
 def _save_config_file(path: Path, data: dict[str, Any]) -> None:
-    """Save config file.
+    """Prepares save config file for an internal Sonex flow.
 
-    Coordinates save config file logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs save config file without duplicating the local rules.
 
-    Args:
-        path: Input value used by the save config file operation.
-        data: Input value used by the save config file operation.
-
-    Returns:
-        The computed result for save config file.
+    Example: _save_config_file(path=..., data=...) -> returns the value used by the surrounding Sonex flow.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
@@ -195,27 +167,21 @@ def _save_config_file(path: Path, data: dict[str, Any]) -> None:
 
 
 def _load_env_files() -> None:
-    """Load env files.
+    """Prepares load env files for an internal Sonex flow.
 
-    Coordinates load env files logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs load env files without duplicating the local rules.
 
-    Returns:
-        The computed result for load env files.
+    Example: _load_env_files() -> returns the value used by the surrounding Sonex flow.
     """
     load_dotenv(override=False)
 
 
 def _build_runtime_config(model_override: str | None, config_path: Path) -> RuntimeConfig:
-    """Build runtime config.
+    """Prepares build runtime config for an internal Sonex flow.
 
-    Coordinates build runtime config logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs build runtime config without duplicating the local rules.
 
-    Args:
-        model_override: Input value used by the build runtime config operation.
-        config_path: Input value used by the build runtime config operation.
-
-    Returns:
-        The computed result for build runtime config.
+    Example: _build_runtime_config(model_override=..., config_path=...) -> returns the value used by the surrounding Sonex flow.
     """
     file_config = _load_config_file(config_path)
     file_providers = file_config.get("providers") or {}
@@ -265,19 +231,11 @@ def _build_provider_config(
     default_model: str,
     is_default: bool,
 ) -> ProviderConfig:
-    """Build provider config.
+    """Prepares build provider config for an internal Sonex flow.
 
-    Coordinates build provider config logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs build provider config without duplicating the local rules.
 
-    Args:
-        name: Input value used by the build provider config operation.
-        file_config: Input value used by the build provider config operation.
-        auth_config: Input value used by the build provider config operation.
-        default_model: Input value used by the build provider config operation.
-        is_default: Input value used by the build provider config operation.
-
-    Returns:
-        The computed result for build provider config.
+    Example: _build_provider_config(name=..., file_config=..., auth_config=..., default_model=..., is_default=...) -> returns the value used by the surrounding Sonex flow.
     """
     prefix = f"SONEX_{name.upper()}_"
     capability = get_provider_capability(name)
@@ -346,29 +304,21 @@ def _build_provider_config(
 
 
 def _provider_default_model(name: str) -> str | None:
-    """Provider default model.
+    """Prepares provider default model for an internal Sonex flow.
 
-    Coordinates provider default model logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs provider default model without duplicating the local rules.
 
-    Args:
-        name: Input value used by the provider default model operation.
-
-    Returns:
-        The computed result for provider default model.
+    Example: _provider_default_model(name=...) -> returns the value used by the surrounding Sonex flow.
     """
     return get_provider_capability(name).default_model
 
 
 def _default_custom_provider(name: str) -> str | None:
-    """Default custom provider.
+    """Prepares default custom provider for an internal Sonex flow.
 
-    Coordinates default custom provider logic for the surrounding Sonex flow.
+    Typical use: Use this helper when nearby code needs default custom provider without duplicating the local rules.
 
-    Args:
-        name: Input value used by the default custom provider operation.
-
-    Returns:
-        The computed result for default custom provider.
+    Example: _default_custom_provider(name=...) -> returns the value used by the surrounding Sonex flow.
     """
     provider_map = {
         "openai": None,
