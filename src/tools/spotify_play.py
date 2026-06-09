@@ -1,3 +1,9 @@
+"""Spotify play support for tool implementations used by the planner and playback flows.
+
+Implements the spotify_play module responsibilities used by Sonex runtime flows.
+Key public entry points include SpotifyAppPremiumRequiredError, remember_recent_track, recent_tracks_snapshot, reset_recent_tracks, spotify_search.
+"""
+
 from __future__ import annotations
 
 import json
@@ -36,30 +42,79 @@ _RECENT_TRACKS_LOADED = False
 
 
 class SpotifyAppPremiumRequiredError(RuntimeError):
+    """Represents spotify app premium required error.
+
+    Encapsulates spotify app premium required error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
+    """
     pass
 
 
 def _timestamp_ms() -> int:
+    """Timestamp ms.
+
+    Coordinates timestamp ms logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for timestamp ms.
+    """
     return int(time.time() * 1000)
 
 
 def _spotify_cache_dir() -> Path:
+    """Spotify cache dir.
+
+    Coordinates spotify cache dir logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify cache dir.
+    """
     return sonex_home() / "cache" / "spotify"
 
 
 def _spotify_cover_dir() -> Path:
+    """Spotify cover dir.
+
+    Coordinates spotify cover dir logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify cover dir.
+    """
     return _spotify_cache_dir() / "covers"
 
 
 def _recent_tracks_path() -> Path:
+    """Recent tracks path.
+
+    Coordinates recent tracks path logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for recent tracks path.
+    """
     return _spotify_cache_dir() / "recent_tracks.json"
 
 
 def _iso_now() -> str:
+    """Iso now.
+
+    Coordinates iso now logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for iso now.
+    """
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def _best_image(images: list[dict[str, Any]]) -> str | None:
+    """Best image.
+
+    Coordinates best image logic for the surrounding Sonex flow.
+
+    Args:
+        images: Input value used by the best image operation.
+
+    Returns:
+        The computed result for best image.
+    """
     if not images:
         return None
     ranked = sorted(
@@ -71,10 +126,30 @@ def _best_image(images: list[dict[str, Any]]) -> str | None:
 
 
 def _artists_text(artists: list[dict[str, Any]]) -> str:
+    """Artists text.
+
+    Coordinates artists text logic for the surrounding Sonex flow.
+
+    Args:
+        artists: Input value used by the artists text operation.
+
+    Returns:
+        The computed result for artists text.
+    """
     return ", ".join(artist.get("name") for artist in artists if artist.get("name"))
 
 
 def _normalize_track(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize track.
+
+    Coordinates normalize track logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the normalize track operation.
+
+    Returns:
+        The computed result for normalize track.
+    """
     album = item.get("album") or {}
     artists = item.get("artists") or []
     images = album.get("images") or []
@@ -95,11 +170,31 @@ def _normalize_track(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _track_key(track: dict[str, Any]) -> str | None:
+    """Track key.
+
+    Coordinates track key logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the track key operation.
+
+    Returns:
+        The computed result for track key.
+    """
     key = track.get("uri") or track.get("id") or track.get("spotify_url")
     return str(key) if key else None
 
 
 def _compact_track(track: dict[str, Any]) -> dict[str, Any]:
+    """Compact track.
+
+    Coordinates compact track logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the compact track operation.
+
+    Returns:
+        The computed result for compact track.
+    """
     return {
         "id": track.get("id"),
         "name": track.get("name") or track.get("title"),
@@ -118,6 +213,16 @@ def _compact_track(track: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cover_filename(track: dict[str, Any]) -> str | None:
+    """Cover filename.
+
+    Coordinates cover filename logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the cover filename operation.
+
+    Returns:
+        The computed result for cover filename.
+    """
     key = _track_key(track)
     if not key:
         return None
@@ -126,6 +231,16 @@ def _cover_filename(track: dict[str, Any]) -> str | None:
 
 
 def _cache_cover(track: dict[str, Any]) -> str | None:
+    """Cache cover.
+
+    Coordinates cache cover logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the cache cover operation.
+
+    Returns:
+        The computed result for cache cover.
+    """
     url = str(track.get("album_cover_url") or "").strip()
     if not url:
         return track.get("album_cover_path")
@@ -150,6 +265,13 @@ def _cache_cover(track: dict[str, Any]) -> str | None:
 
 
 def _load_recent_tracks() -> None:
+    """Load recent tracks.
+
+    Coordinates load recent tracks logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for load recent tracks.
+    """
     global _RECENT_TRACKS, _RECENT_TRACKS_LOADED
     if _RECENT_TRACKS_LOADED:
         return
@@ -183,6 +305,13 @@ def _load_recent_tracks() -> None:
 
 
 def _save_recent_tracks() -> None:
+    """Save recent tracks.
+
+    Coordinates save recent tracks logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for save recent tracks.
+    """
     try:
         _spotify_cache_dir().mkdir(parents=True, exist_ok=True)
         payload = {"version": 1, "tracks": _RECENT_TRACKS[:MAX_RECENT_TRACKS]}
@@ -194,6 +323,16 @@ def _save_recent_tracks() -> None:
 
 
 def remember_recent_track(track: dict[str, Any]) -> list[dict[str, Any]]:
+    """Remember recent track.
+
+    Coordinates remember recent track logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the remember recent track operation.
+
+    Returns:
+        The computed result for remember recent track.
+    """
     _load_recent_tracks()
     compact = _compact_track(track)
     key = _track_key(compact)
@@ -216,11 +355,32 @@ def remember_recent_track(track: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def recent_tracks_snapshot(limit: int = MAX_RECENT_TRACKS) -> list[dict[str, Any]]:
+    """Recent tracks snapshot.
+
+    Coordinates recent tracks snapshot logic for the surrounding Sonex flow.
+
+    Args:
+        limit: Input value used by the recent tracks snapshot operation.
+
+    Returns:
+        The computed result for recent tracks snapshot.
+    """
     _load_recent_tracks()
     return [dict(item) for item in _RECENT_TRACKS[: max(0, limit)]]
 
 
 def reset_recent_tracks(*, clear_disk: bool = False, reload_from_disk: bool = False) -> None:
+    """Reset recent tracks.
+
+    Coordinates reset recent tracks logic for the surrounding Sonex flow.
+
+    Args:
+        clear_disk: Input value used by the reset recent tracks operation.
+        reload_from_disk: Input value used by the reset recent tracks operation.
+
+    Returns:
+        The computed result for reset recent tracks.
+    """
     global _RECENT_TRACKS_LOADED
     _RECENT_TRACKS.clear()
     _RECENT_TRACKS_LOADED = not reload_from_disk
@@ -234,10 +394,30 @@ def reset_recent_tracks(*, clear_disk: bool = False, reload_from_disk: bool = Fa
 
 
 def _query_terms(text: str) -> list[str]:
+    """Query terms.
+
+    Coordinates query terms logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the query terms operation.
+
+    Returns:
+        The computed result for query terms.
+    """
     return [part for part in re.split(r"\W+", text.lower()) if part]
 
 
 def _cached_track_for_query(query: str) -> dict[str, Any] | None:
+    """Cached track for query.
+
+    Coordinates cached track for query logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the cached track for query operation.
+
+    Returns:
+        The computed result for cached track for query.
+    """
     needle = " ".join(query.strip().lower().split())
     if not needle:
         return None
@@ -256,6 +436,16 @@ def _cached_track_for_query(query: str) -> dict[str, Any] | None:
 
 
 def _normalize_artist(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize artist.
+
+    Coordinates normalize artist logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the normalize artist operation.
+
+    Returns:
+        The computed result for normalize artist.
+    """
     images = item.get("images") or []
     followers = item.get("followers") or {}
 
@@ -272,6 +462,16 @@ def _normalize_artist(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_album(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize album.
+
+    Coordinates normalize album logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the normalize album operation.
+
+    Returns:
+        The computed result for normalize album.
+    """
     images = item.get("images") or []
     artists = item.get("artists") or []
     artist_names = [a.get("name") for a in artists if a.get("name")]
@@ -291,6 +491,16 @@ def _normalize_album(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_current_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Normalize current playback.
+
+    Coordinates normalize current playback logic for the surrounding Sonex flow.
+
+    Args:
+        payload: Input value used by the normalize current playback operation.
+
+    Returns:
+        The computed result for normalize current playback.
+    """
     if not payload:
         return {
             "is_playing": False,
@@ -325,6 +535,16 @@ def _normalize_current_playback(payload: dict[str, Any] | None) -> dict[str, Any
 
 
 def _normalize_device(device: dict[str, Any]) -> dict[str, Any]:
+    """Normalize device.
+
+    Coordinates normalize device logic for the surrounding Sonex flow.
+
+    Args:
+        device: Input value used by the normalize device operation.
+
+    Returns:
+        The computed result for normalize device.
+    """
     return {
         "id": device.get("id"),
         "name": device.get("name"),
@@ -337,6 +557,16 @@ def _normalize_device(device: dict[str, Any]) -> dict[str, Any]:
 
 
 def _list_devices(client: Any) -> list[dict[str, Any]]:
+    """List devices.
+
+    Coordinates list devices logic for the surrounding Sonex flow.
+
+    Args:
+        client: Input value used by the list devices operation.
+
+    Returns:
+        The computed result for list devices.
+    """
     payload = client.devices()
     return [_normalize_device(device) for device in (payload.get("devices") or [])]
 
@@ -347,6 +577,18 @@ def _find_device(
     device_id: str | None = None,
     device_name: str | None = None,
 ) -> dict[str, Any] | None:
+    """Find device.
+
+    Coordinates find device logic for the surrounding Sonex flow.
+
+    Args:
+        client: Input value used by the find device operation.
+        device_id: Input value used by the find device operation.
+        device_name: Input value used by the find device operation.
+
+    Returns:
+        The computed result for find device.
+    """
     if not device_id and not device_name:
         return None
 
@@ -362,13 +604,50 @@ def _find_device(
 
 
 def _error_message(exc: Exception) -> str:
+    """Error message.
+
+    Coordinates error message logic for the surrounding Sonex flow.
+
+    Args:
+        exc: Input value used by the error message operation.
+
+    Returns:
+        The computed result for error message.
+    """
     message = str(exc)
     if isinstance(exc, SpotifyException):
         message = exc.msg or exc.reason or message
     return message
 
 
+def _is_app_owner_premium_error(message: str) -> bool:
+    """Is app owner premium error.
+
+    Coordinates is app owner premium error logic for the surrounding Sonex flow.
+
+    Args:
+        message: Input value used by the is app owner premium error operation.
+
+    Returns:
+        The computed result for is app owner premium error.
+    """
+    lowered = message.lower()
+    return "premium" in lowered and "owner of the app" in lowered
+
+
 def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR") -> dict[str, Any]:
+    """Spotify error.
+
+    Coordinates spotify error logic for the surrounding Sonex flow.
+
+    Args:
+        tool: Input value used by the spotify error operation.
+        exc: Input value used by the spotify error operation.
+        default_code: Input value used by the spotify error operation.
+
+    Returns:
+        The computed result for spotify error.
+    """
     status = getattr(exc, "http_status", None)
     message = _error_message(exc)
     lowered = message.lower()
@@ -382,8 +661,12 @@ def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR
         code = "SPOTIFY_SCOPE_MISSING"
     elif isinstance(exc, SpotifyAppPremiumRequiredError):
         code = "SPOTIFY_APP_PREMIUM_REQUIRED"
+        message = "Spotify app search requires a Premium account for the app owner."
     elif status == 401:
         code = "SPOTIFY_AUTH_EXPIRED"
+    elif status == 403 and tool == "spotify_search" and _is_app_owner_premium_error(message):
+        code = "SPOTIFY_APP_PREMIUM_REQUIRED"
+        message = "Spotify app search requires a Premium account for the app owner."
     elif status == 403 and "premium" in lowered:
         code = "SPOTIFY_PREMIUM_REQUIRED"
     elif status == 403:
@@ -397,11 +680,36 @@ def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR
 
 
 def _search_with_client(query: str, limit: int, types: str, *, use_user: bool = False) -> dict[str, Any]:
+    """Search with client.
+
+    Coordinates search with client logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search with client operation.
+        limit: Input value used by the search with client operation.
+        types: Input value used by the search with client operation.
+        use_user: Input value used by the search with client operation.
+
+    Returns:
+        The computed result for search with client.
+    """
     client = spotify_user_client() if use_user else spotify_app_client()
     return client.search(q=query, type=types, limit=limit)
 
 
 def _search_payload(query: str, limit: int, types: str) -> tuple[dict[str, Any], str]:
+    """Search payload.
+
+    Coordinates search payload logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search payload operation.
+        limit: Input value used by the search payload operation.
+        types: Input value used by the search payload operation.
+
+    Returns:
+        The computed result for search payload.
+    """
     try:
         return _search_with_client(query, limit, types), "app"
     except SpotifyConfigMissingError:
@@ -424,6 +732,17 @@ def _search_payload(query: str, limit: int, types: str) -> tuple[dict[str, Any],
 
 
 def _normalize_search_payload(payload: dict[str, Any], types: str) -> dict[str, Any]:
+    """Normalize search payload.
+
+    Coordinates normalize search payload logic for the surrounding Sonex flow.
+
+    Args:
+        payload: Input value used by the normalize search payload operation.
+        types: Input value used by the normalize search payload operation.
+
+    Returns:
+        The computed result for normalize search payload.
+    """
     data: dict[str, Any] = {}
     requested = {part.strip() for part in types.split(",") if part.strip()}
     if "track" in requested:
@@ -439,6 +758,18 @@ def _normalize_search_payload(payload: dict[str, Any], types: str) -> dict[str, 
 
 
 def spotify_search(query: str, limit: int = 10, types: str = "track,artist,album") -> dict[str, Any]:
+    """Spotify search.
+
+    Coordinates spotify search logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the spotify search operation.
+        limit: Input value used by the spotify search operation.
+        types: Input value used by the spotify search operation.
+
+    Returns:
+        The computed result for spotify search.
+    """
     try:
         payload, auth_mode = _search_payload(query, limit, types)
     except Exception as exc:
@@ -455,6 +786,13 @@ def spotify_search(query: str, limit: int = 10, types: str = "track,artist,album
 
 
 def _spotify_product() -> tuple[str, dict[str, Any] | None]:
+    """Spotify product.
+
+    Coordinates spotify product logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify product.
+    """
     try:
         client = spotify_user_client(SPOTIFY_PRIVATE_SCOPES)
         profile = client.current_user()
@@ -466,6 +804,18 @@ def _spotify_product() -> tuple[str, dict[str, Any] | None]:
 
 
 def _account_capabilities(product: str, scopes: set[str], logged_in: bool) -> dict[str, bool]:
+    """Account capabilities.
+
+    Coordinates account capabilities logic for the surrounding Sonex flow.
+
+    Args:
+        product: Input value used by the account capabilities operation.
+        scopes: Input value used by the account capabilities operation.
+        logged_in: Input value used by the account capabilities operation.
+
+    Returns:
+        The computed result for account capabilities.
+    """
     return {
         "search": True,
         "account": logged_in,
@@ -479,6 +829,13 @@ def _account_capabilities(product: str, scopes: set[str], logged_in: bool) -> di
 
 
 def spotify_account() -> dict[str, Any]:
+    """Spotify account.
+
+    Coordinates spotify account logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify account.
+    """
     token = load_spotify_token()
     logged_in = bool(token and token.access_token)
     scopes = set(token.scopes if token else [])
@@ -499,6 +856,13 @@ def spotify_account() -> dict[str, Any]:
 
 
 def spotify_current_playback() -> dict[str, Any]:
+    """Spotify current playback.
+
+    Coordinates spotify current playback logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify current playback.
+    """
     account = spotify_account()
     data = account.get("data") if isinstance(account, dict) else {}
     capabilities = data.get("capabilities") if isinstance(data, dict) else {}
@@ -527,6 +891,16 @@ def spotify_current_playback() -> dict[str, Any]:
 
 
 def spotify_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
+    """Spotify recent tracks.
+
+    Coordinates spotify recent tracks logic for the surrounding Sonex flow.
+
+    Args:
+        limit: Input value used by the spotify recent tracks operation.
+
+    Returns:
+        The computed result for spotify recent tracks.
+    """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     try:
         client = spotify_user_client(SPOTIFY_RECENTLY_PLAYED_SCOPES)
@@ -554,6 +928,16 @@ def spotify_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
 
 
 def _require_premium_control(tool: str) -> dict[str, Any] | None:
+    """Require premium control.
+
+    Coordinates require premium control logic for the surrounding Sonex flow.
+
+    Args:
+        tool: Input value used by the require premium control operation.
+
+    Returns:
+        The computed result for require premium control.
+    """
     account = spotify_account()
     data = account.get("data") or {}
     if not data.get("logged_in"):
@@ -583,6 +967,16 @@ def _require_premium_control(tool: str) -> dict[str, Any] | None:
 
 
 def _has_active_device(client: Any) -> bool:
+    """Has active device.
+
+    Coordinates has active device logic for the surrounding Sonex flow.
+
+    Args:
+        client: Input value used by the has active device operation.
+
+    Returns:
+        The computed result for has active device.
+    """
     try:
         payload = client.devices()
     except SpotifyException:
@@ -592,6 +986,13 @@ def _has_active_device(client: Any) -> bool:
 
 
 def spotify_devices() -> dict[str, Any]:
+    """Spotify devices.
+
+    Coordinates spotify devices logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify devices.
+    """
     try:
         client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES)
         devices = _list_devices(client)
@@ -610,6 +1011,18 @@ def spotify_transfer_playback(
     device_name: str | None = None,
     play: bool = True,
 ) -> dict[str, Any]:
+    """Spotify transfer playback.
+
+    Coordinates spotify transfer playback logic for the surrounding Sonex flow.
+
+    Args:
+        device_id: Input value used by the spotify transfer playback operation.
+        device_name: Input value used by the spotify transfer playback operation.
+        play: Input value used by the spotify transfer playback operation.
+
+    Returns:
+        The computed result for spotify transfer playback.
+    """
     blocked = _require_premium_control("spotify_transfer_playback")
     if blocked:
         return blocked
@@ -654,6 +1067,19 @@ def spotify_play(
     device_id: str | None = None,
     device_name: str | None = None,
 ) -> dict[str, Any]:
+    """Spotify play.
+
+    Coordinates spotify play logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the spotify play operation.
+        uri: Input value used by the spotify play operation.
+        device_id: Input value used by the spotify play operation.
+        device_name: Input value used by the spotify play operation.
+
+    Returns:
+        The computed result for spotify play.
+    """
     blocked = _require_premium_control("spotify_play")
     if blocked:
         return blocked
@@ -736,6 +1162,13 @@ def spotify_play(
 
 
 def _user_preferences_text() -> str:
+    """User preferences text.
+
+    Coordinates user preferences text logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for user preferences text.
+    """
     user_path = sonex_home() / "USER.md"
     if not user_path.exists():
         return ""
@@ -743,6 +1176,17 @@ def _user_preferences_text() -> str:
 
 
 def _dedupe_tracks(tracks: list[dict[str, Any]], limit: int = 40) -> list[dict[str, Any]]:
+    """Dedupe tracks.
+
+    Coordinates dedupe tracks logic for the surrounding Sonex flow.
+
+    Args:
+        tracks: Input value used by the dedupe tracks operation.
+        limit: Input value used by the dedupe tracks operation.
+
+    Returns:
+        The computed result for dedupe tracks.
+    """
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []
     for track in tracks:
@@ -758,6 +1202,17 @@ def _dedupe_tracks(tracks: list[dict[str, Any]], limit: int = 40) -> list[dict[s
 
 
 def _spotify_candidate_tracks(query: str, limit: int) -> list[dict[str, Any]]:
+    """Spotify candidate tracks.
+
+    Coordinates spotify candidate tracks logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the spotify candidate tracks operation.
+        limit: Input value used by the spotify candidate tracks operation.
+
+    Returns:
+        The computed result for spotify candidate tracks.
+    """
     candidates: list[dict[str, Any]] = []
 
     local_recent = recent_tracks_snapshot()
@@ -793,6 +1248,16 @@ def _spotify_candidate_tracks(query: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _parse_recommendation_json(text: str) -> list[dict[str, Any]]:
+    """Parse recommendation json.
+
+    Coordinates parse recommendation json logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the parse recommendation json operation.
+
+    Returns:
+        The computed result for parse recommendation json.
+    """
     start = text.find("[")
     end = text.rfind("]")
     if start == -1 or end == -1 or end <= start:
@@ -812,6 +1277,20 @@ def _rank_candidates_with_llm(
     candidates: list[dict[str, Any]],
     limit: int,
 ) -> list[dict[str, str]]:
+    """Rank candidates with llm.
+
+    Coordinates rank candidates with llm logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the rank candidates with llm operation.
+        preferences: Input value used by the rank candidates with llm operation.
+        recent_tracks: Input value used by the rank candidates with llm operation.
+        candidates: Input value used by the rank candidates with llm operation.
+        limit: Input value used by the rank candidates with llm operation.
+
+    Returns:
+        The computed result for rank candidates with llm.
+    """
     compact_candidates = [
         {
             "uri": track.get("uri"),
@@ -859,6 +1338,17 @@ def _rank_candidates_with_llm(
 
 
 def spotify_recommend(query: str, limit: int = 10) -> dict[str, Any]:
+    """Spotify recommend.
+
+    Coordinates spotify recommend logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the spotify recommend operation.
+        limit: Input value used by the spotify recommend operation.
+
+    Returns:
+        The computed result for spotify recommend.
+    """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     preferences = _user_preferences_text()
     local_recent = recent_tracks_snapshot()
@@ -907,6 +1397,13 @@ def spotify_recommend(query: str, limit: int = 10) -> dict[str, Any]:
 
 
 def spotify_pause() -> dict[str, Any]:
+    """Spotify pause.
+
+    Coordinates spotify pause logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify pause.
+    """
     blocked = _require_premium_control("spotify_pause")
     if blocked:
         return blocked
@@ -918,6 +1415,13 @@ def spotify_pause() -> dict[str, Any]:
 
 
 def spotify_resume() -> dict[str, Any]:
+    """Spotify resume.
+
+    Coordinates spotify resume logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify resume.
+    """
     blocked = _require_premium_control("spotify_resume")
     if blocked:
         return blocked
@@ -929,6 +1433,13 @@ def spotify_resume() -> dict[str, Any]:
 
 
 def spotify_next() -> dict[str, Any]:
+    """Spotify next.
+
+    Coordinates spotify next logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify next.
+    """
     blocked = _require_premium_control("spotify_next")
     if blocked:
         return blocked
@@ -940,6 +1451,13 @@ def spotify_next() -> dict[str, Any]:
 
 
 def spotify_previous() -> dict[str, Any]:
+    """Spotify previous.
+
+    Coordinates spotify previous logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify previous.
+    """
     blocked = _require_premium_control("spotify_previous")
     if blocked:
         return blocked
@@ -951,18 +1469,62 @@ def spotify_previous() -> dict[str, Any]:
 
 
 def search_tracks(query: str, limit: int = 10) -> dict[str, Any]:
+    """Search tracks.
+
+    Coordinates search tracks logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search tracks operation.
+        limit: Input value used by the search tracks operation.
+
+    Returns:
+        The computed result for search tracks.
+    """
     return spotify_search(query=query, limit=limit, types="track")
 
 
 def search_albums(query: str, limit: int = 10) -> dict[str, Any]:
+    """Search albums.
+
+    Coordinates search albums logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search albums operation.
+        limit: Input value used by the search albums operation.
+
+    Returns:
+        The computed result for search albums.
+    """
     return spotify_search(query=query, limit=limit, types="album")
 
 
 def search_artists(query: str, limit: int = 10) -> dict[str, Any]:
+    """Search artists.
+
+    Coordinates search artists logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search artists operation.
+        limit: Input value used by the search artists operation.
+
+    Returns:
+        The computed result for search artists.
+    """
     return spotify_search(query=query, limit=limit, types="artist")
 
 
 def search_spotify(query: str, limit: int = 10) -> dict[str, Any]:
+    """Search spotify.
+
+    Coordinates search spotify logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search spotify operation.
+        limit: Input value used by the search spotify operation.
+
+    Returns:
+        The computed result for search spotify.
+    """
     return spotify_search(query=query, limit=limit)
 
 
@@ -975,6 +1537,21 @@ def _register_tool(
     *,
     read_only: bool = True,
 ) -> None:
+    """Register tool.
+
+    Coordinates register tool logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the register tool operation.
+        description: Input value used by the register tool operation.
+        properties: Input value used by the register tool operation.
+        required: Input value used by the register tool operation.
+        fn: Input value used by the register tool operation.
+        read_only: Input value used by the register tool operation.
+
+    Returns:
+        The computed result for register tool.
+    """
     registry.register(
         name=name,
         type="spotify",

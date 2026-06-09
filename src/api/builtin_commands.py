@@ -1,3 +1,9 @@
+"""Builtin commands support for fastapi and websocket routing for the sonex runtime.
+
+Implements the builtin_commands module responsibilities used by Sonex runtime flows.
+Key public entry points include BuiltinCommand, CommandIntent, ParsedCommand, parse_builtin_command, command_suggestions.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +12,10 @@ from typing import Literal
 
 @dataclass(frozen=True)
 class BuiltinCommand:
+    """Represents builtin command.
+
+    Encapsulates builtin command data and behavior used by Sonex runtime flows.
+    """
     name: str
     usage: str
     description: str
@@ -17,6 +27,10 @@ class BuiltinCommand:
 
 @dataclass(frozen=True)
 class CommandIntent:
+    """Represents command intent.
+
+    Encapsulates command intent data and behavior used by Sonex runtime flows.
+    """
     command: str
     raw: str
     args: str
@@ -26,6 +40,10 @@ class CommandIntent:
 
 @dataclass(frozen=True)
 class ParsedCommand:
+    """Represents parsed command.
+
+    Encapsulates parsed command data and behavior used by Sonex runtime flows.
+    """
     raw: str
     name: str
     args: str
@@ -33,9 +51,23 @@ class ParsedCommand:
 
     @property
     def known(self) -> bool:
+        """Known for parsed command.
+
+        Coordinates the known method behavior while preserving parsed command state and contracts.
+
+        Returns:
+            The computed result for known.
+        """
         return self.command is not None
 
     def command_intent(self) -> CommandIntent | None:
+        """Command intent for parsed command.
+
+        Coordinates the command intent method behavior while preserving parsed command state and contracts.
+
+        Returns:
+            The computed result for command intent.
+        """
         if self.command is None or self.command.mode != "agent":
             return None
         return CommandIntent(
@@ -65,7 +97,8 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         mode="agent",
         intent_prompt=(
             "The user invoked /recommend. Treat the args as a music taste hint. "
-            "Prefer recommendation tools and return concise, playable choices."
+            "Prefer recommendation tools, return a concise numbered text list, and end with a normal "
+            "question about what the user wants to hear. Do not start playback."
         ),
         allowed_tools=(
             "spotify_recommend",
@@ -123,6 +156,16 @@ _COMMANDS_BY_NAME = {
 
 
 def parse_builtin_command(text: str) -> ParsedCommand | None:
+    """Parse builtin command.
+
+    Coordinates parse builtin command logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the parse builtin command operation.
+
+    Returns:
+        The computed result for parse builtin command.
+    """
     stripped = text.strip()
     if not stripped.startswith("/"):
         return None
@@ -142,6 +185,16 @@ def parse_builtin_command(text: str) -> ParsedCommand | None:
 
 
 def command_suggestions(prefix: str = "") -> list[BuiltinCommand]:
+    """Command suggestions.
+
+    Coordinates command suggestions logic for the surrounding Sonex flow.
+
+    Args:
+        prefix: Input value used by the command suggestions operation.
+
+    Returns:
+        The computed result for command suggestions.
+    """
     normalized = prefix.strip().lower().removeprefix("/")
     commands = sorted(BUILTIN_COMMANDS, key=lambda command: command.name.lower())
     if not normalized:
@@ -155,6 +208,16 @@ def command_suggestions(prefix: str = "") -> list[BuiltinCommand]:
 
 
 def format_help(prefix: str = "") -> str:
+    """Format help.
+
+    Coordinates format help logic for the surrounding Sonex flow.
+
+    Args:
+        prefix: Input value used by the format help operation.
+
+    Returns:
+        The computed result for format help.
+    """
     commands = command_suggestions(prefix)
     if not commands:
         return "Unknown command. Type /help to see available commands."

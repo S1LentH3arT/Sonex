@@ -1,3 +1,9 @@
+"""Cover patterns support for tool implementations used by the planner and playback flows.
+
+Implements the cover_patterns module responsibilities used by Sonex runtime flows.
+Key public entry points include CoverPatternError, cover_pattern_cache_dir, cover_pattern_cache_path, fetch_cover_pattern, generate_cover_pattern.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -13,7 +19,7 @@ from PIL import Image, ImageFilter, UnidentifiedImageError
 
 from src.log import sonex_home
 
-COVER_PATTERN_SIZES = (36, 48, 64)
+COVER_PATTERN_SIZES = (32, 48, 64)
 COVER_PATTERN_MAX_BYTES = 8 * 1024 * 1024
 COVER_PATTERN_PALETTE = [
     "#0b0c10", "#1b1f2a", "#343946", "#575d6b", "#8d95a3", "#c5ccd6",
@@ -36,23 +42,65 @@ COVER_PATTERN_PALETTE = [
 
 
 class CoverPatternError(RuntimeError):
+    """Represents cover pattern error.
+
+    Encapsulates cover pattern error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
+    """
     pass
 
 
 def cover_pattern_cache_dir() -> Path:
+    """Cover pattern cache dir.
+
+    Coordinates cover pattern cache dir logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for cover pattern cache dir.
+    """
     return sonex_home() / "cache" / "cover_patterns"
 
 
 def _source_hash(source: str) -> str:
+    """Source hash.
+
+    Coordinates source hash logic for the surrounding Sonex flow.
+
+    Args:
+        source: Input value used by the source hash operation.
+
+    Returns:
+        The computed result for source hash.
+    """
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
 def cover_pattern_cache_path(source: str, *, cache_root: Path | None = None) -> Path:
+    """Cover pattern cache path.
+
+    Coordinates cover pattern cache path logic for the surrounding Sonex flow.
+
+    Args:
+        source: Input value used by the cover pattern cache path operation.
+        cache_root: Input value used by the cover pattern cache path operation.
+
+    Returns:
+        The computed result for cover pattern cache path.
+    """
     root = cache_root or cover_pattern_cache_dir()
     return root / f"{_source_hash(source)}.json"
 
 
 def fetch_cover_pattern(source_url: str) -> dict[str, Any]:
+    """Fetch cover pattern.
+
+    Coordinates fetch cover pattern logic for the surrounding Sonex flow.
+
+    Args:
+        source_url: Input value used by the fetch cover pattern operation.
+
+    Returns:
+        The computed result for fetch cover pattern.
+    """
     cached = _read_cached_pattern(source_url)
     if cached is not None:
         return _event_payload(source_url, cached)
@@ -66,6 +114,18 @@ def generate_cover_pattern(
     *,
     cache_root: Path | None = None,
 ) -> dict[str, Any]:
+    """Generate cover pattern.
+
+    Coordinates generate cover pattern logic for the surrounding Sonex flow.
+
+    Args:
+        source: Input value used by the generate cover pattern operation.
+        image_bytes: Input value used by the generate cover pattern operation.
+        cache_root: Input value used by the generate cover pattern operation.
+
+    Returns:
+        The computed result for generate cover pattern.
+    """
     cached = _read_cached_pattern(source, cache_root=cache_root)
     if cached is not None:
         return _event_payload(source, cached)
@@ -85,6 +145,17 @@ def generate_cover_pattern(
 
 
 def _event_payload(source: str, cached: dict[str, Any]) -> dict[str, Any]:
+    """Event payload.
+
+    Coordinates event payload logic for the surrounding Sonex flow.
+
+    Args:
+        source: Input value used by the event payload operation.
+        cached: Input value used by the event payload operation.
+
+    Returns:
+        The computed result for event payload.
+    """
     return {
         "type": "cover_pattern",
         "source_url": source,
@@ -96,6 +167,17 @@ def _event_payload(source: str, cached: dict[str, Any]) -> dict[str, Any]:
 
 
 def _read_cached_pattern(source: str, *, cache_root: Path | None = None) -> dict[str, Any] | None:
+    """Read cached pattern.
+
+    Coordinates read cached pattern logic for the surrounding Sonex flow.
+
+    Args:
+        source: Input value used by the read cached pattern operation.
+        cache_root: Input value used by the read cached pattern operation.
+
+    Returns:
+        The computed result for read cached pattern.
+    """
     path = cover_pattern_cache_path(source, cache_root=cache_root)
     try:
         cached = json.loads(path.read_text(encoding="utf-8"))
@@ -107,6 +189,16 @@ def _read_cached_pattern(source: str, *, cache_root: Path | None = None) -> dict
 
 
 def _valid_cached_pattern(value: Any) -> bool:
+    """Valid cached pattern.
+
+    Coordinates valid cached pattern logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the valid cached pattern operation.
+
+    Returns:
+        The computed result for valid cached pattern.
+    """
     if not isinstance(value, dict):
         return False
     if value.get("palette") != COVER_PATTERN_PALETTE:
@@ -122,6 +214,17 @@ def _valid_cached_pattern(value: Any) -> bool:
 
 
 def _valid_grid(grid: Any, size: int) -> bool:
+    """Valid grid.
+
+    Coordinates valid grid logic for the surrounding Sonex flow.
+
+    Args:
+        grid: Input value used by the valid grid operation.
+        size: Input value used by the valid grid operation.
+
+    Returns:
+        The computed result for valid grid.
+    """
     if not isinstance(grid, list) or len(grid) != size:
         return False
     for row in grid:
@@ -133,6 +236,16 @@ def _valid_grid(grid: Any, size: int) -> bool:
 
 
 def _download_cover(source_url: str) -> bytes:
+    """Download cover.
+
+    Coordinates download cover logic for the surrounding Sonex flow.
+
+    Args:
+        source_url: Input value used by the download cover operation.
+
+    Returns:
+        The computed result for download cover.
+    """
     request = Request(source_url, headers={"User-Agent": "Sonex/1.0"})
     try:
         with urlopen(request, timeout=6) as response:
@@ -152,6 +265,16 @@ def _download_cover(source_url: str) -> bytes:
 
 
 def _pattern_from_image_bytes(image_bytes: bytes) -> dict[str, list[list[int]]]:
+    """Pattern from image bytes.
+
+    Coordinates pattern from image bytes logic for the surrounding Sonex flow.
+
+    Args:
+        image_bytes: Input value used by the pattern from image bytes operation.
+
+    Returns:
+        The computed result for pattern from image bytes.
+    """
     try:
         with Image.open(io.BytesIO(image_bytes)) as image:
             prepared = _prepare_image(image)
@@ -164,6 +287,16 @@ def _pattern_from_image_bytes(image_bytes: bytes) -> dict[str, list[list[int]]]:
 
 
 def _prepare_image(image: Image.Image) -> Image.Image:
+    """Prepare image.
+
+    Coordinates prepare image logic for the surrounding Sonex flow.
+
+    Args:
+        image: Input value used by the prepare image operation.
+
+    Returns:
+        The computed result for prepare image.
+    """
     rgb = image.convert("RGB")
     width, height = rgb.size
     side = min(width, height)
@@ -176,6 +309,16 @@ def _prepare_image(image: Image.Image) -> Image.Image:
 
 
 def _image_to_palette_indices(image: Image.Image) -> list[list[int]]:
+    """Image to palette indices.
+
+    Coordinates image to palette indices logic for the surrounding Sonex flow.
+
+    Args:
+        image: Input value used by the image to palette indices operation.
+
+    Returns:
+        The computed result for image to palette indices.
+    """
     pixels = image.convert("RGB").load()
     width, height = image.size
     return [
@@ -185,6 +328,16 @@ def _image_to_palette_indices(image: Image.Image) -> list[list[int]]:
 
 
 def _nearest_palette_index(rgb: tuple[int, int, int]) -> int:
+    """Nearest palette index.
+
+    Coordinates nearest palette index logic for the surrounding Sonex flow.
+
+    Args:
+        rgb: Input value used by the nearest palette index operation.
+
+    Returns:
+        The computed result for nearest palette index.
+    """
     red, green, blue = rgb
     best_index = 0
     best_distance = float("inf")

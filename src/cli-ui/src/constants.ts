@@ -1,110 +1,205 @@
-import type {ConfirmChoice, SlashCommandSuggestion} from './types.js';
+import type { ConfirmChoice, SlashCommandSuggestion } from './types.js';
 
+/**
+ * Defines the ws url constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const wsUrl = process.env.SONEX_WS_URL ?? "ws://localhost:9001/ws";
 
+/**
+ * Defines the app version constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const APP_VERSION = "1.0.1";
+/**
+ * Defines the fallback model name constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const FALLBACK_MODEL_NAME = "GPT-5.2";
+/**
+ * Defines the border blue constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const BORDER_BLUE = "#3b82f6";
+/**
+ * Defines the border blue soft constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const BORDER_BLUE_SOFT = "#9fd9ff";
+/**
+ * Defines the app tip placeholder constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const APP_TIP_PLACEHOLDER = "Tips: coming soon";
+/**
+ * Defines the max chat items constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const MAX_CHAT_ITEMS = 80;
+/**
+ * Defines the max activity items constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const MAX_ACTIVITY_ITEMS = 80;
+/**
+ * Defines the default confirm choices constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
-    {value: "allow_once", label: "Yes"},
-    {value: "deny", label: "No"},
+    { value: "allow_once", label: "Yes" },
+    { value: "deny", label: "No" },
 ];
+/**
+ * Defines the max visible slash commands constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const MAX_VISIBLE_SLASH_COMMANDS = 4;
+/**
+ * Defines the max visible model choices constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const MAX_VISIBLE_MODEL_CHOICES = 3;
+/**
+ * Defines the slash commands constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
-    {name: "bye", usage: "/bye", description: "Save session and exit", needsArgument: false, aliases: ["exit"]},
-    {name: "help", usage: "/help", description: "Show available commands", needsArgument: false},
-    {name: "logout", usage: "/logout", description: "Log out current LLM provider and exit", needsArgument: false},
-    {name: "model", usage: "/model", description: "Switch active model", needsArgument: false},
-    {name: "pause", usage: "/pause", description: "Pause current playback", needsArgument: false},
-    {name: "player", usage: "/player <auto|mpv|cvlc>", description: "Set local playback backend", needsArgument: true},
-    {name: "play", usage: "/play <query/number>", description: "Play a song by query or result number.", needsArgument: true},
-    {name: "progress", usage: "/progress", description: "Show playback progress", needsArgument: false},
-    {name: "quit", usage: "/quit", description: "Save session and exit", needsArgument: false},
-    {name: "random", usage: "/random", description: "Play from recent songs", needsArgument: false},
-    {name: "recommend", usage: "/recommend [taste]", description: "Recommend songs of preferred music taste.", needsArgument: true},
-    {name: "resume", usage: "/resume", description: "Resume current playback", needsArgument: false},
-    {name: "search", usage: "/search <query>", description: "Search songs by keywords.", needsArgument: true},
-    {name: "setup", usage: "/setup [provider]", description: "Configure a music provider.", needsArgument: true},
-    {name: "stop", usage: "/stop", description: "Stop current playback", needsArgument: false},
-    {name: "volume", usage: "/volume <0-100>", description: "Set local playback volume", needsArgument: true},
+    { name: "bye", usage: "/bye", description: "Save session and exit", needsArgument: false, aliases: ["exit"] },
+    { name: "help", usage: "/help", description: "Show available commands", needsArgument: false },
+    { name: "logout", usage: "/logout", description: "Log out current LLM provider and exit", needsArgument: false },
+    { name: "model", usage: "/model", description: "Switch active model", needsArgument: false },
+    { name: "pause", usage: "/pause", description: "Pause current playback", needsArgument: false },
+    { name: "player", usage: "/player <auto|mpv|cvlc>", description: "Set local playback backend", needsArgument: true },
+    { name: "play", usage: "/play <query/number>", description: "Play a song by query or result number.", needsArgument: true },
+    { name: "progress", usage: "/progress", description: "Show playback progress", needsArgument: false },
+    { name: "quit", usage: "/quit", description: "Save session and exit", needsArgument: false },
+    { name: "random", usage: "/random", description: "Play from recent songs", needsArgument: false },
+    { name: "recommend", usage: "/recommend [taste]", description: "Recommend songs of preferred music taste.", needsArgument: true },
+    { name: "resume", usage: "/resume", description: "Resume current playback", needsArgument: false },
+    { name: "search", usage: "/search <query>", description: "Search songs by keywords.", needsArgument: true },
+    { name: "setup", usage: "/setup [provider]", description: "Configure a music provider.", needsArgument: true },
+    { name: "stop", usage: "/stop", description: "Stop current playback", needsArgument: false },
+    { name: "volume", usage: "/volume <0-100>", description: "Set local playback volume", needsArgument: true },
 ].sort((a, b) => a.name.localeCompare(b.name));
+/**
+ * Defines the api not running message constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";
+/**
+ * Defines the api not running detail constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const API_NOT_RUNNING_DETAIL = "Start with `sonex`, or run `sonex api` before `sonex tui`.";
+/**
+ * Defines the chat header rows constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const CHAT_HEADER_ROWS = 2;
+/**
+ * Defines the min chat viewport rows constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const MIN_CHAT_VIEWPORT_ROWS = 1;
+/**
+ * Defines the estimated chat wrap width constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const ESTIMATED_CHAT_WRAP_WIDTH = 68;
 
+/**
+ * Describes the mascot segment type.
+ *
+ * Documents the shape shared across constants.ts call sites.
+ */
 type MascotSegment = {
     text: string;
     fg?: string; // 上半部分颜色
     bg?: string; // 下半部分颜色
 };
 
+/**
+ * Defines the sonex mascot constant.
+ *
+ * Stores stable configuration or display data consumed by constants.ts.
+ */
 export const SONEX_MASCOT: MascotSegment[][] = [
     [
-        {text: "    "},
-        {text: "▄", fg: "#000000"},
-        {text: "▀▀▀▀▀", fg: "#000000", bg: "#f4f1f3"},
-        {text: "▄", fg: "#000000"},
+        { text: "    " },
+        { text: "▄", fg: "#000000" },
+        { text: "▀▀▀▀▀", fg: "#000000", bg: "#f4f1f3" },
+        { text: "▄", fg: "#000000" },
     ],
     [
-        {text: "  "},
-        {text: "▄", fg: "#000000"},
-        {text: "▀", fg: "#000000", bg: "#f4f1f3"},
-        {text: "▀", fg: "#f4f1f3", bg: "#000000"},
-        {text: "▀▀▀▀▀", fg: "#000000", bg: "#9fd9ff"},
-        {text: "▀", fg: "#f4f1f3", bg: "#000000"},
-        {text: "▄", fg: "#000000"},
+        { text: "  " },
+        { text: "▄", fg: "#000000" },
+        { text: "▀", fg: "#000000", bg: "#f4f1f3" },
+        { text: "▀", fg: "#f4f1f3", bg: "#000000" },
+        { text: "▀▀▀▀▀", fg: "#000000", bg: "#9fd9ff" },
+        { text: "▀", fg: "#f4f1f3", bg: "#000000" },
+        { text: "▄", fg: "#000000" },
     ],
     [
-        {text: "  "},
-        {text: "█", fg: "#000000"},
-        {text: "▀", fg: "#f4f1f3", bg: "#000000"},
-        {text: "▀", fg: "#000000", bg: "#9fd9ff"},
-        {text: "██████", fg: "#9fd9ff"},
-        {text: "▀", fg: "#4b5161", bg: "#9fd9ff"},
-        {text: "▄", fg: "#4b5161"},
+        { text: "  " },
+        { text: "█", fg: "#000000" },
+        { text: "▀", fg: "#f4f1f3", bg: "#000000" },
+        { text: "▀", fg: "#000000", bg: "#9fd9ff" },
+        { text: "██████", fg: "#9fd9ff" },
+        { text: "▀", fg: "#4b5161", bg: "#9fd9ff" },
+        { text: "▄", fg: "#4b5161" },
     ],
     [
-        {text: " "},
-        {text: "█", fg: "#000000"},
-        {text: "██", fg: "#f4f1f3"},
-        {text: "█", fg: "#000000"},
-        {text: "██", fg: "#9fd9ff"},
-        {text: "█", fg: "#000000"},
-        {text: "██", fg: "#9fd9ff"},
-        {text: "█", fg: "#000000"},
-        {text: "█", fg: "#9fd9ff"},
-        {text: "█", fg: "#4b5161"},
+        { text: " " },
+        { text: "█", fg: "#000000" },
+        { text: "██", fg: "#f4f1f3" },
+        { text: "█", fg: "#000000" },
+        { text: "██", fg: "#9fd9ff" },
+        { text: "█", fg: "#000000" },
+        { text: "██", fg: "#9fd9ff" },
+        { text: "█", fg: "#000000" },
+        { text: "█", fg: "#9fd9ff" },
+        { text: "█", fg: "#4b5161" },
     ],
     [
-        {text: " "},
-        {text: "▀", fg: "#000000"},
-        {text: "▀▀", fg: "#f4f1f3", bg: "#000000"},
-        {text: "▀", fg: "#000000", bg: "#9fd9ff"},
-        {text: "███████", fg: "#9fd9ff"},
-        {text: "▀", fg: "#4b5161"},
+        { text: " " },
+        { text: "▀", fg: "#000000" },
+        { text: "▀▀", fg: "#f4f1f3", bg: "#000000" },
+        { text: "▀", fg: "#000000", bg: "#9fd9ff" },
+        { text: "███████", fg: "#9fd9ff" },
+        { text: "▀", fg: "#4b5161" },
     ],
     [
-        {text: "  "},
-        {text: "▄", fg: "#4b5161"},
-        {text: "▀", fg: "#4b5161", bg: "#9fd9ff"},
-        {text: "██████", fg: "#9fd9ff"},
-        {text: "█", fg: "#9fd9ff"},
-        {text: "▀", fg: "#9fd9ff"},
+        { text: "  " },
+        { text: "▄", fg: "#4b5161" },
+        { text: "▀", fg: "#4b5161", bg: "#9fd9ff" },
+        { text: "██████", fg: "#9fd9ff" },
+        { text: "█", fg: "#9fd9ff" },
+        { text: "▀", fg: "#9fd9ff" },
     ],
     [
-        {text: "  "},
-        {text: "▀", fg: "#4b5161"},
-        {text: "▀", fg: "#9fd9ff"},
-        {text: "▀", fg: "#9fd9ff"},
-        {text: "█████", fg: "#9fd9ff"},
-        {text: "▀", fg: "#9fd9ff"},
+        { text: "  " },
+        { text: "▀", fg: "#4b5161" },
+        { text: "▀", fg: "#9fd9ff" },
+        { text: "▀", fg: "#9fd9ff" },
+        { text: "█████", fg: "#9fd9ff" },
+        { text: "▀", fg: "#9fd9ff" },
     ],
     // [
     //     {text: "      "},

@@ -1,3 +1,9 @@
+"""Base support for language model configuration, catalogs, transports, and planning.
+
+Implements the base module responsibilities used by Sonex runtime flows.
+Key public entry points include LLMTransportError, sanitize_error_message, ToolCall, Usage, ChatRequest.
+"""
+
 import re
 from dataclasses import dataclass, field
 from typing import Protocol, Any
@@ -19,6 +25,17 @@ _SECRET_PATTERNS = (
 
 
 def sanitize_error_message(error: Any, *, limit: int = 500) -> str:
+    """Sanitize error message.
+
+    Coordinates sanitize error message logic for the surrounding Sonex flow.
+
+    Args:
+        error: Input value used by the sanitize error message operation.
+        limit: Input value used by the sanitize error message operation.
+
+    Returns:
+        The computed result for sanitize error message.
+    """
     text = str(error).strip() or error.__class__.__name__
     text = " ".join(text.split())
     for pattern in _SECRET_PATTERNS:
@@ -107,12 +124,42 @@ class ProviderRequest:
 
 
 class LLMTransport(Protocol):
+    """Represents l l m transport.
+
+    Encapsulates l l m transport data and behavior used by Sonex runtime flows. Extends protocol semantics.
+    """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
+        """Send for l l m transport.
+
+        Coordinates the send method behavior while preserving l l m transport state and contracts.
+
+        Args:
+            request: Input value used by the send operation.
+            config: Input value used by the send operation.
+
+        Returns:
+            The computed result for send.
+        """
         ...
 
 
 class LiteLLMTransport(LLMTransport):
+    """Represents lite l l m transport.
+
+    Encapsulates lite l l m transport data and behavior used by Sonex runtime flows. Extends l l m transport semantics.
+    """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
+        """Send for lite l l m transport.
+
+        Coordinates the send method behavior while preserving lite l l m transport state and contracts.
+
+        Args:
+            request: Input value used by the send operation.
+            config: Input value used by the send operation.
+
+        Returns:
+            The computed result for send.
+        """
         from litellm import completion
 
         payload = dict(request.payload)
@@ -144,6 +191,17 @@ class LiteLLMTransport(LLMTransport):
 
 
 def _resolve_transport_model(model: str, config: ProviderConfig) -> str:
+    """Resolve transport model.
+
+    Coordinates resolve transport model logic for the surrounding Sonex flow.
+
+    Args:
+        model: Input value used by the resolve transport model operation.
+        config: Input value used by the resolve transport model operation.
+
+    Returns:
+        The computed result for resolve transport model.
+    """
     if "/" in model:
         return model
 

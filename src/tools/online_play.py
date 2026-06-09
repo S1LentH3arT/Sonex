@@ -1,3 +1,9 @@
+"""Online play support for tool implementations used by the planner and playback flows.
+
+Implements the online_play module responsibilities used by Sonex runtime flows.
+Key public entry points include OnlineAudioSetupRequired, OnlineAudioConfig, online_audio_config, os_value, online_audio_configured.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -63,24 +69,59 @@ ONLINE_AUDIO_SETUP_MESSAGE = (
 
 
 class OnlineAudioSetupRequired(RuntimeError):
+    """Represents online audio setup required.
+
+    Encapsulates online audio setup required data and behavior used by Sonex runtime flows. Extends runtime error semantics.
+    """
     pass
 
 
 @dataclass(frozen=True, slots=True)
 class OnlineAudioConfig:
+    """Represents online audio config.
+
+    Encapsulates online audio config data and behavior used by Sonex runtime flows.
+    """
     jamendo_client_id: str | None = None
     audius_api_key: str | None = None
 
 
 def _song_cache_root(cache_root: Path | None = None) -> Path:
+    """Song cache root.
+
+    Coordinates song cache root logic for the surrounding Sonex flow.
+
+    Args:
+        cache_root: Input value used by the song cache root operation.
+
+    Returns:
+        The computed result for song cache root.
+    """
     return cache_root or sonex_home() / "cache" / "songs"
 
 
 def _audio_cache_dir(cache_root: Path | None = None) -> Path:
+    """Audio cache dir.
+
+    Coordinates audio cache dir logic for the surrounding Sonex flow.
+
+    Args:
+        cache_root: Input value used by the audio cache dir operation.
+
+    Returns:
+        The computed result for audio cache dir.
+    """
     return _song_cache_root(cache_root) / "audio"
 
 
 def online_audio_config() -> OnlineAudioConfig:
+    """Online audio config.
+
+    Coordinates online audio config logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for online audio config.
+    """
     jamendo_client_id = _text(
         os_value("SONEX_JAMENDO_CLIENT_ID")
         or os_value("JAMENDO_CLIENT_ID")
@@ -102,17 +143,47 @@ def online_audio_config() -> OnlineAudioConfig:
 
 
 def os_value(name: str) -> str | None:
+    """Os value.
+
+    Coordinates os value logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the os value operation.
+
+    Returns:
+        The computed result for os value.
+    """
     import os
 
     return os.environ.get(name)
 
 
 def online_audio_configured(config: OnlineAudioConfig | None = None) -> bool:
+    """Online audio configured.
+
+    Coordinates online audio configured logic for the surrounding Sonex flow.
+
+    Args:
+        config: Input value used by the online audio configured operation.
+
+    Returns:
+        The computed result for online audio configured.
+    """
     resolved = config or online_audio_config()
     return bool(resolved.jamendo_client_id or resolved.audius_api_key)
 
 
 def _text(value: Any) -> str | None:
+    """Text.
+
+    Coordinates text logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the text operation.
+
+    Returns:
+        The computed result for text.
+    """
     if value is None:
         return None
     text = str(value).strip()
@@ -120,6 +191,16 @@ def _text(value: Any) -> str | None:
 
 
 def _joined_text(value: Any) -> str | None:
+    """Joined text.
+
+    Coordinates joined text logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the joined text operation.
+
+    Returns:
+        The computed result for joined text.
+    """
     if isinstance(value, list):
         parts = [_text(item) for item in value]
         return ", ".join(part for part in parts if part) or None
@@ -127,6 +208,16 @@ def _joined_text(value: Any) -> str | None:
 
 
 def _non_placeholder_text(value: Any) -> str | None:
+    """Non placeholder text.
+
+    Coordinates non placeholder text logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the non placeholder text operation.
+
+    Returns:
+        The computed result for non placeholder text.
+    """
     text = _joined_text(value)
     if text in {None, "-"}:
         return None
@@ -134,6 +225,16 @@ def _non_placeholder_text(value: Any) -> str | None:
 
 
 def _spotify_tracks_from_result(result: dict[str, Any]) -> list[dict[str, Any]]:
+    """Spotify tracks from result.
+
+    Coordinates spotify tracks from result logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the spotify tracks from result operation.
+
+    Returns:
+        The computed result for spotify tracks from result.
+    """
     if str(result.get("status") or "").lower() != "success":
         return []
     data = result.get("data")
@@ -144,6 +245,17 @@ def _spotify_tracks_from_result(result: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _spotify_track_metadata(query: str, track: dict[str, Any]) -> dict[str, Any] | None:
+    """Spotify track metadata.
+
+    Coordinates spotify track metadata logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the spotify track metadata operation.
+        track: Input value used by the spotify track metadata operation.
+
+    Returns:
+        The computed result for spotify track metadata.
+    """
     name = _non_placeholder_text(track.get("name") or track.get("title"))
     artist = _non_placeholder_text(track.get("artist") or track.get("artists"))
     if not name or not artist:
@@ -169,6 +281,17 @@ def _spotify_track_metadata(query: str, track: dict[str, Any]) -> dict[str, Any]
 
 
 def search_spotify_track_candidates(query: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Search spotify track candidates.
+
+    Coordinates search spotify track candidates logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search spotify track candidates operation.
+        limit: Input value used by the search spotify track candidates operation.
+
+    Returns:
+        The computed result for search spotify track candidates.
+    """
     clean_query = query.strip()
     if not clean_query:
         return []
@@ -190,6 +313,16 @@ def search_spotify_track_candidates(query: str, limit: int = 5) -> list[dict[str
 
 
 def _query_fallback_metadata(query: str) -> dict[str, Any]:
+    """Query fallback metadata.
+
+    Coordinates query fallback metadata logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the query fallback metadata operation.
+
+    Returns:
+        The computed result for query fallback metadata.
+    """
     clean_query = query.strip()
     return {
         "metadata_source": "query_fallback",
@@ -199,10 +332,21 @@ def _query_fallback_metadata(query: str) -> dict[str, Any]:
 
 
 def _resolved_playback_metadata(query: str, playback_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Resolved playback metadata.
+
+    Coordinates resolved playback metadata logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the resolved playback metadata operation.
+        playback_metadata: Input value used by the resolved playback metadata operation.
+
+    Returns:
+        The computed result for resolved playback metadata.
+    """
     if not isinstance(playback_metadata, dict) or not playback_metadata:
         return _query_fallback_metadata(query)
 
-    metadata = _canonical_metadata({**playback_metadata, "metadata_source": playback_metadata.get("metadata_source") or "spotify"})
+    metadata = _canonical_metadata({**playback_metadata, "metadata_source": playback_metadata.get("metadata_source") or playback_metadata.get("provider") or "metadata"})
     if not metadata.get("original_query"):
         metadata["original_query"] = query.strip()
     if not metadata.get("youtube_query"):
@@ -219,36 +363,76 @@ def _resolved_playback_metadata(query: str, playback_metadata: dict[str, Any] | 
                 metadata["cover_url"] = cover.get("cover_url") or cover["cover_source"]
                 metadata["cover_source"] = cover["cover_source"]
                 metadata["cover_source_type"] = cover["source_type"]
+    elif not metadata.get("album_cover_url") and not metadata.get("cover_url"):
+        cover = cover_sources.resolve_online_cover(metadata)
+        if cover:
+            metadata["album_cover_url"] = cover["cover_source"]
+            metadata["cover_url"] = cover.get("cover_url") or cover["cover_source"]
+            metadata["cover_source"] = cover["cover_source"]
+            metadata["cover_source_type"] = cover["source_type"]
     return metadata
 
 
 def resolve_online_playback_metadata(query: str, playback_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Resolve online playback metadata.
+
+    Coordinates resolve online playback metadata logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the resolve online playback metadata operation.
+        playback_metadata: Input value used by the resolve online playback metadata operation.
+
+    Returns:
+        The computed result for resolve online playback metadata.
+    """
     return _resolved_playback_metadata(query, playback_metadata)
 
 
 def _canonical_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    """Canonical metadata.
+
+    Coordinates canonical metadata logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the canonical metadata operation.
+
+    Returns:
+        The computed result for canonical metadata.
+    """
     metadata: dict[str, Any] = {}
-    common_keys = (
+    source = str(item.get("metadata_source") or item.get("provider") or "").strip().lower()
+    confirmed_metadata = bool(source and source not in {"query_fallback", "youtube", "jamendo", "audius", "online_audio"})
+    base_keys = (
         "metadata_source",
         "original_query",
         "youtube_query",
-        "album_cover_url",
-        "cover_url",
         "cover_source",
         "cover_source_type",
     )
-    spotify_keys = (
+    metadata_keys = (
+        "provider",
+        "id",
         "name",
         "title",
         "artist",
         "artists",
         "album",
         "duration_ms",
+        "album_cover_url",
+        "cover_url",
+        "url",
+        "itunes_url",
+        "deezer_url",
+        "musicbrainz_url",
+        "musicbrainz_recording_id",
+    )
+    spotify_keys = (
         "spotify_url",
         "uri",
         "spotify_track_id",
     )
-    keys = common_keys + (spotify_keys if item.get("metadata_source") == "spotify" else ())
+    generic_keys = ("uri",)
+    keys = base_keys + (metadata_keys + generic_keys if confirmed_metadata else ()) + (spotify_keys if item.get("metadata_source") == "spotify" else ())
     for key in keys:
         if key in item and item.get(key) is not None:
             metadata[key] = item[key]
@@ -256,13 +440,38 @@ def _canonical_metadata(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _merge_canonical_metadata(item: dict[str, Any], metadata: dict[str, Any]) -> dict[str, Any]:
+    """Merge canonical metadata.
+
+    Coordinates merge canonical metadata logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the merge canonical metadata operation.
+        metadata: Input value used by the merge canonical metadata operation.
+
+    Returns:
+        The computed result for merge canonical metadata.
+    """
     if not metadata:
         return item
     merged = dict(item)
     for key, value in metadata.items():
         if value is None:
             continue
-        if key in {"name", "title", "artist", "artists", "album", "duration_ms", "spotify_url", "uri", "spotify_track_id"}:
+        if key in {
+            "name",
+            "title",
+            "artist",
+            "artists",
+            "album",
+            "duration_ms",
+            "spotify_url",
+            "uri",
+            "spotify_track_id",
+            "itunes_url",
+            "deezer_url",
+            "musicbrainz_url",
+            "musicbrainz_recording_id",
+        }:
             merged[key] = value
         else:
             if not merged.get(key):
@@ -271,6 +480,16 @@ def _merge_canonical_metadata(item: dict[str, Any], metadata: dict[str, Any]) ->
 
 
 def _duration_ms(value: Any) -> int:
+    """Duration ms.
+
+    Coordinates duration ms logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the duration ms operation.
+
+    Returns:
+        The computed result for duration ms.
+    """
     try:
         return max(0, int(float(value or 0) * 1000))
     except (TypeError, ValueError):
@@ -278,6 +497,16 @@ def _duration_ms(value: Any) -> int:
 
 
 def _count(value: Any) -> int:
+    """Count.
+
+    Coordinates count logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the count operation.
+
+    Returns:
+        The computed result for count.
+    """
     try:
         return max(0, int(float(value or 0)))
     except (TypeError, ValueError):
@@ -285,24 +514,76 @@ def _count(value: Any) -> int:
 
 
 def _words(value: str) -> list[str]:
+    """Words.
+
+    Coordinates words logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the words operation.
+
+    Returns:
+        The computed result for words.
+    """
     return re.findall(r"[\w\u4e00-\u9fff]+", value.casefold())
 
 
 def _normalized_rank_text(value: str) -> str:
+    """Normalized rank text.
+
+    Coordinates normalized rank text logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the normalized rank text operation.
+
+    Returns:
+        The computed result for normalized rank text.
+    """
     return " ".join(_words(value))
 
 
 def _query_terms(query: str) -> list[str]:
+    """Query terms.
+
+    Coordinates query terms logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the query terms operation.
+
+    Returns:
+        The computed result for query terms.
+    """
     terms = _words(query)
     return [term for term in terms if term not in QUERY_FILLER_TERMS and term not in LIVE_TERMS]
 
 
 def _contains_any(value: str, terms: tuple[str, ...]) -> bool:
+    """Contains any.
+
+    Coordinates contains any logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the contains any operation.
+        terms: Input value used by the contains any operation.
+
+    Returns:
+        The computed result for contains any.
+    """
     text = value.casefold()
     return any(term in text for term in terms)
 
 
 def _variant_type(query: str, info: dict[str, Any]) -> str:
+    """Variant type.
+
+    Coordinates variant type logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the variant type operation.
+        info: Input value used by the variant type operation.
+
+    Returns:
+        The computed result for variant type.
+    """
     title = _text(info.get("track") or info.get("title") or info.get("fulltitle") or "") or ""
     channel = _text(info.get("channel") or info.get("uploader") or "") or ""
     combined = f"{title} {channel}".casefold()
@@ -314,14 +595,44 @@ def _variant_type(query: str, info: dict[str, Any]) -> str:
 
 
 def _rank_title(info: dict[str, Any]) -> str:
+    """Rank title.
+
+    Coordinates rank title logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the rank title operation.
+
+    Returns:
+        The computed result for rank title.
+    """
     return _text(info.get("track") or info.get("title") or info.get("fulltitle") or "") or ""
 
 
 def _rank_channel(info: dict[str, Any]) -> str:
+    """Rank channel.
+
+    Coordinates rank channel logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the rank channel operation.
+
+    Returns:
+        The computed result for rank channel.
+    """
     return _text(info.get("channel") or info.get("uploader") or "") or ""
 
 
 def _rank_artist(info: dict[str, Any]) -> str:
+    """Rank artist.
+
+    Coordinates rank artist logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the rank artist operation.
+
+    Returns:
+        The computed result for rank artist.
+    """
     return (
         _non_placeholder_text(info.get("artist"))
         or _non_placeholder_text(info.get("artists"))
@@ -332,6 +643,16 @@ def _rank_artist(info: dict[str, Any]) -> str:
 
 
 def _rank_haystack(info: dict[str, Any]) -> str:
+    """Rank haystack.
+
+    Coordinates rank haystack logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the rank haystack operation.
+
+    Returns:
+        The computed result for rank haystack.
+    """
     return " ".join(
         str(value or "")
         for value in (
@@ -348,6 +669,17 @@ def _rank_haystack(info: dict[str, Any]) -> str:
 
 
 def _similarity_score(query: str, info: dict[str, Any]) -> int:
+    """Similarity score.
+
+    Coordinates similarity score logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the similarity score operation.
+        info: Input value used by the similarity score operation.
+
+    Returns:
+        The computed result for similarity score.
+    """
     query_norm = _normalized_rank_text(query)
     if not query_norm:
         return 0
@@ -366,6 +698,18 @@ def _similarity_score(query: str, info: dict[str, Any]) -> int:
 
 
 def _clean_title_match(query: str, info: dict[str, Any], similarity: int) -> bool:
+    """Clean title match.
+
+    Coordinates clean title match logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the clean title match operation.
+        info: Input value used by the clean title match operation.
+        similarity: Input value used by the clean title match operation.
+
+    Returns:
+        The computed result for clean title match.
+    """
     title = _rank_title(info)
     if similarity < 70:
         return False
@@ -375,6 +719,19 @@ def _clean_title_match(query: str, info: dict[str, Any], similarity: int) -> boo
 
 
 def _quality_label(query: str, info: dict[str, Any], variant: str, similarity: int) -> str:
+    """Quality label.
+
+    Coordinates quality label logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the quality label operation.
+        info: Input value used by the quality label operation.
+        variant: Input value used by the quality label operation.
+        similarity: Input value used by the quality label operation.
+
+    Returns:
+        The computed result for quality label.
+    """
     combined = f"{_rank_title(info)} {_rank_channel(info)}".casefold()
     live_requested = _contains_any(query, LIVE_TERMS)
     if variant == "live":
@@ -391,6 +748,18 @@ def _quality_label(query: str, info: dict[str, Any], variant: str, similarity: i
 
 
 def _provider_cache_id(provider: str, provider_id: str | None, source_url: str | None = None) -> str:
+    """Provider cache id.
+
+    Coordinates provider cache id logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the provider cache id operation.
+        provider_id: Input value used by the provider cache id operation.
+        source_url: Input value used by the provider cache id operation.
+
+    Returns:
+        The computed result for provider cache id.
+    """
     if provider_id:
         return f"{provider}_{provider_id}"
     digest_source = source_url or provider
@@ -414,6 +783,28 @@ def _open_audio_candidate(
     playback_metadata: dict[str, Any] | None = None,
     extra_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Open audio candidate.
+
+    Coordinates open audio candidate logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the open audio candidate operation.
+        provider_id: Input value used by the open audio candidate operation.
+        query: Input value used by the open audio candidate operation.
+        name: Input value used by the open audio candidate operation.
+        artist: Input value used by the open audio candidate operation.
+        album: Input value used by the open audio candidate operation.
+        duration_ms: Input value used by the open audio candidate operation.
+        cover_url: Input value used by the open audio candidate operation.
+        source_url: Input value used by the open audio candidate operation.
+        download_url: Input value used by the open audio candidate operation.
+        webpage_url: Input value used by the open audio candidate operation.
+        playback_metadata: Input value used by the open audio candidate operation.
+        extra_metadata: Input value used by the open audio candidate operation.
+
+    Returns:
+        The computed result for open audio candidate.
+    """
     info = {
         "id": provider_id,
         "title": name,
@@ -464,6 +855,18 @@ def normalize_jamendo_track(
     query: str,
     playback_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
+    """Normalize jamendo track.
+
+    Coordinates normalize jamendo track logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the normalize jamendo track operation.
+        query: Input value used by the normalize jamendo track operation.
+        playback_metadata: Input value used by the normalize jamendo track operation.
+
+    Returns:
+        The computed result for normalize jamendo track.
+    """
     source_url = _text(track.get("audio"))
     download_url = _text(track.get("audiodownload"))
     if not source_url and not download_url:
@@ -490,6 +893,16 @@ def normalize_jamendo_track(
 
 
 def _best_audius_artwork(track: dict[str, Any]) -> str | None:
+    """Best audius artwork.
+
+    Coordinates best audius artwork logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the best audius artwork operation.
+
+    Returns:
+        The computed result for best audius artwork.
+    """
     artwork = track.get("artwork")
     if not isinstance(artwork, dict):
         return None
@@ -501,6 +914,16 @@ def _best_audius_artwork(track: dict[str, Any]) -> str | None:
 
 
 def _audius_user_name(track: dict[str, Any]) -> str | None:
+    """Audius user name.
+
+    Coordinates audius user name logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the audius user name operation.
+
+    Returns:
+        The computed result for audius user name.
+    """
     user = track.get("user")
     if isinstance(user, dict):
         return _text(user.get("name") or user.get("handle"))
@@ -508,6 +931,16 @@ def _audius_user_name(track: dict[str, Any]) -> str | None:
 
 
 def _is_audius_stream_gated(track: dict[str, Any]) -> bool:
+    """Is audius stream gated.
+
+    Coordinates is audius stream gated logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the is audius stream gated operation.
+
+    Returns:
+        The computed result for is audius stream gated.
+    """
     if bool(track.get("is_stream_gated")):
         return True
     availability = str(track.get("stream_conditions") or "").casefold()
@@ -521,6 +954,19 @@ def normalize_audius_track(
     stream_url: str,
     playback_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
+    """Normalize audius track.
+
+    Coordinates normalize audius track logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the normalize audius track operation.
+        query: Input value used by the normalize audius track operation.
+        stream_url: Input value used by the normalize audius track operation.
+        playback_metadata: Input value used by the normalize audius track operation.
+
+    Returns:
+        The computed result for normalize audius track.
+    """
     if _is_audius_stream_gated(track):
         return None
     provider_id = _text(track.get("id"))
@@ -545,10 +991,31 @@ def normalize_audius_track(
 
 
 def _popularity_tiebreaker(popularity: int) -> int:
+    """Popularity tiebreaker.
+
+    Coordinates popularity tiebreaker logic for the surrounding Sonex flow.
+
+    Args:
+        popularity: Input value used by the popularity tiebreaker operation.
+
+    Returns:
+        The computed result for popularity tiebreaker.
+    """
     return round(math.log10(max(0, popularity) + 1) * 1000)
 
 
 def _relevance_score(query: str, info: dict[str, Any]) -> int:
+    """Relevance score.
+
+    Coordinates relevance score logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the relevance score operation.
+        info: Input value used by the relevance score operation.
+
+    Returns:
+        The computed result for relevance score.
+    """
     terms = _query_terms(query)
     if not terms:
         return 0
@@ -557,6 +1024,16 @@ def _relevance_score(query: str, info: dict[str, Any]) -> int:
 
 
 def _popularity_score(info: dict[str, Any]) -> int:
+    """Popularity score.
+
+    Coordinates popularity score logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the popularity score operation.
+
+    Returns:
+        The computed result for popularity score.
+    """
     view_count = _count(info.get("view_count"))
     like_count = _count(info.get("like_count"))
     comment_count = _count(info.get("comment_count"))
@@ -565,6 +1042,20 @@ def _popularity_score(info: dict[str, Any]) -> int:
 
 
 def _rank_reason(variant: str, popularity: int, relevance: int, similarity: int, quality: str) -> str:
+    """Rank reason.
+
+    Coordinates rank reason logic for the surrounding Sonex flow.
+
+    Args:
+        variant: Input value used by the rank reason operation.
+        popularity: Input value used by the rank reason operation.
+        relevance: Input value used by the rank reason operation.
+        similarity: Input value used by the rank reason operation.
+        quality: Input value used by the rank reason operation.
+
+    Returns:
+        The computed result for rank reason.
+    """
     label = {
         "official_original": "official original",
         "live": "live version",
@@ -574,6 +1065,16 @@ def _rank_reason(variant: str, popularity: int, relevance: int, similarity: int,
 
 
 def _is_age_restricted_info(info: dict[str, Any]) -> bool:
+    """Is age restricted info.
+
+    Coordinates is age restricted info logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the is age restricted info operation.
+
+    Returns:
+        The computed result for is age restricted info.
+    """
     try:
         age_limit = int(info.get("age_limit") or 0)
     except (TypeError, ValueError):
@@ -585,6 +1086,16 @@ def _is_age_restricted_info(info: dict[str, Any]) -> bool:
 
 
 def _is_unavailable_info(info: dict[str, Any]) -> bool:
+    """Is unavailable info.
+
+    Coordinates is unavailable info logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the is unavailable info operation.
+
+    Returns:
+        The computed result for is unavailable info.
+    """
     availability = str(info.get("availability") or "").casefold()
     return availability in {
         "unavailable",
@@ -597,6 +1108,16 @@ def _is_unavailable_info(info: dict[str, Any]) -> bool:
 
 
 def _is_age_verification_error(message: str) -> bool:
+    """Is age verification error.
+
+    Coordinates is age verification error logic for the surrounding Sonex flow.
+
+    Args:
+        message: Input value used by the is age verification error operation.
+
+    Returns:
+        The computed result for is age verification error.
+    """
     text = message.casefold()
     return (
         "confirm your age" in text
@@ -606,6 +1127,16 @@ def _is_age_verification_error(message: str) -> bool:
 
 
 def _is_unavailable_error(message: str) -> bool:
+    """Is unavailable error.
+
+    Coordinates is unavailable error logic for the surrounding Sonex flow.
+
+    Args:
+        message: Input value used by the is unavailable error operation.
+
+    Returns:
+        The computed result for is unavailable error.
+    """
     text = message.casefold()
     return (
         "this video is not available" in text
@@ -617,6 +1148,17 @@ def _is_unavailable_error(message: str) -> bool:
 
 
 def _should_keep_candidate(query: str, info: dict[str, Any]) -> bool:
+    """Should keep candidate.
+
+    Coordinates should keep candidate logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the should keep candidate operation.
+        info: Input value used by the should keep candidate operation.
+
+    Returns:
+        The computed result for should keep candidate.
+    """
     if _is_age_restricted_info(info) or _is_unavailable_info(info):
         return False
     title = _rank_title(info)
@@ -630,6 +1172,16 @@ def _should_keep_candidate(query: str, info: dict[str, Any]) -> bool:
 
 
 def _best_thumbnail(info: dict[str, Any]) -> str | None:
+    """Best thumbnail.
+
+    Coordinates best thumbnail logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the best thumbnail operation.
+
+    Returns:
+        The computed result for best thumbnail.
+    """
     direct = _text(info.get("thumbnail"))
     if direct:
         return direct
@@ -648,6 +1200,16 @@ def _best_thumbnail(info: dict[str, Any]) -> str | None:
 
 
 def _audio_stream_url(info: dict[str, Any]) -> str:
+    """Audio stream url.
+
+    Coordinates audio stream url logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the audio stream url operation.
+
+    Returns:
+        The computed result for audio stream url.
+    """
     stream_url = _text(info.get("url"))
     if stream_url:
         return stream_url
@@ -668,6 +1230,16 @@ def _audio_stream_url(info: dict[str, Any]) -> str:
 
 
 def _webpage_url(info: dict[str, Any]) -> str | None:
+    """Webpage url.
+
+    Coordinates webpage url logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the webpage url operation.
+
+    Returns:
+        The computed result for webpage url.
+    """
     url = _text(info.get("webpage_url") or info.get("original_url"))
     if url:
         return url
@@ -678,6 +1250,16 @@ def _webpage_url(info: dict[str, Any]) -> str | None:
 
 
 def _youtube_cache_id(info: dict[str, Any]) -> str:
+    """Youtube cache id.
+
+    Coordinates youtube cache id logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the youtube cache id operation.
+
+    Returns:
+        The computed result for youtube cache id.
+    """
     video_id = _text(info.get("youtube_id") or info.get("id"))
     if video_id:
         return f"youtube_{video_id}"
@@ -687,6 +1269,17 @@ def _youtube_cache_id(info: dict[str, Any]) -> str:
 
 
 def _cached_audio_item(cache_id: str, *, cache_root: Path | None = None) -> dict[str, Any] | None:
+    """Cached audio item.
+
+    Coordinates cached audio item logic for the surrounding Sonex flow.
+
+    Args:
+        cache_id: Input value used by the cached audio item operation.
+        cache_root: Input value used by the cached audio item operation.
+
+    Returns:
+        The computed result for cached audio item.
+    """
     try:
         item = resolve_cached_song(cache_id, cache_root=cache_root)
     except Exception:
@@ -700,6 +1293,18 @@ def _cached_audio_item(cache_id: str, *, cache_root: Path | None = None) -> dict
 
 
 def _normalize_youtube_info(query: str, info: dict[str, Any], stream_url: str | None = None) -> dict[str, Any]:
+    """Normalize youtube info.
+
+    Coordinates normalize youtube info logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the normalize youtube info operation.
+        info: Input value used by the normalize youtube info operation.
+        stream_url: Input value used by the normalize youtube info operation.
+
+    Returns:
+        The computed result for normalize youtube info.
+    """
     title = _text(info.get("track") or info.get("title") or info.get("fulltitle") or query) or query
     artist = (
         _non_placeholder_text(info.get("artist"))
@@ -750,6 +1355,17 @@ def _normalize_youtube_info(query: str, info: dict[str, Any], stream_url: str | 
 
 
 def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rank youtube candidates.
+
+    Coordinates rank youtube candidates logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the rank youtube candidates operation.
+        candidates: Input value used by the rank youtube candidates operation.
+
+    Returns:
+        The computed result for rank youtube candidates.
+    """
     live_requested = _contains_any(query, LIVE_TERMS)
     quality_priority = {
         "official_original": 4,
@@ -770,6 +1386,16 @@ def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> li
         }
 
     def score(pair: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int, int]:
+        """Score.
+
+        Coordinates score logic for the surrounding Sonex flow.
+
+        Args:
+            pair: Input value used by the score operation.
+
+        Returns:
+            The computed result for score.
+        """
         index, candidate = pair
         quality = str(candidate.get("quality_label") or "other")
         noisy_penalty = 25 if quality in {"noisy_media", "cover_like"} and not live_requested else 0
@@ -790,6 +1416,17 @@ def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> li
 
 
 def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Rank online audio candidates.
+
+    Coordinates rank online audio candidates logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the rank online audio candidates operation.
+        candidates: Input value used by the rank online audio candidates operation.
+
+    Returns:
+        The computed result for rank online audio candidates.
+    """
     quality_priority = {
         "official_original": 4,
         "clean_audio_match": 3,
@@ -801,6 +1438,16 @@ def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -
     provider_priority = {"jamendo": 3, "audius": 2, "youtube": 1}
 
     def score(pair: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int]:
+        """Score.
+
+        Coordinates score logic for the surrounding Sonex flow.
+
+        Args:
+            pair: Input value used by the score operation.
+
+        Returns:
+            The computed result for score.
+        """
         index, candidate = pair
         return (
             int(candidate.get("similarity_score") or 0),
@@ -815,6 +1462,16 @@ def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -
 
 
 def _credible_online_audio_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Credible online audio candidates.
+
+    Coordinates credible online audio candidates logic for the surrounding Sonex flow.
+
+    Args:
+        candidates: Input value used by the credible online audio candidates operation.
+
+    Returns:
+        The computed result for credible online audio candidates.
+    """
     return [
         candidate for candidate in candidates
         if int(candidate.get("similarity_score") or 0) >= 45
@@ -822,10 +1479,30 @@ def _credible_online_audio_candidates(candidates: list[dict[str, Any]]) -> list[
 
 
 def _provider_label(provider: str) -> str:
+    """Provider label.
+
+    Coordinates provider label logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the provider label operation.
+
+    Returns:
+        The computed result for provider label.
+    """
     return {"jamendo": "Jamendo", "audius": "Audius", "youtube": "YouTube"}.get(provider, provider.title())
 
 
 def _sanitize_provider_error(error: Any) -> str:
+    """Sanitize provider error.
+
+    Coordinates sanitize provider error logic for the surrounding Sonex flow.
+
+    Args:
+        error: Input value used by the sanitize provider error operation.
+
+    Returns:
+        The computed result for sanitize provider error.
+    """
     message = sanitize_error_message(error)
     return re.sub(r"(?i)(secret)\s*[:=]\s*([^\s,;]+)", r"\1=[redacted]", message)
 
@@ -838,6 +1515,20 @@ def _source_attempt(
     credible_count: int = 0,
     message: str | None = None,
 ) -> dict[str, Any]:
+    """Source attempt.
+
+    Coordinates source attempt logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the source attempt operation.
+        status: Input value used by the source attempt operation.
+        candidate_count: Input value used by the source attempt operation.
+        credible_count: Input value used by the source attempt operation.
+        message: Input value used by the source attempt operation.
+
+    Returns:
+        The computed result for source attempt.
+    """
     label = _provider_label(provider)
     if not message:
         if status == "success":
@@ -858,11 +1549,31 @@ def _source_attempt(
 
 
 def _fallback_reason(source_attempts: list[dict[str, Any]]) -> str:
+    """Fallback reason.
+
+    Coordinates fallback reason logic for the surrounding Sonex flow.
+
+    Args:
+        source_attempts: Input value used by the fallback reason operation.
+
+    Returns:
+        The computed result for fallback reason.
+    """
     messages = [str(item.get("message") or "").strip() for item in source_attempts if item.get("message")]
     return " ".join(messages) or "Configured open-audio providers returned no credible matches."
 
 
 def _friendly_youtube_failure_message(message: str) -> str:
+    """Friendly youtube failure message.
+
+    Coordinates friendly youtube failure message logic for the surrounding Sonex flow.
+
+    Args:
+        message: Input value used by the friendly youtube failure message operation.
+
+    Returns:
+        The computed result for friendly youtube failure message.
+    """
     if _is_age_verification_error(message):
         return AGE_RESTRICTED_MESSAGE
     if _is_unavailable_error(message):
@@ -871,6 +1582,17 @@ def _friendly_youtube_failure_message(message: str) -> str:
 
 
 def _with_youtube_fallback_trace(candidate: dict[str, Any], source_attempts: list[dict[str, Any]]) -> dict[str, Any]:
+    """With youtube fallback trace.
+
+    Coordinates with youtube fallback trace logic for the surrounding Sonex flow.
+
+    Args:
+        candidate: Input value used by the with youtube fallback trace operation.
+        source_attempts: Input value used by the with youtube fallback trace operation.
+
+    Returns:
+        The computed result for with youtube fallback trace.
+    """
     traced = dict(candidate)
     reason = _fallback_reason(source_attempts)
     traced["fallback_provider"] = "youtube"
@@ -880,6 +1602,17 @@ def _with_youtube_fallback_trace(candidate: dict[str, Any], source_attempts: lis
 
 
 def _format_youtube_fallback_failure(candidate: dict[str, Any], youtube_message: str) -> str:
+    """Format youtube fallback failure.
+
+    Coordinates format youtube fallback failure logic for the surrounding Sonex flow.
+
+    Args:
+        candidate: Input value used by the format youtube fallback failure operation.
+        youtube_message: Input value used by the format youtube fallback failure operation.
+
+    Returns:
+        The computed result for format youtube fallback failure.
+    """
     reason = str(candidate.get("fallback_reason") or _fallback_reason(candidate.get("source_attempts") or [])).strip()
     if reason:
         return f"{reason} Sonex fell back to YouTube. YouTube failed: {sanitize_error_message(youtube_message)}"
@@ -887,6 +1620,18 @@ def _format_youtube_fallback_failure(candidate: dict[str, Any], youtube_message:
 
 
 def _json_get(url: str, *, headers: dict[str, str] | None = None, timeout: float = 10.0) -> dict[str, Any]:
+    """Json get.
+
+    Coordinates json get logic for the surrounding Sonex flow.
+
+    Args:
+        url: Input value used by the json get operation.
+        headers: Input value used by the json get operation.
+        timeout: Input value used by the json get operation.
+
+    Returns:
+        The computed result for json get.
+    """
     request = urllib.request.Request(url, headers=headers or {})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         payload = response.read().decode("utf-8")
@@ -903,6 +1648,19 @@ def search_jamendo_audio_candidates(
     limit: int = 5,
     playback_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    """Search jamendo audio candidates.
+
+    Coordinates search jamendo audio candidates logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search jamendo audio candidates operation.
+        client_id: Input value used by the search jamendo audio candidates operation.
+        limit: Input value used by the search jamendo audio candidates operation.
+        playback_metadata: Input value used by the search jamendo audio candidates operation.
+
+    Returns:
+        The computed result for search jamendo audio candidates.
+    """
     params = urllib.parse.urlencode(
         {
             "client_id": client_id,
@@ -927,6 +1685,16 @@ def search_jamendo_audio_candidates(
 
 
 def _audius_stream_url(track_id: str) -> str:
+    """Audius stream url.
+
+    Coordinates audius stream url logic for the surrounding Sonex flow.
+
+    Args:
+        track_id: Input value used by the audius stream url operation.
+
+    Returns:
+        The computed result for audius stream url.
+    """
     return f"https://discoveryprovider.audius.co/v1/tracks/{urllib.parse.quote(track_id)}/stream?app_name=Sonex"
 
 
@@ -937,6 +1705,19 @@ def search_audius_audio_candidates(
     limit: int = 5,
     playback_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    """Search audius audio candidates.
+
+    Coordinates search audius audio candidates logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search audius audio candidates operation.
+        api_key: Input value used by the search audius audio candidates operation.
+        limit: Input value used by the search audius audio candidates operation.
+        playback_metadata: Input value used by the search audius audio candidates operation.
+
+    Returns:
+        The computed result for search audius audio candidates.
+    """
     params = urllib.parse.urlencode(
         {
             "query": query,
@@ -973,6 +1754,20 @@ def resolve_online_audio_candidates(
     playback_metadata: dict[str, Any] | None = None,
     config: OnlineAudioConfig | None = None,
 ) -> list[dict[str, Any]]:
+    """Resolve online audio candidates.
+
+    Coordinates resolve online audio candidates logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the resolve online audio candidates operation.
+        limit: Input value used by the resolve online audio candidates operation.
+        cache_root: Input value used by the resolve online audio candidates operation.
+        playback_metadata: Input value used by the resolve online audio candidates operation.
+        config: Input value used by the resolve online audio candidates operation.
+
+    Returns:
+        The computed result for resolve online audio candidates.
+    """
     resolved_config = config or online_audio_config()
 
     resolved_metadata = resolve_online_playback_metadata(query, playback_metadata)
@@ -1072,6 +1867,19 @@ def search_online_audio_candidates(
     cache_root: Path | None = None,
     playback_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    """Search online audio candidates.
+
+    Coordinates search online audio candidates logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search online audio candidates operation.
+        limit: Input value used by the search online audio candidates operation.
+        cache_root: Input value used by the search online audio candidates operation.
+        playback_metadata: Input value used by the search online audio candidates operation.
+
+    Returns:
+        The computed result for search online audio candidates.
+    """
     return resolve_online_audio_candidates(
         query,
         limit=limit,
@@ -1087,6 +1895,19 @@ def search_youtube_songs(
     cache_root: Path | None = None,
     playback_metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    """Search youtube songs.
+
+    Coordinates search youtube songs logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search youtube songs operation.
+        limit: Input value used by the search youtube songs operation.
+        cache_root: Input value used by the search youtube songs operation.
+        playback_metadata: Input value used by the search youtube songs operation.
+
+    Returns:
+        The computed result for search youtube songs.
+    """
     playback_metadata = resolve_online_playback_metadata(query, playback_metadata)
     youtube_query = str(playback_metadata.get("youtube_query") or query).strip() or query
     bounded_limit = max(1, min(10, int(limit or 5)))
@@ -1129,6 +1950,17 @@ def search_youtube_songs(
 
 
 def _downloaded_filepath(info: dict[str, Any], fallback: Path) -> Path:
+    """Downloaded filepath.
+
+    Coordinates downloaded filepath logic for the surrounding Sonex flow.
+
+    Args:
+        info: Input value used by the downloaded filepath operation.
+        fallback: Input value used by the downloaded filepath operation.
+
+    Returns:
+        The computed result for downloaded filepath.
+    """
     downloads = info.get("requested_downloads")
     if isinstance(downloads, list):
         for item in downloads:
@@ -1141,6 +1973,17 @@ def _downloaded_filepath(info: dict[str, Any], fallback: Path) -> Path:
 
 
 def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | None = None) -> dict[str, Any]:
+    """Download youtube candidate.
+
+    Coordinates download youtube candidate logic for the surrounding Sonex flow.
+
+    Args:
+        candidate: Input value used by the download youtube candidate operation.
+        cache_root: Input value used by the download youtube candidate operation.
+
+    Returns:
+        The computed result for download youtube candidate.
+    """
     cache_id = _text(candidate.get("cache_id")) or _youtube_cache_id(candidate)
     cached = _cached_audio_item(cache_id, cache_root=cache_root)
     if cached:
@@ -1201,6 +2044,17 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
 
 
 def _extension_from_url(url: str, default: str = "mp3") -> str:
+    """Extension from url.
+
+    Coordinates extension from url logic for the surrounding Sonex flow.
+
+    Args:
+        url: Input value used by the extension from url operation.
+        default: Input value used by the extension from url operation.
+
+    Returns:
+        The computed result for extension from url.
+    """
     path = urllib.parse.urlparse(url).path
     suffix = Path(path).suffix.lstrip(".").lower()
     if suffix and len(suffix) <= 5:
@@ -1209,6 +2063,17 @@ def _extension_from_url(url: str, default: str = "mp3") -> str:
 
 
 def download_open_audio_candidate(candidate: dict[str, Any], *, cache_root: Path | None = None) -> dict[str, Any]:
+    """Download open audio candidate.
+
+    Coordinates download open audio candidate logic for the surrounding Sonex flow.
+
+    Args:
+        candidate: Input value used by the download open audio candidate operation.
+        cache_root: Input value used by the download open audio candidate operation.
+
+    Returns:
+        The computed result for download open audio candidate.
+    """
     provider = str(candidate.get("provider") or "online")
     if provider == "youtube":
         return download_youtube_candidate(candidate, cache_root=cache_root)
@@ -1250,6 +2115,18 @@ def play_online_audio_candidate(
     player: str = "auto",
     cache_root: Path | None = None,
 ) -> dict[str, Any]:
+    """Play online audio candidate.
+
+    Coordinates play online audio candidate logic for the surrounding Sonex flow.
+
+    Args:
+        candidate: Input value used by the play online audio candidate operation.
+        player: Input value used by the play online audio candidate operation.
+        cache_root: Input value used by the play online audio candidate operation.
+
+    Returns:
+        The computed result for play online audio candidate.
+    """
     provider = str(candidate.get("provider") or "online")
     if provider == "youtube":
         return play_youtube_candidate(candidate, player=player, cache_root=cache_root)
@@ -1308,6 +2185,16 @@ def play_online_audio_candidate(
 
 
 def sanitize_message(message: str) -> str:
+    """Sanitize message.
+
+    Coordinates sanitize message logic for the surrounding Sonex flow.
+
+    Args:
+        message: Input value used by the sanitize message operation.
+
+    Returns:
+        The computed result for sanitize message.
+    """
     return message.strip() or "Online audio resolve failed."
 
 
@@ -1317,6 +2204,18 @@ def play_youtube_candidate(
     player: str = "auto",
     cache_root: Path | None = None,
 ) -> dict[str, Any]:
+    """Play youtube candidate.
+
+    Coordinates play youtube candidate logic for the surrounding Sonex flow.
+
+    Args:
+        candidate: Input value used by the play youtube candidate operation.
+        player: Input value used by the play youtube candidate operation.
+        cache_root: Input value used by the play youtube candidate operation.
+
+    Returns:
+        The computed result for play youtube candidate.
+    """
     is_youtube_fallback = candidate.get("fallback_provider") == "youtube"
     try:
         data = download_youtube_candidate(candidate, cache_root=cache_root)
@@ -1392,6 +2291,16 @@ def play_youtube_candidate(
 
 # 在youtube上搜索歌曲并解析音频流
 def resolve_youtube_song(query: str) -> dict[str, Any]:
+    """Resolve youtube song.
+
+    Coordinates resolve youtube song logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the resolve youtube song operation.
+
+    Returns:
+        The computed result for resolve youtube song.
+    """
     options = {
         "quiet": True,
         "no_warnings": True,
@@ -1438,6 +2347,16 @@ def resolve_youtube_song(query: str) -> dict[str, Any]:
 
 
 def search_and_resolve_song(query: str) -> str:
+    """Search and resolve song.
+
+    Coordinates search and resolve song logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search and resolve song operation.
+
+    Returns:
+        The computed result for search and resolve song.
+    """
     candidate = search_youtube_songs(query, limit=1)[0]
     return str(download_youtube_candidate(candidate)["stream_url"])
 
@@ -1448,6 +2367,19 @@ def play_youtube_song(
     cache_root: Path | None = None,
     playback_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Play youtube song.
+
+    Coordinates play youtube song logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the play youtube song operation.
+        player: Input value used by the play youtube song operation.
+        cache_root: Input value used by the play youtube song operation.
+        playback_metadata: Input value used by the play youtube song operation.
+
+    Returns:
+        The computed result for play youtube song.
+    """
     if online_audio_configured():
         try:
             candidate = resolve_online_audio_candidates(

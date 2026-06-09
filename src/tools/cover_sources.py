@@ -1,3 +1,9 @@
+"""Cover sources support for tool implementations used by the planner and playback flows.
+
+Implements the cover_sources module responsibilities used by Sonex runtime flows.
+Key public entry points include cover_bytes_for_source, register_cover_bytes, extract_embedded_cover, resolve_online_cover, lookup_cover_art_url.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -20,10 +26,30 @@ _last_musicbrainz_request = 0.0
 
 
 def cover_bytes_for_source(source: str) -> bytes | None:
+    """Cover bytes for source.
+
+    Coordinates cover bytes for source logic for the surrounding Sonex flow.
+
+    Args:
+        source: Input value used by the cover bytes for source operation.
+
+    Returns:
+        The computed result for cover bytes for source.
+    """
     return _embedded_cover_bytes.get(source)
 
 
 def register_cover_bytes(image_bytes: bytes) -> str:
+    """Register cover bytes.
+
+    Coordinates register cover bytes logic for the surrounding Sonex flow.
+
+    Args:
+        image_bytes: Input value used by the register cover bytes operation.
+
+    Returns:
+        The computed result for register cover bytes.
+    """
     digest = hashlib.sha256(image_bytes).hexdigest()
     source = f"embedded:{digest}"
     _embedded_cover_bytes[source] = image_bytes
@@ -31,6 +57,16 @@ def register_cover_bytes(image_bytes: bytes) -> str:
 
 
 def extract_embedded_cover(path: str | Path) -> dict[str, Any] | None:
+    """Extract embedded cover.
+
+    Coordinates extract embedded cover logic for the surrounding Sonex flow.
+
+    Args:
+        path: Input value used by the extract embedded cover operation.
+
+    Returns:
+        The computed result for extract embedded cover.
+    """
     try:
         from mutagen import File
         from mutagen.flac import Picture
@@ -40,6 +76,13 @@ def extract_embedded_cover(path: str | Path) -> dict[str, Any] | None:
         raise RuntimeError("mutagen is required to read embedded cover art.") from exc
 
     def id3_fallback() -> dict[str, Any] | None:
+        """Id3 fallback.
+
+        Coordinates id3 fallback logic for the surrounding Sonex flow.
+
+        Returns:
+            The computed result for id3 fallback.
+        """
         try:
             tags = ID3(str(path))
         except Exception:
@@ -105,6 +148,16 @@ def extract_embedded_cover(path: str | Path) -> dict[str, Any] | None:
 
 
 def resolve_online_cover(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Resolve online cover.
+
+    Coordinates resolve online cover logic for the surrounding Sonex flow.
+
+    Args:
+        metadata: Input value used by the resolve online cover operation.
+
+    Returns:
+        The computed result for resolve online cover.
+    """
     provider_cover = _provider_cover_url(metadata)
     if provider_cover:
         return {
@@ -128,6 +181,16 @@ def resolve_online_cover(metadata: dict[str, Any]) -> dict[str, Any]:
 
 
 def _provider_cover_url(metadata: dict[str, Any]) -> str | None:
+    """Provider cover url.
+
+    Coordinates provider cover url logic for the surrounding Sonex flow.
+
+    Args:
+        metadata: Input value used by the provider cover url operation.
+
+    Returns:
+        The computed result for provider cover url.
+    """
     explicit = _text(metadata.get("official_album_cover_url") or metadata.get("provider_album_cover_url"))
     if explicit:
         return explicit
@@ -141,6 +204,18 @@ def _provider_cover_url(metadata: dict[str, Any]) -> str | None:
 
 
 def lookup_cover_art_url(*, name: str, artist: str, album: str = "") -> str | None:
+    """Lookup cover art url.
+
+    Coordinates lookup cover art url logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the lookup cover art url operation.
+        artist: Input value used by the lookup cover art url operation.
+        album: Input value used by the lookup cover art url operation.
+
+    Returns:
+        The computed result for lookup cover art url.
+    """
     if not name or not artist:
         return None
     try:
@@ -155,6 +230,18 @@ def lookup_cover_art_url(*, name: str, artist: str, album: str = "") -> str | No
 
 
 def _musicbrainz_cover_candidates(*, name: str, artist: str, album: str) -> tuple[str | None, str | None]:
+    """Musicbrainz cover candidates.
+
+    Coordinates musicbrainz cover candidates logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the musicbrainz cover candidates operation.
+        artist: Input value used by the musicbrainz cover candidates operation.
+        album: Input value used by the musicbrainz cover candidates operation.
+
+    Returns:
+        The computed result for musicbrainz cover candidates.
+    """
     query_parts = [f'recording:"{name}"', f'artist:"{artist}"']
     if album and album != "-":
         query_parts.append(f'release:"{album}"')
@@ -185,6 +272,16 @@ def _musicbrainz_cover_candidates(*, name: str, artist: str, album: str) -> tupl
 
 
 def _musicbrainz_json(url: str) -> dict[str, Any]:
+    """Musicbrainz json.
+
+    Coordinates musicbrainz json logic for the surrounding Sonex flow.
+
+    Args:
+        url: Input value used by the musicbrainz json operation.
+
+    Returns:
+        The computed result for musicbrainz json.
+    """
     global _last_musicbrainz_request
     with _musicbrainz_lock:
         elapsed = time.monotonic() - _last_musicbrainz_request
@@ -198,6 +295,16 @@ def _musicbrainz_json(url: str) -> dict[str, Any]:
 
 
 def _recording_cover_ids(recording: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Recording cover ids.
+
+    Coordinates recording cover ids logic for the surrounding Sonex flow.
+
+    Args:
+        recording: Input value used by the recording cover ids operation.
+
+    Returns:
+        The computed result for recording cover ids.
+    """
     releases = recording.get("releases")
     if not isinstance(releases, list):
         return None, None
@@ -219,6 +326,19 @@ def _score_recording(
     artist_terms: set[str],
     album_terms: set[str],
 ) -> int:
+    """Score recording.
+
+    Coordinates score recording logic for the surrounding Sonex flow.
+
+    Args:
+        recording: Input value used by the score recording operation.
+        name_terms: Input value used by the score recording operation.
+        artist_terms: Input value used by the score recording operation.
+        album_terms: Input value used by the score recording operation.
+
+    Returns:
+        The computed result for score recording.
+    """
     score = 0
     title_terms = _terms(str(recording.get("title") or ""))
     if name_terms and name_terms <= title_terms:
@@ -247,6 +367,17 @@ def _score_recording(
 
 
 def _caa_front_endpoints(release_group_mbid: str | None, release_mbid: str | None) -> list[str]:
+    """Caa front endpoints.
+
+    Coordinates caa front endpoints logic for the surrounding Sonex flow.
+
+    Args:
+        release_group_mbid: Input value used by the caa front endpoints operation.
+        release_mbid: Input value used by the caa front endpoints operation.
+
+    Returns:
+        The computed result for caa front endpoints.
+    """
     endpoints: list[str] = []
     if release_group_mbid:
         endpoints.append(f"{COVER_ART_ARCHIVE_BASE}/release-group/{quote(release_group_mbid)}/front-500")
@@ -256,6 +387,16 @@ def _caa_front_endpoints(release_group_mbid: str | None, release_mbid: str | Non
 
 
 def _cover_art_exists(url: str) -> bool:
+    """Cover art exists.
+
+    Coordinates cover art exists logic for the surrounding Sonex flow.
+
+    Args:
+        url: Input value used by the cover art exists operation.
+
+    Returns:
+        The computed result for cover art exists.
+    """
     request = Request(url, headers={"User-Agent": MUSICBRAINZ_USER_AGENT})
     try:
         with urlopen(request, timeout=6):
@@ -265,10 +406,30 @@ def _cover_art_exists(url: str) -> bool:
 
 
 def _terms(value: str) -> set[str]:
+    """Terms.
+
+    Coordinates terms logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the terms operation.
+
+    Returns:
+        The computed result for terms.
+    """
     return {part.casefold() for part in value.replace("-", " ").split() if part.strip() and part != "-"}
 
 
 def _text(value: Any) -> str | None:
+    """Text.
+
+    Coordinates text logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the text operation.
+
+    Returns:
+        The computed result for text.
+    """
     if value is None:
         return None
     text = str(value).strip()

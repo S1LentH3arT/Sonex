@@ -1,3 +1,9 @@
+"""Server support for mcp server exposure for sonex tools.
+
+Implements the server module responsibilities used by Sonex runtime flows.
+Key public entry points include mcp_tools_enabled, visible_tool_specs, normalize_mcp_result, build_mcp_server, run_mcp_server.
+"""
+
 from __future__ import annotations
 
 import inspect
@@ -15,6 +21,16 @@ TRUE_VALUES = {"1", "true", "yes", "on", "allow", "enabled"}
 
 
 def mcp_tools_enabled(allow_mutations: bool | None = None) -> bool:
+    """Mcp tools enabled.
+
+    Coordinates mcp tools enabled logic for the surrounding Sonex flow.
+
+    Args:
+        allow_mutations: Input value used by the mcp tools enabled operation.
+
+    Returns:
+        The computed result for mcp tools enabled.
+    """
     if allow_mutations is not None:
         return bool(allow_mutations)
     return os.getenv(SONEX_MCP_ALLOW_MUTATIONS, "").strip().lower() in TRUE_VALUES
@@ -25,6 +41,17 @@ def visible_tool_specs(
     *,
     allow_mutations: bool | None = None,
 ) -> list[ToolSpec]:
+    """Visible tool specs.
+
+    Coordinates visible tool specs logic for the surrounding Sonex flow.
+
+    Args:
+        tool_registry: Input value used by the visible tool specs operation.
+        allow_mutations: Input value used by the visible tool specs operation.
+
+    Returns:
+        The computed result for visible tool specs.
+    """
     include_mutations = mcp_tools_enabled(allow_mutations)
     return [
         spec
@@ -34,6 +61,17 @@ def visible_tool_specs(
 
 
 def normalize_mcp_result(tool_name: str, value: Any) -> dict[str, Any]:
+    """Normalize mcp result.
+
+    Coordinates normalize mcp result logic for the surrounding Sonex flow.
+
+    Args:
+        tool_name: Input value used by the normalize mcp result operation.
+        value: Input value used by the normalize mcp result operation.
+
+    Returns:
+        The computed result for normalize mcp result.
+    """
     if isinstance(value, dict):
         result = dict(value)
         result.setdefault("status", "success")
@@ -55,6 +93,17 @@ def normalize_mcp_result(tool_name: str, value: Any) -> dict[str, Any]:
 
 
 def _error_result(tool_name: str, exc: Exception) -> dict[str, Any]:
+    """Error result.
+
+    Coordinates error result logic for the surrounding Sonex flow.
+
+    Args:
+        tool_name: Input value used by the error result operation.
+        exc: Input value used by the error result operation.
+
+    Returns:
+        The computed result for error result.
+    """
     return {
         "status": "fail",
         "tool": tool_name,
@@ -65,6 +114,16 @@ def _error_result(tool_name: str, exc: Exception) -> dict[str, Any]:
 
 
 def _to_json_safe(value: Any) -> Any:
+    """To json safe.
+
+    Coordinates to json safe logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the to json safe operation.
+
+    Returns:
+        The computed result for to json safe.
+    """
     if isinstance(value, dict):
         return {str(key): _to_json_safe(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -81,6 +140,16 @@ def _to_json_safe(value: Any) -> Any:
 
 
 def _annotation_for_json_type(value: Any) -> Any:
+    """Annotation for json type.
+
+    Coordinates annotation for json type logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the annotation for json type operation.
+
+    Returns:
+        The computed result for annotation for json type.
+    """
     if isinstance(value, list):
         return list
     if value == "string":
@@ -99,6 +168,16 @@ def _annotation_for_json_type(value: Any) -> Any:
 
 
 def _tool_signature(spec: ToolSpec) -> inspect.Signature:
+    """Tool signature.
+
+    Coordinates tool signature logic for the surrounding Sonex flow.
+
+    Args:
+        spec: Input value used by the tool signature operation.
+
+    Returns:
+        The computed result for tool signature.
+    """
     properties = spec.parameters.properties or {}
     required = set(spec.parameters.required or [])
     ordered_names = [name for name in properties if name in required]
@@ -125,7 +204,25 @@ def _tool_signature(spec: ToolSpec) -> inspect.Signature:
 
 
 def _wrapper_for_tool(tool_registry: ToolRegistry, spec: ToolSpec):
+    """Wrapper for tool.
+
+    Coordinates wrapper for tool logic for the surrounding Sonex flow.
+
+    Args:
+        tool_registry: Input value used by the wrapper for tool operation.
+        spec: Input value used by the wrapper for tool operation.
+    """
     def call_tool(**kwargs: Any) -> dict[str, Any]:
+        """Call tool.
+
+        Coordinates call tool logic for the surrounding Sonex flow.
+
+        Args:
+            kwargs: Input value used by the call tool operation.
+
+        Returns:
+            The computed result for call tool.
+        """
         try:
             result = tool_registry.invoke(spec.name, kwargs)
         except Exception as exc:
@@ -146,6 +243,19 @@ def build_mcp_server(
     name: str = "Sonex",
     streamable_http_path: str = "/mcp",
 ) -> FastMCP:
+    """Build mcp server.
+
+    Coordinates build mcp server logic for the surrounding Sonex flow.
+
+    Args:
+        tool_registry: Input value used by the build mcp server operation.
+        allow_mutations: Input value used by the build mcp server operation.
+        name: Input value used by the build mcp server operation.
+        streamable_http_path: Input value used by the build mcp server operation.
+
+    Returns:
+        The computed result for build mcp server.
+    """
     mcp = FastMCP(
         name,
         instructions=(
@@ -180,6 +290,19 @@ def run_mcp_server(
     port: int = 9002,
     allow_mutations: bool | None = None,
 ) -> None:
+    """Run mcp server.
+
+    Coordinates run mcp server logic for the surrounding Sonex flow.
+
+    Args:
+        transport: Input value used by the run mcp server operation.
+        host: Input value used by the run mcp server operation.
+        port: Input value used by the run mcp server operation.
+        allow_mutations: Input value used by the run mcp server operation.
+
+    Returns:
+        The computed result for run mcp server.
+    """
     mcp = build_mcp_server(allow_mutations=allow_mutations)
     if transport == "stdio":
         mcp.run(transport="stdio")

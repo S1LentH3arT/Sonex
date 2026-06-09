@@ -1,3 +1,9 @@
+"""Context builder support for language model configuration, catalogs, transports, and planning.
+
+Implements the context_builder module responsibilities used by Sonex runtime flows.
+Key public entry points include PlanningContextBuilder, build_planning_context, estimate_tokens.
+"""
+
 from __future__ import annotations
 
 import json
@@ -20,9 +26,23 @@ _EVENT_WEIGHTS = {
 
 @dataclass(slots=True)
 class PlanningContextBuilder:
+    """Represents planning context builder.
+
+    Encapsulates planning context builder data and behavior used by Sonex runtime flows.
+    """
     token_budget: int = DEFAULT_PLANNING_TOKEN_BUDGET
 
     def build(self, user_input: str) -> str:
+        """Build for planning context builder.
+
+        Coordinates the build method behavior while preserving planning context builder state and contracts.
+
+        Args:
+            user_input: Input value used by the build operation.
+
+        Returns:
+            The computed result for build.
+        """
         budget = max(500, min(int(self.token_budget), MAX_PLANNING_TOKEN_BUDGET))
         payload = {
             "purpose": (
@@ -55,18 +75,60 @@ class PlanningContextBuilder:
 
 
 def build_planning_context(user_input: str, token_budget: int = DEFAULT_PLANNING_TOKEN_BUDGET) -> str:
+    """Build planning context.
+
+    Coordinates build planning context logic for the surrounding Sonex flow.
+
+    Args:
+        user_input: Input value used by the build planning context operation.
+        token_budget: Input value used by the build planning context operation.
+
+    Returns:
+        The computed result for build planning context.
+    """
     return PlanningContextBuilder(token_budget=token_budget).build(user_input)
 
 
 def estimate_tokens(text: str) -> int:
     # Lightweight approximation: English averages ~4 chars/token; CJK is denser.
+    """Estimate tokens.
+
+    Coordinates estimate tokens logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the estimate tokens operation.
+
+    Returns:
+        The computed result for estimate tokens.
+    """
     cjk = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
     non_cjk = max(0, len(text) - cjk)
     return max(1, (non_cjk // 4) + cjk + 1)
 
 
 def _select_recent_events(events: list[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
+    """Select recent events.
+
+    Coordinates select recent events logic for the surrounding Sonex flow.
+
+    Args:
+        events: Input value used by the select recent events operation.
+        limit: Input value used by the select recent events operation.
+
+    Returns:
+        The computed result for select recent events.
+    """
     def score(item: dict[str, Any]) -> tuple[int, int, int]:
+        """Score.
+
+        Coordinates score logic for the surrounding Sonex flow.
+
+        Args:
+            item: Input value used by the score operation.
+
+        Returns:
+            The computed result for score.
+        """
         event_type = str(item.get("type") or "")
         access_count = int(item.get("access_count") or 0)
         item_id = int(item.get("id") or 0)
@@ -77,6 +139,17 @@ def _select_recent_events(events: list[dict[str, Any]], limit: int = 8) -> list[
 
 
 def _trim_items(items: list[dict[str, Any]], max_text: int) -> list[dict[str, Any]]:
+    """Trim items.
+
+    Coordinates trim items logic for the surrounding Sonex flow.
+
+    Args:
+        items: Input value used by the trim items operation.
+        max_text: Input value used by the trim items operation.
+
+    Returns:
+        The computed result for trim items.
+    """
     trimmed: list[dict[str, Any]] = []
     for item in items:
         next_item = dict(item)
@@ -89,6 +162,17 @@ def _trim_items(items: list[dict[str, Any]], max_text: int) -> list[dict[str, An
 
 
 def _fit_budget(payload: dict[str, Any], budget: int) -> str:
+    """Fit budget.
+
+    Coordinates fit budget logic for the surrounding Sonex flow.
+
+    Args:
+        payload: Input value used by the fit budget operation.
+        budget: Input value used by the fit budget operation.
+
+    Returns:
+        The computed result for fit budget.
+    """
     fitted = dict(payload)
     section_order = [
         "recent_buffer",
@@ -113,10 +197,31 @@ def _fit_budget(payload: dict[str, Any], budget: int) -> str:
 
 
 def _dump(payload: dict[str, Any]) -> str:
+    """Dump.
+
+    Coordinates dump logic for the surrounding Sonex flow.
+
+    Args:
+        payload: Input value used by the dump operation.
+
+    Returns:
+        The computed result for dump.
+    """
     return json.dumps(payload, ensure_ascii=False, default=str, indent=2)
 
 
 def _clip(text: str, limit: int) -> str:
+    """Clip.
+
+    Coordinates clip logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the clip operation.
+        limit: Input value used by the clip operation.
+
+    Returns:
+        The computed result for clip.
+    """
     if len(text) <= limit:
         return text
     return f"{text[:limit].rstrip()}..."

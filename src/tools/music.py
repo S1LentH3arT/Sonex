@@ -1,3 +1,9 @@
+"""Music support for tool implementations used by the planner and playback flows.
+
+Implements the music module responsibilities used by Sonex runtime flows.
+Key public entry points include normalize_track_shape.
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -18,6 +24,27 @@ def normalize_track_shape(
     is_playable: Any = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Normalize track shape.
+
+    Coordinates normalize track shape logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the normalize track shape operation.
+        track_id: Input value used by the normalize track shape operation.
+        name: Input value used by the normalize track shape operation.
+        artists: Input value used by the normalize track shape operation.
+        album: Input value used by the normalize track shape operation.
+        duration_ms: Input value used by the normalize track shape operation.
+        cover_url: Input value used by the normalize track shape operation.
+        url: Input value used by the normalize track shape operation.
+        uri: Input value used by the normalize track shape operation.
+        play_params: Input value used by the normalize track shape operation.
+        is_playable: Input value used by the normalize track shape operation.
+        extra: Input value used by the normalize track shape operation.
+
+    Returns:
+        The computed result for normalize track shape.
+    """
     artist_names = [str(artist) for artist in (artists or []) if artist]
     title = str(name) if name is not None else None
     data: dict[str, Any] = {

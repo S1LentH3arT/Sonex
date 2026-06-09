@@ -1,3 +1,9 @@
+"""Providers support for provider authentication and credential persistence.
+
+Implements the providers module responsibilities used by Sonex runtime flows.
+Key public entry points include ProviderCapability, normalize_provider, normalize_provider_model, get_provider_capability, provider_names.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -5,6 +11,10 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ProviderCapability:
+    """Represents provider capability.
+
+    Encapsulates provider capability data and behavior used by Sonex runtime flows.
+    """
     name: str
     supports_api_key: bool
     supports_oauth: bool
@@ -68,10 +78,31 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
 
 
 def normalize_provider(name: str) -> str:
+    """Normalize provider.
+
+    Coordinates normalize provider logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the normalize provider operation.
+
+    Returns:
+        The computed result for normalize provider.
+    """
     return name.strip().lower().replace("-", "_")
 
 
 def normalize_provider_model(provider: str, model: str | None) -> str | None:
+    """Normalize provider model.
+
+    Coordinates normalize provider model logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the normalize provider model operation.
+        model: Input value used by the normalize provider model operation.
+
+    Returns:
+        The computed result for normalize provider model.
+    """
     if model is None:
         return None
 
@@ -90,6 +121,16 @@ def normalize_provider_model(provider: str, model: str | None) -> str | None:
 
 
 def get_provider_capability(name: str) -> ProviderCapability:
+    """Get provider capability.
+
+    Coordinates get provider capability logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the get provider capability operation.
+
+    Returns:
+        The computed result for get provider capability.
+    """
     normalized = normalize_provider(name)
     return PROVIDER_CAPABILITIES.get(
         normalized,
@@ -102,4 +143,11 @@ def get_provider_capability(name: str) -> ProviderCapability:
 
 
 def provider_names() -> set[str]:
+    """Provider names.
+
+    Coordinates provider names logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for provider names.
+    """
     return set(PROVIDER_CAPABILITIES)

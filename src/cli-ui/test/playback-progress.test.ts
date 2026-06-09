@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import {PLAYBACK_PROGRESS_INTERVAL_MS, playbackProgressAt, shouldUsePlaybackProgressTimer} from '../src/hooks.js';
+import { PLAYBACK_PROGRESS_INTERVAL_MS, playbackProgressAt, shouldUsePlaybackProgressTimer } from '../src/hooks.js';
 
 assert.equal(PLAYBACK_PROGRESS_INTERVAL_MS, 1000);
 assert.equal(playbackProgressAt({

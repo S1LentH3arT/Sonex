@@ -1,3 +1,9 @@
+"""Client support for language model configuration, catalogs, transports, and planning.
+
+Implements the client module responsibilities used by Sonex runtime flows.
+Key public entry points include ProviderClient.
+"""
+
 from __future__ import annotations
 
 from src.llm import RuntimeConfig
@@ -43,6 +49,16 @@ class ProviderClient:
         adapters: dict[str, LLMAdapter] = None,
         provider_transports: dict[str, LLMTransport] | None = None,
     ) -> None:
+        """Init for provider client.
+
+        Coordinates the init method behavior while preserving provider client state and contracts.
+
+        Args:
+            runtime_config: Input value used by the init operation.
+            transport: Input value used by the init operation.
+            adapters: Input value used by the init operation.
+            provider_transports: Input value used by the init operation.
+        """
         self.runtime_config = runtime_config
         self.transport = transport or LiteLLMTransport()
         self.provider_transports = provider_transports or {

@@ -1,3 +1,8 @@
+"""Tests test playback controller.
+
+Contains pytest coverage for the test playback controller behavior.
+"""
+
 from __future__ import annotations
 
 import unittest
@@ -7,10 +12,22 @@ from src.tools import playback_controller as playback
 
 
 class PlaybackControllerTests(unittest.TestCase):
+    """Groups playback controller tests tests.
+
+    Collects related assertions for playback controller tests behavior.
+    """
     def setUp(self) -> None:
+        """Validate set up.
+
+        Exercises the set up behavior through the test suite.
+        """
         self.controller = playback.LocalPlaybackController()
 
     def test_mpv_play_returns_current_session_state(self) -> None:
+        """Validate test mpv play returns current session state.
+
+        Exercises the test mpv play returns current session state behavior through the test suite.
+        """
         adapter = Mock()
         adapter.start.return_value = playback.PlayerState(
             provider="youtube",
@@ -40,6 +57,10 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.current_session_id, "session-1")
 
     def test_mpv_start_uses_network_buffering_options(self) -> None:
+        """Validate test mpv start uses network buffering options.
+
+        Exercises the test mpv start uses network buffering options behavior through the test suite.
+        """
         adapter = playback.MpvPlaybackAdapter(
             source_url="https://stream.example/audio",
             source="youtube",
@@ -73,6 +94,10 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertIn("--demuxer-max-bytes=256MiB", command)
 
     def test_cvlc_start_uses_network_buffering_options(self) -> None:
+        """Validate test cvlc start uses network buffering options.
+
+        Exercises the test cvlc start uses network buffering options behavior through the test suite.
+        """
         adapter = playback.CvlcRcPlaybackAdapter(
             source_url="https://stream.example/audio",
             source="youtube",
@@ -104,6 +129,10 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertIn("--network-caching=5000", command)
 
     def test_auto_play_falls_back_to_cvlc_when_mpv_fails(self) -> None:
+        """Validate test auto play falls back to cvlc when mpv fails.
+
+        Exercises the test auto play falls back to cvlc when mpv fails behavior through the test suite.
+        """
         mpv_adapter = Mock()
         mpv_adapter.start.side_effect = RuntimeError("mpv missing")
         cvlc_adapter = Mock()
@@ -132,6 +161,10 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.current_session_id, "cvlc-session")
 
     def test_explicit_mpv_failure_does_not_fall_back_to_cvlc(self) -> None:
+        """Validate test explicit mpv failure does not fall back to cvlc.
+
+        Exercises the test explicit mpv failure does not fall back to cvlc behavior through the test suite.
+        """
         mpv_adapter = Mock()
         mpv_adapter.start.side_effect = RuntimeError("mpv failed")
 
@@ -145,6 +178,10 @@ class PlaybackControllerTests(unittest.TestCase):
         cvlc_adapter.assert_not_called()
 
     def test_explicit_cvlc_uses_cvlc_adapter(self) -> None:
+        """Validate test explicit cvlc uses cvlc adapter.
+
+        Exercises the test explicit cvlc uses cvlc adapter behavior through the test suite.
+        """
         cvlc_adapter = Mock()
         cvlc_adapter.start.return_value = playback.PlayerState(
             provider="local",
@@ -170,6 +207,10 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(state.player, "cvlc")
 
     def test_new_play_stops_previous_session(self) -> None:
+        """Validate test new play stops previous session.
+
+        Exercises the test new play stops previous session behavior through the test suite.
+        """
         first = Mock()
         first.start.return_value = playback.PlayerState(
             provider="youtube",
@@ -207,6 +248,10 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.current_session_id, "second")
 
     def test_pause_resume_stop_and_status_delegate_to_adapter(self) -> None:
+        """Validate test pause resume stop and status delegate to adapter.
+
+        Exercises the test pause resume stop and status delegate to adapter behavior through the test suite.
+        """
         adapter = Mock()
         paused = playback.PlayerState(
             provider="youtube",
@@ -247,12 +292,20 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertIsNone(self.controller.current_session_id)
 
     def test_player_backend_strategy_can_be_changed_for_session(self) -> None:
+        """Validate test player backend strategy can be changed for session.
+
+        Exercises the test player backend strategy can be changed for session behavior through the test suite.
+        """
         self.assertEqual(self.controller.set_player_backend("cvlc"), "cvlc")
         self.assertEqual(self.controller.player_backend, "cvlc")
         with self.assertRaisesRegex(ValueError, "Unsupported local playback backend"):
             self.controller.set_player_backend("vlc")
 
     def test_start_local_playback_uses_current_backend_when_player_is_omitted(self) -> None:
+        """Validate test start local playback uses current backend when player is omitted.
+
+        Exercises the test start local playback uses current backend when player is omitted behavior through the test suite.
+        """
         cvlc_adapter = Mock()
         cvlc_adapter.start.return_value = playback.PlayerState(
             provider="local",
@@ -287,6 +340,10 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(result["data"]["player"], "cvlc")
 
     def test_volume_tool_validates_range_and_returns_state(self) -> None:
+        """Validate test volume tool validates range and returns state.
+
+        Exercises the test volume tool validates range and returns state behavior through the test suite.
+        """
         adapter = Mock()
         adapter.start.return_value = playback.PlayerState(
             provider="youtube",

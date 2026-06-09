@@ -1,3 +1,9 @@
+"""Main support for sonex application behavior.
+
+Implements the main module responsibilities used by Sonex runtime flows.
+Key public entry points include login, set_key, list_auth, logout, set_default_auth.
+"""
+
 from __future__ import annotations
 
 import os
@@ -53,18 +59,46 @@ app.add_typer(auth_app, name="auth")
 
 
 def _project_root() -> Path:
+    """Project root.
+
+    Coordinates project root logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for project root.
+    """
     return Path(__file__).resolve().parents[1]
 
 
 def _cli_ui_dir() -> Path:
+    """Cli ui dir.
+
+    Coordinates cli ui dir logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for cli ui dir.
+    """
     return _project_root() / "src" / "cli-ui"
 
 
 def _node_bin() -> str:
+    """Node bin.
+
+    Coordinates node bin logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for node bin.
+    """
     return os.getenv("SONEX_NODE", "node")
 
 
 def _process_env() -> dict[str, str]:
+    """Process env.
+
+    Coordinates process env logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for process env.
+    """
     env = os.environ.copy()
     project_root = str(_project_root())
     pythonpath = env.get("PYTHONPATH")
@@ -73,6 +107,16 @@ def _process_env() -> dict[str, str]:
 
 
 def _normalize_auth_method(method: str) -> str:
+    """Normalize auth method.
+
+    Coordinates normalize auth method logic for the surrounding Sonex flow.
+
+    Args:
+        method: Input value used by the normalize auth method operation.
+
+    Returns:
+        The computed result for normalize auth method.
+    """
     normalized = method.strip().lower().replace("_", "-")
     if normalized not in {"auto", "oauth", "api-key"}:
         raise typer.BadParameter("method must be one of: auto, oauth, api-key")
@@ -80,6 +124,17 @@ def _normalize_auth_method(method: str) -> str:
 
 
 def _prompt_api_key(provider: str, api_key: str | None) -> str:
+    """Prompt api key.
+
+    Coordinates prompt api key logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the prompt api key operation.
+        api_key: Input value used by the prompt api key operation.
+
+    Returns:
+        The computed result for prompt api key.
+    """
     if api_key:
         return api_key
     value = typer.prompt(f"{provider} API key", hide_input=True)
@@ -89,10 +144,27 @@ def _prompt_api_key(provider: str, api_key: str | None) -> str:
 
 
 def _print_auth_store_path(path: Path) -> None:
+    """Print auth store path.
+
+    Coordinates print auth store path logic for the surrounding Sonex flow.
+
+    Args:
+        path: Input value used by the print auth store path operation.
+
+    Returns:
+        The computed result for print auth store path.
+    """
     console.print(f"[dim]Saved credentials to {path}[/dim]")
 
 
 def _spotify_loopback_login() -> None:
+    """Spotify loopback login.
+
+    Coordinates spotify loopback login logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for spotify loopback login.
+    """
     redirect = urlparse(spotify_redirect_uri())
     host = redirect.hostname or DEFAULT_HOST
     port = redirect.port or 80
@@ -100,7 +172,18 @@ def _spotify_loopback_login() -> None:
     received: dict[str, str] = {}
 
     class SpotifyCallbackHandler(BaseHTTPRequestHandler):
+        """Represents spotify callback handler.
+
+        Encapsulates spotify callback handler data and behavior used by Sonex runtime flows. Extends base h t t p request handler semantics.
+        """
         def do_GET(self) -> None:
+            """Do g e t for spotify callback handler.
+
+            Coordinates the do g e t method behavior while preserving spotify callback handler state and contracts.
+
+            Returns:
+                The computed result for do g e t.
+            """
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             if parsed.path != callback_path:
@@ -121,6 +204,17 @@ def _spotify_loopback_login() -> None:
             self.wfile.write(b"Spotify connected. You can return to Sonex.")
 
         def log_message(self, format: str, *args: object) -> None:
+            """Log message for spotify callback handler.
+
+            Coordinates the log message method behavior while preserving spotify callback handler state and contracts.
+
+            Args:
+                format: Input value used by the log message operation.
+                args: Input value used by the log message operation.
+
+            Returns:
+                The computed result for log message.
+            """
             return
 
     authorize_url, expected_state = spotify_authorize_url()
@@ -300,14 +394,35 @@ def set_default_auth(
 
 
 def _dist_entry() -> Path:
+    """Dist entry.
+
+    Coordinates dist entry logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for dist entry.
+    """
     return _cli_ui_dir() / "dist" / "index.js"
 
 
 def _tsc_entry() -> Path:
+    """Tsc entry.
+
+    Coordinates tsc entry logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for tsc entry.
+    """
     return _cli_ui_dir() / "node_modules" / "typescript" / "bin" / "tsc"
 
 
 def _build_ink_ui_if_needed() -> None:
+    """Build ink ui if needed.
+
+    Coordinates build ink ui if needed logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for build ink ui if needed.
+    """
     if _dist_entry().exists():
         return
 
@@ -327,6 +442,17 @@ def _build_ink_ui_if_needed() -> None:
 
 
 def _run_ink_tui(host: str, port: int) -> int:
+    """Run ink tui.
+
+    Coordinates run ink tui logic for the surrounding Sonex flow.
+
+    Args:
+        host: Input value used by the run ink tui operation.
+        port: Input value used by the run ink tui operation.
+
+    Returns:
+        The computed result for run ink tui.
+    """
     _build_ink_ui_if_needed()
     env = _process_env()
     env["SONEX_WS_URL"] = f"ws://{host}:{port}/ws"
@@ -341,6 +467,18 @@ def _run_ink_tui(host: str, port: int) -> int:
 
 
 def _wait_for_server(host: str, port: int, timeout: float = SERVER_START_TIMEOUT) -> None:
+    """Wait for server.
+
+    Coordinates wait for server logic for the surrounding Sonex flow.
+
+    Args:
+        host: Input value used by the wait for server operation.
+        port: Input value used by the wait for server operation.
+        timeout: Input value used by the wait for server operation.
+
+    Returns:
+        The computed result for wait for server.
+    """
     deadline = time.monotonic() + timeout
     last_error: OSError | None = None
 
@@ -357,6 +495,17 @@ def _wait_for_server(host: str, port: int, timeout: float = SERVER_START_TIMEOUT
 
 
 def _start_api_process(host: str, port: int) -> subprocess.Popen[bytes]:
+    """Start api process.
+
+    Coordinates start api process logic for the surrounding Sonex flow.
+
+    Args:
+        host: Input value used by the start api process operation.
+        port: Input value used by the start api process operation.
+
+    Returns:
+        The computed result for start api process.
+    """
     log_fd = os.open(sonex_log_path(), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         return subprocess.Popen(
@@ -382,6 +531,17 @@ def _start_api_process(host: str, port: int) -> subprocess.Popen[bytes]:
 
 
 def _run_full_tui(host: str, port: int) -> None:
+    """Run full tui.
+
+    Coordinates run full tui logic for the surrounding Sonex flow.
+
+    Args:
+        host: Input value used by the run full tui operation.
+        port: Input value used by the run full tui operation.
+
+    Returns:
+        The computed result for run full tui.
+    """
     api_proc = _start_api_process(host, port)
     try:
         _wait_for_server(host, port)
@@ -405,6 +565,19 @@ def main(
     host: str = typer.Option(DEFAULT_HOST, "--host", help="WebSocket API host."),
     port: int = typer.Option(DEFAULT_PORT, "--port", help="WebSocket API port."),
 ) -> None:
+    """Main.
+
+    Coordinates main logic for the surrounding Sonex flow.
+
+    Args:
+        ctx: Input value used by the main operation.
+        version: Input value used by the main operation.
+        host: Input value used by the main operation.
+        port: Input value used by the main operation.
+
+    Returns:
+        The computed result for main.
+    """
     if version:
         typer.echo(f"v{APP_VERSION}")
         raise typer.Exit()

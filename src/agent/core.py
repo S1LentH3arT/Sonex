@@ -1,3 +1,9 @@
+"""Core support for agent planning, tool execution, and ui event streaming.
+
+Implements the core module responsibilities used by Sonex runtime flows.
+Key public entry points include AgentState, agent_loop.
+"""
+
 import json
 import logging
 from dataclasses import dataclass
@@ -31,6 +37,16 @@ class AgentState:
     is_error: bool = False
 
 def _to_serializable(value: Any) -> Any:
+    """To serializable.
+
+    Coordinates to serializable logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the to serializable operation.
+
+    Returns:
+        The computed result for to serializable.
+    """
     try:
         json.dumps(value, ensure_ascii=True)
     except TypeError:
@@ -38,20 +54,65 @@ def _to_serializable(value: Any) -> Any:
     return value
 
 def _format_error(exc: Exception) -> str:
+    """Format error.
+
+    Coordinates format error logic for the surrounding Sonex flow.
+
+    Args:
+        exc: Input value used by the format error operation.
+
+    Returns:
+        The computed result for format error.
+    """
     return sanitize_error_message(exc)
 
 def _is_player_confirm_result(value: Any) -> bool:
+    """Is player confirm result.
+
+    Coordinates is player confirm result logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the is player confirm result operation.
+
+    Returns:
+        The computed result for is player confirm result.
+    """
     return isinstance(value, dict) and value.get("status") == "requires_player_confirm"
 
 def _spotify_premium_failure_answer(result: Any) -> str | None:
+    """Spotify premium failure answer.
+
+    Coordinates spotify premium failure answer logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the spotify premium failure answer operation.
+
+    Returns:
+        The computed result for spotify premium failure answer.
+    """
     if not isinstance(result, dict):
         return None
-    if result.get("error_code") != "SPOTIFY_PREMIUM_REQUIRED":
+    error_code = result.get("error_code")
+    if error_code == "SPOTIFY_APP_PREMIUM_REQUIRED":
+        message = result.get("message") or "Spotify search requires a Premium account for the app owner."
+        return f"{message} I can play the track through YouTube/local playback instead."
+    if error_code != "SPOTIFY_PREMIUM_REQUIRED":
         return None
     message = result.get("message") or "Spotify playback requires a Premium account."
     return f"{message} I can search Spotify results, or play the track through YouTube/local playback instead."
 
 def _player_confirm_payload(result: dict[str, Any], tool_args: dict[str, Any]) -> dict[str, Any]:
+    """Player confirm payload.
+
+    Coordinates player confirm payload logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the player confirm payload operation.
+        tool_args: Input value used by the player confirm payload operation.
+
+    Returns:
+        The computed result for player confirm payload.
+    """
     data = result.get("data") or {}
     return {
         "message": data.get("confirm_message") or result.get("message"),
@@ -62,11 +123,34 @@ def _player_confirm_payload(result: dict[str, Any], tool_args: dict[str, Any]) -
     }
 
 def _confirm_approved(decision: Any) -> bool:
+    """Confirm approved.
+
+    Coordinates confirm approved logic for the surrounding Sonex flow.
+
+    Args:
+        decision: Input value used by the confirm approved operation.
+
+    Returns:
+        The computed result for confirm approved.
+    """
     if isinstance(decision, bool):
         return decision
     return str(decision).strip().lower() in {"allow_always", "allow_once", "yes", "true", "ok"}
 
 def _safe_memory_call(label: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
+    """Safe memory call.
+
+    Coordinates safe memory call logic for the surrounding Sonex flow.
+
+    Args:
+        label: Input value used by the safe memory call operation.
+        fn: Input value used by the safe memory call operation.
+        args: Input value used by the safe memory call operation.
+        kwargs: Input value used by the safe memory call operation.
+
+    Returns:
+        The computed result for safe memory call.
+    """
     try:
         return fn(*args, **kwargs)
     except Exception as exc:
@@ -78,6 +162,18 @@ def agent_loop(
     tools: ToolRegistry,
     command_intent: CommandIntent | None = None,
 ) -> Generator[AgentState, AgentState, None]:
+    """Agent loop.
+
+    Coordinates agent loop logic for the surrounding Sonex flow.
+
+    Args:
+        user_input: Input value used by the agent loop operation.
+        tools: Input value used by the agent loop operation.
+        command_intent: Input value used by the agent loop operation.
+
+    Returns:
+        The computed result for agent loop.
+    """
     user_context: dict[str, Any]= {"user": user_input}
     if command_intent:
         user_context["command_intent"] = {
@@ -122,6 +218,12 @@ def agent_loop(
                 type="complete",
                 content=answer,
             )
+            return
+
+        if command_intent is not None and action.tool not in command_intent.allowed_tools:
+            message = f"Tool '{action.tool}' not allowed for '{command_intent.command}'."
+            _safe_memory_call("append unauthorized tool error", append_context, "error", {"error_text": message}, ["error", "tool", action.tool])
+            yield AgentState(type="error", content=message, is_error=True)
             return
 
         # 使用工具

@@ -1,3 +1,9 @@
+"""Planner support for language model configuration, catalogs, transports, and planning.
+
+Implements the planner module responsibilities used by Sonex runtime flows.
+Key public entry points include llm_plan.
+"""
+
 from __future__ import annotations
 
 from src.api.builtin_commands import CommandIntent
@@ -17,9 +23,19 @@ Do not mention internal memory mechanics unless the user asks about them."""
 
 
 def _format_command_intent(command_intent: CommandIntent | None) -> str:
+    """Format command intent.
+
+    Coordinates format command intent logic for the surrounding Sonex flow.
+
+    Args:
+        command_intent: Input value used by the format command intent operation.
+
+    Returns:
+        The computed result for format command intent.
+    """
     if command_intent is None:
         return ""
-    allowed = ", ".join(command_intent.allowed_tools) if command_intent.allowed_tools else "any"
+    allowed = ", ".join(command_intent.allowed_tools) if command_intent.allowed_tools else "none"
     return (
         "[command_intent]\n"
         f"command: {command_intent.command}\n"
@@ -31,6 +47,16 @@ def _format_command_intent(command_intent: CommandIntent | None) -> str:
 
 
 def _planner_system_prompt(command_intent: CommandIntent | None) -> str:
+    """Planner system prompt.
+
+    Coordinates planner system prompt logic for the surrounding Sonex flow.
+
+    Args:
+        command_intent: Input value used by the planner system prompt operation.
+
+    Returns:
+        The computed result for planner system prompt.
+    """
     if command_intent is None or not command_intent.intent_prompt:
         return PLANNER_SYSTEM_PROMPT
     return (
@@ -45,6 +71,18 @@ def llm_plan(
     tools: ToolRegistry,
     command_intent: CommandIntent | None = None,
 ) -> Action:
+    """Llm plan.
+
+    Coordinates llm plan logic for the surrounding Sonex flow.
+
+    Args:
+        user_input: Input value used by the llm plan operation.
+        tools: Input value used by the llm plan operation.
+        command_intent: Input value used by the llm plan operation.
+
+    Returns:
+        The computed result for llm plan.
+    """
     client = ThinkingConfig.get_client()
     model = ThinkingConfig.get_model()
     context = build_planning_context(user_input)

@@ -1,3 +1,9 @@
+"""Apple music support for tool implementations used by the planner and playback flows.
+
+Implements the apple_music module responsibilities used by Sonex runtime flows.
+Key public entry points include AppleMusicApiError, AppleMusicSubscriptionRequiredError, AppleMusicPlaybackUnavailableError, remember_recent_track, recent_tracks_snapshot.
+"""
+
 from __future__ import annotations
 
 import json
@@ -35,45 +41,120 @@ _BRIDGE_STATE: dict[str, Any] | None = None
 
 
 class AppleMusicApiError(RuntimeError):
+    """Represents apple music api error.
+
+    Encapsulates apple music api error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
+    """
     def __init__(self, message: str, status: int | None = None) -> None:
+        """Init for apple music api error.
+
+        Coordinates the init method behavior while preserving apple music api error state and contracts.
+
+        Args:
+            message: Input value used by the init operation.
+            status: Input value used by the init operation.
+        """
         super().__init__(message)
         self.status = status
 
 
 class AppleMusicSubscriptionRequiredError(RuntimeError):
+    """Represents apple music subscription required error.
+
+    Encapsulates apple music subscription required error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
+    """
     pass
 
 
 class AppleMusicPlaybackUnavailableError(RuntimeError):
+    """Represents apple music playback unavailable error.
+
+    Encapsulates apple music playback unavailable error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
+    """
     pass
 
 
 def _timestamp_ms() -> int:
+    """Timestamp ms.
+
+    Coordinates timestamp ms logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for timestamp ms.
+    """
     return int(time.time() * 1000)
 
 
 def _iso_now() -> str:
+    """Iso now.
+
+    Coordinates iso now logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for iso now.
+    """
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def _apple_music_cache_dir() -> Path:
+    """Apple music cache dir.
+
+    Coordinates apple music cache dir logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for apple music cache dir.
+    """
     return sonex_home() / "cache" / "apple_music"
 
 
 def _apple_music_cover_dir() -> Path:
+    """Apple music cover dir.
+
+    Coordinates apple music cover dir logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for apple music cover dir.
+    """
     return _apple_music_cache_dir() / "covers"
 
 
 def _recent_tracks_path() -> Path:
+    """Recent tracks path.
+
+    Coordinates recent tracks path logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for recent tracks path.
+    """
     return _apple_music_cache_dir() / "recent_tracks.json"
 
 
 def _track_key(track: dict[str, Any]) -> str | None:
+    """Track key.
+
+    Coordinates track key logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the track key operation.
+
+    Returns:
+        The computed result for track key.
+    """
     key = track.get("uri") or track.get("id") or track.get("url")
     return str(key) if key else None
 
 
 def _compact_track(track: dict[str, Any]) -> dict[str, Any]:
+    """Compact track.
+
+    Coordinates compact track logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the compact track operation.
+
+    Returns:
+        The computed result for compact track.
+    """
     cover_url = track.get("album_cover_url") or track.get("cover_url")
     return normalize_track_shape(
         provider="apple_music",
@@ -97,6 +178,16 @@ def _compact_track(track: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cover_filename(track: dict[str, Any]) -> str | None:
+    """Cover filename.
+
+    Coordinates cover filename logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the cover filename operation.
+
+    Returns:
+        The computed result for cover filename.
+    """
     key = _track_key(track)
     if not key:
         return None
@@ -105,6 +196,16 @@ def _cover_filename(track: dict[str, Any]) -> str | None:
 
 
 def _cache_cover(track: dict[str, Any]) -> str | None:
+    """Cache cover.
+
+    Coordinates cache cover logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the cache cover operation.
+
+    Returns:
+        The computed result for cache cover.
+    """
     url = str(track.get("album_cover_url") or track.get("cover_url") or "").strip()
     if not url:
         return track.get("album_cover_path")
@@ -127,6 +228,13 @@ def _cache_cover(track: dict[str, Any]) -> str | None:
 
 
 def _load_recent_tracks() -> None:
+    """Load recent tracks.
+
+    Coordinates load recent tracks logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for load recent tracks.
+    """
     global _RECENT_TRACKS, _RECENT_TRACKS_LOADED
     if _RECENT_TRACKS_LOADED:
         return
@@ -159,6 +267,13 @@ def _load_recent_tracks() -> None:
 
 
 def _save_recent_tracks() -> None:
+    """Save recent tracks.
+
+    Coordinates save recent tracks logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for save recent tracks.
+    """
     try:
         _apple_music_cache_dir().mkdir(parents=True, exist_ok=True)
         payload = {"version": 1, "tracks": _RECENT_TRACKS[:MAX_RECENT_TRACKS]}
@@ -170,6 +285,16 @@ def _save_recent_tracks() -> None:
 
 
 def remember_recent_track(track: dict[str, Any]) -> list[dict[str, Any]]:
+    """Remember recent track.
+
+    Coordinates remember recent track logic for the surrounding Sonex flow.
+
+    Args:
+        track: Input value used by the remember recent track operation.
+
+    Returns:
+        The computed result for remember recent track.
+    """
     _load_recent_tracks()
     compact = _compact_track(track)
     key = _track_key(compact)
@@ -191,11 +316,32 @@ def remember_recent_track(track: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def recent_tracks_snapshot(limit: int = MAX_RECENT_TRACKS) -> list[dict[str, Any]]:
+    """Recent tracks snapshot.
+
+    Coordinates recent tracks snapshot logic for the surrounding Sonex flow.
+
+    Args:
+        limit: Input value used by the recent tracks snapshot operation.
+
+    Returns:
+        The computed result for recent tracks snapshot.
+    """
     _load_recent_tracks()
     return [dict(item) for item in _RECENT_TRACKS[: max(0, limit)]]
 
 
 def reset_recent_tracks(*, clear_disk: bool = False, reload_from_disk: bool = False) -> None:
+    """Reset recent tracks.
+
+    Coordinates reset recent tracks logic for the surrounding Sonex flow.
+
+    Args:
+        clear_disk: Input value used by the reset recent tracks operation.
+        reload_from_disk: Input value used by the reset recent tracks operation.
+
+    Returns:
+        The computed result for reset recent tracks.
+    """
     global _RECENT_TRACKS_LOADED, _BRIDGE_STATE
     _RECENT_TRACKS.clear()
     _RECENT_TRACKS_LOADED = not reload_from_disk
@@ -210,6 +356,16 @@ def reset_recent_tracks(*, clear_disk: bool = False, reload_from_disk: bool = Fa
 
 
 def _artwork_url(artwork: dict[str, Any] | None) -> str | None:
+    """Artwork url.
+
+    Coordinates artwork url logic for the surrounding Sonex flow.
+
+    Args:
+        artwork: Input value used by the artwork url operation.
+
+    Returns:
+        The computed result for artwork url.
+    """
     if not artwork:
         return None
     url = artwork.get("url")
@@ -221,6 +377,16 @@ def _artwork_url(artwork: dict[str, Any] | None) -> str | None:
 
 
 def _normalize_song(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize song.
+
+    Coordinates normalize song logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the normalize song operation.
+
+    Returns:
+        The computed result for normalize song.
+    """
     attrs = item.get("attributes") or {}
     artist_name = attrs.get("artistName")
     play_params = attrs.get("playParams") or {}
@@ -246,6 +412,16 @@ def _normalize_song(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_artist(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize artist.
+
+    Coordinates normalize artist logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the normalize artist operation.
+
+    Returns:
+        The computed result for normalize artist.
+    """
     attrs = item.get("attributes") or {}
     return {
         "provider": "apple_music",
@@ -258,6 +434,16 @@ def _normalize_artist(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_album(item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize album.
+
+    Coordinates normalize album logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the normalize album operation.
+
+    Returns:
+        The computed result for normalize album.
+    """
     attrs = item.get("attributes") or {}
     return {
         "provider": "apple_music",
@@ -283,6 +469,20 @@ def _apple_music_request(
     method: str = "GET",
     body: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Apple music request.
+
+    Coordinates apple music request logic for the surrounding Sonex flow.
+
+    Args:
+        path: Input value used by the apple music request operation.
+        params: Input value used by the apple music request operation.
+        user: Input value used by the apple music request operation.
+        method: Input value used by the apple music request operation.
+        body: Input value used by the apple music request operation.
+
+    Returns:
+        The computed result for apple music request.
+    """
     query = urllib.parse.urlencode({k: v for k, v in (params or {}).items() if v is not None})
     url = f"{APPLE_MUSIC_API_BASE}{path}"
     if query:
@@ -314,6 +514,18 @@ def _apple_music_request(
 
 
 def _apple_music_error(tool: str, exc: Exception, default_code: str = "APPLE_MUSIC_API_ERROR") -> dict[str, Any]:
+    """Apple music error.
+
+    Coordinates apple music error logic for the surrounding Sonex flow.
+
+    Args:
+        tool: Input value used by the apple music error operation.
+        exc: Input value used by the apple music error operation.
+        default_code: Input value used by the apple music error operation.
+
+    Returns:
+        The computed result for apple music error.
+    """
     message = str(exc)
     code = default_code
     status = getattr(exc, "status", None)
@@ -336,6 +548,17 @@ def _apple_music_error(tool: str, exc: Exception, default_code: str = "APPLE_MUS
 
 
 def _normalize_search_payload(payload: dict[str, Any], types: str) -> dict[str, Any]:
+    """Normalize search payload.
+
+    Coordinates normalize search payload logic for the surrounding Sonex flow.
+
+    Args:
+        payload: Input value used by the normalize search payload operation.
+        types: Input value used by the normalize search payload operation.
+
+    Returns:
+        The computed result for normalize search payload.
+    """
     results = payload.get("results") or {}
     requested = {part.strip() for part in types.split(",") if part.strip()}
     data: dict[str, Any] = {}
@@ -352,6 +575,16 @@ def _normalize_search_payload(payload: dict[str, Any], types: str) -> dict[str, 
 
 
 def _apple_types(types: str) -> str:
+    """Apple types.
+
+    Coordinates apple types logic for the surrounding Sonex flow.
+
+    Args:
+        types: Input value used by the apple types operation.
+
+    Returns:
+        The computed result for apple types.
+    """
     mapped: list[str] = []
     for item in [part.strip().lower() for part in types.split(",") if part.strip()]:
         if item in {"track", "song", "songs"}:
@@ -369,6 +602,19 @@ def apple_music_search(
     types: str = "songs,artists,albums",
     storefront: str = APPLE_MUSIC_DEFAULT_STOREFRONT,
 ) -> dict[str, Any]:
+    """Apple music search.
+
+    Coordinates apple music search logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the apple music search operation.
+        limit: Input value used by the apple music search operation.
+        types: Input value used by the apple music search operation.
+        storefront: Input value used by the apple music search operation.
+
+    Returns:
+        The computed result for apple music search.
+    """
     try:
         payload = _apple_music_request(
             f"/catalog/{storefront}/search",
@@ -387,6 +633,18 @@ def apple_music_search(
 
 
 def _account_capabilities(has_developer_token: bool, logged_in: bool, subscription: dict[str, Any]) -> dict[str, bool]:
+    """Account capabilities.
+
+    Coordinates account capabilities logic for the surrounding Sonex flow.
+
+    Args:
+        has_developer_token: Input value used by the account capabilities operation.
+        logged_in: Input value used by the account capabilities operation.
+        subscription: Input value used by the account capabilities operation.
+
+    Returns:
+        The computed result for account capabilities.
+    """
     can_play = bool(subscription.get("canPlayCatalogContent"))
     can_library = bool(subscription.get("canPlayCatalogContent") or subscription.get("canPlayLibraryContent"))
     return {
@@ -401,6 +659,13 @@ def _account_capabilities(has_developer_token: bool, logged_in: bool, subscripti
 
 
 def apple_music_account() -> dict[str, Any]:
+    """Apple music account.
+
+    Coordinates apple music account logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for apple music account.
+    """
     has_developer_token = True
     subscription: dict[str, Any] = {}
     try:
@@ -427,6 +692,16 @@ def apple_music_account() -> dict[str, Any]:
 
 
 def apple_music_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
+    """Apple music recent tracks.
+
+    Coordinates apple music recent tracks logic for the surrounding Sonex flow.
+
+    Args:
+        limit: Input value used by the apple music recent tracks operation.
+
+    Returns:
+        The computed result for apple music recent tracks.
+    """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     try:
         ensure_apple_music_user_token()
@@ -444,6 +719,17 @@ def apple_music_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
 
 
 def _dedupe_tracks(tracks: list[dict[str, Any]], limit: int = 40) -> list[dict[str, Any]]:
+    """Dedupe tracks.
+
+    Coordinates dedupe tracks logic for the surrounding Sonex flow.
+
+    Args:
+        tracks: Input value used by the dedupe tracks operation.
+        limit: Input value used by the dedupe tracks operation.
+
+    Returns:
+        The computed result for dedupe tracks.
+    """
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []
     for track in tracks:
@@ -459,6 +745,17 @@ def _dedupe_tracks(tracks: list[dict[str, Any]], limit: int = 40) -> list[dict[s
 
 
 def _candidate_tracks(query: str, limit: int) -> list[dict[str, Any]]:
+    """Candidate tracks.
+
+    Coordinates candidate tracks logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the candidate tracks operation.
+        limit: Input value used by the candidate tracks operation.
+
+    Returns:
+        The computed result for candidate tracks.
+    """
     candidates = recent_tracks_snapshot()
     recent = apple_music_recent_tracks(limit=MAX_RECENT_TRACKS)
     if recent.get("status") == "success":
@@ -471,6 +768,13 @@ def _candidate_tracks(query: str, limit: int) -> list[dict[str, Any]]:
 
 
 def _user_preferences_text() -> str:
+    """User preferences text.
+
+    Coordinates user preferences text logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for user preferences text.
+    """
     user_path = sonex_home() / "USER.md"
     if not user_path.exists():
         return ""
@@ -478,6 +782,16 @@ def _user_preferences_text() -> str:
 
 
 def _parse_recommendation_json(text: str) -> list[dict[str, Any]]:
+    """Parse recommendation json.
+
+    Coordinates parse recommendation json logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the parse recommendation json operation.
+
+    Returns:
+        The computed result for parse recommendation json.
+    """
     start = text.find("[")
     end = text.rfind("]")
     if start == -1 or end == -1 or end <= start:
@@ -497,6 +811,20 @@ def _rank_candidates_with_llm(
     candidates: list[dict[str, Any]],
     limit: int,
 ) -> list[dict[str, str]]:
+    """Rank candidates with llm.
+
+    Coordinates rank candidates with llm logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the rank candidates with llm operation.
+        preferences: Input value used by the rank candidates with llm operation.
+        recent_tracks: Input value used by the rank candidates with llm operation.
+        candidates: Input value used by the rank candidates with llm operation.
+        limit: Input value used by the rank candidates with llm operation.
+
+    Returns:
+        The computed result for rank candidates with llm.
+    """
     compact_candidates = [
         {
             "uri": track.get("uri"),
@@ -543,6 +871,17 @@ def _rank_candidates_with_llm(
 
 
 def apple_music_recommend(query: str, limit: int = 10) -> dict[str, Any]:
+    """Apple music recommend.
+
+    Coordinates apple music recommend logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the apple music recommend operation.
+        limit: Input value used by the apple music recommend operation.
+
+    Returns:
+        The computed result for apple music recommend.
+    """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     preferences = _user_preferences_text()
     local_recent = recent_tracks_snapshot()
@@ -590,6 +929,13 @@ def apple_music_recommend(query: str, limit: int = 10) -> dict[str, Any]:
 
 
 def _bridge_url() -> str | None:
+    """Bridge url.
+
+    Coordinates bridge url logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for bridge url.
+    """
     import os
 
     value = os.getenv(APPLE_MUSIC_BRIDGE_ENV, "").strip().rstrip("/")
@@ -597,6 +943,18 @@ def _bridge_url() -> str | None:
 
 
 def _bridge_request(path: str, payload: dict[str, Any] | None = None, method: str = "POST") -> dict[str, Any]:
+    """Bridge request.
+
+    Coordinates bridge request logic for the surrounding Sonex flow.
+
+    Args:
+        path: Input value used by the bridge request operation.
+        payload: Input value used by the bridge request operation.
+        method: Input value used by the bridge request operation.
+
+    Returns:
+        The computed result for bridge request.
+    """
     base = _bridge_url()
     if not base:
         raise AppleMusicPlaybackUnavailableError(
@@ -617,6 +975,16 @@ def _bridge_request(path: str, payload: dict[str, Any] | None = None, method: st
 
 
 def _require_playback_control(tool: str) -> dict[str, Any] | None:
+    """Require playback control.
+
+    Coordinates require playback control logic for the surrounding Sonex flow.
+
+    Args:
+        tool: Input value used by the require playback control operation.
+
+    Returns:
+        The computed result for require playback control.
+    """
     try:
         ensure_apple_music_user_token()
     except Exception as exc:
@@ -642,6 +1010,16 @@ def _require_playback_control(tool: str) -> dict[str, Any] | None:
 
 
 def _cached_track_for_query(query: str) -> dict[str, Any] | None:
+    """Cached track for query.
+
+    Coordinates cached track for query logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the cached track for query operation.
+
+    Returns:
+        The computed result for cached track for query.
+    """
     needle = " ".join(query.strip().lower().split())
     if not needle:
         return None
@@ -660,6 +1038,13 @@ def _cached_track_for_query(query: str) -> dict[str, Any] | None:
 
 
 def apple_music_current_playback() -> dict[str, Any]:
+    """Apple music current playback.
+
+    Coordinates apple music current playback logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for apple music current playback.
+    """
     if _bridge_url():
         try:
             data = _bridge_request("/current", payload=None, method="GET")
@@ -685,6 +1070,18 @@ def apple_music_current_playback() -> dict[str, Any]:
 
 
 def apple_music_play(query: str | None = None, uri: str | None = None, storefront: str = APPLE_MUSIC_DEFAULT_STOREFRONT) -> dict[str, Any]:
+    """Apple music play.
+
+    Coordinates apple music play logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the apple music play operation.
+        uri: Input value used by the apple music play operation.
+        storefront: Input value used by the apple music play operation.
+
+    Returns:
+        The computed result for apple music play.
+    """
     blocked = _require_playback_control("apple_music_play")
     if blocked:
         return blocked
@@ -739,6 +1136,18 @@ def apple_music_play(query: str | None = None, uri: str | None = None, storefron
 
 
 def _bridge_control(tool: str, path: str, is_playing: bool | None = None) -> dict[str, Any]:
+    """Bridge control.
+
+    Coordinates bridge control logic for the surrounding Sonex flow.
+
+    Args:
+        tool: Input value used by the bridge control operation.
+        path: Input value used by the bridge control operation.
+        is_playing: Input value used by the bridge control operation.
+
+    Returns:
+        The computed result for bridge control.
+    """
     blocked = _require_playback_control(tool)
     if blocked:
         return blocked
@@ -758,18 +1167,46 @@ def _bridge_control(tool: str, path: str, is_playing: bool | None = None) -> dic
 
 
 def apple_music_pause() -> dict[str, Any]:
+    """Apple music pause.
+
+    Coordinates apple music pause logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for apple music pause.
+    """
     return _bridge_control("apple_music_pause", "/pause", is_playing=False)
 
 
 def apple_music_resume() -> dict[str, Any]:
+    """Apple music resume.
+
+    Coordinates apple music resume logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for apple music resume.
+    """
     return _bridge_control("apple_music_resume", "/resume", is_playing=True)
 
 
 def apple_music_next() -> dict[str, Any]:
+    """Apple music next.
+
+    Coordinates apple music next logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for apple music next.
+    """
     return _bridge_control("apple_music_next", "/next")
 
 
 def apple_music_previous() -> dict[str, Any]:
+    """Apple music previous.
+
+    Coordinates apple music previous logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for apple music previous.
+    """
     return _bridge_control("apple_music_previous", "/previous")
 
 
@@ -782,6 +1219,21 @@ def _register_tool(
     *,
     read_only: bool = True,
 ) -> None:
+    """Register tool.
+
+    Coordinates register tool logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the register tool operation.
+        description: Input value used by the register tool operation.
+        properties: Input value used by the register tool operation.
+        required: Input value used by the register tool operation.
+        fn: Input value used by the register tool operation.
+        read_only: Input value used by the register tool operation.
+
+    Returns:
+        The computed result for register tool.
+    """
     registry.register(
         name=name,
         type="apple_music",

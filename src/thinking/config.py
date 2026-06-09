@@ -1,3 +1,9 @@
+"""Config support for runtime model and provider configuration.
+
+Implements the config module responsibilities used by Sonex runtime flows.
+Key public entry points include ThinkingRuntimeState, ThinkingConfig.
+"""
+
 from __future__ import annotations
 
 import json
@@ -18,21 +24,51 @@ from src.log import sonex_home
 
 @dataclass(slots=True)
 class ThinkingRuntimeState:
+    """Represents thinking runtime state.
+
+    Encapsulates thinking runtime state data and behavior used by Sonex runtime flows.
+    """
     config_path: Path
     runtime_config: RuntimeConfig
     client: ProviderClient
 
 
 class ThinkingConfig:
+    """Represents thinking config.
+
+    Encapsulates thinking config data and behavior used by Sonex runtime flows.
+    """
     _state: ThinkingRuntimeState | None = None
 
     @classmethod
     def init(cls, model: str | None = None, config_path: Path | None = None) -> "ThinkingConfig":
+        """Init for thinking config.
+
+        Coordinates the init method behavior while preserving thinking config state and contracts.
+
+        Args:
+            model: Input value used by the init operation.
+            config_path: Input value used by the init operation.
+
+        Returns:
+            The computed result for init.
+        """
         cls.reload(model=model, config_path=config_path)
         return cls
 
     @classmethod
     def reload(cls, model: str | None = None, config_path: Path | None = None) -> None:
+        """Reload for thinking config.
+
+        Coordinates the reload method behavior while preserving thinking config state and contracts.
+
+        Args:
+            model: Input value used by the reload operation.
+            config_path: Input value used by the reload operation.
+
+        Returns:
+            The computed result for reload.
+        """
         _load_env_files()
         resolved_path = config_path or _default_config_path()
         runtime_config = _build_runtime_config(model_override=model, config_path=resolved_path)
@@ -44,31 +80,76 @@ class ThinkingConfig:
 
     @classmethod
     def get_client(cls) -> ProviderClient:
+        """Get client for thinking config.
+
+        Coordinates the get client method behavior while preserving thinking config state and contracts.
+
+        Returns:
+            The computed result for get client.
+        """
         if cls._state is None:
             cls.reload()
         return cls._state.client
 
     @classmethod
     def get_runtime_config(cls) -> RuntimeConfig:
+        """Get runtime config for thinking config.
+
+        Coordinates the get runtime config method behavior while preserving thinking config state and contracts.
+
+        Returns:
+            The computed result for get runtime config.
+        """
         if cls._state is None:
             cls.reload()
         return cls._state.runtime_config
 
     @classmethod
     def get_provider(cls) -> str:
+        """Get provider for thinking config.
+
+        Coordinates the get provider method behavior while preserving thinking config state and contracts.
+
+        Returns:
+            The computed result for get provider.
+        """
         return cls.get_runtime_config().default_provider
 
     @classmethod
     def get_model(cls) -> str:
+        """Get model for thinking config.
+
+        Coordinates the get model method behavior while preserving thinking config state and contracts.
+
+        Returns:
+            The computed result for get model.
+        """
         return cls.get_runtime_config().default_model
 
     @classmethod
     def get_provider_config(cls, provider: str | None = None) -> ProviderConfig:
+        """Get provider config for thinking config.
+
+        Coordinates the get provider config method behavior while preserving thinking config state and contracts.
+
+        Args:
+            provider: Input value used by the get provider config operation.
+
+        Returns:
+            The computed result for get provider config.
+        """
         runtime = cls.get_runtime_config()
         return runtime.get_provider(provider)
 
 
 def _default_config_path() -> Path:
+    """Default config path.
+
+    Coordinates default config path logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for default config path.
+    """
     custom = os.getenv("SONEX_CONFIG_PATH")
     if custom:
         return Path(custom).expanduser()
@@ -76,6 +157,16 @@ def _default_config_path() -> Path:
 
 
 def _load_config_file(path: Path) -> dict[str, Any]:
+    """Load config file.
+
+    Coordinates load config file logic for the surrounding Sonex flow.
+
+    Args:
+        path: Input value used by the load config file operation.
+
+    Returns:
+        The computed result for load config file.
+    """
     if not path.exists():
         return {}
     with path.open("r", encoding="utf-8") as f:
@@ -83,6 +174,17 @@ def _load_config_file(path: Path) -> dict[str, Any]:
 
 
 def _save_config_file(path: Path, data: dict[str, Any]) -> None:
+    """Save config file.
+
+    Coordinates save config file logic for the surrounding Sonex flow.
+
+    Args:
+        path: Input value used by the save config file operation.
+        data: Input value used by the save config file operation.
+
+    Returns:
+        The computed result for save config file.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=True)
@@ -93,10 +195,28 @@ def _save_config_file(path: Path, data: dict[str, Any]) -> None:
 
 
 def _load_env_files() -> None:
+    """Load env files.
+
+    Coordinates load env files logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for load env files.
+    """
     load_dotenv(override=False)
 
 
 def _build_runtime_config(model_override: str | None, config_path: Path) -> RuntimeConfig:
+    """Build runtime config.
+
+    Coordinates build runtime config logic for the surrounding Sonex flow.
+
+    Args:
+        model_override: Input value used by the build runtime config operation.
+        config_path: Input value used by the build runtime config operation.
+
+    Returns:
+        The computed result for build runtime config.
+    """
     file_config = _load_config_file(config_path)
     file_providers = file_config.get("providers") or {}
     auth_store = load_auth_store()
@@ -145,6 +265,20 @@ def _build_provider_config(
     default_model: str,
     is_default: bool,
 ) -> ProviderConfig:
+    """Build provider config.
+
+    Coordinates build provider config logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the build provider config operation.
+        file_config: Input value used by the build provider config operation.
+        auth_config: Input value used by the build provider config operation.
+        default_model: Input value used by the build provider config operation.
+        is_default: Input value used by the build provider config operation.
+
+    Returns:
+        The computed result for build provider config.
+    """
     prefix = f"SONEX_{name.upper()}_"
     capability = get_provider_capability(name)
     env_api_key = os.getenv(f"{prefix}API_KEY") or (os.getenv("SONEX_API_KEY") if name == "openai" else None)
@@ -212,10 +346,30 @@ def _build_provider_config(
 
 
 def _provider_default_model(name: str) -> str | None:
+    """Provider default model.
+
+    Coordinates provider default model logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the provider default model operation.
+
+    Returns:
+        The computed result for provider default model.
+    """
     return get_provider_capability(name).default_model
 
 
 def _default_custom_provider(name: str) -> str | None:
+    """Default custom provider.
+
+    Coordinates default custom provider logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the default custom provider operation.
+
+    Returns:
+        The computed result for default custom provider.
+    """
     provider_map = {
         "openai": None,
         "anthropic": "anthropic",

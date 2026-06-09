@@ -1,5 +1,5 @@
 import React from 'react';
-import {render} from 'ink';
-import {App} from './App.js';
+import { render } from 'ink';
+import { App } from './App.js';
 
-render(<App/>, {exitOnCtrlC: false});
+render(<App />, { exitOnCtrlC: false });

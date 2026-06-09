@@ -1,3 +1,9 @@
+"""Local play support for tool implementations used by the planner and playback flows.
+
+Implements the local_play module responsibilities used by Sonex runtime flows.
+Key public entry points include search_local_file, check_player, play_local_song.
+"""
+
 import shutil
 from pathlib import Path
 
@@ -14,6 +20,16 @@ from src.workspace import WorkspaceBoundaryError, user_music_dir
 
 # 搜索本地音乐文件
 def search_local_file(query: str) -> str:
+    """Search local file.
+
+    Coordinates search local file logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search local file operation.
+
+    Returns:
+        The computed result for search local file.
+    """
     query = query.strip()
     if not query:
         return "No local files found related to ''."
@@ -32,9 +48,30 @@ def search_local_file(query: str) -> str:
 
 # 检查本地播放器
 def check_player(player: str) -> bool:
+    """Check player.
+
+    Coordinates check player logic for the surrounding Sonex flow.
+
+    Args:
+        player: Input value used by the check player operation.
+
+    Returns:
+        The computed result for check player.
+    """
     return shutil.which(player) is not None
 
 def _player_command(player: str, file: str) -> list[str] | None:
+    """Player command.
+
+    Coordinates player command logic for the surrounding Sonex flow.
+
+    Args:
+        player: Input value used by the player command operation.
+        file: Input value used by the player command operation.
+
+    Returns:
+        The computed result for player command.
+    """
     if player == "auto":
         return ["sonex-local-playback", "auto", file]
     if player == "cvlc":
@@ -47,6 +84,17 @@ def _player_command(player: str, file: str) -> list[str] | None:
 
 # 使用本地播放器播放音乐(默认策略为auto)
 def play_local_song(query: str, player: str = "auto") -> dict:
+    """Play local song.
+
+    Coordinates play local song logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the play local song operation.
+        player: Input value used by the play local song operation.
+
+    Returns:
+        The computed result for play local song.
+    """
     file = search_local_file(query)
     if file.startswith("Path outside user workspace"):
         return ToolResult.fail(

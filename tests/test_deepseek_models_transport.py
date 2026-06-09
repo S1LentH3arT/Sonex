@@ -1,3 +1,8 @@
+"""Tests test deepseek models transport.
+
+Contains pytest coverage for the test deepseek models transport behavior.
+"""
+
 from __future__ import annotations
 
 import json
@@ -20,21 +25,55 @@ from src.llm.transport.deepseek import DeepSeekTransport, _chat_completions_url
 
 
 class _FakeResponse:
+    """Groups fake response tests.
+
+    Collects related assertions for fake response behavior.
+    """
     def __init__(self, payload: dict[str, object]) -> None:
+        """Validate init.
+
+        Exercises the init behavior through the test suite.
+
+        Args:
+            payload: Pytest fixture or input used by this test.
+        """
         self.payload = payload
 
     def __enter__(self) -> "_FakeResponse":
+        """Validate enter.
+
+        Exercises the enter behavior through the test suite.
+        """
         return self
 
     def __exit__(self, *args: object) -> None:
+        """Validate exit.
+
+        Exercises the exit behavior through the test suite.
+
+        Args:
+            args: Pytest fixture or input used by this test.
+        """
         return None
 
     def read(self) -> bytes:
+        """Validate read.
+
+        Exercises the read behavior through the test suite.
+        """
         return json.dumps(self.payload).encode("utf-8")
 
 
 class DeepSeekModelCatalogTests(unittest.TestCase):
+    """Groups deep seek model catalog tests tests.
+
+    Collects related assertions for deep seek model catalog tests behavior.
+    """
     def test_lists_models_from_deepseek_api(self) -> None:
+        """Validate test lists models from deepseek api.
+
+        Exercises the test lists models from deepseek api behavior through the test suite.
+        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
 
         with patch("src.llm.models.urllib.request.urlopen") as urlopen:
@@ -55,6 +94,10 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
         self.assertEqual(request.headers["Authorization"], "Bearer sk-test")
 
     def test_falls_back_when_deepseek_model_api_fails(self) -> None:
+        """Validate test falls back when deepseek model api fails.
+
+        Exercises the test falls back when deepseek model api fails behavior through the test suite.
+        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
 
         with patch("src.llm.models.urllib.request.urlopen", side_effect=OSError("offline")):
@@ -64,13 +107,25 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
         self.assertIn("deepseek::deepseek-v4-flash", [choice["value"] for choice in choices])
 
     def test_normalizes_legacy_deepseek_model_names(self) -> None:
+        """Validate test normalizes legacy deepseek model names.
+
+        Exercises the test normalizes legacy deepseek model names behavior through the test suite.
+        """
         self.assertEqual(normalize_provider_model("deepseek", "Deepseek-v4-pro"), "deepseek-v4-pro")
         self.assertEqual(normalize_provider_model("deepseek", "deepseek-chat"), "deepseek-v4-flash")
         self.assertEqual(normalize_provider_model("deepseek", "deepseek-reasoner"), "deepseek-v4-flash")
 
 
 class OfficialProviderModelCatalogTests(unittest.TestCase):
+    """Groups official provider model catalog tests tests.
+
+    Collects related assertions for official provider model catalog tests behavior.
+    """
     def test_lists_openai_models_from_models_api(self) -> None:
+        """Validate test lists openai models from models api.
+
+        Exercises the test lists openai models from models api behavior through the test suite.
+        """
         config = ProviderConfig(name="openai", api_key="sk-test", base_url="https://api.openai.com/v1")
 
         with patch("src.llm.models.urllib.request.urlopen") as urlopen:
@@ -92,6 +147,10 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
         self.assertEqual(request.headers["Authorization"], "Bearer sk-test")
 
     def test_lists_anthropic_models_from_models_api(self) -> None:
+        """Validate test lists anthropic models from models api.
+
+        Exercises the test lists anthropic models from models api behavior through the test suite.
+        """
         config = ProviderConfig(name="anthropic", api_key="sk-ant", base_url="https://api.anthropic.com/v1")
 
         with patch("src.llm.models.urllib.request.urlopen") as urlopen:
@@ -122,6 +181,10 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
         self.assertEqual(request.headers["Anthropic-version"], "2023-06-01")
 
     def test_lists_gemini_models_from_models_api(self) -> None:
+        """Validate test lists gemini models from models api.
+
+        Exercises the test lists gemini models from models api behavior through the test suite.
+        """
         config = ProviderConfig(name="gemini", api_key="gem-key", base_url="https://generativelanguage.googleapis.com/v1beta")
 
         with patch("src.llm.models.urllib.request.urlopen") as urlopen:
@@ -153,6 +216,10 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
         )
 
     def test_official_provider_model_choices_fall_back_to_curated_ids(self) -> None:
+        """Validate test official provider model choices fall back to curated ids.
+
+        Exercises the test official provider model choices fall back to curated ids behavior through the test suite.
+        """
         expected = {
             "openai": "openai::gpt-5.2",
             "anthropic": "anthropic::claude-opus-4-1-20250805",
@@ -166,7 +233,15 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
 
 
 class DeepSeekTransportTests(unittest.TestCase):
+    """Groups deep seek transport tests tests.
+
+    Collects related assertions for deep seek transport tests behavior.
+    """
     def test_builds_official_chat_completions_request(self) -> None:
+        """Validate test builds official chat completions request.
+
+        Exercises the test builds official chat completions request behavior through the test suite.
+        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
         chat_request = ChatRequest(
             messages=[{"role": "user", "content": "hello"}],
@@ -201,12 +276,20 @@ class DeepSeekTransportTests(unittest.TestCase):
         self.assertIn("tools", payload)
 
     def test_chat_url_normalizes_v1_base_url(self) -> None:
+        """Validate test chat url normalizes v1 base url.
+
+        Exercises the test chat url normalizes v1 base url behavior through the test suite.
+        """
         self.assertEqual(
             _chat_completions_url("https://api.deepseek.com/v1"),
             "https://api.deepseek.com/chat/completions",
         )
 
     def test_reports_urllib_resolved_loopback_proxy_on_connection_refused(self) -> None:
+        """Validate test reports urllib resolved loopback proxy on connection refused.
+
+        Exercises the test reports urllib resolved loopback proxy on connection refused behavior through the test suite.
+        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
         provider_request = ProviderRequest(
             provider="deepseek",
@@ -239,6 +322,10 @@ class DeepSeekTransportTests(unittest.TestCase):
                 DeepSeekTransport().send(provider_request, config)
 
     def test_reports_urllib_resolved_loopback_proxy_on_ssl_eof(self) -> None:
+        """Validate test reports urllib resolved loopback proxy on ssl eof.
+
+        Exercises the test reports urllib resolved loopback proxy on ssl eof behavior through the test suite.
+        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
         provider_request = ProviderRequest(
             provider="deepseek",

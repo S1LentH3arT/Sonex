@@ -1,3 +1,8 @@
+"""Tests test official provider transports.
+
+Contains pytest coverage for the test official provider transports behavior.
+"""
+
 from __future__ import annotations
 
 import json
@@ -16,21 +21,55 @@ from src.llm.transport.official import (
 
 
 class _FakeResponse:
+    """Groups fake response tests.
+
+    Collects related assertions for fake response behavior.
+    """
     def __init__(self, payload: dict[str, Any]) -> None:
+        """Validate init.
+
+        Exercises the init behavior through the test suite.
+
+        Args:
+            payload: Pytest fixture or input used by this test.
+        """
         self.payload = payload
 
     def __enter__(self) -> "_FakeResponse":
+        """Validate enter.
+
+        Exercises the enter behavior through the test suite.
+        """
         return self
 
     def __exit__(self, *args: object) -> None:
+        """Validate exit.
+
+        Exercises the exit behavior through the test suite.
+
+        Args:
+            args: Pytest fixture or input used by this test.
+        """
         return None
 
     def read(self) -> bytes:
+        """Validate read.
+
+        Exercises the read behavior through the test suite.
+        """
         return json.dumps(self.payload).encode("utf-8")
 
 
 class OfficialProviderTransportTests(unittest.TestCase):
+    """Groups official provider transport tests tests.
+
+    Collects related assertions for official provider transport tests behavior.
+    """
     def test_openai_compatible_transport_builds_chat_completions_request(self) -> None:
+        """Validate test openai compatible transport builds chat completions request.
+
+        Exercises the test openai compatible transport builds chat completions request behavior through the test suite.
+        """
         config = ProviderConfig(name="openai", api_key="sk-test", base_url="https://api.openai.com/v1")
         request = ProviderRequest(
             provider="openai",
@@ -53,6 +92,10 @@ class OfficialProviderTransportTests(unittest.TestCase):
         self.assertEqual(payload["messages"], [{"role": "user", "content": "hello"}])
 
     def test_anthropic_transport_uses_native_messages_request(self) -> None:
+        """Validate test anthropic transport uses native messages request.
+
+        Exercises the test anthropic transport uses native messages request behavior through the test suite.
+        """
         config = ProviderConfig(name="anthropic", api_key="sk-ant", api_version="2023-06-01")
         request = ProviderRequest(
             provider="anthropic",
@@ -79,6 +122,10 @@ class OfficialProviderTransportTests(unittest.TestCase):
         self.assertEqual(payload["max_tokens"], 2048)
 
     def test_gemini_transport_builds_generate_content_request_with_api_key(self) -> None:
+        """Validate test gemini transport builds generate content request with api key.
+
+        Exercises the test gemini transport builds generate content request with api key behavior through the test suite.
+        """
         config = ProviderConfig(name="gemini", api_key="gemini-key", base_url="https://generativelanguage.googleapis.com/v1beta")
         request = ProviderRequest(
             provider="gemini",
@@ -106,7 +153,15 @@ class OfficialProviderTransportTests(unittest.TestCase):
 
 
 class ProviderClientRoutingTests(unittest.TestCase):
+    """Groups provider client routing tests tests.
+
+    Collects related assertions for provider client routing tests behavior.
+    """
     def test_known_cloud_provider_uses_official_transport_before_litellm_fallback(self) -> None:
+        """Validate test known cloud provider uses official transport before litellm fallback.
+
+        Exercises the test known cloud provider uses official transport before litellm fallback behavior through the test suite.
+        """
         runtime = RuntimeConfig(
             default_provider="openai",
             default_model="gpt-5.5",
@@ -125,6 +180,10 @@ class ProviderClientRoutingTests(unittest.TestCase):
         fallback.send.assert_not_called()
 
     def test_anthropic_client_builds_native_payload_for_official_transport(self) -> None:
+        """Validate test anthropic client builds native payload for official transport.
+
+        Exercises the test anthropic client builds native payload for official transport behavior through the test suite.
+        """
         runtime = RuntimeConfig(
             default_provider="anthropic",
             default_model="claude-opus-4-7",
@@ -142,6 +201,10 @@ class ProviderClientRoutingTests(unittest.TestCase):
         self.assertEqual(provider_request.native_payload["max_tokens"], 128)
 
     def test_unknown_provider_uses_litellm_fallback(self) -> None:
+        """Validate test unknown provider uses litellm fallback.
+
+        Exercises the test unknown provider uses litellm fallback behavior through the test suite.
+        """
         runtime = RuntimeConfig(
             default_provider="custom",
             default_model="custom-model",

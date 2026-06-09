@@ -1,3 +1,9 @@
+"""Player permission support for tool implementations used by the planner and playback flows.
+
+Implements the player_permission module responsibilities used by Sonex runtime flows.
+Key public entry points include normalize_player, player_label, is_player_allowed, remember_player, build_player_confirm_result.
+"""
+
 from __future__ import annotations
 
 import subprocess
@@ -32,10 +38,30 @@ _PRIVATE_CONFIRM_KEYS = {
 
 
 def normalize_player(player: str) -> str:
+    """Normalize player.
+
+    Coordinates normalize player logic for the surrounding Sonex flow.
+
+    Args:
+        player: Input value used by the normalize player operation.
+
+    Returns:
+        The computed result for normalize player.
+    """
     return player.strip().lower()
 
 
 def player_label(player: str) -> str:
+    """Player label.
+
+    Coordinates player label logic for the surrounding Sonex flow.
+
+    Args:
+        player: Input value used by the player label operation.
+
+    Returns:
+        The computed result for player label.
+    """
     known = {
         "auto": "auto local player",
         "vlc": "VLC",
@@ -46,14 +72,44 @@ def player_label(player: str) -> str:
 
 
 def is_player_allowed(player: str) -> bool:
+    """Is player allowed.
+
+    Coordinates is player allowed logic for the surrounding Sonex flow.
+
+    Args:
+        player: Input value used by the is player allowed operation.
+
+    Returns:
+        The computed result for is player allowed.
+    """
     return normalize_player(player) in _ALLOWED_PLAYERS
 
 
 def remember_player(player: str) -> None:
+    """Remember player.
+
+    Coordinates remember player logic for the surrounding Sonex flow.
+
+    Args:
+        player: Input value used by the remember player operation.
+
+    Returns:
+        The computed result for remember player.
+    """
     _ALLOWED_PLAYERS.add(normalize_player(player))
 
 
 def _public_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Public data.
+
+    Coordinates public data logic for the surrounding Sonex flow.
+
+    Args:
+        data: Input value used by the public data operation.
+
+    Returns:
+        The computed result for public data.
+    """
     return {key: value for key, value in data.items() if key not in _PRIVATE_CONFIRM_KEYS}
 
 
@@ -65,6 +121,20 @@ def build_player_confirm_result(
     success_message: str,
     data: dict[str, Any],
 ) -> dict[str, Any]:
+    """Build player confirm result.
+
+    Coordinates build player confirm result logic for the surrounding Sonex flow.
+
+    Args:
+        tool: Input value used by the build player confirm result operation.
+        player: Input value used by the build player confirm result operation.
+        cmd: Input value used by the build player confirm result operation.
+        success_message: Input value used by the build player confirm result operation.
+        data: Input value used by the build player confirm result operation.
+
+    Returns:
+        The computed result for build player confirm result.
+    """
     label = player_label(player)
     return {
         "status": "requires_player_confirm",
@@ -84,6 +154,16 @@ def build_player_confirm_result(
 
 
 def normalize_confirm_decision(decision: Any) -> str:
+    """Normalize confirm decision.
+
+    Coordinates normalize confirm decision logic for the surrounding Sonex flow.
+
+    Args:
+        decision: Input value used by the normalize confirm decision operation.
+
+    Returns:
+        The computed result for normalize confirm decision.
+    """
     if decision is True:
         return "allow_once"
     if decision is False or decision is None:
@@ -105,6 +185,20 @@ def launch_player_command(
     success_message: str,
     data: dict[str, Any],
 ) -> dict[str, Any]:
+    """Launch player command.
+
+    Coordinates launch player command logic for the surrounding Sonex flow.
+
+    Args:
+        tool: Input value used by the launch player command operation.
+        player: Input value used by the launch player command operation.
+        cmd: Input value used by the launch player command operation.
+        success_message: Input value used by the launch player command operation.
+        data: Input value used by the launch player command operation.
+
+    Returns:
+        The computed result for launch player command.
+    """
     try:
         subprocess.Popen(
             cmd,
@@ -128,6 +222,17 @@ def launch_player_command(
 
 
 def complete_player_confirm(pending_result: dict[str, Any], decision: Any) -> dict[str, Any]:
+    """Complete player confirm.
+
+    Coordinates complete player confirm logic for the surrounding Sonex flow.
+
+    Args:
+        pending_result: Input value used by the complete player confirm operation.
+        decision: Input value used by the complete player confirm operation.
+
+    Returns:
+        The computed result for complete player confirm.
+    """
     data = pending_result.get("data") or {}
     tool = str(pending_result.get("tool") or data.get("tool") or "player")
     player = str(data.get("player") or "")

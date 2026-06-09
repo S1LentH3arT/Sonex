@@ -1,3 +1,8 @@
+"""Tests test workspace.
+
+Contains pytest coverage for the test workspace behavior.
+"""
+
 from __future__ import annotations
 
 import os
@@ -12,11 +17,23 @@ from src.workspace import WorkspaceBoundaryError, ensure_within_user_workspace, 
 
 
 class WorkspaceTests(unittest.TestCase):
+    """Groups workspace tests tests.
+
+    Collects related assertions for workspace tests behavior.
+    """
     def test_user_workspace_root_defaults_to_home(self) -> None:
+        """Validate test user workspace root defaults to home.
+
+        Exercises the test user workspace root defaults to home behavior through the test suite.
+        """
         with tempfile.TemporaryDirectory() as home, patch.object(Path, "home", return_value=Path(home)):
             self.assertEqual(user_workspace_root(), Path(home).resolve())
 
     def test_user_workspace_rejects_system_paths(self) -> None:
+        """Validate test user workspace rejects system paths.
+
+        Exercises the test user workspace rejects system paths behavior through the test suite.
+        """
         with tempfile.TemporaryDirectory() as home, patch.object(Path, "home", return_value=Path(home)):
             with self.assertRaises(WorkspaceBoundaryError):
                 ensure_within_user_workspace("/etc")
@@ -29,6 +46,10 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(allowed, Path(home, "Music", "song.mp3").resolve())
 
     def test_local_music_search_uses_user_workspace_music_dir(self) -> None:
+        """Validate test local music search uses user workspace music dir.
+
+        Exercises the test local music search uses user workspace music dir behavior through the test suite.
+        """
         with tempfile.TemporaryDirectory() as home, patch.object(Path, "home", return_value=Path(home)):
             music_dir = Path(home) / "Music"
             music_dir.mkdir()
@@ -40,6 +61,10 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(result, str(song))
 
     def test_ink_tui_runs_from_user_workspace(self) -> None:
+        """Validate test ink tui runs from user workspace.
+
+        Exercises the test ink tui runs from user workspace behavior through the test suite.
+        """
         with tempfile.TemporaryDirectory() as home:
             with (
                 patch.object(Path, "home", return_value=Path(home)),
@@ -53,6 +78,10 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(run.call_args.kwargs["env"]["SONEX_WS_URL"], "ws://127.0.0.1:9001/ws")
 
     def test_api_process_runs_from_user_workspace_with_project_pythonpath(self) -> None:
+        """Validate test api process runs from user workspace with project pythonpath.
+
+        Exercises the test api process runs from user workspace with project pythonpath behavior through the test suite.
+        """
         with tempfile.TemporaryDirectory() as home:
             with (
                 patch.object(Path, "home", return_value=Path(home)),

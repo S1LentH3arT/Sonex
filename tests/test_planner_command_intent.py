@@ -1,3 +1,8 @@
+"""Tests test planner command intent.
+
+Contains pytest coverage for the test planner command intent behavior.
+"""
+
 from __future__ import annotations
 
 import unittest
@@ -10,16 +15,38 @@ from src.tools.registry import Params, ToolRegistry
 
 
 class FakeClient:
+    """Groups fake client tests.
+
+    Collects related assertions for fake client behavior.
+    """
     def __init__(self, response: ChatResponse) -> None:
+        """Validate init.
+
+        Exercises the init behavior through the test suite.
+
+        Args:
+            response: Pytest fixture or input used by this test.
+        """
         self.response = response
         self.requests = []
 
     def generate(self, request):
+        """Validate generate.
+
+        Exercises the generate behavior through the test suite.
+
+        Args:
+            request: Pytest fixture or input used by this test.
+        """
         self.requests.append(request)
         return self.response
 
 
 def _registry() -> ToolRegistry:
+    """Validate registry.
+
+    Exercises the registry behavior through the test suite.
+    """
     tools = ToolRegistry()
     for name in ["spotify_search", "spotify_recommend", "spotify_play"]:
         tools.register(
@@ -35,7 +62,38 @@ def _registry() -> ToolRegistry:
 
 
 class PlannerCommandIntentTests(unittest.TestCase):
+    """Groups planner command intent tests tests.
+
+    Collects related assertions for planner command intent tests behavior.
+    """
+    def test_empty_allowlist_exposes_no_tools(self) -> None:
+        """Validate test empty allowlist exposes no tools.
+
+        Exercises the test empty allowlist exposes no tools behavior through the test suite.
+        """
+        client = FakeClient(ChatResponse(output_text="answer", usage=Usage(total_tokens=1)))
+        intent = parse_builtin_command("/search jay").command_intent()
+        intent = type(intent)(
+            command="general",
+            raw="hello",
+            args="",
+            intent_prompt="No tools.",
+            allowed_tools=(),
+        )
+
+        with patch("src.llm.planner.ThinkingConfig.get_client", return_value=client), \
+             patch("src.llm.planner.ThinkingConfig.get_model", return_value="model"), \
+             patch("src.llm.planner.build_planning_context", return_value=""):
+            llm_plan(user_input="hello", tools=_registry(), command_intent=intent)
+
+        self.assertEqual(client.requests[0].tools, [])
+        self.assertIn("allowed_tools: none", client.requests[0].messages[1]["content"])
+
     def test_command_intent_prompt_and_args_are_included_and_tools_are_narrowed(self) -> None:
+        """Validate test command intent prompt and args are included and tools are narrowed.
+
+        Exercises the test command intent prompt and args are included and tools are narrowed behavior through the test suite.
+        """
         parsed = parse_builtin_command("/search jay")
         assert parsed is not None
         intent = parsed.command_intent()

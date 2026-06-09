@@ -1,9 +1,22 @@
+"""Config support for runtime logging configuration.
+
+Implements the config module responsibilities used by Sonex runtime flows.
+Key public entry points include sonex_home, sonex_log_path, configure_file_logging, set_logger, get_logger.
+"""
+
 import logging
 import os
 from pathlib import Path
 
 
 def sonex_home() -> Path:
+    """Sonex home.
+
+    Coordinates sonex home logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for sonex home.
+    """
     custom = os.getenv("SONEX_HOME")
     if custom:
         return Path(custom).expanduser()
@@ -11,12 +24,29 @@ def sonex_home() -> Path:
 
 
 def sonex_log_path() -> Path:
+    """Sonex log path.
+
+    Coordinates sonex log path logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for sonex log path.
+    """
     home = sonex_home()
     home.mkdir(parents=True, exist_ok=True)
     return home / "log"
 
 
 def configure_file_logging(level: int = logging.INFO) -> Path:
+    """Configure file logging.
+
+    Coordinates configure file logging logic for the surrounding Sonex flow.
+
+    Args:
+        level: Input value used by the configure file logging operation.
+
+    Returns:
+        The computed result for configure file logging.
+    """
     log_path = sonex_log_path()
     formatter = logging.Formatter(
         "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
@@ -39,6 +69,17 @@ def set_logger(
     name: str = "sonex",
     level: int = logging.INFO,
 ) -> logging.Logger:
+    """Set logger.
+
+    Coordinates set logger logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the set logger operation.
+        level: Input value used by the set logger operation.
+
+    Returns:
+        The computed result for set logger.
+    """
     log_path = sonex_log_path()
 
     logger = logging.getLogger(name)
@@ -61,4 +102,14 @@ def set_logger(
 
 
 def get_logger(name: str = "sonex") -> logging.Logger:
+    """Get logger.
+
+    Coordinates get logger logic for the surrounding Sonex flow.
+
+    Args:
+        name: Input value used by the get logger operation.
+
+    Returns:
+        The computed result for get logger.
+    """
     return logging.getLogger(name)

@@ -1,3 +1,9 @@
+"""Gemini adapter support for language model configuration, catalogs, transports, and planning.
+
+Implements the gemini_adapter module responsibilities used by Sonex runtime flows.
+Key public entry points include GeminiAdapter.
+"""
+
 from typing import Any
 
 from src.llm.adapter.base import DefaultAdapter, _coerce_text

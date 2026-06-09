@@ -1,0 +1,542 @@
+"""Track search support for tool implementations used by the planner and playback flows.
+
+Implements the track_search module responsibilities used by Sonex runtime flows.
+Key public entry points include search_track_metadata_candidates.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import time
+import urllib.parse
+from threading import Lock
+from typing import Any
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+
+from src.llm.transport import sanitize_error_message
+from src.tools.cover_sources import (
+    MUSICBRAINZ_MIN_INTERVAL_SECONDS,
+    MUSICBRAINZ_SEARCH_URL,
+    MUSICBRAINZ_USER_AGENT,
+)
+
+ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
+DEEZER_SEARCH_URL = "https://api.deezer.com/search/track"
+DEFAULT_ITUNES_COUNTRY = "US"
+
+_musicbrainz_lock = Lock()
+_last_musicbrainz_request = 0.0
+
+
+def search_track_metadata_candidates(query: str, limit: int = 5, country: str | None = None) -> dict[str, Any]:
+    """Search track metadata candidates.
+
+    Coordinates search track metadata candidates logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search track metadata candidates operation.
+        limit: Input value used by the search track metadata candidates operation.
+        country: Input value used by the search track metadata candidates operation.
+
+    Returns:
+        The computed result for search track metadata candidates.
+    """
+    clean_query = query.strip()
+    bounded_limit = max(1, min(10, int(limit or 5)))
+    if not clean_query:
+        return {"candidates": [], "source_attempts": []}
+
+    candidates: list[dict[str, Any]] = []
+    attempts: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    resolved_country = (country or os.environ.get("SONEX_ITUNES_COUNTRY") or DEFAULT_ITUNES_COUNTRY).strip() or DEFAULT_ITUNES_COUNTRY
+
+    for provider, searcher in (
+        ("itunes", lambda remaining: _search_itunes(clean_query, remaining, resolved_country)),
+        ("deezer", lambda remaining: _search_deezer(clean_query, remaining)),
+        ("musicbrainz", lambda remaining: _search_musicbrainz(clean_query, remaining)),
+    ):
+        if len(candidates) >= bounded_limit:
+            break
+        try:
+            normalized = searcher(bounded_limit)
+        except HTTPError as exc:
+            attempts.append(_error_attempt(provider, exc))
+            continue
+        except Exception as exc:
+            attempts.append(_error_attempt(provider, exc))
+            continue
+
+        credible = [item for item in normalized if _is_credible(item)]
+        added = 0
+        for item in credible:
+            key = _dedupe_key(item)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            candidates.append(item)
+            added += 1
+            if len(candidates) >= bounded_limit:
+                break
+        attempts.append(
+            {
+                "provider": provider,
+                "status": "success" if added else "not_found",
+                "candidate_count": len(normalized),
+                "credible_count": len(credible),
+                "message": f"{_provider_label(provider)} returned {added} candidate{'s' if added != 1 else ''}.",
+            }
+        )
+
+    return {"candidates": candidates[:bounded_limit], "source_attempts": attempts}
+
+
+def _search_itunes(query: str, limit: int, country: str) -> list[dict[str, Any]]:
+    """Search itunes.
+
+    Coordinates search itunes logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search itunes operation.
+        limit: Input value used by the search itunes operation.
+        country: Input value used by the search itunes operation.
+
+    Returns:
+        The computed result for search itunes.
+    """
+    params = urllib.parse.urlencode(
+        {
+            "term": query,
+            "country": country,
+            "media": "music",
+            "entity": "song",
+            "limit": max(1, min(10, int(limit or 5))),
+        }
+    )
+    payload = _json_request(f"{ITUNES_SEARCH_URL}?{params}", user_agent="Sonex/1.0")
+    results = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(results, list):
+        return []
+    return [_normalize_itunes(query, item) for item in results if isinstance(item, dict)]
+
+
+def _search_deezer(query: str, limit: int) -> list[dict[str, Any]]:
+    """Search deezer.
+
+    Coordinates search deezer logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search deezer operation.
+        limit: Input value used by the search deezer operation.
+
+    Returns:
+        The computed result for search deezer.
+    """
+    params = urllib.parse.urlencode({"q": query, "limit": max(1, min(10, int(limit or 5)))})
+    payload = _json_request(f"{DEEZER_SEARCH_URL}?{params}", user_agent="Sonex/1.0")
+    results = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(results, list):
+        return []
+    return [_normalize_deezer(query, item) for item in results if isinstance(item, dict)]
+
+
+def _search_musicbrainz(query: str, limit: int) -> list[dict[str, Any]]:
+    """Search musicbrainz.
+
+    Coordinates search musicbrainz logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the search musicbrainz operation.
+        limit: Input value used by the search musicbrainz operation.
+
+    Returns:
+        The computed result for search musicbrainz.
+    """
+    params = urllib.parse.urlencode(
+        {
+            "query": query,
+            "fmt": "json",
+            "limit": max(1, min(10, int(limit or 5))),
+        }
+    )
+    payload = _musicbrainz_json(f"{MUSICBRAINZ_SEARCH_URL}?{params}")
+    recordings = payload.get("recordings") if isinstance(payload, dict) else None
+    if not isinstance(recordings, list):
+        return []
+    return [_normalize_musicbrainz(query, item) for item in recordings if isinstance(item, dict)]
+
+
+def _json_request(url: str, *, user_agent: str) -> dict[str, Any]:
+    """Json request.
+
+    Coordinates json request logic for the surrounding Sonex flow.
+
+    Args:
+        url: Input value used by the json request operation.
+        user_agent: Input value used by the json request operation.
+
+    Returns:
+        The computed result for json request.
+    """
+    request = Request(url, headers={"User-Agent": user_agent, "Accept": "application/json"})
+    with urlopen(request, timeout=6) as response:
+        return json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
+
+
+def _musicbrainz_json(url: str) -> dict[str, Any]:
+    """Musicbrainz json.
+
+    Coordinates musicbrainz json logic for the surrounding Sonex flow.
+
+    Args:
+        url: Input value used by the musicbrainz json operation.
+
+    Returns:
+        The computed result for musicbrainz json.
+    """
+    global _last_musicbrainz_request
+    with _musicbrainz_lock:
+        elapsed = time.monotonic() - _last_musicbrainz_request
+        if elapsed < MUSICBRAINZ_MIN_INTERVAL_SECONDS:
+            time.sleep(MUSICBRAINZ_MIN_INTERVAL_SECONDS - elapsed)
+        _last_musicbrainz_request = time.monotonic()
+    return _json_request(url, user_agent=MUSICBRAINZ_USER_AGENT)
+
+
+def _normalize_itunes(query: str, item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize itunes.
+
+    Coordinates normalize itunes logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the normalize itunes operation.
+        item: Input value used by the normalize itunes operation.
+
+    Returns:
+        The computed result for normalize itunes.
+    """
+    track_id = _text(item.get("trackId"))
+    name = _text(item.get("trackName"))
+    artist = _text(item.get("artistName"))
+    album = _text(item.get("collectionName"))
+    url = _text(item.get("trackViewUrl"))
+    cover = _text(item.get("artworkUrl100") or item.get("artworkUrl60") or item.get("artworkUrl30"))
+    return _candidate(
+        query=query,
+        metadata_source="itunes",
+        provider="itunes",
+        item_id=track_id,
+        name=name,
+        artist=artist,
+        album=album,
+        duration_ms=_int_ms(item.get("trackTimeMillis")),
+        cover_url=cover,
+        url=url,
+        uri=f"itunes:track:{track_id}" if track_id else None,
+        extra={"itunes_url": url},
+    )
+
+
+def _normalize_deezer(query: str, item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize deezer.
+
+    Coordinates normalize deezer logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the normalize deezer operation.
+        item: Input value used by the normalize deezer operation.
+
+    Returns:
+        The computed result for normalize deezer.
+    """
+    artist_obj = item.get("artist") if isinstance(item.get("artist"), dict) else {}
+    album_obj = item.get("album") if isinstance(item.get("album"), dict) else {}
+    track_id = _text(item.get("id"))
+    url = _text(item.get("link"))
+    return _candidate(
+        query=query,
+        metadata_source="deezer",
+        provider="deezer",
+        item_id=track_id,
+        name=_text(item.get("title_short") or item.get("title")),
+        artist=_text(artist_obj.get("name")),
+        album=_text(album_obj.get("title")),
+        duration_ms=_seconds_to_ms(item.get("duration")),
+        cover_url=_text(album_obj.get("cover_xl") or album_obj.get("cover_big") or album_obj.get("cover_medium") or album_obj.get("cover")),
+        url=url,
+        uri=f"deezer:track:{track_id}" if track_id else None,
+        extra={"deezer_url": url},
+    )
+
+
+def _normalize_musicbrainz(query: str, item: dict[str, Any]) -> dict[str, Any]:
+    """Normalize musicbrainz.
+
+    Coordinates normalize musicbrainz logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the normalize musicbrainz operation.
+        item: Input value used by the normalize musicbrainz operation.
+
+    Returns:
+        The computed result for normalize musicbrainz.
+    """
+    recording_id = _text(item.get("id"))
+    artist_names = _musicbrainz_artist_names(item.get("artist-credit"))
+    artist = ", ".join(artist_names) if artist_names else None
+    album = _musicbrainz_album(item.get("releases"))
+    url = f"https://musicbrainz.org/recording/{recording_id}" if recording_id else None
+    return _candidate(
+        query=query,
+        metadata_source="musicbrainz",
+        provider="musicbrainz",
+        item_id=recording_id,
+        name=_text(item.get("title")),
+        artist=artist,
+        album=album,
+        duration_ms=_int_ms(item.get("length")),
+        cover_url=None,
+        url=url,
+        uri=f"musicbrainz:recording:{recording_id}" if recording_id else None,
+        extra={"musicbrainz_recording_id": recording_id, "musicbrainz_url": url},
+    )
+
+
+def _candidate(
+    *,
+    query: str,
+    metadata_source: str,
+    provider: str,
+    item_id: str | None,
+    name: str | None,
+    artist: str | None,
+    album: str | None,
+    duration_ms: int,
+    cover_url: str | None,
+    url: str | None,
+    uri: str | None,
+    extra: dict[str, Any],
+) -> dict[str, Any]:
+    """Candidate.
+
+    Coordinates candidate logic for the surrounding Sonex flow.
+
+    Args:
+        query: Input value used by the candidate operation.
+        metadata_source: Input value used by the candidate operation.
+        provider: Input value used by the candidate operation.
+        item_id: Input value used by the candidate operation.
+        name: Input value used by the candidate operation.
+        artist: Input value used by the candidate operation.
+        album: Input value used by the candidate operation.
+        duration_ms: Input value used by the candidate operation.
+        cover_url: Input value used by the candidate operation.
+        url: Input value used by the candidate operation.
+        uri: Input value used by the candidate operation.
+        extra: Input value used by the candidate operation.
+
+    Returns:
+        The computed result for candidate.
+    """
+    artists = [artist] if artist else []
+    candidate: dict[str, Any] = {
+        "metadata_source": metadata_source,
+        "provider": provider,
+        "id": item_id,
+        "name": name,
+        "title": name,
+        "artist": artist,
+        "artists": artists,
+        "album": album,
+        "duration_ms": duration_ms,
+        "album_cover_url": cover_url,
+        "cover_url": cover_url,
+        "url": url,
+        "uri": uri,
+        "original_query": query,
+        "youtube_query": f"{artist or ''} {name or ''}".strip() or query,
+        **extra,
+    }
+    return {key: value for key, value in candidate.items() if value not in (None, [], "")}
+
+
+def _musicbrainz_artist_names(value: Any) -> list[str]:
+    """Musicbrainz artist names.
+
+    Coordinates musicbrainz artist names logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the musicbrainz artist names operation.
+
+    Returns:
+        The computed result for musicbrainz artist names.
+    """
+    if not isinstance(value, list):
+        return []
+    names: list[str] = []
+    for item in value:
+        if isinstance(item, dict):
+            artist_obj = item.get("artist") if isinstance(item.get("artist"), dict) else {}
+            name = _text(item.get("name") or artist_obj.get("name"))
+            if name:
+                names.append(name)
+    return names
+
+
+def _musicbrainz_album(value: Any) -> str | None:
+    """Musicbrainz album.
+
+    Coordinates musicbrainz album logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the musicbrainz album operation.
+
+    Returns:
+        The computed result for musicbrainz album.
+    """
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if isinstance(item, dict):
+            title = _text(item.get("title"))
+            if title:
+                return title
+    return None
+
+
+def _is_credible(item: dict[str, Any]) -> bool:
+    """Is credible.
+
+    Coordinates is credible logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the is credible operation.
+
+    Returns:
+        The computed result for is credible.
+    """
+    return bool(_text(item.get("name") or item.get("title")) and _text(item.get("artist")))
+
+
+def _dedupe_key(item: dict[str, Any]) -> str | None:
+    """Dedupe key.
+
+    Coordinates dedupe key logic for the surrounding Sonex flow.
+
+    Args:
+        item: Input value used by the dedupe key operation.
+
+    Returns:
+        The computed result for dedupe key.
+    """
+    name = _normalize_key_text(item.get("name") or item.get("title"))
+    artist = _normalize_key_text(item.get("artist"))
+    album = _normalize_key_text(item.get("album"))
+    if not name or not artist:
+        return None
+    return "|".join((name, artist, album))
+
+
+def _normalize_key_text(value: Any) -> str:
+    """Normalize key text.
+
+    Coordinates normalize key text logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the normalize key text operation.
+
+    Returns:
+        The computed result for normalize key text.
+    """
+    return " ".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").casefold()))
+
+
+def _text(value: Any) -> str | None:
+    """Text.
+
+    Coordinates text logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the text operation.
+
+    Returns:
+        The computed result for text.
+    """
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _int_ms(value: Any) -> int:
+    """Int ms.
+
+    Coordinates int ms logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the int ms operation.
+
+    Returns:
+        The computed result for int ms.
+    """
+    try:
+        return max(0, int(float(value or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _seconds_to_ms(value: Any) -> int:
+    """Seconds to ms.
+
+    Coordinates seconds to ms logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the seconds to ms operation.
+
+    Returns:
+        The computed result for seconds to ms.
+    """
+    try:
+        return max(0, int(float(value or 0) * 1000))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _error_attempt(provider: str, exc: Exception) -> dict[str, Any]:
+    """Error attempt.
+
+    Coordinates error attempt logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the error attempt operation.
+        exc: Input value used by the error attempt operation.
+
+    Returns:
+        The computed result for error attempt.
+    """
+    status = "rate_limited" if isinstance(exc, HTTPError) and exc.code == 429 else "error"
+    message = f"{_provider_label(provider)} rate limit reached." if status == "rate_limited" else sanitize_error_message(exc)
+    return {
+        "provider": provider,
+        "status": status,
+        "candidate_count": 0,
+        "credible_count": 0,
+        "message": message,
+    }
+
+
+def _provider_label(provider: str) -> str:
+    """Provider label.
+
+    Coordinates provider label logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the provider label operation.
+
+    Returns:
+        The computed result for provider label.
+    """
+    return {"itunes": "iTunes", "deezer": "Deezer", "musicbrainz": "MusicBrainz"}.get(provider, provider.title())

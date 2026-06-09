@@ -1,3 +1,9 @@
+"""Ws runner support for fastapi and websocket routing for the sonex runtime.
+
+Implements the ws_runner module responsibilities used by Sonex runtime flows.
+Key public entry points include search_youtube_songs, play_youtube_candidate, PlayRequestParse, AuthRuntimeState, WebSocketUIAdapter.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +29,12 @@ from fastapi import WebSocket, WebSocketDisconnect
 from src.agent.core import agent_loop
 from src.agent.events import RunnerEvent, UiStatus
 from src.api.builtin_commands import BuiltinCommand, CommandIntent, command_suggestions, format_help, parse_builtin_command
+from src.api.music_intent import (
+    MusicIntentDecision,
+    MusicIntentRoute,
+    classify_music_intent,
+    classify_music_intent_fast,
+)
 from src.auth.apple_music import (
     apple_music_setup_message,
     save_apple_music_credentials,
@@ -58,15 +70,37 @@ from src.tools.online_play import (
     play_online_audio_candidate,
     resolve_online_playback_metadata,
     search_online_audio_candidates,
-    search_spotify_track_candidates,
 )
+from src.tools.track_search import search_track_metadata_candidates
 
 # Backward-compatible runner patch points; these now resolve the unified online-audio layer.
 def search_youtube_songs(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    """Search youtube songs.
+
+    Coordinates search youtube songs logic for the surrounding Sonex flow.
+
+    Args:
+        args: Input value used by the search youtube songs operation.
+        kwargs: Input value used by the search youtube songs operation.
+
+    Returns:
+        The computed result for search youtube songs.
+    """
     return search_online_audio_candidates(*args, **kwargs)
 
 
 def play_youtube_candidate(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Play youtube candidate.
+
+    Coordinates play youtube candidate logic for the surrounding Sonex flow.
+
+    Args:
+        args: Input value used by the play youtube candidate operation.
+        kwargs: Input value used by the play youtube candidate operation.
+
+    Returns:
+        The computed result for play youtube candidate.
+    """
     return play_online_audio_candidate(*args, **kwargs)
 
 
@@ -75,12 +109,34 @@ _LEGACY_PLAY_ALIAS = play_youtube_candidate
 
 
 def _search_online_audio_for_runner(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    """Search online audio for runner.
+
+    Coordinates search online audio for runner logic for the surrounding Sonex flow.
+
+    Args:
+        args: Input value used by the search online audio for runner operation.
+        kwargs: Input value used by the search online audio for runner operation.
+
+    Returns:
+        The computed result for search online audio for runner.
+    """
     if search_youtube_songs is not _LEGACY_SEARCH_ALIAS:
         return search_youtube_songs(*args, **kwargs)
     return search_online_audio_candidates(*args, **kwargs)
 
 
 def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    """Play online audio for runner.
+
+    Coordinates play online audio for runner logic for the surrounding Sonex flow.
+
+    Args:
+        args: Input value used by the play online audio for runner operation.
+        kwargs: Input value used by the play online audio for runner operation.
+
+    Returns:
+        The computed result for play online audio for runner.
+    """
     if play_youtube_candidate is not _LEGACY_PLAY_ALIAS:
         return play_youtube_candidate(*args, **kwargs)
     return play_online_audio_candidate(*args, **kwargs)
@@ -94,6 +150,19 @@ from src.tools.spotify_play import remember_recent_track, recent_tracks_snapshot
 from src.tools.song_cache import find_best_cached_song, recent_cached_songs, resolve_cached_song, upsert_cached_song
 
 SEARCH_RESULT_TOOLS = {"spotify_search", "search_track", "spotify_recommend", "apple_music_search", "apple_music_recommend"}
+RECOMMENDATION_TOOLS = {"spotify_recommend", "apple_music_recommend"}
+PLAYBACK_AGENT_TOOLS = {"spotify_play", "apple_music_play", "play_youtube_song", "play_local_song"}
+RECOMMEND_AGENT_TOOLS = (
+    "spotify_recommend",
+    "apple_music_recommend",
+    "spotify_recent_tracks",
+    "apple_music_recent_tracks",
+    "spotify_search",
+    "apple_music_search",
+    "search_track",
+    "search_memory",
+    "search_context",
+)
 LOCAL_PLAYBACK_CONTROL_TOOLS = {
     "pause": "local_playback_pause",
     "resume": "local_playback_resume",
@@ -129,6 +198,16 @@ LOCAL_PLAYBACK_CHOICES = [
 
 
 def _player_debug(message: str) -> None:
+    """Player debug.
+
+    Coordinates player debug logic for the surrounding Sonex flow.
+
+    Args:
+        message: Input value used by the player debug operation.
+
+    Returns:
+        The computed result for player debug.
+    """
     if os.environ.get("SONEX_PLAYER_DEBUG") == "1":
         print(f"[sonex-player-debug] {message}", file=sys.stderr)
 
@@ -174,6 +253,10 @@ LLM_MODEL_CHOICE_VALUES = {choice["value"].lower(): choice for choice in LLM_MOD
 
 @dataclass(frozen=True, slots=True)
 class PlayRequestParse:
+    """Represents play request parse.
+
+    Encapsulates play request parse data and behavior used by Sonex runtime flows.
+    """
     is_play_request: bool
     query: str | None
     confidence: str
@@ -182,6 +265,10 @@ class PlayRequestParse:
 
 @dataclass(frozen=True, slots=True)
 class AuthRuntimeState:
+    """Represents auth runtime state.
+
+    Encapsulates auth runtime state data and behavior used by Sonex runtime flows.
+    """
     ready: bool
     provider: str
     model: str
@@ -190,6 +277,13 @@ class AuthRuntimeState:
     reason: str | None = None
 
     def to_event(self) -> dict[str, Any]:
+        """To event for auth runtime state.
+
+        Coordinates the to event method behavior while preserving auth runtime state state and contracts.
+
+        Returns:
+            The computed result for to event.
+        """
         return {
             "type": "auth_state",
             "ready": self.ready,
@@ -202,12 +296,33 @@ class AuthRuntimeState:
 
 
 class WebSocketUIAdapter:
+    """Represents web socket u i adapter.
+
+    Encapsulates web socket u i adapter data and behavior used by Sonex runtime flows.
+    """
     def __init__(self, ws: WebSocket) -> None:
+        """Init for web socket u i adapter.
+
+        Coordinates the init method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            ws: Input value used by the init operation.
+        """
         self.ws = ws
         self.closed = False
         self.transcript: list[dict[str, str]] = []
 
     async def _send(self, payload: dict[str, Any]) -> None:
+        """Send for web socket u i adapter.
+
+        Coordinates the send method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            payload: Input value used by the send operation.
+
+        Returns:
+            The computed result for send.
+        """
         if self.closed:
             return
         try:
@@ -216,17 +331,57 @@ class WebSocketUIAdapter:
             self.closed = True
 
     async def append_user_message(self, text: str) -> None:
+        """Append user message for web socket u i adapter.
+
+        Coordinates the append user message method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            text: Input value used by the append user message operation.
+
+        Returns:
+            The computed result for append user message.
+        """
         self.transcript.append({"role": "user", "content": text})
         await self._send({"type": "chat", "role": "user", "text": text})
 
     async def append_agent_message(self, text: str) -> None:
+        """Append agent message for web socket u i adapter.
+
+        Coordinates the append agent message method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            text: Input value used by the append agent message operation.
+
+        Returns:
+            The computed result for append agent message.
+        """
         self.transcript.append({"role": "agent", "content": text})
         await self._send({"type": "chat", "role": "agent", "text": text})
 
     async def send_error(self, message: str) -> None:
+        """Send error for web socket u i adapter.
+
+        Coordinates the send error method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            message: Input value used by the send error operation.
+
+        Returns:
+            The computed result for send error.
+        """
         await self._send({"type": "error", "message": message, "recoverable": True})
 
     async def append_tool_message(self, text: str) -> None:
+        """Append tool message for web socket u i adapter.
+
+        Coordinates the append tool message method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            text: Input value used by the append tool message operation.
+
+        Returns:
+            The computed result for append tool message.
+        """
         await self.append_activity(
             kind="tool",
             title=text,
@@ -242,6 +397,20 @@ class WebSocketUIAdapter:
         status: str | None = None,
         activity_id: str | None = None,
     ) -> str:
+        """Append activity for web socket u i adapter.
+
+        Coordinates the append activity method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            kind: Input value used by the append activity operation.
+            title: Input value used by the append activity operation.
+            detail: Input value used by the append activity operation.
+            status: Input value used by the append activity operation.
+            activity_id: Input value used by the append activity operation.
+
+        Returns:
+            The computed result for append activity.
+        """
         activity_id = activity_id or _new_event_id("activity")
         await self._send(
             {
@@ -257,6 +426,16 @@ class WebSocketUIAdapter:
         return activity_id
 
     def set_status(self, status: UiStatus) -> None:
+        """Set status for web socket u i adapter.
+
+        Coordinates the set status method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            status: Input value used by the set status operation.
+
+        Returns:
+            The computed result for set status.
+        """
         asyncio.create_task(
             self.send_status(status)
         )
@@ -269,6 +448,19 @@ class WebSocketUIAdapter:
         elapsed_ms: int | None = None,
         active: bool | None = None,
     ) -> None:
+        """Send status for web socket u i adapter.
+
+        Coordinates the send status method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            status: Input value used by the send status operation.
+            tokens: Input value used by the send status operation.
+            elapsed_ms: Input value used by the send status operation.
+            active: Input value used by the send status operation.
+
+        Returns:
+            The computed result for send status.
+        """
         payload = {
             "type": "status",
             "phase": status.phase,
@@ -284,13 +476,43 @@ class WebSocketUIAdapter:
         await self._send(payload)
 
     async def send_auth_state(self, state: AuthRuntimeState) -> None:
+        """Send auth state for web socket u i adapter.
+
+        Coordinates the send auth state method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            state: Input value used by the send auth state operation.
+
+        Returns:
+            The computed result for send auth state.
+        """
         await self._send(state.to_event())
 
     async def send_cover(self, url: str) -> None:
+        """Send cover for web socket u i adapter.
+
+        Coordinates the send cover method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            url: Input value used by the send cover operation.
+
+        Returns:
+            The computed result for send cover.
+        """
         await self._send({"type": "cover", "url": url})
         asyncio.create_task(_send_cover_pattern(self, url))
 
     async def ask_confirm(self, attached: dict[str, Any]) -> None:
+        """Ask confirm for web socket u i adapter.
+
+        Coordinates the ask confirm method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            attached: Input value used by the ask confirm operation.
+
+        Returns:
+            The computed result for ask confirm.
+        """
         await self._send(
             {
                 "type": "confirm",
@@ -312,6 +534,21 @@ class WebSocketUIAdapter:
         mask: bool = False,
         active: bool = True,
     ) -> None:
+        """Send spotify setup for web socket u i adapter.
+
+        Coordinates the send spotify setup method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            step: Input value used by the send spotify setup operation.
+            title: Input value used by the send spotify setup operation.
+            message: Input value used by the send spotify setup operation.
+            prompt: Input value used by the send spotify setup operation.
+            mask: Input value used by the send spotify setup operation.
+            active: Input value used by the send spotify setup operation.
+
+        Returns:
+            The computed result for send spotify setup.
+        """
         await self._send(
             {
                 "type": "spotify_setup",
@@ -338,6 +575,25 @@ class WebSocketUIAdapter:
         providers: list[dict[str, str]] | None = None,
         models: list[dict[str, str]] | None = None,
     ) -> None:
+        """Send auth setup for web socket u i adapter.
+
+        Coordinates the send auth setup method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            provider: Input value used by the send auth setup operation.
+            step: Input value used by the send auth setup operation.
+            title: Input value used by the send auth setup operation.
+            message: Input value used by the send auth setup operation.
+            prompt: Input value used by the send auth setup operation.
+            mask: Input value used by the send auth setup operation.
+            active: Input value used by the send auth setup operation.
+            methods: Input value used by the send auth setup operation.
+            providers: Input value used by the send auth setup operation.
+            models: Input value used by the send auth setup operation.
+
+        Returns:
+            The computed result for send auth setup.
+        """
         await self._send(
             {
                 "type": "auth_setup",
@@ -361,6 +617,18 @@ class WebSocketUIAdapter:
         title: str = "Slash commands",
         hint: str = "press Esc to hide",
     ) -> None:
+        """Send help panel for web socket u i adapter.
+
+        Coordinates the send help panel method behavior while preserving web socket u i adapter state and contracts.
+
+        Args:
+            commands: Input value used by the send help panel operation.
+            title: Input value used by the send help panel operation.
+            hint: Input value used by the send help panel operation.
+
+        Returns:
+            The computed result for send help panel.
+        """
         await self._send(
             {
                 "type": "help_panel",
@@ -378,6 +646,13 @@ class WebSocketUIAdapter:
         )
 
     async def close(self) -> None:
+        """Close for web socket u i adapter.
+
+        Coordinates the close method behavior while preserving web socket u i adapter state and contracts.
+
+        Returns:
+            The computed result for close.
+        """
         if self.closed:
             return
         self.closed = True
@@ -386,14 +661,42 @@ class WebSocketUIAdapter:
 
 
 def _timestamp_ms() -> int:
+    """Timestamp ms.
+
+    Coordinates timestamp ms logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for timestamp ms.
+    """
     return int(time.time() * 1000)
 
 
 def _new_event_id(prefix: str) -> str:
+    """New event id.
+
+    Coordinates new event id logic for the surrounding Sonex flow.
+
+    Args:
+        prefix: Input value used by the new event id operation.
+
+    Returns:
+        The computed result for new event id.
+    """
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 
 async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
+    """Asynchronously send cover pattern.
+
+    Coordinates non-blocking send cover pattern work for the surrounding Sonex flow.
+
+    Args:
+        ui: Input value used by the send cover pattern operation.
+        source_url: Input value used by the send cover pattern operation.
+
+    Returns:
+        The computed result for send cover pattern.
+    """
     try:
         image_bytes = cover_bytes_for_source(source_url)
         if image_bytes is not None:
@@ -411,11 +714,31 @@ async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
 
 
 def _is_http_cover_source(source: str) -> bool:
+    """Is http cover source.
+
+    Coordinates is http cover source logic for the surrounding Sonex flow.
+
+    Args:
+        source: Input value used by the is http cover source operation.
+
+    Returns:
+        The computed result for is http cover source.
+    """
     lowered = source.lower()
     return lowered.startswith("http://") or lowered.startswith("https://")
 
 
 def _coerce_transcript_messages(messages: Any) -> list[dict[str, str]]:
+    """Coerce transcript messages.
+
+    Coordinates coerce transcript messages logic for the surrounding Sonex flow.
+
+    Args:
+        messages: Input value used by the coerce transcript messages operation.
+
+    Returns:
+        The computed result for coerce transcript messages.
+    """
     if not isinstance(messages, list):
         return []
 
@@ -436,6 +759,17 @@ def _save_session_transcript(
     *,
     reason: str,
 ) -> Path:
+    """Save session transcript.
+
+    Coordinates save session transcript logic for the surrounding Sonex flow.
+
+    Args:
+        messages: Input value used by the save session transcript operation.
+        reason: Input value used by the save session transcript operation.
+
+    Returns:
+        The computed result for save session transcript.
+    """
     now = datetime.now(timezone.utc)
     session_id = now.strftime("%Y%m%d%H%M%S%fZ")
     root = sonex_home() / "sessions" / session_id
@@ -462,6 +796,17 @@ def _save_session_transcript(
 
 
 def _first_line(text: str, limit: int = 160) -> str:
+    """First line.
+
+    Coordinates first line logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the first line operation.
+        limit: Input value used by the first line operation.
+
+    Returns:
+        The computed result for first line.
+    """
     line = " ".join(str(text).strip().split())
     if len(line) <= limit:
         return line
@@ -469,6 +814,18 @@ def _first_line(text: str, limit: int = 160) -> str:
 
 
 def _preview(value: Any, max_lines: int = 3, max_chars: int = 420) -> str:
+    """Preview.
+
+    Coordinates preview logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the preview operation.
+        max_lines: Input value used by the preview operation.
+        max_chars: Input value used by the preview operation.
+
+    Returns:
+        The computed result for preview.
+    """
     if value is None:
         return ""
     if isinstance(value, (dict, list)):
@@ -486,6 +843,16 @@ def _preview(value: Any, max_lines: int = 3, max_chars: int = 420) -> str:
 
 
 def _format_args(args: Any) -> str:
+    """Format args.
+
+    Coordinates format args logic for the surrounding Sonex flow.
+
+    Args:
+        args: Input value used by the format args operation.
+
+    Returns:
+        The computed result for format args.
+    """
     if not args:
         return ""
     if isinstance(args, dict):
@@ -498,11 +865,33 @@ def _format_args(args: Any) -> str:
 
 
 def _format_tool_start(tool_name: str, args: dict[str, Any]) -> tuple[str, str | None]:
+    """Format tool start.
+
+    Coordinates format tool start logic for the surrounding Sonex flow.
+
+    Args:
+        tool_name: Input value used by the format tool start operation.
+        args: Input value used by the format tool start operation.
+
+    Returns:
+        The computed result for format tool start.
+    """
     detail = _format_args(args)
     return f"Calling {tool_name}", detail or None
 
 
 def _format_tool_result(tool_name: str, result: Any) -> tuple[str, str | None, str]:
+    """Format tool result.
+
+    Coordinates format tool result logic for the surrounding Sonex flow.
+
+    Args:
+        tool_name: Input value used by the format tool result operation.
+        result: Input value used by the format tool result operation.
+
+    Returns:
+        The computed result for format tool result.
+    """
     status_value = "success"
     message = ""
 
@@ -520,16 +909,47 @@ def _format_tool_result(tool_name: str, result: Any) -> tuple[str, str | None, s
 
 
 def _is_failed_tool_result(result: Any) -> bool:
+    """Is failed tool result.
+
+    Coordinates is failed tool result logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the is failed tool result operation.
+
+    Returns:
+        The computed result for is failed tool result.
+    """
     if not isinstance(result, dict):
         return False
     return str(result.get("status") or "").lower() in {"fail", "failure", "error"}
 
 
 def _is_player_confirm_result(result: Any) -> bool:
+    """Is player confirm result.
+
+    Coordinates is player confirm result logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the is player confirm result operation.
+
+    Returns:
+        The computed result for is player confirm result.
+    """
     return isinstance(result, dict) and result.get("status") == "requires_player_confirm"
 
 
 def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something went wrong.") -> str:
+    """Friendly runtime error message.
+
+    Coordinates friendly runtime error message logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the friendly runtime error message operation.
+        fallback: Input value used by the friendly runtime error message operation.
+
+    Returns:
+        The computed result for friendly runtime error message.
+    """
     if isinstance(result, dict):
         code = str(result.get("error_code") or "")
         message = str(result.get("message") or "").strip()
@@ -544,6 +964,16 @@ def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something w
 
 
 def _walk_dicts(value: Any) -> list[dict[str, Any]]:
+    """Walk dicts.
+
+    Coordinates walk dicts logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the walk dicts operation.
+
+    Returns:
+        The computed result for walk dicts.
+    """
     found: list[dict[str, Any]] = []
     if isinstance(value, dict):
         found.append(value)
@@ -556,6 +986,16 @@ def _walk_dicts(value: Any) -> list[dict[str, Any]]:
 
 
 def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None]:
+    """Extract music state.
+
+    Coordinates extract music state logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the extract music state operation.
+
+    Returns:
+        The computed result for extract music state.
+    """
     for item in _walk_dicts(result):
         name = item.get("name") or item.get("title")
         artist = item.get("artist")
@@ -601,10 +1041,30 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
 
 
 def _is_youtube_thumbnail(value: Any) -> bool:
+    """Is youtube thumbnail.
+
+    Coordinates is youtube thumbnail logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the is youtube thumbnail operation.
+
+    Returns:
+        The computed result for is youtube thumbnail.
+    """
     return isinstance(value, str) and "ytimg.com/" in value
 
 
 def _extract_tracks(result: Any) -> list[dict[str, Any]]:
+    """Extract tracks.
+
+    Coordinates extract tracks logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the extract tracks operation.
+
+    Returns:
+        The computed result for extract tracks.
+    """
     if not isinstance(result, dict):
         return []
     data = result.get("data") if isinstance(result.get("data"), dict) else result
@@ -615,6 +1075,16 @@ def _extract_tracks(result: Any) -> list[dict[str, Any]]:
 
 
 def _duration_text(ms: Any) -> str:
+    """Duration text.
+
+    Coordinates duration text logic for the surrounding Sonex flow.
+
+    Args:
+        ms: Input value used by the duration text operation.
+
+    Returns:
+        The computed result for duration text.
+    """
     try:
         total_seconds = max(0, int(ms or 0) // 1000)
     except (TypeError, ValueError):
@@ -624,7 +1094,37 @@ def _duration_text(ms: Any) -> str:
     return f"{minutes}:{seconds:02d}"
 
 
+def _metadata_provider_label(provider: Any) -> str:
+    """Metadata provider label.
+
+    Coordinates metadata provider label logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the metadata provider label operation.
+
+    Returns:
+        The computed result for metadata provider label.
+    """
+    normalized = str(provider or "").strip().lower()
+    return {
+        "itunes": "iTunes",
+        "deezer": "Deezer",
+        "musicbrainz": "MusicBrainz",
+        "spotify": "Spotify",
+    }.get(normalized, str(provider or "Metadata").title())
+
+
 def _compact_count(value: Any) -> str | None:
+    """Compact count.
+
+    Coordinates compact count logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the compact count operation.
+
+    Returns:
+        The computed result for compact count.
+    """
     try:
         count = max(0, int(float(value or 0)))
     except (TypeError, ValueError):
@@ -643,6 +1143,16 @@ def _compact_count(value: Any) -> str | None:
 
 
 def _youtube_variant_label(value: Any) -> str:
+    """Youtube variant label.
+
+    Coordinates youtube variant label logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the youtube variant label operation.
+
+    Returns:
+        The computed result for youtube variant label.
+    """
     variant = str(value or "other")
     if variant == "official_original":
         return "原音"
@@ -652,6 +1162,13 @@ def _youtube_variant_label(value: Any) -> str:
 
 
 def _queue_payload() -> list[dict[str, str]]:
+    """Queue payload.
+
+    Coordinates queue payload logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for queue payload.
+    """
     try:
         tracks = recent_cached_songs()
     except Exception:
@@ -670,6 +1187,16 @@ def _queue_payload() -> list[dict[str, str]]:
 
 
 def _search_results_payload(result: Any) -> list[dict[str, Any]]:
+    """Search results payload.
+
+    Coordinates search results payload logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the search results payload operation.
+
+    Returns:
+        The computed result for search results payload.
+    """
     tracks = _extract_tracks(result)
     payload: list[dict[str, Any]] = []
     for index, track in enumerate(tracks, start=1):
@@ -695,6 +1222,16 @@ def _search_results_payload(result: Any) -> list[dict[str, Any]]:
 
 
 def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
+    """Player sync signature.
+
+    Coordinates player sync signature logic for the surrounding Sonex flow.
+
+    Args:
+        state: Input value used by the player sync signature operation.
+
+    Returns:
+        The computed result for player sync signature.
+    """
     progress_bucket = int((state.get("progress_ms") or 0) / 5000)
     return (
         state.get("name"),
@@ -708,6 +1245,17 @@ def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def _project_local_playback_state(state: dict[str, Any], now_ms: int) -> dict[str, Any]:
+    """Project local playback state.
+
+    Coordinates project local playback state logic for the surrounding Sonex flow.
+
+    Args:
+        state: Input value used by the project local playback state operation.
+        now_ms: Input value used by the project local playback state operation.
+
+    Returns:
+        The computed result for project local playback state.
+    """
     payload = dict(state)
     progress_ms = int(payload.get("progress_ms") or 0)
     duration_ms = int(payload.get("duration_ms") or 0)
@@ -728,19 +1276,49 @@ def _project_local_playback_state(state: dict[str, Any], now_ms: int) -> dict[st
 
 
 def _is_spotify_setup_request(text: str) -> bool:
+    """Is spotify setup request.
+
+    Coordinates is spotify setup request logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the is spotify setup request operation.
+
+    Returns:
+        The computed result for is spotify setup request.
+    """
     normalized = " ".join(text.strip().lower().split())
     return normalized in SPOTIFY_SETUP_TRIGGERS
 
 
 def _is_apple_music_setup_request(text: str) -> bool:
+    """Is apple music setup request.
+
+    Coordinates is apple music setup request logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the is apple music setup request operation.
+
+    Returns:
+        The computed result for is apple music setup request.
+    """
     normalized = " ".join(text.strip().lower().split())
     return normalized in APPLE_MUSIC_SETUP_TRIGGERS
 
 
 def _rule_parse_play_request(text: str) -> PlayRequestParse:
+    """Rule parse play request.
+
+    Coordinates rule parse play request logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the rule parse play request operation.
+
+    Returns:
+        The computed result for rule parse play request.
+    """
     stripped = text.strip()
     lowered = stripped.lower()
-    prefixes = ("play ", "播放", "放一下", "放首", "来首", "来一首", "我想听", "想听", "听 ")
+    prefixes = ("play ", "帮我放一首", "播放", "放一下", "放首", "来首", "来一首", "我想听", "想听", "听 ")
     for prefix in prefixes:
         if lowered.startswith(prefix):
             query = stripped[len(prefix):].strip()
@@ -750,6 +1328,16 @@ def _rule_parse_play_request(text: str) -> PlayRequestParse:
 
 
 def _should_optimize_play_request(text: str) -> bool:
+    """Should optimize play request.
+
+    Coordinates should optimize play request logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the should optimize play request operation.
+
+    Returns:
+        The computed result for should optimize play request.
+    """
     lowered = text.strip().lower()
     if not lowered:
         return False
@@ -759,6 +1347,16 @@ def _should_optimize_play_request(text: str) -> bool:
 
 
 def _optimize_play_prompt(text: str) -> PlayRequestParse:
+    """Optimize play prompt.
+
+    Coordinates optimize play prompt logic for the surrounding Sonex flow.
+
+    Args:
+        text: Input value used by the optimize play prompt operation.
+
+    Returns:
+        The computed result for optimize play prompt.
+    """
     prompt = (
         "Decide whether the user is clearly asking to play a song now.\n"
         "Return JSON only with keys: is_play_request boolean, query string or null, "
@@ -793,14 +1391,41 @@ def _optimize_play_prompt(text: str) -> PlayRequestParse:
 
 
 def _is_local_search_hit(result: str) -> bool:
+    """Is local search hit.
+
+    Coordinates is local search hit logic for the surrounding Sonex flow.
+
+    Args:
+        result: Input value used by the is local search hit operation.
+
+    Returns:
+        The computed result for is local search hit.
+    """
     return bool(result and not result.startswith("No local files found") and not result.startswith("Path outside user workspace"))
 
 
 def _filename(path_text: str) -> str:
+    """Filename.
+
+    Coordinates filename logic for the surrounding Sonex flow.
+
+    Args:
+        path_text: Input value used by the filename operation.
+
+    Returns:
+        The computed result for filename.
+    """
     return Path(path_text).name or path_text
 
 
 def _default_provider_name() -> str:
+    """Default provider name.
+
+    Coordinates default provider name logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for default provider name.
+    """
     config_path = os.getenv("SONEX_CONFIG_PATH")
     if config_path:
         resolved_config_path = os.path.expanduser(config_path)
@@ -831,6 +1456,13 @@ def _default_provider_name() -> str:
 
 
 def _default_model_name() -> str:
+    """Default model name.
+
+    Coordinates default model name logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for default model name.
+    """
     config_path = os.getenv("SONEX_CONFIG_PATH")
     if config_path:
         resolved_config_path = os.path.expanduser(config_path)
@@ -869,6 +1501,16 @@ def _default_model_name() -> str:
 
 
 def _env_api_key_for_provider(provider: str) -> str | None:
+    """Env api key for provider.
+
+    Coordinates env api key for provider logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the env api key for provider operation.
+
+    Returns:
+        The computed result for env api key for provider.
+    """
     name = normalize_provider(provider)
     value = os.getenv(f"SONEX_{name.upper()}_API_KEY")
     if value:
@@ -879,6 +1521,17 @@ def _env_api_key_for_provider(provider: str) -> str | None:
 
 
 def _set_runtime_default_provider(provider: str, model: str | None = None) -> None:
+    """Set runtime default provider.
+
+    Coordinates set runtime default provider logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the set runtime default provider operation.
+        model: Input value used by the set runtime default provider operation.
+
+    Returns:
+        The computed result for set runtime default provider.
+    """
     name = normalize_provider(provider)
     resolved_model = model or get_provider_capability(name).default_model
     set_default(name, resolved_model)
@@ -888,6 +1541,13 @@ def _set_runtime_default_provider(provider: str, model: str | None = None) -> No
 
 
 def _resolved_provider_model() -> tuple[str, str]:
+    """Resolved provider model.
+
+    Coordinates resolved provider model logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for resolved provider model.
+    """
     try:
         ThinkingConfig.reload()
         provider = normalize_provider(ThinkingConfig.get_provider())
@@ -899,6 +1559,13 @@ def _resolved_provider_model() -> tuple[str, str]:
 
 
 def _llm_auth_state() -> AuthRuntimeState:
+    """Llm auth state.
+
+    Coordinates llm auth state logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for llm auth state.
+    """
     provider, model = _resolved_provider_model()
 
     capability = get_provider_capability(provider)
@@ -941,11 +1608,28 @@ def _llm_auth_state() -> AuthRuntimeState:
 
 
 def _llm_auth_ready() -> tuple[bool, str, str | None]:
+    """Llm auth ready.
+
+    Coordinates llm auth ready logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for llm auth ready.
+    """
     state = _llm_auth_state()
     return state.ready, state.provider, state.reason
 
 
 def _auth_methods_for_provider(provider: str) -> list[dict[str, str]]:
+    """Auth methods for provider.
+
+    Coordinates auth methods for provider logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the auth methods for provider operation.
+
+    Returns:
+        The computed result for auth methods for provider.
+    """
     capability = get_provider_capability(provider)
     methods: list[dict[str, str]] = []
     if capability.supports_oauth and browser_oauth_supported(provider):
@@ -956,6 +1640,16 @@ def _auth_methods_for_provider(provider: str) -> list[dict[str, str]]:
 
 
 def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
+    """Model choices for provider.
+
+    Coordinates model choices for provider logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the model choices for provider operation.
+
+    Returns:
+        The computed result for model choices for provider.
+    """
     name = normalize_provider(provider)
     if name in {"openai", "anthropic", "gemini", "deepseek"}:
         ThinkingConfig.reload()
@@ -977,6 +1671,17 @@ def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
 
 
 def _parse_model_choice(value: str, choices: list[dict[str, str]] | None = None) -> tuple[str, str] | None:
+    """Parse model choice.
+
+    Coordinates parse model choice logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the parse model choice operation.
+        choices: Input value used by the parse model choice operation.
+
+    Returns:
+        The computed result for parse model choice.
+    """
     normalized = value.strip()
     if not normalized:
         return None
@@ -1002,6 +1707,17 @@ def _parse_model_choice(value: str, choices: list[dict[str, str]] | None = None)
 
 
 def _spotify_loopback_login_for_tui(authorize_url: str, expected_state: str) -> dict[str, Any]:
+    """Spotify loopback login for tui.
+
+    Coordinates spotify loopback login for tui logic for the surrounding Sonex flow.
+
+    Args:
+        authorize_url: Input value used by the spotify loopback login for tui operation.
+        expected_state: Input value used by the spotify loopback login for tui operation.
+
+    Returns:
+        The computed result for spotify loopback login for tui.
+    """
     redirect = urlparse(spotify_redirect_uri())
     host = redirect.hostname or "127.0.0.1"
     port = redirect.port or 80
@@ -1009,7 +1725,18 @@ def _spotify_loopback_login_for_tui(authorize_url: str, expected_state: str) -> 
     received: dict[str, str] = {}
 
     class SpotifyCallbackHandler(BaseHTTPRequestHandler):
+        """Represents spotify callback handler.
+
+        Encapsulates spotify callback handler data and behavior used by Sonex runtime flows. Extends base h t t p request handler semantics.
+        """
         def do_GET(self) -> None:
+            """Do g e t for spotify callback handler.
+
+            Coordinates the do g e t method behavior while preserving spotify callback handler state and contracts.
+
+            Returns:
+                The computed result for do g e t.
+            """
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             if parsed.path != callback_path:
@@ -1030,6 +1757,17 @@ def _spotify_loopback_login_for_tui(authorize_url: str, expected_state: str) -> 
             self.wfile.write(b"Spotify connected. You can return to Sonex.")
 
         def log_message(self, format: str, *args: object) -> None:
+            """Log message for spotify callback handler.
+
+            Coordinates the log message method behavior while preserving spotify callback handler state and contracts.
+
+            Args:
+                format: Input value used by the log message operation.
+                args: Input value used by the log message operation.
+
+            Returns:
+                The computed result for log message.
+            """
             return
 
     webbrowser.open(authorize_url)
@@ -1055,13 +1793,31 @@ def _spotify_loopback_login_for_tui(authorize_url: str, expected_state: str) -> 
 
 
 class SpotifySetupSession:
+    """Represents spotify setup session.
+
+    Encapsulates spotify setup session data and behavior used by Sonex runtime flows.
+    """
     def __init__(self, ui: WebSocketUIAdapter) -> None:
+        """Init for spotify setup session.
+
+        Coordinates the init method behavior while preserving spotify setup session state and contracts.
+
+        Args:
+            ui: Input value used by the init operation.
+        """
         self.ui = ui
         self.client_id: str | None = None
         self.step = "client_id"
         self.oauth_task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
+        """Start for spotify setup session.
+
+        Coordinates the start method behavior while preserving spotify setup session state and contracts.
+
+        Returns:
+            The computed result for start.
+        """
         redirect_uri = spotify_redirect_uri()
         message = (
             "Open https://developer.spotify.com/dashboard, create an app, and add this Redirect URI: "
@@ -1081,6 +1837,16 @@ class SpotifySetupSession:
         )
 
     async def handle_input(self, value: str) -> None:
+        """Handle input for spotify setup session.
+
+        Coordinates the handle input method behavior while preserving spotify setup session state and contracts.
+
+        Args:
+            value: Input value used by the handle input operation.
+
+        Returns:
+            The computed result for handle input.
+        """
         value = value.strip()
         if not value:
             await self.ui.send_spotify_setup(
@@ -1141,6 +1907,17 @@ class SpotifySetupSession:
         self.oauth_task = asyncio.create_task(self._finish_oauth(authorize_url, expected_state))
 
     async def _finish_oauth(self, authorize_url: str, expected_state: str) -> None:
+        """Finish oauth for spotify setup session.
+
+        Coordinates the finish oauth method behavior while preserving spotify setup session state and contracts.
+
+        Args:
+            authorize_url: Input value used by the finish oauth operation.
+            expected_state: Input value used by the finish oauth operation.
+
+        Returns:
+            The computed result for finish oauth.
+        """
         try:
             account = await asyncio.to_thread(_spotify_loopback_login_for_tui, authorize_url, expected_state)
         except Exception as exc:
@@ -1175,11 +1952,29 @@ class SpotifySetupSession:
 
 
 class AppleMusicSetupSession:
+    """Represents apple music setup session.
+
+    Encapsulates apple music setup session data and behavior used by Sonex runtime flows.
+    """
     def __init__(self, ui: WebSocketUIAdapter) -> None:
+        """Init for apple music setup session.
+
+        Coordinates the init method behavior while preserving apple music setup session state and contracts.
+
+        Args:
+            ui: Input value used by the init operation.
+        """
         self.ui = ui
         self.step = "credentials"
 
     async def start(self) -> None:
+        """Start for apple music setup session.
+
+        Coordinates the start method behavior while preserving apple music setup session state and contracts.
+
+        Returns:
+            The computed result for start.
+        """
         message = (
             f"{apple_music_setup_message()} Paste the Apple Music credentials JSON or a path to that JSON below."
         )
@@ -1199,6 +1994,16 @@ class AppleMusicSetupSession:
         )
 
     async def handle_input(self, value: str) -> None:
+        """Handle input for apple music setup session.
+
+        Coordinates the handle input method behavior while preserving apple music setup session state and contracts.
+
+        Args:
+            value: Input value used by the handle input operation.
+
+        Returns:
+            The computed result for handle input.
+        """
         value = value.strip()
         if not value:
             await self._repeat("Input cannot be empty.")
@@ -1239,6 +2044,16 @@ class AppleMusicSetupSession:
             await self._finish("Apple Music developer credentials and user token are configured.")
 
     async def _repeat(self, message: str) -> None:
+        """Repeat for apple music setup session.
+
+        Coordinates the repeat method behavior while preserving apple music setup session state and contracts.
+
+        Args:
+            message: Input value used by the repeat operation.
+
+        Returns:
+            The computed result for repeat.
+        """
         if self.step == "user_token":
             await self.ui.send_auth_setup(
                 provider="apple_music",
@@ -1259,6 +2074,16 @@ class AppleMusicSetupSession:
         )
 
     async def _finish(self, message: str) -> None:
+        """Finish for apple music setup session.
+
+        Coordinates the finish method behavior while preserving apple music setup session state and contracts.
+
+        Args:
+            message: Input value used by the finish operation.
+
+        Returns:
+            The computed result for finish.
+        """
         await self.ui.append_activity(
             kind="status",
             title="Apple Music connected",
@@ -1276,15 +2101,41 @@ class AppleMusicSetupSession:
 
 
 class OpenAudioSetupSession:
+    """Represents open audio setup session.
+
+    Encapsulates open audio setup session data and behavior used by Sonex runtime flows.
+    """
     def __init__(self, ui: WebSocketUIAdapter, provider: str) -> None:
+        """Init for open audio setup session.
+
+        Coordinates the init method behavior while preserving open audio setup session state and contracts.
+
+        Args:
+            ui: Input value used by the init operation.
+            provider: Input value used by the init operation.
+        """
         self.ui = ui
         self.provider = provider
         self.display_name = "Jamendo" if provider == "jamendo" else "Audius"
 
     def _prompt_label(self) -> str:
+        """Prompt label for open audio setup session.
+
+        Coordinates the prompt label method behavior while preserving open audio setup session state and contracts.
+
+        Returns:
+            The computed result for prompt label.
+        """
         return "Jamendo Client ID" if self.provider == "jamendo" else "Audius API key"
 
     def _setup_message(self) -> str:
+        """Setup message for open audio setup session.
+
+        Coordinates the setup message method behavior while preserving open audio setup session state and contracts.
+
+        Returns:
+            The computed result for setup message.
+        """
         if self.provider == "jamendo":
             return (
                 "Open https://developer.jamendo.com, create or open your app, then paste the Client ID below. "
@@ -1296,6 +2147,13 @@ class OpenAudioSetupSession:
         )
 
     async def start(self) -> None:
+        """Start for open audio setup session.
+
+        Coordinates the start method behavior while preserving open audio setup session state and contracts.
+
+        Returns:
+            The computed result for start.
+        """
         label = self._prompt_label()
         message = self._setup_message()
         await self.ui.append_activity(
@@ -1314,6 +2172,16 @@ class OpenAudioSetupSession:
         )
 
     async def handle_input(self, value: str) -> None:
+        """Handle input for open audio setup session.
+
+        Coordinates the handle input method behavior while preserving open audio setup session state and contracts.
+
+        Args:
+            value: Input value used by the handle input operation.
+
+        Returns:
+            The computed result for handle input.
+        """
         value = value.strip()
         if not value:
             await self.ui.send_auth_setup(
@@ -1355,12 +2223,30 @@ class OpenAudioSetupSession:
 
 
 class ModelSelectionSession:
+    """Represents model selection session.
+
+    Encapsulates model selection session data and behavior used by Sonex runtime flows.
+    """
     def __init__(self, ui: WebSocketUIAdapter) -> None:
+        """Init for model selection session.
+
+        Coordinates the init method behavior while preserving model selection session state and contracts.
+
+        Args:
+            ui: Input value used by the init operation.
+        """
         self.ui = ui
         self.provider = _default_provider_name()
         self.model_choices: list[dict[str, str]] = []
 
     async def start(self) -> None:
+        """Start for model selection session.
+
+        Coordinates the start method behavior while preserving model selection session state and contracts.
+
+        Returns:
+            The computed result for start.
+        """
         self.provider = _default_provider_name()
         if normalize_provider(self.provider) == "deepseek":
             self.model_choices = await asyncio.to_thread(_model_choices_for_provider, self.provider)
@@ -1382,6 +2268,16 @@ class ModelSelectionSession:
         )
 
     async def handle_input(self, value: str) -> None:
+        """Handle input for model selection session.
+
+        Coordinates the handle input method behavior while preserving model selection session state and contracts.
+
+        Args:
+            value: Input value used by the handle input operation.
+
+        Returns:
+            The computed result for handle input.
+        """
         parsed = _parse_model_choice(value, self.model_choices)
         if parsed is None:
             await self.ui.send_auth_setup(
@@ -1418,7 +2314,21 @@ class ModelSelectionSession:
         setattr(self.ui, "_model_setup", None)
 
 class AuthSetupSession:
+    """Represents auth setup session.
+
+    Encapsulates auth setup session data and behavior used by Sonex runtime flows.
+    """
     def __init__(self, ui: WebSocketUIAdapter, provider: str, pending_input: str | None, runner: "WebSocketRunner") -> None:
+        """Init for auth setup session.
+
+        Coordinates the init method behavior while preserving auth setup session state and contracts.
+
+        Args:
+            ui: Input value used by the init operation.
+            provider: Input value used by the init operation.
+            pending_input: Input value used by the init operation.
+            runner: Input value used by the init operation.
+        """
         self.ui = ui
         self.provider = normalize_provider(provider)
         self.pending_input = pending_input
@@ -1428,6 +2338,16 @@ class AuthSetupSession:
         self.oauth_task: asyncio.Task[None] | None = None
 
     async def start(self, reason: str | None = None) -> None:
+        """Start for auth setup session.
+
+        Coordinates the start method behavior while preserving auth setup session state and contracts.
+
+        Args:
+            reason: Input value used by the start operation.
+
+        Returns:
+            The computed result for start.
+        """
         if self.pending_input is None:
             await self.ui.append_activity(
                 kind="status",
@@ -1447,6 +2367,16 @@ class AuthSetupSession:
         await self._continue_provider_auth(reason)
 
     async def _prompt_provider(self, reason: str | None = None) -> None:
+        """Prompt provider for auth setup session.
+
+        Coordinates the prompt provider method behavior while preserving auth setup session state and contracts.
+
+        Args:
+            reason: Input value used by the prompt provider operation.
+
+        Returns:
+            The computed result for prompt provider.
+        """
         self.step = "provider"
         await self.ui.send_auth_setup(
             provider=self.provider,
@@ -1458,6 +2388,16 @@ class AuthSetupSession:
         )
 
     async def _continue_provider_auth(self, reason: str | None = None) -> None:
+        """Continue provider auth for auth setup session.
+
+        Coordinates the continue provider auth method behavior while preserving auth setup session state and contracts.
+
+        Args:
+            reason: Input value used by the continue provider auth operation.
+
+        Returns:
+            The computed result for continue provider auth.
+        """
         capability = get_provider_capability(self.provider)
         if not capability.requires_auth:
             await self._finish()
@@ -1495,6 +2435,16 @@ class AuthSetupSession:
         )
 
     async def handle_input(self, value: str) -> None:
+        """Handle input for auth setup session.
+
+        Coordinates the handle input method behavior while preserving auth setup session state and contracts.
+
+        Args:
+            value: Input value used by the handle input operation.
+
+        Returns:
+            The computed result for handle input.
+        """
         value = value.strip()
         if not value:
             await self._repeat("Input cannot be empty.")
@@ -1554,6 +2504,13 @@ class AuthSetupSession:
             await self._repeat("OAuth is already in progress. Finish the browser flow, or type api_key to use an API key.")
 
     async def _prompt_api_key(self) -> None:
+        """Prompt api key for auth setup session.
+
+        Coordinates the prompt api key method behavior while preserving auth setup session state and contracts.
+
+        Returns:
+            The computed result for prompt api key.
+        """
         self.step = "api_key"
         await self.ui.send_auth_setup(
             provider=self.provider,
@@ -1566,6 +2523,13 @@ class AuthSetupSession:
         )
 
     async def _start_browser_oauth(self) -> None:
+        """Start browser oauth for auth setup session.
+
+        Coordinates the start browser oauth method behavior while preserving auth setup session state and contracts.
+
+        Returns:
+            The computed result for start browser oauth.
+        """
         self.step = "oauth_wait"
         await self.ui.send_auth_setup(
             provider=self.provider,
@@ -1578,6 +2542,13 @@ class AuthSetupSession:
         self.oauth_task = asyncio.create_task(self._finish_browser_oauth())
 
     async def _finish_browser_oauth(self) -> None:
+        """Finish browser oauth for auth setup session.
+
+        Coordinates the finish browser oauth method behavior while preserving auth setup session state and contracts.
+
+        Returns:
+            The computed result for finish browser oauth.
+        """
         try:
             await asyncio.to_thread(run_browser_oauth, self.provider)
             _set_runtime_default_provider(self.provider)
@@ -1595,6 +2566,16 @@ class AuthSetupSession:
         await self._finish()
 
     async def _repeat(self, message: str) -> None:
+        """Repeat for auth setup session.
+
+        Coordinates the repeat method behavior while preserving auth setup session state and contracts.
+
+        Args:
+            message: Input value used by the repeat operation.
+
+        Returns:
+            The computed result for repeat.
+        """
         if self.method == "oauth" and self.step == "oauth_wait":
             await self.ui.send_auth_setup(
                 provider=self.provider,
@@ -1627,6 +2608,13 @@ class AuthSetupSession:
         )
 
     async def _finish(self) -> None:
+        """Finish for auth setup session.
+
+        Coordinates the finish method behavior while preserving auth setup session state and contracts.
+
+        Returns:
+            The computed result for finish.
+        """
         try:
             _set_runtime_default_provider(self.provider)
             ThinkingConfig.reload()
@@ -1650,13 +2638,117 @@ class AuthSetupSession:
         )
         setattr(self.ui, "_auth_setup", None)
         if self.pending_input:
-            self.runner._running_task = asyncio.create_task(
-                self.runner._run_agent_turn(self.ui, self.pending_input)
-            )
+            self.runner._running_task = None
+            await self.runner._handle_user_input(self.ui, self.pending_input, append_user_message=False)
+
+
+class MusicIntentConfirmationSession:
+    """Represents music intent confirmation session.
+
+    Encapsulates music intent confirmation session data and behavior used by Sonex runtime flows.
+    """
+    def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner", original_input: str, query: str) -> None:
+        """Init for music intent confirmation session.
+
+        Coordinates the init method behavior while preserving music intent confirmation session state and contracts.
+
+        Args:
+            ui: Input value used by the init operation.
+            runner: Input value used by the init operation.
+            original_input: Input value used by the init operation.
+            query: Input value used by the init operation.
+        """
+        self.ui = ui
+        self.runner = runner
+        self.original_input = original_input
+        self.query = query
+        self.confirm_id = _new_event_id("confirm")
+
+    async def start(self) -> None:
+        """Start for music intent confirmation session.
+
+        Coordinates the start method behavior while preserving music intent confirmation session state and contracts.
+
+        Returns:
+            The computed result for start.
+        """
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "music_intent",
+                "tool_args": {"query": self.query},
+                "message": f"你是想播放《{self.query}》，还是先聊聊这首歌？",
+                "choices": [
+                    {"value": "play_track", "label": "播放这首", "description": "进入播放来源和歌曲选择。"},
+                    {"value": "discuss_track", "label": "暂不播放，聊聊这首歌", "description": "只进行文字交流。"},
+                ],
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        """Owns confirm for music intent confirmation session.
+
+        Coordinates the owns confirm method behavior while preserving music intent confirmation session state and contracts.
+
+        Args:
+            confirm_id: Input value used by the owns confirm operation.
+
+        Returns:
+            The computed result for owns confirm.
+        """
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        """Handle choice for music intent confirmation session.
+
+        Coordinates the handle choice method behavior while preserving music intent confirmation session state and contracts.
+
+        Args:
+            decision: Input value used by the handle choice operation.
+
+        Returns:
+            The computed result for handle choice.
+        """
+        setattr(self.ui, "_music_intent_confirmation", None)
+        if str(decision) == "play_track":
+            session = PlaySelectionSession(self.ui, self.runner, self.query)
+            setattr(self.ui, "_play_selection", session)
+            await session.start()
+            return
+
+        ready, provider, reason = _llm_auth_ready()
+        if not ready:
+            setup = AuthSetupSession(self.ui, provider, self.original_input, self.runner)
+            setattr(self.ui, "_auth_setup", setup)
+            await setup.start(reason)
+            return
+        intent = CommandIntent(
+            command="general",
+            raw=self.original_input,
+            args="",
+            intent_prompt="Discuss the user's message in text only. Do not call tools or start playback.",
+            allowed_tools=(),
+        )
+        self.runner._running_task = asyncio.create_task(
+            self.runner._run_agent_turn(self.ui, self.original_input, command_intent=intent)
+        )
 
 
 class PlaySelectionSession:
+    """Represents play selection session.
+
+    Encapsulates play selection session data and behavior used by Sonex runtime flows.
+    """
     def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner", query: str) -> None:
+        """Init for play selection session.
+
+        Coordinates the init method behavior while preserving play selection session state and contracts.
+
+        Args:
+            ui: Input value used by the init operation.
+            runner: Input value used by the init operation.
+            query: Input value used by the init operation.
+        """
         self.ui = ui
         self.runner = runner
         self.query = query.strip()
@@ -1664,13 +2756,20 @@ class PlaySelectionSession:
         self.cache_hit: dict[str, Any] | None = None
         self.active_confirm_id: str | None = None
         self.pending_player_confirm_result: dict[str, Any] | None = None
-        self.spotify_candidates: list[dict[str, Any]] = []
+        self.metadata_candidates: list[dict[str, Any]] = []
         self.online_audio_candidates: list[dict[str, Any]] = []
         self.selected_playback_metadata: dict[str, Any] | None = None
-        self.awaiting_spotify_refinement = False
+        self.awaiting_metadata_refinement = False
         self.awaiting_online_refinement = False
 
     async def start(self) -> None:
+        """Start for play selection session.
+
+        Coordinates the start method behavior while preserving play selection session state and contracts.
+
+        Returns:
+            The computed result for start.
+        """
         if not self.query:
             message = "Usage: /play <query>"
             await self.ui.append_activity(kind="error", title="Invalid play request", detail=message, status="error")
@@ -1687,9 +2786,29 @@ class PlaySelectionSession:
         await self._ask_method_choice()
 
     def owns_confirm(self, confirm_id: str) -> bool:
+        """Owns confirm for play selection session.
+
+        Coordinates the owns confirm method behavior while preserving play selection session state and contracts.
+
+        Args:
+            confirm_id: Input value used by the owns confirm operation.
+
+        Returns:
+            The computed result for owns confirm.
+        """
         return bool(self.active_confirm_id and confirm_id == self.active_confirm_id)
 
     async def handle_choice(self, decision: Any) -> None:
+        """Handle choice for play selection session.
+
+        Coordinates the handle choice method behavior while preserving play selection session state and contracts.
+
+        Args:
+            decision: Input value used by the handle choice operation.
+
+        Returns:
+            The computed result for handle choice.
+        """
         choice = str(decision or "cancel")
         if self.pending_player_confirm_result:
             await self._complete_player_confirmation(choice)
@@ -1698,25 +2817,25 @@ class PlaySelectionSession:
         if choice in {"deny", "cancel"}:
             await self._finish("Playback cancelled.", status="error")
             return
-        if choice.startswith("refine_spotify_query:"):
+        if choice.startswith("refine_spotify_query:") or choice.startswith("refine_song_metadata_query:"):
             extra = unquote(choice.partition(":")[2]).strip()
             if not extra:
                 await self.ui.append_activity(
                     kind="error",
-                    title="Refine Spotify search",
+                    title="Refine song metadata search",
                     detail="Search details cannot be empty.",
                     status="error",
                 )
                 return
-            self.awaiting_spotify_refinement = False
+            self.awaiting_metadata_refinement = False
             self.query = f"{self.query} {extra}".strip()
-            await self._ask_spotify_candidates(self.query)
+            await self._ask_metadata_candidates(self.query)
             return
-        if choice == "refine_spotify_query":
-            self.awaiting_spotify_refinement = True
+        if choice in {"refine_spotify_query", "refine_song_metadata_query"}:
+            self.awaiting_metadata_refinement = True
             await self.ui.append_activity(
                 kind="status",
-                title="Refine Spotify search",
+                title="Refine song metadata search",
                 detail="Send more song details to search again.",
                 status="pending",
             )
@@ -1744,22 +2863,21 @@ class PlaySelectionSession:
                 status="pending",
             )
             return
-        if choice.startswith("spotify_candidate:"):
+        if choice.startswith("spotify_candidate:") or choice.startswith("song_candidate:"):
             index_text = choice.partition(":")[2]
             try:
                 index = int(index_text)
             except ValueError:
                 index = -1
-            candidate = self.spotify_candidates[index] if 0 <= index < len(self.spotify_candidates) else None
+            candidate = self.metadata_candidates[index] if 0 <= index < len(self.metadata_candidates) else None
             if candidate is None:
-                await self._finish("Selected Spotify candidate expired.", status="error")
+                await self._finish("Selected song metadata candidate expired.", status="error")
                 return
             self.selected_playback_metadata = dict(candidate)
-            self.selected_playback_metadata.setdefault("metadata_source", "spotify")
             self.selected_playback_metadata.setdefault("original_query", self.query)
             youtube_query = str(candidate.get("youtube_query") or f"{candidate.get('artist') or ''} {candidate.get('name') or ''}").strip()
             self.query = youtube_query or self.query
-            await self._play_selected_spotify_candidate(self.query, self.selected_playback_metadata)
+            await self._play_selected_metadata_candidate(self.query, self.selected_playback_metadata)
             return
         if choice.startswith("youtube_candidate:"):
             cache_id = choice.partition(":")[2]
@@ -1795,24 +2913,34 @@ class PlaySelectionSession:
             await self._play_from_provider("apple_music_play", "apple_music")
             return
         if choice == "online_play":
-            await self._ask_spotify_candidates(self.query)
+            await self._ask_metadata_candidates(self.query)
             return
         await self._finish("Unknown playback choice.", status="error")
 
     async def handle_refinement(self, text: str) -> bool:
-        if self.awaiting_spotify_refinement:
+        """Handle refinement for play selection session.
+
+        Coordinates the handle refinement method behavior while preserving play selection session state and contracts.
+
+        Args:
+            text: Input value used by the handle refinement operation.
+
+        Returns:
+            The computed result for handle refinement.
+        """
+        if self.awaiting_metadata_refinement:
             extra = text.strip()
             if not extra:
                 await self.ui.append_activity(
                     kind="error",
-                    title="Refine Spotify search",
+                    title="Refine song metadata search",
                     detail="Search details cannot be empty.",
                     status="error",
                 )
                 return True
-            self.awaiting_spotify_refinement = False
+            self.awaiting_metadata_refinement = False
             self.query = f"{self.query} {extra}".strip()
-            await self._ask_spotify_candidates(self.query)
+            await self._ask_metadata_candidates(self.query)
             return True
         if not self.awaiting_online_refinement:
             return False
@@ -1831,12 +2959,26 @@ class PlaySelectionSession:
         return True
 
     async def _ensure_online_audio_setup(self) -> bool:
+        """Ensure online audio setup for play selection session.
+
+        Coordinates the ensure online audio setup method behavior while preserving play selection session state and contracts.
+
+        Returns:
+            The computed result for ensure online audio setup.
+        """
         if online_audio_configured():
             return True
         await self._show_online_audio_setup_required()
         return False
 
     async def _show_online_audio_setup_required(self) -> None:
+        """Show online audio setup required for play selection session.
+
+        Coordinates the show online audio setup required method behavior while preserving play selection session state and contracts.
+
+        Returns:
+            The computed result for show online audio setup required.
+        """
         await self.ui.append_activity(
             kind="error",
             title="Online audio setup required",
@@ -1848,6 +2990,16 @@ class PlaySelectionSession:
         await self._ask_method_choice()
 
     async def _ask_local_choice(self, local_file: str) -> None:
+        """Ask local choice for play selection session.
+
+        Coordinates the ask local choice method behavior while preserving play selection session state and contracts.
+
+        Args:
+            local_file: Input value used by the ask local choice operation.
+
+        Returns:
+            The computed result for ask local choice.
+        """
         await self._ask_confirm(
             message=f"💾 播放本地文件 {_filename(local_file)}?",
             choices=LOCAL_PLAYBACK_CHOICES,
@@ -1855,6 +3007,13 @@ class PlaySelectionSession:
         )
 
     async def _ask_method_choice(self) -> None:
+        """Ask method choice for play selection session.
+
+        Coordinates the ask method choice method behavior while preserving play selection session state and contracts.
+
+        Returns:
+            The computed result for ask method choice.
+        """
         tool_args: dict[str, Any] = {"query": self.query, "stage": "method_choice"}
         if self.cache_hit:
             tool_args["cache_id"] = self.cache_hit.get("cache_id")
@@ -1865,51 +3024,105 @@ class PlaySelectionSession:
             tool_args=tool_args,
         )
 
-    async def _ask_spotify_candidates(self, query: str) -> None:
+    async def _ask_metadata_candidates(self, query: str) -> None:
+        """Ask metadata candidates for play selection session.
+
+        Coordinates the ask metadata candidates method behavior while preserving play selection session state and contracts.
+
+        Args:
+            query: Input value used by the ask metadata candidates operation.
+
+        Returns:
+            The computed result for ask metadata candidates.
+        """
         await self.ui.append_activity(
             kind="tool",
-            title="Searching Spotify",
+            title="Searching song metadata",
             detail=f"Finding song metadata for {query}.",
             status="pending",
         )
+        attempts: list[dict[str, Any]] = []
         try:
-            self.spotify_candidates = await asyncio.to_thread(search_spotify_track_candidates, query, 5)
-        except Exception:
-            self.spotify_candidates = []
-        self.spotify_candidates = self.spotify_candidates[:5]
-        if not self.spotify_candidates:
+            result = await asyncio.to_thread(search_track_metadata_candidates, query, 5)
+            if isinstance(result, dict):
+                raw_candidates = result.get("candidates")
+                attempts = result.get("source_attempts") if isinstance(result.get("source_attempts"), list) else []
+                self.metadata_candidates = raw_candidates if isinstance(raw_candidates, list) else []
+            elif isinstance(result, list):
+                self.metadata_candidates = result
+            else:
+                self.metadata_candidates = []
+        except Exception as exc:
+            self.metadata_candidates = []
+            attempts = [{
+                "provider": "metadata",
+                "status": "error",
+                "candidate_count": 0,
+                "credible_count": 0,
+                "message": sanitize_error_message(exc),
+            }]
+        await self._append_metadata_attempts(attempts)
+        self.metadata_candidates = self.metadata_candidates[:5]
+        if not self.metadata_candidates:
+            if attempts:
+                message = "No song metadata candidates found. Searching online audio directly."
+                await self.ui.append_agent_message(message)
+                await self.ui.send_error(message)
             await self._ask_online_audio_candidates(query)
             return
 
-        choices = [self._spotify_candidate_choice(index, item) for index, item in enumerate(self.spotify_candidates)]
+        choices = [self._metadata_candidate_choice(index, item) for index, item in enumerate(self.metadata_candidates)]
         choices.append(
             {
-                "value": "refine_spotify_query",
+                "value": "refine_song_metadata_query",
                 "label": "没有想听的歌曲",
                 "input": {"placeholder": "试试补充更多歌曲信息"},
             }
         )
         await self._ask_confirm(
-            message="选择 Spotify 歌曲候选",
+            message="选择歌曲候选",
             choices=choices,
-            tool_args={"query": query, "stage": "spotify_candidates"},
-            tool_name="spotify_candidate",
+            tool_args={"query": query, "stage": "song_metadata_candidates"},
+            tool_name="song_candidate",
         )
 
-    def _spotify_candidate_choice(self, index: int, candidate: dict[str, Any]) -> dict[str, Any]:
+    def _metadata_candidate_choice(self, index: int, candidate: dict[str, Any]) -> dict[str, Any]:
+        """Metadata candidate choice for play selection session.
+
+        Coordinates the metadata candidate choice method behavior while preserving play selection session state and contracts.
+
+        Args:
+            index: Input value used by the metadata candidate choice operation.
+            candidate: Input value used by the metadata candidate choice operation.
+
+        Returns:
+            The computed result for metadata candidate choice.
+        """
         artist = str(candidate.get("artist") or "-")
         album = str(candidate.get("album") or "-")
         name = str(candidate.get("name") or candidate.get("title") or "-")
         parts = [_duration_text(candidate.get("duration_ms"))]
-        if candidate.get("uri"):
-            parts.append("Spotify")
+        provider = str(candidate.get("provider") or candidate.get("metadata_source") or "").strip()
+        if provider:
+            parts.append(_metadata_provider_label(provider))
         return {
-            "value": f"spotify_candidate:{index}",
+            "value": f"song_candidate:{index}",
             "label": f"{artist}-{album}--{name}",
             "description": " · ".join(part for part in parts if part),
         }
 
     async def _ask_online_audio_candidates(self, query: str, playback_metadata: dict[str, Any] | None = None) -> None:
+        """Ask online audio candidates for play selection session.
+
+        Coordinates the ask online audio candidates method behavior while preserving play selection session state and contracts.
+
+        Args:
+            query: Input value used by the ask online audio candidates operation.
+            playback_metadata: Input value used by the ask online audio candidates operation.
+
+        Returns:
+            The computed result for ask online audio candidates.
+        """
         await self.ui.append_activity(
             kind="tool",
             title="Searching online audio",
@@ -1961,7 +3174,18 @@ class PlaySelectionSession:
             tool_name="online_audio_candidate",
         )
 
-    async def _play_selected_spotify_candidate(self, query: str, playback_metadata: dict[str, Any]) -> None:
+    async def _play_selected_metadata_candidate(self, query: str, playback_metadata: dict[str, Any]) -> None:
+        """Play selected metadata candidate for play selection session.
+
+        Coordinates the play selected metadata candidate method behavior while preserving play selection session state and contracts.
+
+        Args:
+            query: Input value used by the play selected metadata candidate operation.
+            playback_metadata: Input value used by the play selected metadata candidate operation.
+
+        Returns:
+            The computed result for play selected metadata candidate.
+        """
         await self.ui.append_activity(
             kind="tool",
             title="Resolving online audio",
@@ -2021,6 +3245,16 @@ class PlaySelectionSession:
             await self._finish("Online playback selected.")
 
     async def _send_cover_from_task(self, cover_task: asyncio.Task[dict[str, Any]]) -> None:
+        """Send cover from task for play selection session.
+
+        Coordinates the send cover from task method behavior while preserving play selection session state and contracts.
+
+        Args:
+            cover_task: Input value used by the send cover from task operation.
+
+        Returns:
+            The computed result for send cover from task.
+        """
         try:
             metadata = await cover_task
         except Exception:
@@ -2034,6 +3268,16 @@ class PlaySelectionSession:
             await self.ui.send_cover(str(cover_url))
 
     async def _append_source_attempts(self, attempts: Any) -> None:
+        """Append source attempts for play selection session.
+
+        Coordinates the append source attempts method behavior while preserving play selection session state and contracts.
+
+        Args:
+            attempts: Input value used by the append source attempts operation.
+
+        Returns:
+            The computed result for append source attempts.
+        """
         if not isinstance(attempts, list):
             return
         for attempt in attempts:
@@ -2050,7 +3294,43 @@ class PlaySelectionSession:
                 status=activity_status,
             )
 
+    async def _append_metadata_attempts(self, attempts: Any) -> None:
+        """Append metadata attempts for play selection session.
+
+        Coordinates the append metadata attempts method behavior while preserving play selection session state and contracts.
+
+        Args:
+            attempts: Input value used by the append metadata attempts operation.
+
+        Returns:
+            The computed result for append metadata attempts.
+        """
+        if not isinstance(attempts, list):
+            return
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                continue
+            provider = str(attempt.get("provider") or "metadata")
+            status = str(attempt.get("status") or "")
+            activity_status = "success" if status == "success" else "error"
+            await self.ui.append_activity(
+                kind="tool",
+                title=_metadata_provider_label(provider),
+                detail=str(attempt.get("message") or ""),
+                status=activity_status,
+            )
+
     def _online_audio_candidate_choice(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        """Online audio candidate choice for play selection session.
+
+        Coordinates the online audio candidate choice method behavior while preserving play selection session state and contracts.
+
+        Args:
+            candidate: Input value used by the online audio candidate choice operation.
+
+        Returns:
+            The computed result for online audio candidate choice.
+        """
         name = str(candidate.get("name") or candidate.get("title") or "-")
         artist = str(candidate.get("artist") or "-")
         duration = _duration_text(candidate.get("duration_ms"))
@@ -2084,6 +3364,19 @@ class PlaySelectionSession:
         tool_args: dict[str, Any],
         tool_name: str = "playback_choice",
     ) -> None:
+        """Ask confirm for play selection session.
+
+        Coordinates the ask confirm method behavior while preserving play selection session state and contracts.
+
+        Args:
+            message: Input value used by the ask confirm operation.
+            choices: Input value used by the ask confirm operation.
+            tool_args: Input value used by the ask confirm operation.
+            tool_name: Input value used by the ask confirm operation.
+
+        Returns:
+            The computed result for ask confirm.
+        """
         confirm_id = _new_event_id("confirm")
         self.active_confirm_id = confirm_id
         await self.ui.append_activity(
@@ -2105,6 +3398,17 @@ class PlaySelectionSession:
         )
 
     async def _play_from_provider(self, tool_name: str, provider: str) -> None:
+        """Play from provider for play selection session.
+
+        Coordinates the play from provider method behavior while preserving play selection session state and contracts.
+
+        Args:
+            tool_name: Input value used by the play from provider operation.
+            provider: Input value used by the play from provider operation.
+
+        Returns:
+            The computed result for play from provider.
+        """
         args: dict[str, Any] = {"query": self.query}
         cached_item = self._cached_item_for_provider(provider)
         if cached_item and cached_item.get("uri"):
@@ -2115,6 +3419,16 @@ class PlaySelectionSession:
         await self._finish(f"{provider.replace('_', ' ').title()} playback selected.")
 
     def _cached_item_for_provider(self, provider: str) -> dict[str, Any] | None:
+        """Cached item for provider for play selection session.
+
+        Coordinates the cached item for provider method behavior while preserving play selection session state and contracts.
+
+        Args:
+            provider: Input value used by the cached item for provider operation.
+
+        Returns:
+            The computed result for cached item for provider.
+        """
         if not self.cache_hit:
             return None
         try:
@@ -2136,6 +3450,19 @@ class PlaySelectionSession:
         cache_provider: str | None = None,
         pending_detail: str | None = None,
     ) -> dict[str, Any]:
+        """Invoke playback for play selection session.
+
+        Coordinates the invoke playback method behavior while preserving play selection session state and contracts.
+
+        Args:
+            tool_name: Input value used by the invoke playback operation.
+            args: Input value used by the invoke playback operation.
+            cache_provider: Input value used by the invoke playback operation.
+            pending_detail: Input value used by the invoke playback operation.
+
+        Returns:
+            The computed result for invoke playback.
+        """
         if pending_detail:
             await self.ui.append_activity(
                 kind="tool",
@@ -2172,6 +3499,16 @@ class PlaySelectionSession:
         return result
 
     async def _play_online_audio_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        """Play online audio candidate for play selection session.
+
+        Coordinates the play online audio candidate method behavior while preserving play selection session state and contracts.
+
+        Args:
+            candidate: Input value used by the play online audio candidate operation.
+
+        Returns:
+            The computed result for play online audio candidate.
+        """
         await self.ui.append_activity(
             kind="tool",
             title="Caching online audio",
@@ -2204,6 +3541,16 @@ class PlaySelectionSession:
         return result
 
     async def _ask_player_confirm(self, result: dict[str, Any]) -> None:
+        """Ask player confirm for play selection session.
+
+        Coordinates the ask player confirm method behavior while preserving play selection session state and contracts.
+
+        Args:
+            result: Input value used by the ask player confirm operation.
+
+        Returns:
+            The computed result for ask player confirm.
+        """
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
         self.pending_player_confirm_result = result
         await self._ask_confirm(
@@ -2220,6 +3567,16 @@ class PlaySelectionSession:
         )
 
     async def _complete_player_confirmation(self, decision: Any) -> None:
+        """Complete player confirmation for play selection session.
+
+        Coordinates the complete player confirmation method behavior while preserving play selection session state and contracts.
+
+        Args:
+            decision: Input value used by the complete player confirmation operation.
+
+        Returns:
+            The computed result for complete player confirmation.
+        """
         pending = self.pending_player_confirm_result
         self.pending_player_confirm_result = None
         if not pending:
@@ -2242,18 +3599,47 @@ class PlaySelectionSession:
         await self._finish("Online playback selected.")
 
     async def _finish(self, detail: str, *, status: str = "success") -> None:
+        """Finish for play selection session.
+
+        Coordinates the finish method behavior while preserving play selection session state and contracts.
+
+        Args:
+            detail: Input value used by the finish operation.
+            status: Input value used by the finish operation.
+
+        Returns:
+            The computed result for finish.
+        """
         setattr(self.ui, "_play_selection", None)
         await self.ui.append_activity(kind="status", title="Playback selection", detail=detail, status=status)
 
 
 class WebSocketRunner:
+    """Represents web socket runner.
+
+    Encapsulates web socket runner data and behavior used by Sonex runtime flows.
+    """
     def __init__(self) -> None:
+        """Init for web socket runner.
+
+        Coordinates the init method behavior while preserving web socket runner state and contracts.
+        """
         self.tools = registry
         self.memory_store = memory_store
         self._running_task: asyncio.Task[None] | None = None
         self._confirm_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
 
     async def handle_ws(self, ws: WebSocket) -> None:
+        """Handle ws for web socket runner.
+
+        Coordinates the handle ws method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ws: Input value used by the handle ws operation.
+
+        Returns:
+            The computed result for handle ws.
+        """
         await ws.accept()
         ui = WebSocketUIAdapter(ws)
         await ui._send({"type": "queue", "tracks": _queue_payload()})
@@ -2311,6 +3697,10 @@ class WebSocketRunner:
                             confirmed = data.get("ok")
                         decision = "allow_once" if confirmed else "deny"
                     confirm_id = str(data.get("id") or "")
+                    music_confirmation = getattr(ui, "_music_intent_confirmation", None)
+                    if music_confirmation and music_confirmation.owns_confirm(confirm_id):
+                        await music_confirmation.handle_choice(decision)
+                        continue
                     play_selection = getattr(ui, "_play_selection", None)
                     if play_selection and play_selection.owns_confirm(confirm_id):
                         await play_selection.handle_choice(decision)
@@ -2348,6 +3738,16 @@ class WebSocketRunner:
             self._confirm_queue.put(("", False))
 
     async def _handle_startup_auth(self, ui: WebSocketUIAdapter) -> None:
+        """Handle startup auth for web socket runner.
+
+        Coordinates the handle startup auth method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the handle startup auth operation.
+
+        Returns:
+            The computed result for handle startup auth.
+        """
         state = _llm_auth_state()
         await ui.send_auth_state(state)
         if state.ready:
@@ -2357,6 +3757,16 @@ class WebSocketRunner:
         await setup.start(state.reason)
 
     async def _sync_spotify_playback(self, ui: WebSocketUIAdapter) -> None:
+        """Sync spotify playback for web socket runner.
+
+        Coordinates the sync spotify playback method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the sync spotify playback operation.
+
+        Returns:
+            The computed result for sync spotify playback.
+        """
         last_signature: tuple[Any, ...] | None = None
         last_cover_url: str | None = None
         reported_failures: set[str] = set()
@@ -2387,6 +3797,16 @@ class WebSocketRunner:
             await asyncio.sleep(2)
 
     async def _sync_local_playback(self, ui: WebSocketUIAdapter) -> None:
+        """Sync local playback for web socket runner.
+
+        Coordinates the sync local playback method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the sync local playback operation.
+
+        Returns:
+            The computed result for sync local playback.
+        """
         last_signature: tuple[Any, ...] | None = None
         last_payload: dict[str, Any] | None = None
         next_status_probe_at = 0.0
@@ -2415,12 +3835,31 @@ class WebSocketRunner:
                 next_status_probe_at = time.monotonic() + LOCAL_PLAYBACK_STATUS_PROBE_SECONDS
             await asyncio.sleep(LOCAL_PLAYBACK_SYNC_INTERVAL_SECONDS)
 
-    async def _handle_user_input(self, ui: WebSocketUIAdapter, user_input: str) -> None:
+    async def _handle_user_input(
+        self,
+        ui: WebSocketUIAdapter,
+        user_input: str,
+        *,
+        append_user_message: bool = True,
+    ) -> None:
+        """Handle user input for web socket runner.
+
+        Coordinates the handle user input method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the handle user input operation.
+            user_input: Input value used by the handle user input operation.
+            append_user_message: Input value used by the handle user input operation.
+
+        Returns:
+            The computed result for handle user input.
+        """
         user_input = user_input.strip()
         if not user_input:
             return
 
-        await ui.append_user_message(user_input)
+        if append_user_message:
+            await ui.append_user_message(user_input)
 
         play_selection = getattr(ui, "_play_selection", None)
         if play_selection and await play_selection.handle_refinement(user_input):
@@ -2453,6 +3892,8 @@ class WebSocketRunner:
                 await setup.start(reason)
                 return
 
+            if command_intent.command == "recommend":
+                setattr(ui, "_recommendation_turn_active", True)
             self._running_task = asyncio.create_task(
                 self._run_agent_turn(ui, user_input, command_intent=command_intent)
             )
@@ -2474,15 +3915,22 @@ class WebSocketRunner:
             ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
             return
 
-        play_request = _rule_parse_play_request(user_input)
-        if not play_request.is_play_request and _should_optimize_play_request(user_input):
-            ready_for_optimizer, _, _ = _llm_auth_ready()
-            if ready_for_optimizer:
-                play_request = await asyncio.to_thread(_optimize_play_prompt, user_input)
-        if play_request.is_play_request and play_request.confidence == "high" and play_request.query:
-            session = PlaySelectionSession(ui, self, play_request.query)
+        decision = classify_music_intent_fast(user_input)
+        if decision is None:
+            decision = await asyncio.to_thread(classify_music_intent, user_input)
+        if decision.route == MusicIntentRoute.EXPLICIT_PLAY:
+            query = await self._resolve_music_query(ui, decision)
+            if query is None:
+                return
+            session = PlaySelectionSession(ui, self, query)
             setattr(ui, "_play_selection", session)
             await session.start()
+            return
+
+        if decision.route == MusicIntentRoute.CONFIRM_TRACK_PLAY and decision.query:
+            confirmation = MusicIntentConfirmationSession(ui, self, user_input, decision.query)
+            setattr(ui, "_music_intent_confirmation", confirmation)
+            await confirmation.start()
             return
 
         ready, provider, reason = _llm_auth_ready()
@@ -2492,9 +3940,91 @@ class WebSocketRunner:
             await setup.start(reason)
             return
 
-        self._running_task = asyncio.create_task(self._run_agent_turn(ui, user_input))
+        command_intent = self._music_agent_intent(user_input, decision)
+        if command_intent.command == "recommend":
+            setattr(ui, "_recommendation_turn_active", True)
+        self._running_task = asyncio.create_task(
+            self._run_agent_turn(ui, user_input, command_intent=command_intent)
+        )
+
+    async def _resolve_music_query(self, ui: WebSocketUIAdapter, decision: MusicIntentDecision) -> str | None:
+        """Resolve music query for web socket runner.
+
+        Coordinates the resolve music query method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the resolve music query operation.
+            decision: Input value used by the resolve music query operation.
+
+        Returns:
+            The computed result for resolve music query.
+        """
+        if decision.recommendation_index is None:
+            return decision.query
+        tracks = list(getattr(ui, "_last_recommendation_tracks", []) or [])
+        index = decision.recommendation_index
+        if not tracks:
+            await ui.append_agent_message("当前会话还没有可引用的推荐列表。请先让我推荐几首歌。")
+            return None
+        if index < 1 or index > len(tracks):
+            await ui.append_agent_message(f"推荐序号超出范围，请选择 1-{len(tracks)}。")
+            return None
+        track = tracks[index - 1]
+        name = str(track.get("name") or track.get("title") or "").strip()
+        artist = str(track.get("artist") or "").strip()
+        if not artist:
+            artists = track.get("artists") or []
+            if artists:
+                artist = str(artists[0])
+        return " ".join(part for part in (name, artist) if part).strip() or None
+
+    def _music_agent_intent(self, user_input: str, decision: MusicIntentDecision) -> CommandIntent:
+        """Music agent intent for web socket runner.
+
+        Coordinates the music agent intent method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            user_input: Input value used by the music agent intent operation.
+            decision: Input value used by the music agent intent operation.
+
+        Returns:
+            The computed result for music agent intent.
+        """
+        if decision.route == MusicIntentRoute.RECOMMEND:
+            return CommandIntent(
+                command="recommend",
+                raw=user_input,
+                args=decision.query or user_input,
+                intent_prompt=(
+                    "Recommend music using only the allowed read-only tools. Return a concise numbered text list "
+                    "and end with a normal text question about what the user wants to hear. Do not start playback."
+                ),
+                allowed_tools=RECOMMEND_AGENT_TOOLS,
+            )
+        allowed_tools = tuple(
+            name for name, spec in self.tools.tools.items()
+            if spec.enabled and name not in PLAYBACK_AGENT_TOOLS
+        )
+        return CommandIntent(
+            command="general",
+            raw=user_input,
+            args="",
+            intent_prompt="Answer normally. Do not start music playback; playback is owned by the system router.",
+            allowed_tools=allowed_tools,
+        )
 
     async def _handle_builtin_command(self, ui: WebSocketUIAdapter, parsed_command: Any) -> None:
+        """Handle builtin command for web socket runner.
+
+        Coordinates the handle builtin command method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the handle builtin command operation.
+            parsed_command: Input value used by the handle builtin command operation.
+
+        Returns:
+            The computed result for handle builtin command.
+        """
         if parsed_command.raw == "/" or not parsed_command.name:
             await ui.send_help_panel(command_suggestions())
             await ui.append_activity(
@@ -2586,6 +4116,17 @@ class WebSocketRunner:
         await ui.append_activity(kind="status", title="Agent command", detail=message, status="success")
 
     async def _handle_local_playback_control(self, ui: WebSocketUIAdapter, command_name: str) -> None:
+        """Handle local playback control for web socket runner.
+
+        Coordinates the handle local playback control method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the handle local playback control operation.
+            command_name: Input value used by the handle local playback control operation.
+
+        Returns:
+            The computed result for handle local playback control.
+        """
         tool_name = LOCAL_PLAYBACK_CONTROL_TOOLS[command_name]
         try:
             result = registry.invoke(tool_name, {})
@@ -2600,6 +4141,17 @@ class WebSocketRunner:
         await self._sync_tool_result_ui(ui, tool_name, result)
 
     async def _handle_local_playback_volume(self, ui: WebSocketUIAdapter, args: str) -> None:
+        """Handle local playback volume for web socket runner.
+
+        Coordinates the handle local playback volume method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the handle local playback volume operation.
+            args: Input value used by the handle local playback volume operation.
+
+        Returns:
+            The computed result for handle local playback volume.
+        """
         try:
             volume = int(args.strip())
             if not 0 <= volume <= 100:
@@ -2624,6 +4176,17 @@ class WebSocketRunner:
         await self._sync_tool_result_ui(ui, tool_name, result)
 
     async def _handle_local_playback_player(self, ui: WebSocketUIAdapter, args: str) -> None:
+        """Handle local playback player for web socket runner.
+
+        Coordinates the handle local playback player method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the handle local playback player operation.
+            args: Input value used by the handle local playback player operation.
+
+        Returns:
+            The computed result for handle local playback player.
+        """
         backend = args.strip().lower()
         if backend not in LOCAL_PLAYBACK_BACKENDS:
             message = "Usage: /player <auto|mpv|cvlc>"
@@ -2645,6 +4208,16 @@ class WebSocketRunner:
         await self._sync_tool_result_ui(ui, tool_name, result)
 
     async def _handle_logout(self, ui: WebSocketUIAdapter) -> None:
+        """Handle logout for web socket runner.
+
+        Coordinates the handle logout method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the handle logout operation.
+
+        Returns:
+            The computed result for handle logout.
+        """
         state = _llm_auth_state()
         if not state.ready:
             await ui.append_agent_message("You are not logged in.")
@@ -2690,6 +4263,18 @@ class WebSocketRunner:
         messages: list[dict[str, str]],
         reason: str,
     ) -> None:
+        """Handle bye for web socket runner.
+
+        Coordinates the handle bye method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the handle bye operation.
+            messages: Input value used by the handle bye operation.
+            reason: Input value used by the handle bye operation.
+
+        Returns:
+            The computed result for handle bye.
+        """
         path = _save_session_transcript(messages, reason=reason)
         message = f"Session saved to {path}. Bye."
         await ui.append_activity(
@@ -2704,6 +4289,17 @@ class WebSocketRunner:
         await ui.close()
 
     async def _start_builtin_setup(self, ui: WebSocketUIAdapter, args: str) -> None:
+        """Start builtin setup for web socket runner.
+
+        Coordinates the start builtin setup method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the start builtin setup operation.
+            args: Input value used by the start builtin setup operation.
+
+        Returns:
+            The computed result for start builtin setup.
+        """
         provider = (args or "spotify").strip().lower().replace("-", "_")
         if provider in {"spotify", "sp"}:
             setup = SpotifySetupSession(ui)
@@ -2732,6 +4328,19 @@ class WebSocketRunner:
         tool_result: Any,
         activity_id: str | None = None,
     ) -> None:
+        """Sync tool result ui for web socket runner.
+
+        Coordinates the sync tool result ui method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the sync tool result ui operation.
+            tool_name: Input value used by the sync tool result ui operation.
+            tool_result: Input value used by the sync tool result ui operation.
+            activity_id: Input value used by the sync tool result ui operation.
+
+        Returns:
+            The computed result for sync tool result ui.
+        """
         title, detail, activity_status = _format_tool_result(tool_name, tool_result)
         await ui.append_activity(
             kind="tool",
@@ -2744,6 +4353,8 @@ class WebSocketRunner:
         search_tracks = _search_results_payload(tool_result) if tool_name in SEARCH_RESULT_TOOLS else []
         if search_tracks:
             setattr(ui, "_last_search_tracks", search_tracks)
+            if tool_name in RECOMMENDATION_TOOLS or getattr(ui, "_recommendation_turn_active", False):
+                setattr(ui, "_last_recommendation_tracks", search_tracks)
             await ui._send({"type": "search_results", "tracks": search_tracks})
 
         result_status = str(tool_result.get("status") or "").lower() if isinstance(tool_result, dict) else ""
@@ -2769,6 +4380,18 @@ class WebSocketRunner:
         user_input: str,
         command_intent: CommandIntent | None = None,
     ) -> None:
+        """Run agent turn for web socket runner.
+
+        Coordinates the run agent turn method behavior while preserving web socket runner state and contracts.
+
+        Args:
+            ui: Input value used by the run agent turn operation.
+            user_input: Input value used by the run agent turn operation.
+            command_intent: Input value used by the run agent turn operation.
+
+        Returns:
+            The computed result for run agent turn.
+        """
         event_queue: asyncio.Queue[RunnerEvent] = asyncio.Queue()
         self._confirm_queue = queue.Queue()
         loop = asyncio.get_running_loop()
@@ -2781,18 +4404,52 @@ class WebSocketRunner:
         planning_finished = False
 
         def elapsed_ms() -> int:
+            """Elapsed ms.
+
+            Coordinates elapsed ms logic for the surrounding Sonex flow.
+
+            Returns:
+                The computed result for elapsed ms.
+            """
             return int((time.monotonic() - turn_started) * 1000)
 
         def emit(event: RunnerEvent) -> None:
+            """Emit.
+
+            Coordinates emit logic for the surrounding Sonex flow.
+
+            Args:
+                event: Input value used by the emit operation.
+
+            Returns:
+                The computed result for emit.
+            """
             loop.call_soon_threadsafe(event_queue.put_nowait, event)
 
         def wait_for_confirm(confirm_id: str) -> Any:
+            """Wait for confirm.
+
+            Coordinates wait for confirm logic for the surrounding Sonex flow.
+
+            Args:
+                confirm_id: Input value used by the wait for confirm operation.
+
+            Returns:
+                The computed result for wait for confirm.
+            """
             while True:
                 incoming_id, decision = self._confirm_queue.get()
                 if not incoming_id or incoming_id == confirm_id:
                     return decision
 
         def producer() -> None:
+            """Producer.
+
+            Coordinates producer logic for the surrounding Sonex flow.
+
+            Returns:
+                The computed result for producer.
+            """
             decision: Any = None
             try:
                 if command_intent is None:
@@ -2851,6 +4508,13 @@ class WebSocketRunner:
                 emit(RunnerEvent(type="done", data={}))
 
         async def send_current_status() -> None:
+            """Asynchronously send current status.
+
+            Coordinates non-blocking send current status work for the surrounding Sonex flow.
+
+            Returns:
+                The computed result for send current status.
+            """
             await ui.send_status(
                 UiStatus(phase=current_phase, message=current_message),
                 tokens=latest_tokens,
@@ -2859,6 +4523,17 @@ class WebSocketRunner:
             )
 
         async def finish_planning(status: str, detail: str) -> None:
+            """Asynchronously finish planning.
+
+            Coordinates non-blocking finish planning work for the surrounding Sonex flow.
+
+            Args:
+                status: Input value used by the finish planning operation.
+                detail: Input value used by the finish planning operation.
+
+            Returns:
+                The computed result for finish planning.
+            """
             nonlocal planning_finished
             if planning_finished:
                 return
@@ -2986,5 +4661,6 @@ class WebSocketRunner:
 
         if producer_thread.is_alive():
             producer_thread.join(timeout=1)
+        setattr(ui, "_recommendation_turn_active", False)
         await ui.send_status(UiStatus(phase="Idle", message="Snoozing..."), active=False)
         self._running_task = None

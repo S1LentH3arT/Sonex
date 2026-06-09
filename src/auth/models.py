@@ -1,3 +1,9 @@
+"""Models support for provider authentication and credential persistence.
+
+Implements the models module responsibilities used by Sonex runtime flows.
+Key public entry points include OAuthToken, ApiKeyCredential, ProviderAuth, AuthStore.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -9,6 +15,10 @@ AuthMethod = Literal["auto", "oauth", "api_key", "none"]
 
 @dataclass(slots=True)
 class OAuthToken:
+    """Represents o auth token.
+
+    Encapsulates o auth token data and behavior used by Sonex runtime flows.
+    """
     access_token: str
     refresh_token: str | None = None
     expires_at: str | None = None
@@ -16,6 +26,16 @@ class OAuthToken:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "OAuthToken | None":
+        """From dict for o auth token.
+
+        Coordinates the from dict method behavior while preserving o auth token state and contracts.
+
+        Args:
+            data: Input value used by the from dict operation.
+
+        Returns:
+            The computed result for from dict.
+        """
         if not data:
             return None
         access_token = str(data.get("access_token") or "")
@@ -30,6 +50,13 @@ class OAuthToken:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """To dict for o auth token.
+
+        Coordinates the to dict method behavior while preserving o auth token state and contracts.
+
+        Returns:
+            The computed result for to dict.
+        """
         data: dict[str, Any] = {"access_token": self.access_token}
         if self.refresh_token:
             data["refresh_token"] = self.refresh_token
@@ -42,10 +69,24 @@ class OAuthToken:
 
 @dataclass(slots=True)
 class ApiKeyCredential:
+    """Represents api key credential.
+
+    Encapsulates api key credential data and behavior used by Sonex runtime flows.
+    """
     api_key: str
 
     @classmethod
     def from_value(cls, value: str | None) -> "ApiKeyCredential | None":
+        """From value for api key credential.
+
+        Coordinates the from value method behavior while preserving api key credential state and contracts.
+
+        Args:
+            value: Input value used by the from value operation.
+
+        Returns:
+            The computed result for from value.
+        """
         if not value:
             return None
         return cls(api_key=value)
@@ -53,6 +94,10 @@ class ApiKeyCredential:
 
 @dataclass(slots=True)
 class ProviderAuth:
+    """Represents provider auth.
+
+    Encapsulates provider auth data and behavior used by Sonex runtime flows.
+    """
     name: str
     auth_method: AuthMethod = "auto"
     api_key: str | None = None
@@ -64,6 +109,17 @@ class ProviderAuth:
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any] | None) -> "ProviderAuth":
+        """From dict for provider auth.
+
+        Coordinates the from dict method behavior while preserving provider auth state and contracts.
+
+        Args:
+            name: Input value used by the from dict operation.
+            data: Input value used by the from dict operation.
+
+        Returns:
+            The computed result for from dict.
+        """
         data = data or {}
         method = str(data.get("auth_method") or "auto")
         if method not in {"auto", "oauth", "api_key", "none"}:
@@ -80,6 +136,13 @@ class ProviderAuth:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """To dict for provider auth.
+
+        Coordinates the to dict method behavior while preserving provider auth state and contracts.
+
+        Returns:
+            The computed result for to dict.
+        """
         data: dict[str, Any] = {"auth_method": self.auth_method}
         if self.api_key:
             data["api_key"] = self.api_key
@@ -98,6 +161,10 @@ class ProviderAuth:
 
 @dataclass(slots=True)
 class AuthStore:
+    """Represents auth store.
+
+    Encapsulates auth store data and behavior used by Sonex runtime flows.
+    """
     version: int = 1
     default_provider: str | None = None
     default_model: str | None = None
@@ -105,6 +172,16 @@ class AuthStore:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "AuthStore":
+        """From dict for auth store.
+
+        Coordinates the from dict method behavior while preserving auth store state and contracts.
+
+        Args:
+            data: Input value used by the from dict operation.
+
+        Returns:
+            The computed result for from dict.
+        """
         data = data or {}
         providers = {
             str(name): ProviderAuth.from_dict(str(name), provider_data)
@@ -118,6 +195,13 @@ class AuthStore:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """To dict for auth store.
+
+        Coordinates the to dict method behavior while preserving auth store state and contracts.
+
+        Returns:
+            The computed result for to dict.
+        """
         data: dict[str, Any] = {
             "version": self.version,
             "providers": {

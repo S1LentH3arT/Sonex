@@ -1,3 +1,8 @@
+"""Tests test song cache.
+
+Contains pytest coverage for the test song cache behavior.
+"""
+
 from __future__ import annotations
 
 import tempfile
@@ -13,7 +18,15 @@ from src.tools.song_cache import (
 
 
 class SongCacheTests(unittest.TestCase):
+    """Groups song cache tests tests.
+
+    Collects related assertions for song cache tests behavior.
+    """
     def test_cache_retains_only_recent_100_and_exposes_recent_10(self) -> None:
+        """Validate test cache retains only recent 100 and exposes recent 10.
+
+        Exercises the test cache retains only recent 100 and exposes recent 10 behavior through the test suite.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for idx in range(101):
@@ -42,6 +55,10 @@ class SongCacheTests(unittest.TestCase):
             self.assertEqual(recent[-1]["name"], "Song 91")
 
     def test_prune_deletes_audio_file_referenced_by_stale_item(self) -> None:
+        """Validate test prune deletes audio file referenced by stale item.
+
+        Exercises the test prune deletes audio file referenced by stale item behavior through the test suite.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             stale_audio = root / "audio" / "stale.webm"
@@ -77,6 +94,10 @@ class SongCacheTests(unittest.TestCase):
             self.assertIsNone(find_best_cached_song("Stale Song", cache_root=root))
 
     def test_resolve_cached_song_reads_full_item_json(self) -> None:
+        """Validate test resolve cached song reads full item json.
+
+        Exercises the test resolve cached song reads full item json behavior through the test suite.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             compact = upsert_cached_song(

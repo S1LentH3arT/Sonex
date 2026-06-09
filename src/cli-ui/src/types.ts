@@ -1,3 +1,8 @@
+/**
+ * Describes the server event type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ServerEvent =
     | { type: "chat"; role: ChatRole; text: string }
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
@@ -15,15 +20,25 @@ export type ServerEvent =
     | { type: "help_panel"; title: string; hint: string; commands: HelpCommand[] }
     | { type: "bye"; path: string; message?: string | null };
 
+/**
+ * Describes the cover pattern event type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type CoverPatternEvent = {
     type: "cover_pattern";
     source_url: string;
     palette: string[];
-    variants: Partial<Record<36 | 48 | 64, number[][]>>;
+    variants: Partial<Record<32 | 48 | 64, number[][]>>;
     source_hash?: string;
     generated_at?: number;
 };
 
+/**
+ * Describes the client event type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ClientEvent =
     | { type: "user_input"; text: string }
     | { type: "confirm_result"; id: string; decision: string }
@@ -31,6 +46,11 @@ export type ClientEvent =
     | { type: "auth_setup_input"; value: string }
     | { type: "bye"; messages: ChatItem[]; reason: string };
 
+/**
+ * Describes the confirm choice type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ConfirmChoice = {
     value: string;
     label: string;
@@ -40,6 +60,11 @@ export type ConfirmChoice = {
     };
 };
 
+/**
+ * Describes the confirm state type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ConfirmState = {
     id: string;
     tool_name: string;
@@ -48,6 +73,11 @@ export type ConfirmState = {
     choices: ConfirmChoice[];
 } | null;
 
+/**
+ * Describes the spotify setup state type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type SpotifySetupState = {
     step: string;
     title: string;
@@ -57,12 +87,22 @@ export type SpotifySetupState = {
     active: boolean;
 } | null;
 
+/**
+ * Describes the auth method choice type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type AuthMethodChoice = {
     value: string;
     label: string;
     provider?: string;
 };
 
+/**
+ * Describes the auth setup state type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type AuthSetupState = {
     provider: string;
     step: string;
@@ -76,6 +116,11 @@ export type AuthSetupState = {
     models?: AuthMethodChoice[] | null;
 } | null;
 
+/**
+ * Describes the auth runtime state type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type AuthRuntimeState = {
     ready: boolean;
     provider: string;
@@ -85,12 +130,32 @@ export type AuthRuntimeState = {
     reason?: string | null;
 };
 
+/**
+ * Describes the chat role type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ChatRole = "user" | "agent";
 
+/**
+ * Describes the activity kind type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ActivityKind = "tool" | "status" | "error" | "confirm";
 
+/**
+ * Describes the activity status type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ActivityStatus = "pending" | "success" | "error";
 
+/**
+ * Describes the activity item type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ActivityItem = {
     id: string;
     kind: ActivityKind;
@@ -100,6 +165,11 @@ export type ActivityItem = {
     timestamp: number;
 };
 
+/**
+ * Describes the player state type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type PlayerState = {
     name: string;
     artist: string;
@@ -117,6 +187,11 @@ export type PlayerState = {
     source?: "local" | "youtube" | "spotify" | "apple_music" | string | null;
 };
 
+/**
+ * Describes the track summary type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type TrackSummary = {
     index: string;
     name: string;
@@ -131,32 +206,67 @@ export type TrackSummary = {
     recommendation_reason?: string | null;
 };
 
+/**
+ * Describes the chat bubble props type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ChatBubbleProps = {
     role: ChatRole;
     content: string;
 };
 
+/**
+ * Describes the chat item type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type ChatItem = {
     role: ChatRole;
     content: string;
 };
 
+/**
+ * Describes the help command type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type HelpCommand = {
     name: string;
     usage: string;
     description: string;
 };
 
+/**
+ * Describes the help panel state type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type HelpPanelState = {
     title: string;
     hint: string;
     commands: HelpCommand[];
 } | null;
 
+/**
+ * Describes the layout mode type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type LayoutMode = "compact" | "full";
 
+/**
+ * Describes the player pane variant type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type PlayerPaneVariant = "compact" | "full";
 
+/**
+ * Describes the prompt input props type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type PromptInputProps = {
     input: string;
     setInput: (value: string) => void;
@@ -167,6 +277,11 @@ export type PromptInputProps = {
     inputRevision?: number;
 };
 
+/**
+ * Describes the login screen props type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type LoginScreenProps = {
     authSetup: AuthSetupState;
     selectedIndex: number;
@@ -175,6 +290,11 @@ export type LoginScreenProps = {
     onApiKeySubmit: (value: string) => void;
 };
 
+/**
+ * Describes the slash command suggestion type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type SlashCommandSuggestion = {
     name: string;
     usage: string;
@@ -183,6 +303,11 @@ export type SlashCommandSuggestion = {
     aliases?: string[];
 };
 
+/**
+ * Describes the visible chat window type.
+ *
+ * Documents the shape shared across types.ts call sites.
+ */
 export type VisibleChatWindow = {
     items: ChatItem[];
     hasHiddenAbove: boolean;

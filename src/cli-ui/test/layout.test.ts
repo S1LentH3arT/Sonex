@@ -20,7 +20,18 @@ assert.equal(
         preferredLayout: 'full',
         smallPlaybackFocus: 'player',
     }),
-    'full',
+    'miniPlayer',
+);
+
+assert.equal(
+    resolveShellLayout({
+        columns: 120,
+        rows: 30,
+        isPlaying: true,
+        preferredLayout: 'compact',
+        smallPlaybackFocus: 'player',
+    }),
+    'miniPlayer',
 );
 
 assert.equal(
@@ -79,7 +90,7 @@ assert.equal(
 );
 
 assert.deepEqual(
-    resolveMiniPlayerChrome({layout: 'miniPlayer', smallPlaybackFocus: 'player'}),
+    resolveMiniPlayerChrome({ layout: 'miniPlayer', smallPlaybackFocus: 'player' }),
     {
         inputOnly: true,
         showConversation: false,
@@ -89,7 +100,7 @@ assert.deepEqual(
 );
 
 assert.equal(
-    resolveMiniPlayerChrome({layout: 'chat', smallPlaybackFocus: 'chat'}).switchHint,
+    resolveMiniPlayerChrome({ layout: 'chat', smallPlaybackFocus: 'chat' }).switchHint,
     'Tab to switch to player',
 );
 
@@ -111,5 +122,5 @@ assert.equal(
     'chat',
 );
 
-assert.equal(shouldReturnToChatAfterSubmit({layout: 'miniPlayer', commandName: 'play'}), false);
-assert.equal(shouldReturnToChatAfterSubmit({layout: 'miniPlayer', commandName: 'pause'}), false);
+assert.equal(shouldReturnToChatAfterSubmit({ layout: 'miniPlayer', commandName: 'play' }), false);
+assert.equal(shouldReturnToChatAfterSubmit({ layout: 'miniPlayer', commandName: 'pause' }), false);

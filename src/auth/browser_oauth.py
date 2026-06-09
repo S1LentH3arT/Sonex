@@ -1,3 +1,9 @@
+"""Browser oauth support for provider authentication and credential persistence.
+
+Implements the browser_oauth module responsibilities used by Sonex runtime flows.
+Key public entry points include BrowserOAuthError, BrowserOAuthUnsupportedError, BrowserOAuthConfigError, BrowserOAuthConfig, browser_oauth_supported.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -21,19 +27,35 @@ from src.log import sonex_home
 
 
 class BrowserOAuthError(RuntimeError):
+    """Represents browser o auth error.
+
+    Encapsulates browser o auth error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
+    """
     pass
 
 
 class BrowserOAuthUnsupportedError(BrowserOAuthError):
+    """Represents browser o auth unsupported error.
+
+    Encapsulates browser o auth unsupported error data and behavior used by Sonex runtime flows. Extends browser o auth error semantics.
+    """
     pass
 
 
 class BrowserOAuthConfigError(BrowserOAuthError):
+    """Represents browser o auth config error.
+
+    Encapsulates browser o auth config error data and behavior used by Sonex runtime flows. Extends browser o auth error semantics.
+    """
     pass
 
 
 @dataclass(frozen=True, slots=True)
 class BrowserOAuthConfig:
+    """Represents browser o auth config.
+
+    Encapsulates browser o auth config data and behavior used by Sonex runtime flows.
+    """
     provider: str
     client_id: str
     client_secret: str | None
@@ -50,10 +72,30 @@ GEMINI_DEFAULT_SCOPES = [
 
 
 def browser_oauth_supported(provider: str) -> bool:
+    """Browser oauth supported.
+
+    Coordinates browser oauth supported logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the browser oauth supported operation.
+
+    Returns:
+        The computed result for browser oauth supported.
+    """
     return normalize_provider(provider) == "gemini"
 
 
 def browser_oauth_requirements(provider: str) -> str:
+    """Browser oauth requirements.
+
+    Coordinates browser oauth requirements logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the browser oauth requirements operation.
+
+    Returns:
+        The computed result for browser oauth requirements.
+    """
     name = normalize_provider(provider)
     if name == "gemini":
         return (
@@ -65,6 +107,16 @@ def browser_oauth_requirements(provider: str) -> str:
 
 
 def run_browser_oauth(provider: str) -> None:
+    """Run browser oauth.
+
+    Coordinates run browser oauth logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the run browser oauth operation.
+
+    Returns:
+        The computed result for run browser oauth.
+    """
     config = load_browser_oauth_config(provider)
     state = secrets.token_urlsafe(24)
     verifier = _pkce_verifier()
@@ -76,6 +128,16 @@ def run_browser_oauth(provider: str) -> None:
 
 
 def load_browser_oauth_config(provider: str) -> BrowserOAuthConfig:
+    """Load browser oauth config.
+
+    Coordinates load browser oauth config logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the load browser oauth config operation.
+
+    Returns:
+        The computed result for load browser oauth config.
+    """
     name = normalize_provider(provider)
     if name != "gemini":
         raise BrowserOAuthUnsupportedError(browser_oauth_requirements(name))
@@ -114,6 +176,16 @@ def load_browser_oauth_config(provider: str) -> BrowserOAuthConfig:
 
 
 def _provider_file_config(provider: str) -> dict[str, Any]:
+    """Provider file config.
+
+    Coordinates provider file config logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the provider file config operation.
+
+    Returns:
+        The computed result for provider file config.
+    """
     config_path = Path(os.getenv("SONEX_CONFIG_PATH") or (sonex_home() / "thinking.json")).expanduser()
     try:
         with config_path.open("r", encoding="utf-8") as f:
@@ -130,6 +202,16 @@ def _provider_file_config(provider: str) -> dict[str, Any]:
 
 
 def _coerce_scopes(value: Any) -> list[str]:
+    """Coerce scopes.
+
+    Coordinates coerce scopes logic for the surrounding Sonex flow.
+
+    Args:
+        value: Input value used by the coerce scopes operation.
+
+    Returns:
+        The computed result for coerce scopes.
+    """
     if isinstance(value, str):
         return [item for item in value.replace(",", " ").split() if item]
     if isinstance(value, list):
@@ -138,15 +220,44 @@ def _coerce_scopes(value: Any) -> list[str]:
 
 
 def _pkce_verifier() -> str:
+    """Pkce verifier.
+
+    Coordinates pkce verifier logic for the surrounding Sonex flow.
+
+    Returns:
+        The computed result for pkce verifier.
+    """
     return secrets.token_urlsafe(64)[:128]
 
 
 def _pkce_challenge(verifier: str) -> str:
+    """Pkce challenge.
+
+    Coordinates pkce challenge logic for the surrounding Sonex flow.
+
+    Args:
+        verifier: Input value used by the pkce challenge operation.
+
+    Returns:
+        The computed result for pkce challenge.
+    """
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def _authorize_url(config: BrowserOAuthConfig, *, state: str, challenge: str) -> str:
+    """Authorize url.
+
+    Coordinates authorize url logic for the surrounding Sonex flow.
+
+    Args:
+        config: Input value used by the authorize url operation.
+        state: Input value used by the authorize url operation.
+        challenge: Input value used by the authorize url operation.
+
+    Returns:
+        The computed result for authorize url.
+    """
     query = urlencode(
         {
             "client_id": config.client_id,
@@ -165,6 +276,18 @@ def _authorize_url(config: BrowserOAuthConfig, *, state: str, challenge: str) ->
 
 
 def _wait_for_authorization_code(redirect_uri: str, authorize_url: str, expected_state: str) -> str:
+    """Wait for authorization code.
+
+    Coordinates wait for authorization code logic for the surrounding Sonex flow.
+
+    Args:
+        redirect_uri: Input value used by the wait for authorization code operation.
+        authorize_url: Input value used by the wait for authorization code operation.
+        expected_state: Input value used by the wait for authorization code operation.
+
+    Returns:
+        The computed result for wait for authorization code.
+    """
     redirect = urlparse(redirect_uri)
     host = redirect.hostname or "127.0.0.1"
     port = redirect.port or 80
@@ -172,7 +295,18 @@ def _wait_for_authorization_code(redirect_uri: str, authorize_url: str, expected
     received: dict[str, str] = {}
 
     class OAuthCallbackHandler(BaseHTTPRequestHandler):
+        """Represents oauth callback handler.
+
+        Encapsulates oauth callback handler data and behavior used by Sonex runtime flows. Extends base h t t p request handler semantics.
+        """
         def do_GET(self) -> None:
+            """Do get for oauth callback handler.
+
+            Coordinates the do get method behavior while preserving oauth callback handler state and contracts.
+
+            Returns:
+                The computed result for do get.
+            """
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             if parsed.path != callback_path:
@@ -193,6 +327,17 @@ def _wait_for_authorization_code(redirect_uri: str, authorize_url: str, expected
             self.wfile.write(b"Sonex OAuth complete. You can return to the terminal.")
 
         def log_message(self, format: str, *args: object) -> None:
+            """Log message for oauth callback handler.
+
+            Coordinates the log message method behavior while preserving oauth callback handler state and contracts.
+
+            Args:
+                format: Input value used by the log message operation.
+                args: Input value used by the log message operation.
+
+            Returns:
+                The computed result for log message.
+            """
             return
 
     webbrowser.open(authorize_url)
@@ -210,6 +355,18 @@ def _wait_for_authorization_code(redirect_uri: str, authorize_url: str, expected
 
 
 def _exchange_code(config: BrowserOAuthConfig, *, code: str, verifier: str) -> dict[str, Any]:
+    """Exchange code.
+
+    Coordinates exchange code logic for the surrounding Sonex flow.
+
+    Args:
+        config: Input value used by the exchange code operation.
+        code: Input value used by the exchange code operation.
+        verifier: Input value used by the exchange code operation.
+
+    Returns:
+        The computed result for exchange code.
+    """
     payload: dict[str, str] = {
         "client_id": config.client_id,
         "code": code,
@@ -237,6 +394,18 @@ def _exchange_code(config: BrowserOAuthConfig, *, code: str, verifier: str) -> d
 
 
 def _save_token_info(provider: str, token_info: dict[str, Any], default_scopes: list[str]) -> None:
+    """Save token info.
+
+    Coordinates save token info logic for the surrounding Sonex flow.
+
+    Args:
+        provider: Input value used by the save token info operation.
+        token_info: Input value used by the save token info operation.
+        default_scopes: Input value used by the save token info operation.
+
+    Returns:
+        The computed result for save token info.
+    """
     expires_in = token_info.get("expires_in")
     if expires_in not in (None, ""):
         expires_at_value = (

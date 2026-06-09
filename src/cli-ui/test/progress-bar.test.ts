@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import {buildProgressBar} from '../src/format.js';
+import { buildProgressBar } from '../src/format.js';
 
 assert.equal(buildProgressBar(0, 10000, 4), "────");
 assert.equal(buildProgressBar(5000, 10000, 4), "━━──");

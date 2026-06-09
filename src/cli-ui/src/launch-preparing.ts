@@ -1,13 +1,44 @@
-import type {ActivityItem} from './types.js';
+import type { ActivityItem } from './types.js';
 
+/**
+ * Defines the launch preparing interval ms constant.
+ *
+ * Stores stable configuration or display data consumed by launch-preparing.ts.
+ */
 export const LAUNCH_PREPARING_INTERVAL_MS = 1000;
 
+/**
+ * Launch preparing text.
+ *
+ * Coordinates the launch preparing text operation for the CLI UI runtime.
+ *
+ * @param frame Input value used by the launch preparing text operation.
+ * @returns The computed result for the surrounding CLI UI flow.
+ */
 export function launchPreparingText(frame: number): string {
+    /**
+     * Defines the dot count constant.
+     *
+     * Stores stable configuration or display data consumed by launch-preparing.ts.
+     */
     const dotCount = (Math.max(0, frame) % 3) + 1;
     return `Launch preparing${'.'.repeat(dotCount)}`;
 }
 
+/**
+ * Should start launch preparing.
+ *
+ * Coordinates the should start launch preparing operation for the CLI UI runtime.
+ *
+ * @param activity Input value used by the should start launch preparing operation.
+ * @returns The computed result for the surrounding CLI UI flow.
+ */
 export function shouldStartLaunchPreparing(activity: Pick<ActivityItem, 'kind' | 'title' | 'status'>): boolean {
+    /**
+     * Defines the launch preparing titles constant.
+     *
+     * Stores stable configuration or display data consumed by launch-preparing.ts.
+     */
     const launchPreparingTitles = new Set([
         'Searching Spotify',
         'Searching online audio',
