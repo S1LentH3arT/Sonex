@@ -21,7 +21,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "logout", usage: "/logout", description: "Log out current LLM provider and exit", needsArgument: false },
     { name: "model", usage: "/model", description: "Switch active model", needsArgument: false },
     { name: "pause", usage: "/pause", description: "Pause current playback", needsArgument: false },
-    { name: "player", usage: "/player <auto|mpv|cvlc>", description: "Set local playback backend", needsArgument: true },
+    { name: "player", usage: "/player <auto|mpv|cvlc>", description: "Set playback backend; auto uses mpv", needsArgument: true },
     { name: "play", usage: "/play <query/number>", description: "Play a song by query or result number.", needsArgument: true },
     { name: "progress", usage: "/progress", description: "Show playback progress", needsArgument: false },
     { name: "quit", usage: "/quit", description: "Save session and exit", needsArgument: false },

@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -120,6 +121,7 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
     if play_youtube_candidate is not _LEGACY_PLAY_ALIAS:
         return play_youtube_candidate(*args, **kwargs)
     return play_online_audio_candidate(*args, **kwargs)
+
 from src.tools.playback_controller import controller as local_playback_controller
 from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
 from src.tools.cover_sources import cover_bytes_for_source
@@ -156,20 +158,20 @@ LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
 PLAYBACK_METHOD_CHOICES = [
     {
         "value": "spotify_play",
-        "label": "🎧 Spotify 播放",
-        "description": "需要 Premium 或可控制播放的订阅账号。",
+        "label": "🎧 Spotify Play",
+        "description": "Spotify Premium subscription and desktop/mobile Spotify apps required.",
     },
     {
         "value": "apple_music_play",
-        "label": "🍎 Apple Music 播放",
-        "description": "需要 Apple Music 订阅和本机 bridge。",
+        "label": "🍎 Apple Music Play",
+        "description": "Apple Music Subscription required. Play through Sonex internal player.",
     },
     {
         "value": "online_play",
-        "label": "🌐 在线播放",
-        "description": "无订阅要求，使用在线音源和本地播放器。",
+        "label": "🌐 Sonex online Play",
+        "description": "No subscription required. Play through Sonex internal player.",
     },
-    {"value": "cancel", "label": "取消"},
+    {"value": "cancel", "label": "Cancel"},
 ]
 LOCAL_PLAYBACK_CHOICES = [
     {"value": "play_local", "label": "播放本地"},
@@ -804,7 +806,7 @@ def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something w
         if code == "SPOTIFY_PREMIUM_REQUIRED":
             return (
                 "Spotify playback state requires a Premium account. "
-                "I will stop polling Spotify playback for this session; search andlocal playback can still work."
+                "I will stop polling Spotify playback for this session; search and local playback can still work."
             )
         if message:
             return sanitize_error_message(message)
@@ -971,10 +973,10 @@ def _youtube_variant_label(value: Any) -> str:
     """
     variant = str(value or "other")
     if variant == "official_original":
-        return "原音"
+        return "Official"
     if variant == "live":
         return "Live"
-    return "其他"
+    return "Others"
 
 
 def _queue_payload() -> list[dict[str, str]]:
@@ -1108,28 +1110,29 @@ def _rule_parse_play_request(text: str) -> PlayRequestParse:
     """
     stripped = text.strip()
     lowered = stripped.lower()
-    prefixes = ("play ", "帮我放一首", "播放", "放一下", "放首", "来首", "来一首", "我想听", "想听", "听 ")
-    for prefix in prefixes:
-        if lowered.startswith(prefix):
-            query = stripped[len(prefix):].strip()
-            if query:
-                return PlayRequestParse(True, query, "high", f"/play {query}")
-    return PlayRequestParse(False, None, "low", stripped)
 
+    en_patterns = (r"\bplay\b", r"\blisten to\b", r"\bdance\b",)
+    zh_markers = ("放一首", "来一首", "放一下", "放首", "来首", "想听", "听点", "听首", "听一下", "听一首",
+                   "来点", "放点", "听", "放")
+    # Use regex to ensure direct-play intension for English prompt.
+    for pattern in en_patterns:
+        match = re.search(pattern, lowered)
+        if not match:
+            continue
+        query = stripped[match.end():].strip(" \t\r\n,.!?:;")
+        if query:
+            return PlayRequestParse(True, query, "high", f"/play {query}")
 
-def _should_optimize_play_request(text: str) -> bool:
-    """Prepares should optimize play request for an internal Sonex flow.
+    # Use substring matching for Chinese prompt.
+    for marker in zh_markers:
+        idx = stripped.find(marker)
+        if idx == -1:
+            continue
+        query = stripped[idx + len(marker):].strip(" \t\r\n,，.。!！?？:：;；")
+        if query:
+            return PlayRequestParse(True, query, "high", f"/play {query}")
 
-    Typical use: Use this helper when nearby code needs should optimize play request without duplicating the local rules.
-
-    Example: _should_optimize_play_request(text=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    lowered = text.strip().lower()
-    if not lowered:
-        return False
-    english_cues = ("play", "listen to", "song", "track", "music")
-    chinese_cues = ("播放", "放一", "放首", "来首", "来一首", "想听", "听歌", "歌曲", "音乐")
-    return any(cue in lowered for cue in english_cues) or any(cue in text for cue in chinese_cues)
+    return PlayRequestParse(False, None, "low", text)
 
 
 def _optimize_play_prompt(text: str) -> PlayRequestParse:
@@ -1140,10 +1143,17 @@ def _optimize_play_prompt(text: str) -> PlayRequestParse:
     Example: _optimize_play_prompt(text=...) -> returns the value used by the surrounding Sonex flow.
     """
     prompt = (
-        "Decide whether the user is clearly asking to play a song now.\n"
-        "Return JSON only with keys: is_play_request boolean, query string or null, "
-        "confidence high or low, rewritten_input string.\n"
-        f"user_input: {text}"
+        "Classify the user's music intent. Return JSON only with keys route, query, "
+        "recommendation_index, confidence. route must be explicit_play, confirm_track_play, "
+        "recommend, or general. "
+        "Only classify intent; do not rewrite or optimize the user's input. "
+        "Use explicit_play only if the user is clearly asking to play music. "
+        "Use confirm_track_play if the user seems to want a specific track but is not explicit. "
+        "Use recommend if the user is asking for song recommendations or broad music suggestions. "
+        "Use general for lyrics, meaning, history, facts, or unclear requests. "
+        "query should contain the original song/artist/topic if relevant, not a rewritten prompt. "
+        "confidence is between 0 and 1.\n"
+        f"user_input: {text.strip()}"
     )
     try:
         response = ThinkingConfig.get_client().generate(

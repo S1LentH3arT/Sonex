@@ -12,7 +12,7 @@ from typing import Any, Generator
 from src.api.builtin_commands import CommandIntent
 from src.llm.planner import llm_plan
 from src.llm.transport import sanitize_error_message
-from src.memory.memory_hook import append_context, append_tool_summary, finalize_turn
+from src.memory.hooks import append_context, append_tool_summary, finalize_turn
 from src.tools.player_permission import complete_player_confirm
 from src.tools.registry import ToolRegistry
 

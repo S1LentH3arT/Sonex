@@ -617,7 +617,7 @@ class LocalPlaybackController:
 
         Example: _start_adapter(backend=..., source_url=..., source=..., metadata=...) -> returns the value used by the surrounding Sonex flow.
         """
-        backends: tuple[Literal["mpv", "cvlc"], ...] = ("mpv", "cvlc") if backend == "auto" else (backend,)
+        backends: tuple[Literal["mpv", "cvlc"], ...] = ("mpv",) if backend == "auto" else (backend,)
         failures: list[str] = []
         for candidate in backends:
             adapter = self._adapter_for(candidate, source_url=source_url, source=source, metadata=metadata)
@@ -632,7 +632,13 @@ class LocalPlaybackController:
                     pass
                 if backend != "auto":
                     raise
-        raise RuntimeError("; ".join(failures) or "No playback backend could start.")
+        detail = "; ".join(failures) or "No playback backend could start."
+        if backend == "auto":
+            raise RuntimeError(
+                f"{detail}. Auto uses mpv only for playback stability; run /player cvlc "
+                "if you want to try the manual VLC diagnostic backend."
+            )
+        raise RuntimeError(detail)
 
     def _require_adapter(self) -> PlaybackAdapter:
         """Prepares require adapter for an internal Sonex flow.

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import unittest
 import tempfile
+import urllib.parse
 from pathlib import Path
 from unittest.mock import patch
 
@@ -247,6 +248,110 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidate["playback_metadata"]["provider"], "itunes")
         self.assertEqual(candidate["playback_metadata"]["itunes_url"], "https://music.apple.com/song/itunes-1")
 
+    def test_jamendo_wrong_artist_cannot_inherit_selected_metadata_identity(self) -> None:
+        candidate = online.normalize_jamendo_track(
+            {
+                "id": "jam-wrong-artist",
+                "name": "Sorry",
+                "artist_name": "Jamendo Artist",
+                "audio": "https://audio.example/wrong.mp3",
+            },
+            query="Fang Datong Sorry",
+            playback_metadata={
+                "metadata_source": "spotify",
+                "name": "Sorry",
+                "artist": "Fang Datong",
+                "artists": ["Fang Datong"],
+                "album": "The Dreamer",
+            },
+        )
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertEqual(candidate["target_identity"]["artist"], "Fang Datong")
+        self.assertEqual(candidate["source_identity"]["artist"], "Jamendo Artist")
+        self.assertFalse(candidate["identity_match"])
+
+    def test_jamendo_selected_track_uses_exact_identity_query(self) -> None:
+        captured_urls: list[str] = []
+
+        def fake_json_get(url: str, **_: object) -> dict[str, object]:
+            captured_urls.append(url)
+            return {"results": []}
+
+        with patch("src.tools.online_play._json_get", side_effect=fake_json_get):
+            online.search_jamendo_audio_candidates(
+                "Fang Datong Sorry",
+                client_id="client-id",
+                limit=5,
+                playback_metadata={
+                    "metadata_source": "spotify",
+                    "name": "Sorry",
+                    "artist": "Fang Datong",
+                    "album": "The Dreamer",
+                },
+            )
+
+        params = urllib.parse.parse_qs(urllib.parse.urlparse(captured_urls[0]).query)
+        self.assertEqual(params["name"], ["Sorry"])
+        self.assertEqual(params["artist_name"], ["Fang Datong"])
+        self.assertEqual(params["album_name"], ["The Dreamer"])
+        self.assertEqual(params["limit"], ["20"])
+        self.assertEqual(params["type"], ["single albumtrack"])
+        self.assertEqual(params["order"], ["relevance"])
+        self.assertNotIn("search", params)
+
+    def test_jamendo_selected_track_relaxes_album_after_identity_mismatch(self) -> None:
+        captured_urls: list[str] = []
+
+        def fake_json_get(url: str, **_: object) -> dict[str, object]:
+            captured_urls.append(url)
+            if len(captured_urls) == 1:
+                return {
+                    "results": [{
+                        "id": "wrong",
+                        "name": "Sorry",
+                        "artist_name": "Wrong Artist",
+                        "audio": "https://audio.example/wrong.mp3",
+                    }]
+                }
+            return {
+                "results": [{
+                    "id": "right",
+                    "name": "Sorry (Official Audio)",
+                    "artist_name": "Fang Datong feat. Guest",
+                    "audio": "https://audio.example/right.mp3",
+                }]
+            }
+
+        with patch("src.tools.online_play._json_get", side_effect=fake_json_get):
+            candidates = online.search_jamendo_audio_candidates(
+                "Fang Datong Sorry",
+                client_id="client-id",
+                playback_metadata={
+                    "metadata_source": "spotify",
+                    "name": "Sorry",
+                    "artist": "Fang Datong",
+                    "album": "The Dreamer",
+                },
+            )
+
+        self.assertEqual([candidate["id"] for candidate in candidates], ["right"])
+        fallback_params = urllib.parse.parse_qs(urllib.parse.urlparse(captured_urls[1]).query)
+        self.assertEqual(fallback_params["namesearch"], ["Sorry"])
+        self.assertEqual(fallback_params["artist_name"], ["Fang Datong"])
+        self.assertNotIn("album_name", fallback_params)
+
+    def test_identity_matching_ignores_display_suffixes_but_preserves_versions(self) -> None:
+        target = {"title": "Ｓｏｒｒｙ!", "artist": "Fang-Datong"}
+
+        self.assertTrue(online._identity_matches(target, {"title": "Sorry (Official Audio)", "artist": "Fang Datong feat. Guest"}))
+        self.assertTrue(online._identity_matches(target, {"title": "Sorry [2011 Remastered]", "artist": "Fang Datong"}))
+        self.assertTrue(online._identity_matches(target, {"title": "Fang Datong - Sorry Official Video", "artist": "Fang Datong"}))
+        for version in ("Sorry Live", "Sorry Cover", "Sorry Remix", "Sorry Karaoke"):
+            with self.subTest(version=version):
+                self.assertFalse(online._identity_matches(target, {"title": version, "artist": "Fang Datong"}))
+
     def test_normalize_jamendo_track_accepts_stream_without_download_url(self) -> None:
         """Verifies that normalize jamendo track accepts stream without download url behaves as expected.
 
@@ -315,6 +420,59 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidate["download_url"], "https://audius.example/stream/aud-1")
         self.assertEqual(candidate["cover_url"], "https://img.example/1000.jpg")
         self.assertEqual(candidate["duration_ms"], 202000)
+
+    def test_audius_selected_track_filters_wrong_identity_before_ranking(self) -> None:
+        payload = {
+            "data": [
+                {"id": "wrong", "title": "Sorry", "user": {"name": "Wrong Artist"}},
+                {"id": "right", "title": "Sorry (Official Audio)", "user": {"name": "Fang Datong"}},
+            ]
+        }
+
+        with patch("src.tools.online_play._json_get", return_value=payload):
+            candidates = online.search_audius_audio_candidates(
+                "Fang Datong Sorry",
+                api_key="api-key",
+                playback_metadata={
+                    "metadata_source": "spotify",
+                    "name": "Sorry",
+                    "artist": "Fang Datong",
+                },
+            )
+
+        self.assertEqual([candidate["id"] for candidate in candidates], ["right"])
+        self.assertTrue(candidates[0]["identity_match"])
+
+    def test_youtube_selected_track_filters_wrong_identity_before_ranking(self) -> None:
+        FakeYoutubeDL.responses = [{
+            "entries": [
+                {
+                    "id": "wrong",
+                    "track": "Sorry",
+                    "artist": "Wrong Artist",
+                    "webpage_url": "https://www.youtube.com/watch?v=wrong",
+                },
+                {
+                    "id": "right",
+                    "track": "Sorry (Official Audio)",
+                    "artist": "Fang Datong",
+                    "webpage_url": "https://www.youtube.com/watch?v=right",
+                },
+            ]
+        }]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.search_youtube_songs(
+                "Fang Datong Sorry",
+                playback_metadata={
+                    "metadata_source": "spotify",
+                    "name": "Sorry",
+                    "artist": "Fang Datong",
+                },
+            )
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["right"])
+        self.assertEqual(candidates[0]["source_identity"]["artist"], "Fang Datong")
 
     def test_resolve_online_audio_records_missing_config_before_youtube(self) -> None:
         """Verifies that resolve online audio records missing config before youtube behaves as expected.
@@ -387,6 +545,28 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertIn("Selected YouTube result is not available", message)
         self.assertNotIn("ERROR: [youtube]", message)
         self.assertNotIn("wYB9Vu282ZU", message)
+
+    def test_resolve_online_audio_reports_youtube_identity_mismatch(self) -> None:
+        FakeYoutubeDL.responses = [{
+            "entries": [{
+                "id": "wrong",
+                "track": "Sorry",
+                "artist": "Wrong Artist",
+                "webpage_url": "https://www.youtube.com/watch?v=wrong",
+            }]
+        }]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            with self.assertRaisesRegex(RuntimeError, "YouTube rejected 1 identity mismatch"):
+                online.resolve_online_audio_candidates(
+                    "Fang Datong Sorry",
+                    config=online.OnlineAudioConfig(),
+                    playback_metadata={
+                        "metadata_source": "spotify",
+                        "name": "Sorry",
+                        "artist": "Fang Datong",
+                    },
+                )
 
     def test_resolve_online_audio_tries_youtube_only_after_configured_sources_fail(self) -> None:
         """Verifies that resolve online audio tries youtube only after configured sources fail behaves as expected.
@@ -471,9 +651,41 @@ class OnlinePlayTests(unittest.TestCase):
         youtube_search.assert_called_once()
         self.assertEqual(candidates[0]["cache_id"], "youtube_yt-1")
         self.assertEqual(candidates[0]["fallback_provider"], "youtube")
-        self.assertIn("Jamendo returned no credible matches", candidates[0]["fallback_reason"])
-        self.assertEqual(candidates[0]["source_attempts"][0]["candidate_count"], 1)
-        self.assertEqual(candidates[0]["source_attempts"][0]["credible_count"], 0)
+
+    def test_resolve_online_audio_reports_identity_mismatch_rejections(self) -> None:
+        config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
+        wrong_payload = {
+            "results": [{
+                "id": "wrong",
+                "name": "Sorry",
+                "artist_name": "Wrong Artist",
+                "audio": "https://audio.example/wrong.mp3",
+            }]
+        }
+        youtube = {
+            "provider": "youtube",
+            "cache_id": "youtube_right",
+            "name": "Sorry",
+            "artist": "Fang Datong",
+            "similarity_score": 100,
+        }
+
+        with patch("src.tools.online_play._json_get", return_value=wrong_payload), \
+             patch("src.tools.online_play.search_youtube_songs", return_value=[youtube]):
+            candidates = online.resolve_online_audio_candidates(
+                "Fang Datong Sorry",
+                config=config,
+                playback_metadata={
+                    "metadata_source": "spotify",
+                    "name": "Sorry",
+                    "artist": "Fang Datong",
+                    "album": "The Dreamer",
+                },
+            )
+
+        attempt = candidates[0]["source_attempts"][0]
+        self.assertEqual(attempt["status"], "identity_mismatch")
+        self.assertEqual(attempt["rejected_count"], 2)
 
     def test_resolve_online_audio_keeps_provider_error_trace_before_youtube_fallback(self) -> None:
         """Verifies that resolve online audio keeps provider error trace before youtube fallback behaves as expected.
@@ -589,8 +801,8 @@ class OnlinePlayTests(unittest.TestCase):
                 "entries": [
                     {
                         "id": "abc123",
-                        "title": "Canonical Artist - Canonical Song",
-                        "artist": "Uploader",
+                        "track": "Canonical Song",
+                        "artist": "Canonical Artist",
                         "duration": 185,
                         "webpage_url": "https://www.youtube.com/watch?v=abc123",
                     }
@@ -973,6 +1185,170 @@ class OnlinePlayTests(unittest.TestCase):
             self.assertEqual(item["audio_path"], str(audio))
             self.assertEqual(FakeYoutubeDL.calls, [])
 
+    def test_download_youtube_candidate_skips_legacy_cache_for_selected_track(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio = root / "audio" / "youtube_abc123.webm"
+            audio.parent.mkdir(parents=True)
+            audio.write_bytes(b"legacy")
+            upsert_cached_song(
+                {
+                    "provider": "youtube",
+                    "cache_id": "youtube_abc123",
+                    "youtube_id": "abc123",
+                    "name": "Sorry",
+                    "artist": "Wrong Artist",
+                    "audio_path": str(audio),
+                    "audio_ext": "webm",
+                    "stream_url": str(audio),
+                },
+                cache_root=root,
+            )
+            FakeYoutubeDL.responses = [{
+                "id": "abc123",
+                "track": "Sorry",
+                "artist": "Fang Datong",
+                "webpage_url": "https://www.youtube.com/watch?v=abc123",
+                "ext": "m4a",
+            }]
+            candidate = {
+                "provider": "youtube",
+                "id": "abc123",
+                "youtube_id": "abc123",
+                "cache_id": "youtube_abc123",
+                "query": "Fang Datong Sorry",
+                "name": "Sorry",
+                "artist": "Fang Datong",
+                "target_identity": {"title": "Sorry", "artist": "Fang Datong", "album": "The Dreamer"},
+                "source_identity": {"title": "Sorry", "artist": "Fang Datong", "album": ""},
+                "identity_match": True,
+                "url": "https://www.youtube.com/watch?v=abc123",
+                "webpage_url": "https://www.youtube.com/watch?v=abc123",
+            }
+
+            with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+                item = online.download_youtube_candidate(candidate, cache_root=root)
+
+            self.assertEqual(len(FakeYoutubeDL.calls), 1)
+            self.assertEqual(item["source_identity"]["artist"], "Fang Datong")
+            self.assertEqual(Path(item["audio_path"]).suffix, ".m4a")
+
+    def test_download_youtube_candidate_reuses_identity_verified_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio = root / "audio" / "youtube_abc123.webm"
+            audio.parent.mkdir(parents=True)
+            audio.write_bytes(b"verified")
+            identity = {"title": "Sorry", "artist": "Fang Datong", "album": "The Dreamer"}
+            upsert_cached_song(
+                {
+                    "provider": "youtube",
+                    "cache_id": "youtube_abc123",
+                    "youtube_id": "abc123",
+                    "name": "Sorry",
+                    "artist": "Fang Datong",
+                    "target_identity": identity,
+                    "source_identity": identity,
+                    "identity_match": True,
+                    "audio_path": str(audio),
+                    "audio_ext": "webm",
+                },
+                cache_root=root,
+            )
+
+            item = online.download_youtube_candidate(
+                {
+                    "provider": "youtube",
+                    "cache_id": "youtube_abc123",
+                    "target_identity": identity,
+                    "url": "https://www.youtube.com/watch?v=abc123",
+                },
+                cache_root=root,
+            )
+
+            self.assertEqual(item["audio_path"], str(audio))
+            self.assertEqual(FakeYoutubeDL.calls, [])
+
+    def test_download_youtube_candidate_deletes_final_identity_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidate = {
+                "provider": "youtube",
+                "id": "abc123",
+                "youtube_id": "abc123",
+                "cache_id": "youtube_abc123",
+                "query": "Fang Datong Sorry",
+                "name": "Sorry",
+                "artist": "Fang Datong",
+                "target_identity": {"title": "Sorry", "artist": "Fang Datong", "album": "The Dreamer"},
+                "source_identity": {"title": "Sorry", "artist": "Fang Datong", "album": ""},
+                "identity_match": True,
+                "url": "https://www.youtube.com/watch?v=abc123",
+                "webpage_url": "https://www.youtube.com/watch?v=abc123",
+            }
+            FakeYoutubeDL.responses = [{
+                "id": "abc123",
+                "track": "Sorry",
+                "artist": "Wrong Artist",
+                "webpage_url": "https://www.youtube.com/watch?v=abc123",
+                "ext": "m4a",
+            }]
+
+            with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+                with self.assertRaisesRegex(RuntimeError, "identity does not match"):
+                    online.download_youtube_candidate(candidate, cache_root=root)
+
+            self.assertEqual(list((root / "audio").glob("youtube_abc123.*")), [])
+            self.assertFalse((root / "items" / "youtube_abc123.json").exists())
+
+    def test_download_open_audio_candidate_rejects_identity_mismatch_before_fetch(self) -> None:
+        candidate = {
+            "provider": "jamendo",
+            "id": "wrong",
+            "cache_id": "jamendo_wrong",
+            "name": "Sorry",
+            "artist": "Fang Datong",
+            "download_url": "https://audio.example/wrong.mp3",
+            "target_identity": {"title": "Sorry", "artist": "Fang Datong", "album": "The Dreamer"},
+            "source_identity": {"title": "Sorry", "artist": "Wrong Artist", "album": ""},
+            "identity_match": False,
+        }
+
+        with patch("src.tools.online_play.urllib.request.urlopen") as urlopen:
+            with self.assertRaisesRegex(RuntimeError, "identity does not match"):
+                online.download_open_audio_candidate(candidate)
+
+        urlopen.assert_not_called()
+
+    def test_play_youtube_song_tries_next_candidate_after_final_identity_mismatch(self) -> None:
+        candidates = [
+            {"provider": "youtube", "cache_id": "youtube_wrong"},
+            {"provider": "youtube", "cache_id": "youtube_right"},
+        ]
+        mismatch = ToolResult.fail(
+            tool="play_youtube_song",
+            message="Downloaded audio identity does not match the selected track.",
+            error_code="ONLINE_AUDIO_IDENTITY_MISMATCH",
+        ).to_dict()
+        success = ToolResult.success(tool="play_youtube_song", message="playing", data={"cache_id": "youtube_right"}).to_dict()
+
+        with patch("src.tools.online_play.online_audio_configured", return_value=False), \
+             patch("src.tools.online_play.search_youtube_songs", return_value=candidates) as search, \
+             patch("src.tools.online_play.play_youtube_candidate", side_effect=[mismatch, success]) as play:
+            result = online.play_youtube_song(
+                "Fang Datong Sorry",
+                playback_metadata={"name": "Sorry", "artist": "Fang Datong"},
+            )
+
+        search.assert_called_once_with(
+            "Fang Datong Sorry",
+            limit=5,
+            cache_root=None,
+            playback_metadata={"name": "Sorry", "artist": "Fang Datong"},
+        )
+        self.assertEqual(play.call_count, 2)
+        self.assertEqual(result["status"], "success")
+
     def test_play_youtube_song_returns_normalized_music_metadata(self) -> None:
         """Verifies that play youtube song returns normalized music metadata behaves as expected.
 
@@ -1050,8 +1426,8 @@ class OnlinePlayTests(unittest.TestCase):
                 "entries": [
                     {
                         "id": "abc123",
-                        "title": "Canonical Artist - Canonical Song Noisy YouTube Upload",
-                        "artist": "Uploader",
+                        "track": "Canonical Song",
+                        "artist": "Canonical Artist",
                         "duration": 185,
                         "webpage_url": "https://www.youtube.com/watch?v=abc123",
                     }
@@ -1059,9 +1435,9 @@ class OnlinePlayTests(unittest.TestCase):
             },
             {
                 "id": "abc123",
-                "title": "Canonical Artist - Canonical Song Noisy YouTube Upload",
-                "artist": "Uploader",
-                "album": "Uploader Album",
+                "track": "Canonical Song",
+                "artist": "Canonical Artist",
+                "album": "Canonical Album",
                 "duration": 185,
                 "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
                 "webpage_url": "https://www.youtube.com/watch?v=abc123",
@@ -1085,7 +1461,7 @@ class OnlinePlayTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "success")
         spotify_search.assert_not_called()
-        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch8:Canonical Artist Canonical Song")
+        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch40:Canonical Artist Canonical Song")
         cover_lookup.assert_called_once_with(name="Canonical Song", artist="Canonical Artist", album="Canonical Album")
         data = result["data"]
         self.assertEqual(data["name"], "Canonical Song")
@@ -1124,8 +1500,8 @@ class OnlinePlayTests(unittest.TestCase):
                 "entries": [
                     {
                         "id": "abc123",
-                        "title": "Canonical Artist - Canonical Song Noisy YouTube Upload",
-                        "artist": "Uploader",
+                        "track": "Canonical Song",
+                        "artist": "Canonical Artist",
                         "duration": 185,
                         "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
                         "webpage_url": "https://www.youtube.com/watch?v=abc123",
@@ -1134,8 +1510,8 @@ class OnlinePlayTests(unittest.TestCase):
             },
             {
                 "id": "abc123",
-                "title": "Canonical Artist - Canonical Song Noisy YouTube Upload",
-                "artist": "Uploader",
+                "track": "Canonical Song",
+                "artist": "Canonical Artist",
                 "duration": 185,
                 "thumbnail": "https://i.ytimg.com/vi/abc123/maxresdefault.jpg",
                 "webpage_url": "https://www.youtube.com/watch?v=abc123",
@@ -1469,7 +1845,8 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual([choice["value"] for choice in choices], ["mpv", "cvlc", "deny"])
         self.assertIn("mpv", choices[0]["label"])
         self.assertIn("VLC", choices[1]["label"])
-        self.assertIn("recommended", choices[0]["description"])
+        self.assertIn("default", choices[0]["description"])
+        self.assertIn("manual diagnostic", choices[1]["description"])
 
     def test_player_confirm_choice_selects_requested_backend(self) -> None:
         """Verifies that player confirm choice selects requested backend behaves as expected.

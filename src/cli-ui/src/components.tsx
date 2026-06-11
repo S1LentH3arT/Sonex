@@ -5,7 +5,7 @@ import { APP_TIP_PLACEHOLDER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBA
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle } from './format.js';
 import { getVisibleChatWindow } from './chat-window.js';
-import { isHttpCoverSource, useCoverArt, usePlaybackProgress } from './hooks.js';
+import { isHttpCoverSource, useCoverArt } from './hooks.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { chooseCoverPatternVariant, renderCoverPatternHalfBlocks, type CoverPatternPayload, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion } from './layout.js';
@@ -617,11 +617,6 @@ const TrackDetails = React.memo(({ player, compact }: { player: PlayerState; com
     </Box>
 ));
 
-const PlaybackProgressTime = React.memo(({ player, active }: { player: PlayerState; active: boolean }) => {
-    const progressMs = usePlaybackProgress(player, active);
-    return <Text color="#bf98a7">{formatDuration(progressMs)}</Text>;
-});
-
 const MiniPlayerStaticBody = React.memo(({
     player,
     visual,
@@ -682,11 +677,11 @@ const PlaybackMeter = ({ player, visual, compact = false, active = true }: {
     compact?: boolean;
     active?: boolean;
 }) => {
-    const progressMs = usePlaybackProgress(player, active);
+    const progressMs = player.progress_ms ?? 0;
     const progress = formatDuration(progressMs);
     const duration = formatDuration(player.duration_ms);
     const progressBar = buildProgressBar(progressMs, player.duration_ms, 18);
-    const isPlaying = player.is_playing === true;
+    const isPlaying = active && player.is_playing === true;
     return (
         <Box flexDirection="column" marginTop={1}>
             <Text>

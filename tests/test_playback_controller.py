@@ -136,39 +136,26 @@ class PlaybackControllerTests(unittest.TestCase):
         command = popen.call_args.args[0]
         self.assertIn("--network-caching=5000", command)
 
-    def test_auto_play_falls_back_to_cvlc_when_mpv_fails(self) -> None:
-        """Verifies that auto play falls back to cvlc when mpv fails behaves as expected.
+    def test_auto_play_tries_mpv_only_when_mpv_fails(self) -> None:
+        """Verifies that auto play tries mpv only when mpv fails behaves as expected.
 
-        Typical use: Use this in automated tests when guarding the auto play falls back to cvlc when mpv fails behavior against regressions.
+        Typical use: Use this in automated tests when guarding the auto play tries mpv only when mpv fails behavior against regressions.
 
-        Example: test_auto_play_falls_back_to_cvlc_when_mpv_fails() -> passes without assertion failures when the behavior remains correct.
+        Example: test_auto_play_tries_mpv_only_when_mpv_fails() -> passes without assertion failures when the behavior remains correct.
         """
         mpv_adapter = Mock()
         mpv_adapter.start.side_effect = RuntimeError("mpv missing")
-        cvlc_adapter = Mock()
-        cvlc_adapter.start.return_value = playback.PlayerState(
-            provider="youtube",
-            source="youtube",
-            player="cvlc",
-            session_id="cvlc-session",
-            name="Song",
-            artist="-",
-            album="-",
-            duration_ms=1000,
-            progress_ms=0,
-            timestamp=10,
-            is_playing=True,
-        )
 
         with (
             patch.object(playback, "MpvPlaybackAdapter", return_value=mpv_adapter),
-            patch.object(playback, "CvlcRcPlaybackAdapter", return_value=cvlc_adapter),
+            patch.object(playback, "CvlcRcPlaybackAdapter") as cvlc_adapter,
         ):
-            state = self.controller.play(source_url="song.mp3", source="youtube", metadata={"name": "Song"})
+            with self.assertRaisesRegex(RuntimeError, r"mpv missing.*\/player cvlc"):
+                self.controller.play(source_url="song.mp3", source="youtube", metadata={"name": "Song"})
 
         mpv_adapter.stop.assert_called_once()
-        self.assertEqual(state.player, "cvlc")
-        self.assertEqual(self.controller.current_session_id, "cvlc-session")
+        cvlc_adapter.assert_not_called()
+        self.assertIsNone(self.controller.current_session_id)
 
     def test_explicit_mpv_failure_does_not_fall_back_to_cvlc(self) -> None:
         """Verifies that explicit mpv failure does not fall back to cvlc behaves as expected.

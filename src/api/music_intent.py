@@ -37,19 +37,6 @@ class MusicIntentDecision:
     recommendation_index: int | None = None
     confidence: float = 0.0
 
-
-_PLAY_PREFIXES = (
-    "play ",
-    "帮我放一首",
-    "播放",
-    "放一下",
-    "放首",
-    "来首",
-    "来一首",
-    "我想听",
-    "想听",
-    "听 ",
-)
 _CHINESE_NUMBERS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
 
 
@@ -80,6 +67,7 @@ def _explicit_play_fast_path(text: str) -> MusicIntentDecision | None:
     """
     stripped = text.strip()
     lowered = stripped.lower()
+
     reference = _recommendation_reference(stripped)
     if reference is not None:
         return MusicIntentDecision(
@@ -87,15 +75,33 @@ def _explicit_play_fast_path(text: str) -> MusicIntentDecision | None:
             recommendation_index=reference,
             confidence=1.0,
         )
-    for prefix in _PLAY_PREFIXES:
-        if lowered.startswith(prefix):
-            query = stripped[len(prefix):].strip()
-            if query:
-                return MusicIntentDecision(
-                    route=MusicIntentRoute.EXPLICIT_PLAY,
-                    query=query,
-                    confidence=1.0,
-                )
+
+    en_patterns = (r"\bplay\b", r"\blisten to\b", r"\bdance\b",)
+    zh_markers = ("放一首", "来一首", "放一下", "放首", "来首", "想听", "听点", "听首", "听一下", "听一首", "来点",
+                  "放点", "听", "放")
+    for pattern in en_patterns:
+        match = re.search(pattern, lowered)
+        if not match:
+            continue
+        query = stripped[match.end():].strip(" \t\r\n,.!?:;")
+        if query:
+            return MusicIntentDecision(
+                route=MusicIntentRoute.EXPLICIT_PLAY,
+                query=query,
+                confidence=1.0,
+            )
+
+    for marker in zh_markers:
+        idx = stripped.find(marker)
+        if idx == -1:
+            continue
+        query = stripped[idx + len(marker):].strip(" \t\r\n,，.。!！?？:：;；")
+        if query:
+            return MusicIntentDecision(
+                route=MusicIntentRoute.EXPLICIT_PLAY,
+                query=query,
+                confidence=1.0,
+            )
     return None
 
 

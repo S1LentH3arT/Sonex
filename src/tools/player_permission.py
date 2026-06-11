@@ -15,12 +15,12 @@ PLAYER_CONFIRM_CHOICES = [
     {
         "value": "mpv",
         "label": "🎧 mpv",
-        "description": "recommended for smoother background playback.",
+        "description": "default controllable backend for smoother background playback.",
     },
     {
         "value": "cvlc",
         "label": "📻 VLC",
-        "description": "fallback background player using the VLC rc interface.",
+        "description": "manual diagnostic backend; use only when you explicitly want VLC.",
     },
     {"value": "deny", "label": "取消"},
 ]
@@ -55,7 +55,7 @@ def player_label(player: str) -> str:
     Example: player_label(player=...) -> returns the value used by the surrounding Sonex flow.
     """
     known = {
-        "auto": "auto local player",
+        "auto": "auto local player (mpv default)",
         "vlc": "VLC",
         "mpv": "mpv",
         "cvlc": "VLC",
@@ -118,7 +118,7 @@ def build_player_confirm_result(
             "player_label": label,
             "cmd": cmd,
             "success_message": success_message,
-            "confirm_message": f"Sonex wanna open {label} player, confirm?",
+            "confirm_message": f"Sonex wanna open {label}, confirm?",
             "choices": PLAYER_CONFIRM_CHOICES,
         },
         "error_code": None,

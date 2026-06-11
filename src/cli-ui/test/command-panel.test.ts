@@ -41,4 +41,4 @@ assert.equal(helpVolume?.description, "Set local playback volume");
 
 const helpPlayer = allHelpCommands.find((command) => command.name === "player");
 assert.equal(helpPlayer?.usage, "/player <auto|mpv|cvlc>");
-assert.equal(helpPlayer?.description, "Set local playback backend");
+assert.equal(helpPlayer?.description, "Set playback backend; auto uses mpv");

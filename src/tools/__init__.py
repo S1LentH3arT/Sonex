@@ -40,7 +40,7 @@ from src.tools.spotify_play import (
     spotify_search,
     spotify_transfer_playback,
 )
-from src.memory.memory_tool import search_context, search_memory
+from src.memory.tool import search_context, search_memory
 
 
 __all__ = [

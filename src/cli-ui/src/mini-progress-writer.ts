@@ -8,10 +8,10 @@ export type TerminalWriter = {
     write(chunk: string): unknown;
 };
 
-export type MiniProgressUpdateMode = 'off' | 'once' | 'interval';
+export type PlaybackProgressUpdateMode = 'off' | 'once' | 'interval';
 export type MiniSnapshotRefreshReason = 'region' | 'resize' | 'player' | 'cover';
 
-export function resolveMiniProgressUpdateMode(enabled: boolean, player: PlayerState): MiniProgressUpdateMode {
+export function resolvePlaybackProgressUpdateMode(enabled: boolean, player: PlayerState): PlaybackProgressUpdateMode {
     if (!enabled || player.ended === true) return 'off';
     return player.is_playing === true ? 'interval' : 'once';
 }
@@ -20,7 +20,7 @@ export function shouldRefreshMiniSnapshot(reason: MiniSnapshotRefreshReason): bo
     return reason === 'region' || reason === 'resize';
 }
 
-export function buildMiniProgressLine(player: PlayerState, now: number, width: number): string {
+export function buildPlaybackProgressLine(player: PlayerState, now: number, width: number): string {
     const progressMs = playbackProgressAt(player, now);
     const progress = formatDuration(progressMs);
     const duration = formatDuration(player.duration_ms);
@@ -35,7 +35,7 @@ export function writeTerminalLine(stdout: TerminalWriter, position: TerminalLine
     stdout.write(`\u001B7\u001B[${position.row};${position.column}H${padded}\u001B8`);
 }
 
-export function useMiniProgressWriter({
+export function usePlaybackProgressWriter({
     enabled,
     player,
     position,
@@ -50,9 +50,9 @@ export function useMiniProgressWriter({
     playerRef.current = player;
 
     const writeProgress = React.useCallback(() => {
-        writeTerminalLine(stdout, position, buildMiniProgressLine(playerRef.current, Date.now(), position.width));
+        writeTerminalLine(stdout, position, buildPlaybackProgressLine(playerRef.current, Date.now(), position.width));
     }, [position.column, position.row, position.width, stdout]);
-    const updateMode = resolveMiniProgressUpdateMode(enabled, player);
+    const updateMode = resolvePlaybackProgressUpdateMode(enabled, player);
 
     React.useEffect(() => {
         if (updateMode === 'off') return;

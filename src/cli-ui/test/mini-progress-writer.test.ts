@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 
 import {
-    buildMiniProgressLine,
-    resolveMiniProgressUpdateMode,
+    buildPlaybackProgressLine,
+    resolvePlaybackProgressUpdateMode,
     shouldRefreshMiniSnapshot,
     writeTerminalLine,
 } from '../src/mini-progress-writer.js';
+import { PLAYBACK_PROGRESS_INTERVAL_MS } from '../src/hooks.js';
 import { resolveMiniPlayerLayout } from '../src/layout.js';
 import type { PlayerState } from '../src/types.js';
 
@@ -19,17 +20,18 @@ const playing: PlayerState = {
     is_playing: true,
 };
 
-assert.equal(resolveMiniProgressUpdateMode(false, playing), 'off');
-assert.equal(resolveMiniProgressUpdateMode(true, playing), 'interval');
-assert.equal(resolveMiniProgressUpdateMode(true, { ...playing, is_playing: false }), 'once');
-assert.equal(resolveMiniProgressUpdateMode(true, { ...playing, ended: true }), 'off');
+assert.equal(PLAYBACK_PROGRESS_INTERVAL_MS, 1000);
+assert.equal(resolvePlaybackProgressUpdateMode(false, playing), 'off');
+assert.equal(resolvePlaybackProgressUpdateMode(true, playing), 'interval');
+assert.equal(resolvePlaybackProgressUpdateMode(true, { ...playing, is_playing: false }), 'once');
+assert.equal(resolvePlaybackProgressUpdateMode(true, { ...playing, ended: true }), 'off');
 
 assert.equal(shouldRefreshMiniSnapshot('resize'), true);
 assert.equal(shouldRefreshMiniSnapshot('region'), true);
 assert.equal(shouldRefreshMiniSnapshot('player'), false);
 assert.equal(shouldRefreshMiniSnapshot('cover'), false);
 
-assert.equal(buildMiniProgressLine(playing, 2_000, 22), '0:31 ━━━───────── 2:00');
+assert.equal(buildPlaybackProgressLine(playing, 2_000, 22), '0:31 ━━━───────── 2:00');
 
 const position = resolveMiniPlayerLayout({ columns: 88, rows: 32 }).progressSlot;
 const writes: string[] = [];

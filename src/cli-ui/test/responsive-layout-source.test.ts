@@ -6,6 +6,8 @@ const componentSource = readFileSync(new URL('../src/components.tsx', import.met
 
 assert.equal(appSource.includes('<Static items={bannerItems}>'), false);
 assert.match(appSource, /resolveChatHeaderVariant/);
+assert.match(appSource, /usePlaybackProgressWriter/);
+assert.equal(appSource.includes('useMiniProgressWriter'), false);
 assert.match(appSource, /setTimeout\([\s\S]*80/);
 assert.match(appSource, /clearTerminalForLayoutSwitch\(stdout\);[\s\S]*setMiniSnapshotRevision/);
 assert.equal(appSource.includes('terminalSize.rows - 8'), false);

@@ -1382,7 +1382,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("cached", confirm_events[-1]["choices"][1]["description"])
         self.assertIn("Live", confirm_events[-1]["choices"][1]["description"])
         self.assertIn("1.5M views", confirm_events[-1]["choices"][1]["description"])
-        self.assertIn("原音", confirm_events[-1]["choices"][0]["description"])
+        self.assertIn("Official", confirm_events[-1]["choices"][0]["description"])
         self.assertEqual(confirm_events[-1]["choices"][-1]["label"], "没有想听的歌曲")
         self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "试试补充更多信息")
         self.assertNotIn("description", confirm_events[-1]["choices"][-1])
@@ -1872,7 +1872,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         pending_result = {
             "status": "requires_player_confirm",
             "tool": "play_youtube_song",
-            "message": "Sonex wants to open auto local player.",
+            "message": "Sonex wants to open auto local player (mpv default).",
             "data": {
                 "provider": "youtube",
                 "name": "Song",
@@ -1883,11 +1883,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 "stream_url": "https://stream.example/audio",
                 "is_playing": True,
                 "player": "auto",
-                "player_label": "auto local player",
-                "confirm_message": "Sonex wanna open auto local player, confirm?",
+                "player_label": "auto local player (mpv default)",
+                "confirm_message": "Sonex wanna open auto local player (mpv default), confirm?",
                 "choices": [
-                    {"value": "mpv", "label": "🎧 mpv", "description": "recommended for smoother background playback."},
-                    {"value": "cvlc", "label": "📻 VLC", "description": "fallback background player using the VLC rc interface."},
+                    {"value": "mpv", "label": "🎧 mpv", "description": "default controllable backend for smoother background playback."},
+                    {"value": "cvlc", "label": "📻 VLC", "description": "manual diagnostic backend; use only when you explicitly want VLC."},
                     {"value": "deny", "label": "取消"},
                 ],
             },

@@ -108,7 +108,7 @@ class MemoryStore:
         path = self._path_for_target(target)
         entries: list[MemoryEntry] = []
         if not path.exists():
-            return entries
+            return []
 
         for line_no, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             content = self._clean_markdown_line(raw_line)
@@ -231,6 +231,7 @@ class MemoryStore:
 
         query = query.strip()
         limit = self._coerce_limit(limit)
+        # Search form cache fisrt. If missed, search context table for specific entry.
         if table == "auto":
             cache_hits = self.search_context(query, table="cache", limit=limit)
             if cache_hits:

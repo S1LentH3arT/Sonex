@@ -10,7 +10,7 @@ import { formatElapsed } from './format.js';
 import { useSonexSocket } from './hooks.js';
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
-import { shouldRefreshMiniSnapshot, useMiniProgressWriter } from './mini-progress-writer.js';
+import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter } from './mini-progress-writer.js';
 import { clearTerminalForLayoutSwitch } from './terminal-clear.js';
 import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, PlayerState, SpotifySetupState, TrackSummary, ServerEvent, SlashCommandSuggestion } from './types.js';
 
@@ -131,7 +131,7 @@ export const App = () => {
         }
     }, [stdout]);
 
-    useMiniProgressWriter({
+    usePlaybackProgressWriter({
         enabled: miniVisible,
         player,
         position: miniLayout.progressSlot,

@@ -93,14 +93,14 @@ assert.equal(artwork.mode, 'artwork');
 assert.equal(artwork.contentColumns, 122);
 assert.equal(artwork.contentRows, 42);
 assert.equal(artwork.infoWidth, 38);
-assert.equal(artwork.infoLeftPadding, 2);
+assert.equal(artwork.infoLeftPadding, 4);
 assert.equal(artwork.gap, 1);
 assert.equal(artwork.coverWidth, 83);
 assert.equal(artwork.infoTop, 19);
 assert.deepEqual(artwork.progressSlot, {
     row: 23,
-    column: 4,
-    width: 36,
+    column: 6,
+    width: 34,
 });
 
 const exactMinimumArtwork = resolveMiniPlayerLayout({ columns: 59, rows: 18 });

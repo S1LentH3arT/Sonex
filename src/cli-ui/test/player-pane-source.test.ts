@@ -8,6 +8,8 @@ assert.match(source, /const MiniPlayerRegion =/);
 assert.match(source, /const ConversationRegion =/);
 assert.match(source, /const miniSnapshot = useVisibleSnapshotOnRevision/);
 assert.match(source, /<PlayerPane[\s\S]*variant="compact"[\s\S]*active=\{true\}/);
+assert.equal(source.includes('usePlaybackProgress'), false);
+assert.equal(source.includes('setInterval'), false);
 
 const miniBodyStart = source.indexOf('const MiniPlayerStaticBody = React.memo');
 const playbackMeterStart = source.indexOf('const PlaybackMeter =');
