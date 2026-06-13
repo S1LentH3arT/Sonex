@@ -262,6 +262,21 @@ class FakeWebSocket:
         raise WebSocketDisconnect()
 
 
+class DisconnectingWebSocket:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, object]] = []
+        self.accepted = False
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def send_text(self, text: str) -> None:
+        self.sent.append(json.loads(text))
+
+    async def receive_text(self) -> str:
+        raise WebSocketDisconnect()
+
+
 class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
     """Groups related builtin command runner tests cases.
 
@@ -290,6 +305,22 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "给我推荐几首歌",
             append_user_message=False,
         )
+
+    async def test_websocket_does_not_start_local_playback_probe_task(self) -> None:
+        runner = WebSocketRunner()
+        ws = DisconnectingWebSocket()
+
+        async def idle_sync(_ui: object) -> None:
+            while True:
+                await asyncio.sleep(60)
+
+        self.assertFalse(hasattr(runner, "_sync_local_playback"))
+        with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
+             patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync):
+            await runner.handle_ws(ws)  # type: ignore[arg-type]
+
+        self.assertTrue(ws.accepted)
+        self.assertEqual(ws.sent[0]["type"], "queue")
 
     async def test_recommendation_tool_result_is_saved_for_number_references(self) -> None:
         """Verifies that recommendation tool result is saved for number references behaves as expected.
@@ -629,6 +660,62 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             [choice["value"] for choice in confirm_events[-1]["choices"]],
             ["spotify_play", "apple_music_play", "online_play", "cancel"],
         )
+
+    async def test_playback_method_puts_online_first_without_accounts(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
+             patch("src.api.ws_runner.load_spotify_token", return_value=None), \
+             patch("src.api.ws_runner.spotify_account", return_value={
+                 "status": "success",
+                 "data": {"logged_in": False, "product": "unknown"},
+             }), \
+             patch("src.api.ws_runner.load_apple_music_user_token", return_value=None):
+            await runner._handle_user_input(ui, "/play song")
+
+        confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
+        self.assertEqual([choice["value"] for choice in confirm["choices"]], [
+            "online_play",
+            "spotify_play",
+            "apple_music_play",
+            "cancel",
+        ])
+
+    async def test_playback_method_puts_online_first_for_spotify_free_account(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
+             patch("src.api.ws_runner.load_spotify_token", return_value=type("Token", (), {"access_token": "token"})()), \
+             patch("src.api.ws_runner.spotify_account", return_value={
+                 "status": "success",
+                 "data": {"logged_in": True, "product": "free"},
+             }), \
+             patch("src.api.ws_runner.load_apple_music_user_token", return_value=object()):
+            await runner._handle_user_input(ui, "/play song")
+
+        confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
+        self.assertEqual(confirm["choices"][0]["value"], "online_play")
+
+    async def test_playback_method_keeps_spotify_first_for_premium_account(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
+             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
+             patch("src.api.ws_runner.load_spotify_token", return_value=type("Token", (), {"access_token": "token"})()), \
+             patch("src.api.ws_runner.spotify_account", return_value={
+                 "status": "success",
+                 "data": {"logged_in": True, "product": "premium"},
+             }), \
+             patch("src.api.ws_runner.load_apple_music_user_token", return_value=None):
+            await runner._handle_user_input(ui, "/play song")
+
+        confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
+        self.assertEqual(confirm["choices"][0]["value"], "spotify_play")
 
     async def test_explicit_natural_language_playback_starts_selection_session(self) -> None:
         """Verifies that explicit natural language playback starts selection session behaves as expected.
@@ -1989,7 +2076,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
              patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
-             patch.object(runner, "_sync_local_playback", side_effect=idle_sync), \
              patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
              patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
@@ -2004,52 +2090,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         player_events = [event for event in ws.sent if event.get("type") == "player"]
         self.assertTrue(player_events)
         self.assertEqual(player_events[-1]["state"]["name"], "Song")
-
-    def test_project_local_playback_state_advances_without_status_probe(self) -> None:
-        """Verifies that project local playback state advances without status probe behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the project local playback state advances without status probe behavior against regressions.
-
-        Example: test_project_local_playback_state_advances_without_status_probe() -> passes without assertion failures when the behavior remains correct.
-        """
-        state = {
-            "name": "Song",
-            "artist": "Artist",
-            "album": "Album",
-            "duration_ms": 10_000,
-            "progress_ms": 2_000,
-            "timestamp": 1_000,
-            "is_playing": True,
-        }
-
-        projected = ws_runner._project_local_playback_state(state, 4_000)
-
-        self.assertEqual(projected["progress_ms"], 5_000)
-        self.assertEqual(projected["timestamp"], 4_000)
-        self.assertTrue(projected["is_playing"])
-
-    def test_project_local_playback_state_marks_ended_at_duration(self) -> None:
-        """Verifies that project local playback state marks ended at duration behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the project local playback state marks ended at duration behavior against regressions.
-
-        Example: test_project_local_playback_state_marks_ended_at_duration() -> passes without assertion failures when the behavior remains correct.
-        """
-        state = {
-            "name": "Song",
-            "artist": "Artist",
-            "album": "Album",
-            "duration_ms": 3_000,
-            "progress_ms": 2_500,
-            "timestamp": 1_000,
-            "is_playing": True,
-        }
-
-        projected = ws_runner._project_local_playback_state(state, 2_000)
-
-        self.assertEqual(projected["progress_ms"], 3_000)
-        self.assertFalse(projected["is_playing"])
-        self.assertTrue(projected["ended"])
 
     async def test_online_play_choice_reports_failure_to_chat_and_error(self) -> None:
         """Verifies that online play choice reports failure to chat and error behaves as expected.

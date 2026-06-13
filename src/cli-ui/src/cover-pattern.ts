@@ -2,6 +2,16 @@ export type CoverPatternPayload = {
     source_url: string;
     palette: string[];
     variants: Partial<Record<`${number}`, number[][]>>;
+    bead_catalog?: {
+        brand: string;
+        product_line: string;
+        diameter_mm: number;
+        version: string;
+        algorithm_version: string;
+        colors: Array<{ palette_index: number; code: string; name: string; hex: string }>;
+        usage_by_variant: Partial<Record<`${number}`, Array<{ palette_index: number; count: number }>>>;
+    };
+    unavailable_reason?: 'invalid_brand' | 'catalog_invalid' | 'decode_failed' | 'generation_failed';
     source_hash?: string;
     generated_at?: number;
 };
@@ -19,6 +29,12 @@ export type CoverPatternVariant = {
 export type CoverPatternVariantOptions = {
     maxSize?: number;
 };
+
+export type CoverPatternDisplay =
+    | { status: 'none' }
+    | { status: 'renderable'; variant: CoverPatternVariant }
+    | { status: 'unfit' }
+    | { status: 'unavailable' };
 
 export type HalfBlockCell = {
     char: '▀';
@@ -55,6 +71,19 @@ export function chooseCoverPatternVariant(
         }
     }
     return null;
+}
+
+export function resolveCoverPatternDisplay(
+    pattern: CoverPatternPayload | null,
+    space: TerminalSpace | null | undefined,
+    options: CoverPatternVariantOptions = {},
+): CoverPatternDisplay {
+    if (!pattern) return { status: 'none' };
+    if (pattern.unavailable_reason) return { status: 'unavailable' };
+    if (!space) return { status: 'unfit' };
+
+    const variant = chooseCoverPatternVariant(pattern, space, options);
+    return variant ? { status: 'renderable', variant } : { status: 'unfit' };
 }
 
 /**

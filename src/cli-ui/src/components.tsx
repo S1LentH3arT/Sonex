@@ -7,7 +7,7 @@ import { buildProgressBar, formatDuration, formatMiniTrackSubtitle } from './for
 import { getVisibleChatWindow } from './chat-window.js';
 import { isHttpCoverSource, useCoverArt } from './hooks.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
-import { chooseCoverPatternVariant, renderCoverPatternHalfBlocks, type CoverPatternPayload, type TerminalSpace } from './cover-pattern.js';
+import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion } from './layout.js';
 import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackSummary } from './types.js';
 
@@ -477,18 +477,12 @@ const CoverAtmosphere = ({ visual, art, compact }: {
     );
 };
 
-const CoverPatternArt = React.memo(({ pattern, space, maxSize }: {
+const CoverPatternArt = React.memo(({ pattern, variant }: {
     pattern: CoverPatternPayload;
-    space: TerminalSpace;
-    maxSize?: number;
+    variant: CoverPatternVariant;
 }) => {
-    const variant = React.useMemo(
-        () => chooseCoverPatternVariant(pattern, space, maxSize ? { maxSize } : undefined),
-        [pattern, space, maxSize],
-    );
-    const rows = React.useMemo(() => renderCoverPatternHalfBlocks(variant?.grid ?? [], pattern.palette), [variant, pattern.palette]);
+    const rows = React.useMemo(() => renderCoverPatternHalfBlocks(variant.grid, pattern.palette), [variant, pattern.palette]);
 
-    if (!variant) return null;
     return (
         <Box flexDirection="column">
             {rows.map((row, rowIndex) => (
@@ -513,13 +507,12 @@ const StaticCover = React.memo(({ visual, coverUrl, coverPattern, terminalSpace,
     maxPatternSize?: number;
 }) => {
     const maxSize = maxPatternSize ?? (compact ? undefined : 32);
-    const chosenPattern = coverPattern && terminalSpace
-        ? chooseCoverPatternVariant(coverPattern, terminalSpace, maxSize ? { maxSize } : undefined)
-        : null;
-    const hasCoverPattern = Boolean(coverPattern && terminalSpace && chosenPattern);
+    const patternDisplay = coverPattern
+        ? resolveCoverPatternDisplay(coverPattern, terminalSpace, maxSize ? { maxSize } : undefined)
+        : resolveCoverPatternDisplay(null, terminalSpace);
     const compactCoverWidth = Math.max(22, Math.min(48, (terminalSpace?.columns ?? 40) - 6));
     const compactCoverHeight = Math.max(8, Math.min(24, (terminalSpace?.rows ?? 22) - 8));
-    const fetchableCoverUrl = !hasCoverPattern && isHttpCoverSource(coverUrl) ? coverUrl : null;
+    const fetchableCoverUrl = patternDisplay.status === 'none' && isHttpCoverSource(coverUrl) ? coverUrl : null;
     const { art, failed } = useCoverArt(fetchableCoverUrl, compact ? compactCoverWidth : 32, compact ? compactCoverHeight : 16);
     const resolvedVisual = React.useMemo(() => coverVisualFromSource(coverUrl, failed), [coverUrl, failed]);
     const patternRequestedAt = React.useRef<number | null>(null);
@@ -542,12 +535,24 @@ const StaticCover = React.memo(({ visual, coverUrl, coverPattern, terminalSpace,
         }
     }, [coverUrl, coverPattern]);
 
-    if (hasCoverPattern && coverPattern && terminalSpace) {
+    if (patternDisplay.status === 'unavailable') {
+        return compact
+            ? <Box flexGrow={1} flexShrink={1} minHeight={compactCoverHeight} />
+            : <Box width={36} paddingRight={2} />;
+    }
+
+    if (patternDisplay.status === 'renderable' && coverPattern) {
         return (
             <Box flexGrow={compact ? 1 : 0} flexShrink={1} minHeight={compact ? compactCoverHeight : undefined} alignItems="center" justifyContent={compact ? 'flex-end' : 'center'}>
-                <CoverPatternArt pattern={coverPattern} space={terminalSpace} maxSize={maxSize} />
+                <CoverPatternArt pattern={coverPattern} variant={patternDisplay.variant} />
             </Box>
         );
+    }
+
+    if (patternDisplay.status === 'unfit') {
+        return compact
+            ? <Box flexGrow={1} flexShrink={1} minHeight={compactCoverHeight} />
+            : <Box width={36} paddingRight={2} />;
     }
 
     if (compact) {

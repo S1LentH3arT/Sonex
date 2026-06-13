@@ -26,6 +26,11 @@ from src.tools.cover_sources import (
 ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
 DEEZER_SEARCH_URL = "https://api.deezer.com/search/track"
 DEFAULT_ITUNES_COUNTRY = "US"
+DEFAULT_ITUNES_COUNTRIES = ("US", "TW", "HK", "CN")
+CJK_ITUNES_COUNTRIES = ("TW", "HK", "CN", "US")
+TRADITIONAL_CHINESE_MARKERS = frozenset(
+    "萬與專業東絲兩嚴喪個豐臨為麗舉麼義烏樂喬習鄉書買亂爭於虧雲亞產親億僅從倉儀們價眾優會傘偉傳傷倫偽體餘來偵側僑儉償兒兌黨蘭關興養獸內岡冊寫軍農凍淨幹幾庫應廠廢廣開異棄張彌彎彈強歸當錄徑後徹憂憑懷態慘慶憶戲戶擔據擴擺擾攜攝敗敘敵數斂斃斷無時晉曉暈暫術樸機殺雜權條楊樓標樣樹橋檔檢歡歲歷殘殼毀氣漢湯灣濕滿滅滾漁潛澤濟濤濫災愛爺牆獨獲環現瑪畫療發盜盤睜礦碼禮禍種穀積穩窩窮竄競筆築範簡糧糾紀紅約級紋納紙純紛組結絕統綠維綱網緊緒線練縣縱總織繞繪繫繼續罰羅職聽肅脅腦腳臉臺舊艦藝節莊華葉薦薩藥虛蟲補裝裡複見規視覺覽觀觸計訊討訓記講謝識譜議讓豈貝負財責賢敗貨質販貪貴貸費貼貿賀資賦賞賠賴贊趙趕跡踐車軌軒軟轉輪輯輸辦辭邊遙鄧郵醜醫釋鐘鐵鑑長門閃閉間閣隊陽陰陣階際陸陳險隨隱雙雞離難電靈靜頂頃項順須頓領頭顏風飛飯飲館馬駕駛駐驗驚魚鳥麥黃點齊齒龍"
+)
 
 _musicbrainz_lock = Lock()
 _last_musicbrainz_request = 0.0
@@ -46,17 +51,35 @@ def search_track_metadata_candidates(query: str, limit: int = 5, country: str | 
     candidates: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
     seen: set[str] = set()
-    resolved_country = (country or os.environ.get("SONEX_ITUNES_COUNTRY") or DEFAULT_ITUNES_COUNTRY).strip() or DEFAULT_ITUNES_COUNTRY
+    itunes_countries = _itunes_countries(clean_query, country)
+
+    if itunes_countries:
+        added, normalized_count, credible_count, searched_countries, errors = _collect_itunes_candidates(
+            clean_query,
+            bounded_limit,
+            itunes_countries,
+            candidates,
+            seen,
+        )
+        if added or searched_countries or errors:
+            attempts.append(
+                _itunes_attempt(
+                    added=added,
+                    normalized_count=normalized_count,
+                    credible_count=credible_count,
+                    countries=searched_countries,
+                    errors=errors,
+                )
+            )
 
     for provider, searcher in (
-        ("itunes", lambda remaining: _search_itunes(clean_query, remaining, resolved_country)),
         ("deezer", lambda remaining: _search_deezer(clean_query, remaining)),
         ("musicbrainz", lambda remaining: _search_musicbrainz(clean_query, remaining)),
     ):
         if len(candidates) >= bounded_limit:
             break
         try:
-            normalized = searcher(bounded_limit)
+            normalized = searcher(max(1, bounded_limit - len(candidates)))
         except HTTPError as exc:
             attempts.append(_error_attempt(provider, exc))
             continue
@@ -88,6 +111,127 @@ def search_track_metadata_candidates(query: str, limit: int = 5, country: str | 
     return {"candidates": candidates[:bounded_limit], "source_attempts": attempts}
 
 
+def _collect_itunes_candidates(
+    query: str,
+    limit: int,
+    countries: list[str],
+    candidates: list[dict[str, Any]],
+    seen: set[str],
+) -> tuple[int, int, int, list[str], list[Exception]]:
+    added = 0
+    normalized_count = 0
+    credible_count = 0
+    searched_countries: list[str] = []
+    errors: list[Exception] = []
+    for country in countries:
+        searched_countries.append(country)
+        try:
+            normalized = _search_itunes(query, limit, country)
+        except Exception as exc:
+            errors.append(exc)
+            continue
+        normalized_count += len(normalized)
+        credible = [item for item in normalized if _is_credible(item)]
+        credible_count += len(credible)
+        for item in credible:
+            key = _dedupe_key(item)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            item["_itunes_sequence"] = len(candidates)
+            candidates.append(item)
+            added += 1
+    candidates.sort(key=_itunes_language_sort_key)
+    for item in candidates:
+        item.pop("_itunes_sequence", None)
+    return added, normalized_count, credible_count, searched_countries, errors
+
+
+def _itunes_language_sort_key(candidate: dict[str, Any]) -> tuple[int, int]:
+    """Order iTunes editions as simplified Chinese, traditional Chinese, then English."""
+    text = " ".join(str(candidate.get(field) or "") for field in ("name", "artist", "album"))
+    country = str(candidate.get("itunes_country") or "").upper()
+    if not _has_cjk(text):
+        language_rank = 2
+    elif any(character in TRADITIONAL_CHINESE_MARKERS for character in text) or country in {"TW", "HK"}:
+        language_rank = 1
+    else:
+        language_rank = 0
+    return language_rank, int(candidate.get("_itunes_sequence") or 0)
+
+
+def _itunes_countries(query: str, country: str | None = None) -> list[str]:
+    explicit = _country_code(country)
+    if explicit:
+        return [explicit]
+
+    env_country = _country_code(os.environ.get("SONEX_ITUNES_COUNTRY"))
+    if env_country:
+        return [env_country]
+
+    env_countries = _country_codes(os.environ.get("SONEX_ITUNES_COUNTRIES"))
+    if env_countries:
+        return env_countries
+
+    return list(CJK_ITUNES_COUNTRIES if _has_cjk(query) else DEFAULT_ITUNES_COUNTRIES)
+
+
+def _country_codes(value: Any) -> list[str]:
+    seen: set[str] = set()
+    countries: list[str] = []
+    for part in str(value or "").split(","):
+        code = _country_code(part)
+        if code and code not in seen:
+            seen.add(code)
+            countries.append(code)
+    return countries
+
+
+def _country_code(value: Any) -> str | None:
+    text = str(value or "").strip().upper()
+    if not re.fullmatch(r"[A-Z]{2}", text):
+        return None
+    return text
+
+
+def _has_cjk(value: Any) -> bool:
+    return any("\u4e00" <= character <= "\u9fff" for character in str(value or ""))
+
+
+def _itunes_attempt(
+    *,
+    added: int,
+    normalized_count: int,
+    credible_count: int,
+    countries: list[str],
+    errors: list[Exception],
+) -> dict[str, Any]:
+    if added:
+        status = "success"
+    elif errors and not normalized_count:
+        status = "rate_limited" if all(isinstance(exc, HTTPError) and exc.code == 429 for exc in errors) else "error"
+    else:
+        status = "not_found"
+    country_text = ", ".join(countries) if countries else "none"
+    message = (
+        f"iTunes searched {country_text} and returned {added} "
+        f"candidate{'s' if added != 1 else ''}."
+    )
+    if status in {"rate_limited", "error"} and errors:
+        message = f"iTunes searched {country_text}. {sanitize_error_message(errors[-1])}"
+    attempt = {
+        "provider": "itunes",
+        "status": status,
+        "candidate_count": max(0, int(normalized_count or 0)),
+        "credible_count": max(0, int(credible_count or 0)),
+        "countries": countries,
+        "message": message,
+    }
+    if errors:
+        attempt["error_count"] = len(errors)
+    return attempt
+
+
 def _search_itunes(query: str, limit: int, country: str) -> list[dict[str, Any]]:
     """Prepares search itunes for an internal Sonex flow.
 
@@ -108,7 +252,7 @@ def _search_itunes(query: str, limit: int, country: str) -> list[dict[str, Any]]
     results = payload.get("results") if isinstance(payload, dict) else None
     if not isinstance(results, list):
         return []
-    return [_normalize_itunes(query, item) for item in results if isinstance(item, dict)]
+    return [_normalize_itunes(query, item, country=country) for item in results if isinstance(item, dict)]
 
 
 def _search_deezer(query: str, limit: int) -> list[dict[str, Any]]:
@@ -175,7 +319,7 @@ def _musicbrainz_json(url: str) -> dict[str, Any]:
     return _json_request(url, user_agent=MUSICBRAINZ_USER_AGENT)
 
 
-def _normalize_itunes(query: str, item: dict[str, Any]) -> dict[str, Any]:
+def _normalize_itunes(query: str, item: dict[str, Any], *, country: str) -> dict[str, Any]:
     """Prepares normalize itunes for an internal Sonex flow.
 
     Typical use: Use this helper when nearby code needs normalize itunes without duplicating the local rules.
@@ -200,7 +344,17 @@ def _normalize_itunes(query: str, item: dict[str, Any]) -> dict[str, Any]:
         cover_url=cover,
         url=url,
         uri=f"itunes:track:{track_id}" if track_id else None,
-        extra={"itunes_url": url},
+        extra={
+            "itunes_url": url,
+            "itunes_country": country,
+            "isrc": _text(item.get("isrc")),
+            "preview_url": _text(item.get("previewUrl")),
+            "release_date": _text(item.get("releaseDate")),
+            "release_year": _release_year(item.get("releaseDate")),
+            "album_id": _text(item.get("collectionId")),
+            "artist_id": _text(item.get("artistId")),
+            "provider_payload": item,
+        },
     )
 
 
@@ -227,7 +381,16 @@ def _normalize_deezer(query: str, item: dict[str, Any]) -> dict[str, Any]:
         cover_url=_text(album_obj.get("cover_xl") or album_obj.get("cover_big") or album_obj.get("cover_medium") or album_obj.get("cover")),
         url=url,
         uri=f"deezer:track:{track_id}" if track_id else None,
-        extra={"deezer_url": url},
+        extra={
+            "deezer_url": url,
+            "isrc": _text(item.get("isrc")),
+            "preview_url": _text(item.get("preview")),
+            "release_date": _text(item.get("release_date")),
+            "release_year": _release_year(item.get("release_date")),
+            "album_id": _text(album_obj.get("id")),
+            "artist_id": _text(artist_obj.get("id")),
+            "provider_payload": item,
+        },
     )
 
 
@@ -255,7 +418,14 @@ def _normalize_musicbrainz(query: str, item: dict[str, Any]) -> dict[str, Any]:
         cover_url=None,
         url=url,
         uri=f"musicbrainz:recording:{recording_id}" if recording_id else None,
-        extra={"musicbrainz_recording_id": recording_id, "musicbrainz_url": url},
+        extra={
+            "musicbrainz_recording_id": recording_id,
+            "musicbrainz_url": url,
+            "isrc": _first_text(item.get("isrcs")),
+            "release_date": _musicbrainz_release_date(item.get("releases")),
+            "release_year": _release_year(_musicbrainz_release_date(item.get("releases"))),
+            "provider_payload": item,
+        },
     )
 
 
@@ -336,6 +506,35 @@ def _musicbrainz_album(value: Any) -> str | None:
             if title:
                 return title
     return None
+
+
+def _musicbrainz_release_date(value: Any) -> str | None:
+    if not isinstance(value, list):
+        return None
+    for item in value:
+        if isinstance(item, dict):
+            date = _text(item.get("date"))
+            if date:
+                return date
+    return None
+
+
+def _first_text(value: Any) -> str | None:
+    if isinstance(value, list):
+        for item in value:
+            text = _text(item)
+            if text:
+                return text
+        return None
+    return _text(value)
+
+
+def _release_year(value: Any) -> str | None:
+    text = _text(value)
+    if not text:
+        return None
+    match = re.search(r"\d{4}", text)
+    return match.group(0) if match else None
 
 
 def _is_credible(item: dict[str, Any]) -> bool:

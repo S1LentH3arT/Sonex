@@ -267,6 +267,18 @@ export const App = () => {
                     return evt;
                 });
                 break;
+            case "cover_pattern_unavailable":
+                setCoverPattern((prev) => {
+                    if (evt.source_url !== coverUrlRef.current) return prev;
+                    return {
+                        type: "cover_pattern",
+                        source_url: evt.source_url,
+                        palette: [],
+                        variants: {},
+                        unavailable_reason: evt.reason,
+                    };
+                });
+                break;
             case "error":
                 showError(evt.message, evt.detail);
                 break;

@@ -30,6 +30,9 @@ assert.ok(staticCoverStart >= 0);
 assert.ok(miniBodyStart > staticCoverStart);
 const staticCover = source.slice(staticCoverStart, miniBodyStart);
 assert.match(staticCover, /alignItems="center" justifyContent=\{compact \? 'flex-end' : 'center'\}/);
+assert.match(staticCover, /const patternDisplay = coverPattern/);
+assert.match(staticCover, /const fetchableCoverUrl = patternDisplay\.status === 'none'/);
+assert.match(staticCover, /if \(patternDisplay\.status === 'unfit'\)/);
 assert.match(miniBody, /alignItems="center"\s+justifyContent="flex-end"/);
 
 const miniStart = source.indexOf('const MiniPlayerRegion =');

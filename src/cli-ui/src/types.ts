@@ -7,6 +7,7 @@ export type ServerEvent =
     | { type: "player"; state: PlayerState }
     | { type: "cover"; url: string }
     | CoverPatternEvent
+    | CoverPatternUnavailableEvent
     | { type: "error"; message: string; detail?: string | null; recoverable?: boolean | null }
     | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; choices?: ConfirmChoice[] | null }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
@@ -20,8 +21,24 @@ export type CoverPatternEvent = {
     source_url: string;
     palette: string[];
     variants: Partial<Record<`${number}`, number[][]>>;
+    bead_catalog?: {
+        brand: string;
+        product_line: string;
+        diameter_mm: number;
+        version: string;
+        algorithm_version: string;
+        colors: Array<{ palette_index: number; code: string; name: string; hex: string }>;
+        usage_by_variant: Partial<Record<`${number}`, Array<{ palette_index: number; count: number }>>>;
+    };
+    unavailable_reason?: "invalid_brand" | "catalog_invalid" | "decode_failed" | "generation_failed";
     source_hash?: string;
     generated_at?: number;
+};
+
+export type CoverPatternUnavailableEvent = {
+    type: "cover_pattern_unavailable";
+    source_url: string;
+    reason: "invalid_brand" | "catalog_invalid" | "decode_failed" | "generation_failed";
 };
 
 export type ClientEvent =

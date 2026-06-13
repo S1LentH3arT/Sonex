@@ -21,8 +21,12 @@ dependencies = [
     "spotipy",
     "yt-dlp",
     "Pillow",
+    "numpy",
     "mutagen"
 ]
+
+[tool.setuptools.package-data]
+"src.tools.bead_catalog_data" = ["*.json"]
 
 [project.scripts]
 sonex = "src.main:app"

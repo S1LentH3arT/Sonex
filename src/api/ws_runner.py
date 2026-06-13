@@ -38,6 +38,7 @@ from src.api.music_intent import (
 )
 from src.auth.apple_music import (
     apple_music_setup_message,
+    load_apple_music_user_token,
     save_apple_music_credentials,
     save_apple_music_user_token,
 )
@@ -50,6 +51,7 @@ from src.auth.browser_oauth import (
 from src.auth.oauth import ensure_oauth_token_usable
 from src.auth.providers import get_provider_capability, normalize_provider, normalize_provider_model
 from src.auth.spotify import (
+    load_spotify_token,
     save_spotify_app_credentials,
     save_spotify_token_info,
     spotify_authorize_url,
@@ -152,8 +154,6 @@ LOCAL_PLAYBACK_CONTROL_TOOLS = {
     "stop": "local_playback_stop",
     "progress": "local_playback_status",
 }
-LOCAL_PLAYBACK_SYNC_INTERVAL_SECONDS = 1.0
-LOCAL_PLAYBACK_STATUS_PROBE_SECONDS = 15.0
 LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
 PLAYBACK_METHOD_CHOICES = [
     {
@@ -592,10 +592,18 @@ async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
             payload = await asyncio.to_thread(fetch_cover_pattern, source_url)
         else:
             return
-    except CoverPatternError:
-        return
+    except CoverPatternError as exc:
+        payload = {
+            "type": "cover_pattern_unavailable",
+            "source_url": source_url,
+            "reason": exc.reason,
+        }
     except Exception:
-        return
+        payload = {
+            "type": "cover_pattern_unavailable",
+            "source_url": source_url,
+            "reason": "generation_failed",
+        }
     if not ui.closed:
         await ui._send(payload)
 
@@ -1051,32 +1059,6 @@ def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
         progress_bucket,
         state.get("volume_percent"),
     )
-
-
-def _project_local_playback_state(state: dict[str, Any], now_ms: int) -> dict[str, Any]:
-    """Prepares project local playback state for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs project local playback state without duplicating the local rules.
-
-    Example: _project_local_playback_state(state=..., now_ms=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    payload = dict(state)
-    progress_ms = int(payload.get("progress_ms") or 0)
-    duration_ms = int(payload.get("duration_ms") or 0)
-    timestamp = int(payload.get("timestamp") or now_ms)
-    is_playing = payload.get("is_playing") is True
-
-    if is_playing:
-        progress_ms += max(0, now_ms - timestamp)
-        if duration_ms > 0:
-            progress_ms = min(duration_ms, progress_ms)
-            if progress_ms >= duration_ms:
-                payload["is_playing"] = False
-                payload["ended"] = True
-
-    payload["progress_ms"] = progress_ms
-    payload["timestamp"] = now_ms
-    return payload
 
 
 def _is_spotify_setup_request(text: str) -> bool:
@@ -2660,9 +2642,34 @@ class PlaySelectionSession:
         if self.cache_hit:
             tool_args["cache_id"] = self.cache_hit.get("cache_id")
             tool_args["cached_song"] = self.cache_hit
+        try:
+            spotify_token = load_spotify_token()
+            spotify_logged_in = bool(spotify_token and spotify_token.access_token)
+        except Exception:
+            spotify_logged_in = False
+        spotify_product = "unknown"
+        if spotify_logged_in:
+            try:
+                spotify_result = spotify_account(requests_timeout=1.5)
+                spotify_data = spotify_result.get("data") if isinstance(spotify_result, dict) else {}
+                spotify_product = str(spotify_data.get("product") or "unknown").lower() if isinstance(spotify_data, dict) else "unknown"
+            except Exception:
+                spotify_product = "unknown"
+        try:
+            apple_token = load_apple_music_user_token()
+            apple_logged_in = bool(apple_token and apple_token.access_token)
+        except Exception:
+            apple_logged_in = False
+        choices = list(PLAYBACK_METHOD_CHOICES)
+        if (not spotify_logged_in and not apple_logged_in) or spotify_product == "free":
+            choices = [
+                *[choice for choice in choices if choice["value"] == "online_play"],
+                *[choice for choice in choices if choice["value"] not in {"online_play", "cancel"}],
+                *[choice for choice in choices if choice["value"] == "cancel"],
+            ]
         await self._ask_confirm(
             message="选择播放方式",
-            choices=PLAYBACK_METHOD_CHOICES,
+            choices=choices,
             tool_args=tool_args,
         )
 
@@ -3208,7 +3215,6 @@ class WebSocketRunner:
         await ui._send({"type": "queue", "tracks": _queue_payload()})
         await self._handle_startup_auth(ui)
         playback_sync_task = asyncio.create_task(self._sync_spotify_playback(ui))
-        local_playback_sync_task = asyncio.create_task(self._sync_local_playback(ui))
 
         try:
             while True:
@@ -3287,7 +3293,6 @@ class WebSocketRunner:
                 auth_setup.oauth_task.cancel()
             apple_music_setup = getattr(ui, "_apple_music_setup", None)
             playback_sync_task.cancel()
-            local_playback_sync_task.cancel()
             with suppress(asyncio.CancelledError):
                 if spotify_setup and spotify_setup.oauth_task:
                     await spotify_setup.oauth_task
@@ -3296,8 +3301,6 @@ class WebSocketRunner:
                     await auth_setup.oauth_task
             with suppress(asyncio.CancelledError):
                 await playback_sync_task
-            with suppress(asyncio.CancelledError):
-                await local_playback_sync_task
             self._confirm_queue.put(("", False))
 
     async def _handle_startup_auth(self, ui: WebSocketUIAdapter) -> None:
@@ -3350,41 +3353,6 @@ class WebSocketRunner:
             except Exception:
                 pass
             await asyncio.sleep(2)
-
-    async def _sync_local_playback(self, ui: WebSocketUIAdapter) -> None:
-        """Prepares sync local playback for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs sync local playback without duplicating the local rules.
-
-        Example: await _sync_local_playback(ui=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        last_signature: tuple[Any, ...] | None = None
-        last_payload: dict[str, Any] | None = None
-        next_status_probe_at = 0.0
-        while not ui.closed:
-            try:
-                now = time.monotonic()
-                should_probe = now >= next_status_probe_at
-                if should_probe:
-                    probe_started = time.monotonic()
-                    state = await asyncio.to_thread(local_playback_controller.status)
-                    _player_debug(f"local playback status probe {int((time.monotonic() - probe_started) * 1000)}ms")
-                    payload = state.to_dict()
-                    next_status_probe_at = now + LOCAL_PLAYBACK_STATUS_PROBE_SECONDS
-                else:
-                    payload = _project_local_playback_state(last_payload, _timestamp_ms()) if last_payload else None
-                if payload is None:
-                    await asyncio.sleep(LOCAL_PLAYBACK_SYNC_INTERVAL_SECONDS)
-                    continue
-                signature = _player_sync_signature(payload)
-                if signature != last_signature:
-                    await ui._send({"type": "player", "state": payload})
-                    last_signature = signature
-                last_payload = payload
-            except Exception:
-                last_payload = None
-                next_status_probe_at = time.monotonic() + LOCAL_PLAYBACK_STATUS_PROBE_SECONDS
-            await asyncio.sleep(LOCAL_PLAYBACK_SYNC_INTERVAL_SECONDS)
 
     async def _handle_user_input(
         self,

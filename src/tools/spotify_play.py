@@ -665,7 +665,7 @@ def spotify_search(query: str, limit: int = 10, types: str = "track,artist,album
     return ToolResult.success(tool="spotify_search", message="Spotify search completed.", data=data).to_dict()
 
 
-def _spotify_product() -> tuple[str, dict[str, Any] | None]:
+def _spotify_product(*, requests_timeout: float | None = None) -> tuple[str, dict[str, Any] | None]:
     """Prepares spotify product for an internal Sonex flow.
 
     Typical use: Use this helper when nearby code needs spotify product without duplicating the local rules.
@@ -673,7 +673,11 @@ def _spotify_product() -> tuple[str, dict[str, Any] | None]:
     Example: _spotify_product() -> returns the value used by the surrounding Sonex flow.
     """
     try:
-        client = spotify_user_client(SPOTIFY_PRIVATE_SCOPES)
+        if requests_timeout is None:
+            client = spotify_user_client(SPOTIFY_PRIVATE_SCOPES)
+        else:
+            token = ensure_spotify_token(SPOTIFY_PRIVATE_SCOPES)
+            client = spotipy.Spotify(auth=token.access_token, requests_timeout=requests_timeout, retries=0)
         profile = client.current_user()
     except SpotifyLoginRequiredError:
         return "unknown", None
@@ -701,7 +705,7 @@ def _account_capabilities(product: str, scopes: set[str], logged_in: bool) -> di
     }
 
 
-def spotify_account() -> dict[str, Any]:
+def spotify_account(requests_timeout: float | None = None) -> dict[str, Any]:
     """Coordinates spotify account for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs spotify account as part of a Sonex command, playback, auth, llm, or ui path.
@@ -711,7 +715,7 @@ def spotify_account() -> dict[str, Any]:
     token = load_spotify_token()
     logged_in = bool(token and token.access_token)
     scopes = set(token.scopes if token else [])
-    product, profile = _spotify_product() if logged_in else ("unknown", None)
+    product, profile = _spotify_product(requests_timeout=requests_timeout) if logged_in else ("unknown", None)
     data = {
         "logged_in": logged_in,
         "product": product,

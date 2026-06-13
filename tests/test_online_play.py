@@ -272,6 +272,149 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidate["source_identity"]["artist"], "Jamendo Artist")
         self.assertFalse(candidate["identity_match"])
 
+    def test_language_conflict_accepts_original_query_identity(self) -> None:
+        candidate = online.normalize_jamendo_track(
+            {
+                "id": "jam-beautiful",
+                "name": "忘了美丽",
+                "artist_name": "方大同",
+                "album_name": "未来",
+                "audio": "https://audio.example/beautiful.mp3",
+            },
+            query="方大同 忘了美丽",
+            playback_metadata={
+                "metadata_source": "itunes",
+                "original_query": "方大同 忘了美丽",
+                "youtube_query": "Khalil Fong Beatiful",
+                "name": "Beatiful",
+                "artist": "Khalil Fong",
+                "album": "Wonderland",
+            },
+        )
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertTrue(candidate["identity_match"])
+        self.assertFalse(candidate["provider_identity_match"])
+        self.assertTrue(candidate["query_identity_match"])
+        self.assertEqual(candidate["identity_match_source"], "original_query")
+        self.assertEqual(candidate["search_query_variant"], "original_query")
+        self.assertGreaterEqual(candidate["query_identity_score"], 70)
+
+    def test_cross_language_alias_accepts_provider_localized_identity(self) -> None:
+        candidate = online.normalize_jamendo_track(
+            {
+                "id": "jam-beautiful",
+                "name": "忘了美丽",
+                "artist_name": "方大同",
+                "album_name": "未来",
+                "duration": "240",
+                "audio": "https://audio.example/beautiful.mp3",
+            },
+            query="Khalil Fong Beautiful Wonderland",
+            playback_metadata={
+                "metadata_source": "itunes",
+                "name": "Beautiful",
+                "artist": "Khalil Fong",
+                "album": "Wonderland",
+                "duration_ms": 241000,
+            },
+        )
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertTrue(candidate["identity_match"])
+        self.assertEqual(candidate["match_score"]["decision"], "accept")
+        self.assertIn("title_alias", candidate["match_score"]["reasons"])
+        self.assertIn("artist_alias", candidate["match_score"]["reasons"])
+
+    def test_cross_language_alias_rejects_same_title_different_artist(self) -> None:
+        candidate = online.normalize_jamendo_track(
+            {
+                "id": "jam-wrong",
+                "name": "Beautiful",
+                "artist_name": "Wrong Artist",
+                "audio": "https://audio.example/wrong.mp3",
+            },
+            query="Khalil Fong Beautiful",
+            playback_metadata={
+                "metadata_source": "itunes",
+                "name": "Beautiful",
+                "artist": "Khalil Fong",
+            },
+        )
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertFalse(candidate["identity_match"])
+        self.assertEqual(candidate["match_score"]["decision"], "reject")
+        self.assertIn("artist_mismatch", candidate["match_score"]["hard_reject_reasons"])
+
+    def test_review_match_score_is_not_auto_play_credible(self) -> None:
+        review = {
+            "provider": "jamendo",
+            "id": "review",
+            "name": "Beautiful",
+            "artist": "-",
+            "quality_label": "clean_audio_match",
+            "similarity_score": 95,
+            "match_score": {
+                "decision": "review",
+                "total_score": 45,
+                "reasons": ["title_only_weak_evidence"],
+                "hard_reject_reasons": [],
+                "components": {"title": 45},
+            },
+        }
+
+        self.assertEqual(online._credible_online_audio_candidates([review]), [])
+
+    def test_language_conflict_rejects_wrong_original_query_title(self) -> None:
+        candidate = online.normalize_jamendo_track(
+            {
+                "id": "jam-wrong-title",
+                "name": "特别的人",
+                "artist_name": "方大同",
+                "audio": "https://audio.example/wrong-title.mp3",
+            },
+            query="方大同 忘了美丽",
+            playback_metadata={
+                "metadata_source": "itunes",
+                "original_query": "方大同 忘了美丽",
+                "youtube_query": "Khalil Fong Beatiful",
+                "name": "Beatiful",
+                "artist": "Khalil Fong",
+            },
+        )
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertFalse(candidate["identity_match"])
+        self.assertFalse(candidate["query_identity_match"])
+
+    def test_language_conflict_rejects_wrong_original_query_artist(self) -> None:
+        candidate = online.normalize_jamendo_track(
+            {
+                "id": "jam-wrong-artist",
+                "name": "忘了美丽",
+                "artist_name": "其他歌手",
+                "audio": "https://audio.example/wrong-artist.mp3",
+            },
+            query="方大同 忘了美丽",
+            playback_metadata={
+                "metadata_source": "itunes",
+                "original_query": "方大同 忘了美丽",
+                "youtube_query": "Khalil Fong Beatiful",
+                "name": "Beatiful",
+                "artist": "Khalil Fong",
+            },
+        )
+
+        self.assertIsNotNone(candidate)
+        assert candidate is not None
+        self.assertFalse(candidate["identity_match"])
+        self.assertFalse(candidate["query_identity_match"])
+
     def test_jamendo_selected_track_uses_exact_identity_query(self) -> None:
         captured_urls: list[str] = []
 
@@ -341,6 +484,48 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(fallback_params["namesearch"], ["Sorry"])
         self.assertEqual(fallback_params["artist_name"], ["Fang Datong"])
         self.assertNotIn("album_name", fallback_params)
+
+    def test_jamendo_adds_original_query_search_on_language_conflict(self) -> None:
+        captured_urls: list[str] = []
+
+        def fake_json_get(url: str, **_: object) -> dict[str, object]:
+            captured_urls.append(url)
+            if len(captured_urls) < 3:
+                return {
+                    "results": [{
+                        "id": f"wrong-{len(captured_urls)}",
+                        "name": "Beatiful",
+                        "artist_name": "Wrong Artist",
+                        "audio": f"https://audio.example/wrong-{len(captured_urls)}.mp3",
+                    }]
+                }
+            return {
+                "results": [{
+                    "id": "right",
+                    "name": "忘了美丽",
+                    "artist_name": "方大同",
+                    "audio": "https://audio.example/right.mp3",
+                }]
+            }
+
+        with patch("src.tools.online_play._json_get", side_effect=fake_json_get):
+            candidates = online.search_jamendo_audio_candidates(
+                "Khalil Fong Beatiful",
+                client_id="client-id",
+                playback_metadata={
+                    "metadata_source": "itunes",
+                    "original_query": "方大同 忘了美丽",
+                    "youtube_query": "Khalil Fong Beatiful",
+                    "name": "Beatiful",
+                    "artist": "Khalil Fong",
+                    "album": "Wonderland",
+                },
+            )
+
+        self.assertEqual([candidate["id"] for candidate in candidates], ["right"])
+        original_query_params = urllib.parse.parse_qs(urllib.parse.urlparse(captured_urls[-1]).query)
+        self.assertEqual(original_query_params["search"], ["方大同 忘了美丽"])
+        self.assertEqual(candidates[0]["identity_match_source"], "original_query")
 
     def test_identity_matching_ignores_display_suffixes_but_preserves_versions(self) -> None:
         target = {"title": "Ｓｏｒｒｙ!", "artist": "Fang-Datong"}
@@ -443,6 +628,37 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual([candidate["id"] for candidate in candidates], ["right"])
         self.assertTrue(candidates[0]["identity_match"])
 
+    def test_audius_searches_provider_and_original_query_on_language_conflict(self) -> None:
+        captured_urls: list[str] = []
+
+        def fake_json_get(url: str, **_: object) -> dict[str, object]:
+            captured_urls.append(url)
+            if len(captured_urls) == 1:
+                return {"data": [{"id": "wrong", "title": "Beatiful", "user": {"name": "Wrong Artist"}}]}
+            return {"data": [{"id": "right", "title": "忘了美丽", "user": {"name": "方大同"}}]}
+
+        with patch("src.tools.online_play._json_get", side_effect=fake_json_get):
+            candidates = online.search_audius_audio_candidates(
+                "Khalil Fong Beatiful",
+                api_key="api-key",
+                playback_metadata={
+                    "metadata_source": "itunes",
+                    "original_query": "方大同 忘了美丽",
+                    "youtube_query": "Khalil Fong Beatiful",
+                    "name": "Beatiful",
+                    "artist": "Khalil Fong",
+                },
+            )
+
+        self.assertEqual([candidate["id"] for candidate in candidates], ["right"])
+        self.assertEqual(len(captured_urls), 2)
+        queries = [
+            urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["query"][0]
+            for url in captured_urls
+        ]
+        self.assertEqual(queries, ["Khalil Fong Beatiful", "方大同 忘了美丽"])
+        self.assertEqual(candidates[0]["identity_match_source"], "original_query")
+
     def test_youtube_selected_track_filters_wrong_identity_before_ranking(self) -> None:
         FakeYoutubeDL.responses = [{
             "entries": [
@@ -473,6 +689,121 @@ class OnlinePlayTests(unittest.TestCase):
 
         self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["right"])
         self.assertEqual(candidates[0]["source_identity"]["artist"], "Fang Datong")
+
+    def test_youtube_searches_both_language_conflict_variants_and_dedupes(self) -> None:
+        FakeYoutubeDL.responses = [
+            {
+                "entries": [
+                    {
+                        "id": "same",
+                        "track": "Beatiful",
+                        "artist": "Khalil Fong",
+                        "webpage_url": "https://www.youtube.com/watch?v=same",
+                    },
+                    {
+                        "id": "wrong",
+                        "track": "Beatiful",
+                        "artist": "Wrong Artist",
+                        "webpage_url": "https://www.youtube.com/watch?v=wrong",
+                    },
+                ]
+            },
+            {
+                "entries": [
+                    {
+                        "id": "same",
+                        "track": "忘了美丽",
+                        "artist": "方大同",
+                        "webpage_url": "https://www.youtube.com/watch?v=same",
+                    },
+                    {
+                        "id": "right",
+                        "track": "忘了美丽",
+                        "artist": "方大同",
+                        "webpage_url": "https://www.youtube.com/watch?v=right",
+                    },
+                ]
+            },
+        ]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.search_youtube_songs(
+                "ignored",
+                limit=5,
+                playback_metadata={
+                    "metadata_source": "itunes",
+                    "original_query": "方大同 忘了美丽",
+                    "youtube_query": "Khalil Fong Beatiful",
+                    "name": "Beatiful",
+                    "artist": "Khalil Fong",
+                    "album": "Wonderland",
+                },
+            )
+
+        self.assertEqual(
+            [call["target"] for call in FakeYoutubeDL.calls],
+            ["ytsearch40:Khalil Fong Beatiful", "ytsearch40:方大同 忘了美丽"],
+        )
+        self.assertEqual([candidate["cache_id"] for candidate in candidates], ["youtube_same", "youtube_right"])
+        self.assertEqual(candidates[0]["identity_match_source"], "provider_metadata")
+        self.assertEqual(candidates[1]["identity_match_source"], "original_query")
+
+    def test_youtube_accepts_official_channel_match_for_selected_cross_language_metadata(self) -> None:
+        official_entry = {
+            "id": "official",
+            "title": "方大同 小小虫 Official MV",
+            "channel": "Warner Music Taiwan",
+            "uploader": "Warner Music Taiwan",
+            "webpage_url": "https://www.youtube.com/watch?v=official",
+        }
+        FakeYoutubeDL.responses = [{"entries": [official_entry]}, {"entries": [official_entry]}]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.search_youtube_songs(
+                "ignored",
+                limit=5,
+                playback_metadata={
+                    "metadata_source": "itunes",
+                    "original_query": "方大同 小小虫",
+                    "youtube_query": "Khalil Fong 小小虫",
+                    "name": "小小虫",
+                    "artist": "Khalil Fong",
+                    "album": "Orange Moon",
+                },
+            )
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["official"])
+        self.assertEqual(candidates[0]["identity_match_source"], "youtube_title_query")
+        self.assertEqual(candidates[0]["source_identity"]["artist"], "")
+        self.assertEqual(candidates[0]["channel"], "Warner Music Taiwan")
+
+    def test_youtube_accepts_official_channel_match_for_selected_localized_metadata(self) -> None:
+        official_entry = {
+            "id": "official",
+            "title": "方大同 小小虫 Official MV",
+            "channel": "Warner Music Taiwan",
+            "uploader": "Warner Music Taiwan",
+            "webpage_url": "https://www.youtube.com/watch?v=official",
+        }
+        FakeYoutubeDL.responses = [{"entries": [official_entry]}, {"entries": [official_entry]}]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.search_youtube_songs(
+                "ignored",
+                limit=5,
+                playback_metadata={
+                    "metadata_source": "itunes",
+                    "original_query": "方大同 小小虫",
+                    "youtube_query": "方大同 小小虫",
+                    "name": "小小虫",
+                    "artist": "方大同",
+                    "album": "橙月",
+                },
+            )
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["official"])
+        self.assertEqual(candidates[0]["identity_match_source"], "youtube_title_query")
+        self.assertEqual(candidates[0]["source_identity"]["artist"], "")
 
     def test_resolve_online_audio_records_missing_config_before_youtube(self) -> None:
         """Verifies that resolve online audio records missing config before youtube behaves as expected.
@@ -616,6 +947,38 @@ class OnlinePlayTests(unittest.TestCase):
                 },
             ],
         )
+
+    def test_resolve_online_audio_returns_provider_aware_youtube_fallback_with_attempt_trace(self) -> None:
+        official_entry = {
+            "id": "official",
+            "title": "方大同 小小虫 Official MV",
+            "channel": "Warner Music Taiwan",
+            "uploader": "Warner Music Taiwan",
+            "webpage_url": "https://www.youtube.com/watch?v=official",
+        }
+        FakeYoutubeDL.responses = [{"entries": [official_entry]}, {"entries": [official_entry]}]
+        config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
+
+        with patch("src.tools.online_play.search_jamendo_audio_candidates", return_value=[]), \
+             patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.resolve_online_audio_candidates(
+                "方大同 小小虫",
+                config=config,
+                playback_metadata={
+                    "metadata_source": "itunes",
+                    "original_query": "方大同 小小虫",
+                    "youtube_query": "Khalil Fong 小小虫",
+                    "name": "小小虫",
+                    "artist": "Khalil Fong",
+                    "album": "Orange Moon",
+                },
+            )
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["official"])
+        self.assertEqual(candidates[0]["fallback_provider"], "youtube")
+        self.assertEqual(candidates[0]["identity_match_source"], "youtube_title_query")
+        self.assertIn("Jamendo returned no credible matches", candidates[0]["fallback_reason"])
+        self.assertIn("Audius is not configured", candidates[0]["fallback_reason"])
 
     def test_resolve_online_audio_filters_low_similarity_before_youtube_fallback(self) -> None:
         """Verifies that resolve online audio filters low similarity before youtube fallback behaves as expected.
@@ -1268,6 +1631,139 @@ class OnlinePlayTests(unittest.TestCase):
 
             self.assertEqual(item["audio_path"], str(audio))
             self.assertEqual(FakeYoutubeDL.calls, [])
+
+    def test_download_youtube_candidate_reuses_original_query_identity_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio = root / "audio" / "youtube_abc123.webm"
+            audio.parent.mkdir(parents=True)
+            audio.write_bytes(b"verified")
+            upsert_cached_song(
+                {
+                    "provider": "youtube",
+                    "cache_id": "youtube_abc123",
+                    "youtube_id": "abc123",
+                    "name": "忘了美丽",
+                    "artist": "方大同",
+                    "target_identity": {"title": "Beatiful", "artist": "Khalil Fong", "album": "Wonderland"},
+                    "source_identity": {"title": "忘了美丽", "artist": "方大同", "album": "未来"},
+                    "identity_match": True,
+                    "identity_match_source": "original_query",
+                    "audio_path": str(audio),
+                    "audio_ext": "webm",
+                },
+                cache_root=root,
+            )
+
+            item = online.download_youtube_candidate(
+                {
+                    "provider": "youtube",
+                    "cache_id": "youtube_abc123",
+                    "target_identity": {"title": "Beatiful", "artist": "Khalil Fong", "album": "Wonderland"},
+                    "source_identity": {"title": "忘了美丽", "artist": "方大同", "album": "未来"},
+                    "query": "方大同 忘了美丽",
+                    "original_query": "方大同 忘了美丽",
+                    "youtube_query": "Khalil Fong Beatiful",
+                    "name": "Beatiful",
+                    "artist": "Khalil Fong",
+                    "metadata_source": "itunes",
+                    "url": "https://www.youtube.com/watch?v=abc123",
+                },
+                cache_root=root,
+            )
+
+            self.assertEqual(item["audio_path"], str(audio))
+            self.assertEqual(FakeYoutubeDL.calls, [])
+
+    def test_download_youtube_candidate_accepts_provider_aware_channel_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            FakeYoutubeDL.responses = [{
+                "id": "official",
+                "title": "方大同 小小虫 Official MV",
+                "channel": "Warner Music Taiwan",
+                "uploader": "Warner Music Taiwan",
+                "webpage_url": "https://www.youtube.com/watch?v=official",
+                "ext": "m4a",
+            }]
+
+            with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+                item = online.download_youtube_candidate(
+                    {
+                        "provider": "youtube",
+                        "cache_id": "youtube_official",
+                        "youtube_id": "official",
+                        "target_identity": {"title": "小小虫", "artist": "Khalil Fong", "album": "Orange Moon"},
+                        "source_identity": {"title": "方大同 小小虫 Official MV", "artist": "", "album": ""},
+                        "identity_match": True,
+                        "identity_match_source": "youtube_title_query",
+                        "query_identity_match": True,
+                        "query": "方大同 小小虫",
+                        "original_query": "方大同 小小虫",
+                        "youtube_query": "Khalil Fong 小小虫",
+                        "name": "小小虫",
+                        "artist": "Khalil Fong",
+                        "album": "Orange Moon",
+                        "metadata_source": "itunes",
+                        "url": "https://www.youtube.com/watch?v=official",
+                    },
+                    cache_root=root,
+                )
+
+            self.assertEqual(item["identity_match_source"], "youtube_title_query")
+            self.assertEqual(item["source_identity"]["artist"], "")
+            self.assertEqual(Path(item["audio_path"]).suffix, ".m4a")
+
+    def test_download_youtube_candidate_ignores_stale_dual_identity_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audio = root / "audio" / "youtube_abc123.webm"
+            audio.parent.mkdir(parents=True)
+            audio.write_bytes(b"stale")
+            upsert_cached_song(
+                {
+                    "provider": "youtube",
+                    "cache_id": "youtube_abc123",
+                    "youtube_id": "abc123",
+                    "name": "特别的人",
+                    "artist": "方大同",
+                    "target_identity": {"title": "Beatiful", "artist": "Khalil Fong", "album": "Wonderland"},
+                    "source_identity": {"title": "特别的人", "artist": "方大同", "album": ""},
+                    "identity_match": False,
+                    "audio_path": str(audio),
+                    "audio_ext": "webm",
+                },
+                cache_root=root,
+            )
+            FakeYoutubeDL.responses = [{
+                "id": "abc123",
+                "track": "忘了美丽",
+                "artist": "方大同",
+                "webpage_url": "https://www.youtube.com/watch?v=abc123",
+                "ext": "m4a",
+            }]
+
+            with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+                item = online.download_youtube_candidate(
+                    {
+                        "provider": "youtube",
+                        "cache_id": "youtube_abc123",
+                        "target_identity": {"title": "Beatiful", "artist": "Khalil Fong", "album": "Wonderland"},
+                        "source_identity": {"title": "忘了美丽", "artist": "方大同", "album": "未来"},
+                        "query": "方大同 忘了美丽",
+                        "original_query": "方大同 忘了美丽",
+                        "youtube_query": "Khalil Fong Beatiful",
+                        "name": "Beatiful",
+                        "artist": "Khalil Fong",
+                        "metadata_source": "itunes",
+                        "url": "https://www.youtube.com/watch?v=abc123",
+                    },
+                    cache_root=root,
+                )
+
+            self.assertEqual(len(FakeYoutubeDL.calls), 1)
+            self.assertEqual(Path(item["audio_path"]).suffix, ".m4a")
+            self.assertEqual(item["identity_match_source"], "original_query")
 
     def test_download_youtube_candidate_deletes_final_identity_mismatch(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
