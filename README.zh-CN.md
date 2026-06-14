@@ -177,6 +177,7 @@ sonex auth logout openai
 
 ```bash
 export SONEX_DEFAULT_PROVIDER=openai
+export SONEX_DEFAULT_MODEL=gpt-5.2
 export SONEX_OPENAI_API_KEY=sk-...
 export SONEX_ANTHROPIC_API_KEY=sk-ant-...
 export SONEX_GEMINI_API_KEY=...
@@ -187,8 +188,31 @@ export SONEX_DEEPSEEK_API_KEY=sk-...
 直接开始 planner 或 agent 工作。把 `ollama` 配置为默认 provider 时，可以作为
 本地 provider 使用。
 
+Sonex 会加载 `.env`，然后按以下顺序解析运行时配置：环境变量、`sonex auth`
+保存的凭据，最后是 JSON 配置文件。设置 `SONEX_CONFIG_PATH` 可以使用
+`~/.sonex/thinking.json` 之外的配置文件。
+
 🛠️ 高级用户仍然可以在 `~/.sonex/thinking.json` 中按 provider 覆盖
-`base_url`、`model`、`timeout`、`extra_headers` 和 `options`。
+`base_url`、`model`、`timeout`、`extra_headers` 和 `options`：
+
+```json
+{
+  "default_provider": "openai",
+  "default_model": "gpt-5.2",
+  "providers": {
+    "openai": {
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-5.2",
+      "timeout": 60,
+      "extra_headers": {},
+      "options": {}
+    }
+  },
+  "beads": {
+    "brand": "hama"
+  }
+}
+```
 
 ## 🎧 音乐服务设置
 
@@ -226,8 +250,80 @@ Apple Music 播放需要 Sonex 的本地 MusicKit bridge。
 
 ### 📁 本地和 YouTube 播放
 
-如果需要播放本地文件或 YouTube，请安装 `vlc` 或 `mpv`。Spotify Connect 播放
-不使用这些本地播放器。
+如果需要可控制的本地文件或在线播放，请安装 `mpv`。`auto` 为了播放稳定性只使用
+`mpv`。`cvlc` 仍可通过 `/player cvlc` 作为显式诊断后端使用；Spotify Connect
+播放不使用这些本地播放器。
+
+### 🌐 在线音频 fallback
+
+当本地、Spotify 或 Apple Music 不可用时，Sonex 可以通过在线音频源解析选中的
+歌曲。至少配置一个在线音频 provider：
+
+```text
+/setup jamendo
+/setup audius
+```
+
+也可以通过环境变量提供凭据：
+
+```bash
+export SONEX_JAMENDO_CLIENT_ID=...
+export SONEX_AUDIUS_API_KEY=...
+```
+
+解析器会把用户选中的歌曲身份和 provider 元数据分开保存，会重新校验缓存音频，并
+在候选不可用时把 provider fallback 原因显示到 TUI 中。
+
+## ▶️ 播放教程
+
+使用 `/play` 或自然语言播放请求：
+
+```text
+/play Space Oddity David Bowie
+play Mitski Nobody
+播放 方大同 忘了美丽
+```
+
+Sonex 会展示最多五个曲目候选。选择曲目后，它会继续询问播放路径：优先本地、
+Spotify、Apple Music，或在可用时使用在线音频。对于推荐类请求，Sonex 会先返回
+编号文本列表；之后可以继续要求播放某一项，例如 `play number 2` 或 `播放第2首`。
+
+本地或在线曲目播放时，可以使用：
+
+```text
+/pause
+/resume
+/stop
+/progress
+/volume 65
+/player auto
+/player mpv
+/player cvlc
+```
+
+`/player auto` 和 `/player mpv` 使用 mpv。`/player cvlc` 会在当前会话中显式切到
+VLC，适合排查播放器相关问题。
+
+## 🧩 封面珠子图
+
+TUI 可以把专辑封面渲染成静态实体拼豆图。Sonex 会优先使用官方封面，随后生成
+从 `32x32` 到 `192x192` 的缓存方形变体。当前算法使用共享、无抖动的 32 到 72
+色调色板，并提高 80 和 96 预览尺寸的权重；旧算法 profile 的缓存会自动失效并
+重新生成。
+
+支持的拼豆目录是 5 mm Hama Midi 和 Perler Classic。可以在
+`~/.sonex/thinking.json` 或 `SONEX_CONFIG_PATH` 指向的文件中配置品牌：
+
+```json
+{
+  "beads": {
+    "brand": "perler"
+  }
+}
+```
+
+如果省略 `beads.brand`，Sonex 使用 `hama`。生成的图案保存在
+`~/.sonex/cache/cover_patterns`，该缓存不会保存原始封面图片字节。
 
 ## 🛟 故障排查
 
@@ -241,3 +337,7 @@ Apple Music 播放需要 Sonex 的本地 MusicKit bridge。
   `sonex tui`。
 - 🟩 Spotify 无法播放：重新运行 `sonex auth login spotify`，检查 scope 和账号
   product，并确认 Spotify 已在某个设备上打开。
+- 🎬 本地或在线播放无法启动：安装 `mpv`，保持 `/player auto`，只有在手动测试
+  VLC 行为时使用 `/player cvlc`。
+- 🧩 封面珠子图没有出现：检查 `beads.brand`，用带官方封面的曲目重新播放，并查看
+  `~/.sonex/log` 中的封面生成错误。

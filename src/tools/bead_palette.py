@@ -34,7 +34,7 @@ class PaletteMapping:
 
 
 def build_multiscale_samples(image: Image.Image, *, scales: tuple[int, ...] = (32, 48, 64, 96)) -> MultiscaleSamples:
-    """Sample an image at multiple area-resampled scales with equal scale weight."""
+    """Sample an image at multiple area-resampled scales with review-size weighting."""
     rgb_parts: list[NDArray[np.uint8]] = []
     weight_parts: list[NDArray[np.float64]] = []
     scale_parts: list[NDArray[np.int32]] = []
@@ -48,8 +48,10 @@ def build_multiscale_samples(image: Image.Image, *, scales: tuple[int, ...] = (3
         gx[:, 1:] = np.abs(np.diff(lightness, axis=1))
         gy[1:, :] = np.abs(np.diff(lightness, axis=0))
         edge = np.clip(np.hypot(gx, gy) / 100.0, 0.0, 0.5)
-        weights = 1.0 + edge
+        scale_weight = 1.75 if scale in (80, 96) else 1.0
+        weights = (1.0 + edge) * scale_weight
         weights /= weights.sum()
+        weights *= scale_weight
         rgb_parts.append(rgb.reshape(-1, 3))
         weight_parts.append(weights.reshape(-1))
         scale_parts.append(np.full(scale * scale, scale, dtype=np.int32))

@@ -498,6 +498,8 @@ const CoverPatternArt = React.memo(({ pattern, variant }: {
     );
 });
 
+const MINI_COVER_PATTERN_MAX_SIZE = 80;
+
 const StaticCover = React.memo(({ visual, coverUrl, coverPattern, terminalSpace, compact, maxPatternSize }: {
     visual: CoverVisualModel;
     coverUrl: string | null;
@@ -506,7 +508,7 @@ const StaticCover = React.memo(({ visual, coverUrl, coverPattern, terminalSpace,
     compact: boolean;
     maxPatternSize?: number;
 }) => {
-    const maxSize = maxPatternSize ?? (compact ? undefined : 32);
+    const maxSize = maxPatternSize ?? (compact ? MINI_COVER_PATTERN_MAX_SIZE : 32);
     const patternDisplay = coverPattern
         ? resolveCoverPatternDisplay(coverPattern, terminalSpace, maxSize ? { maxSize } : undefined)
         : resolveCoverPatternDisplay(null, terminalSpace);
@@ -1069,8 +1071,7 @@ const MiniPlayerRegion = ({
     }, true, snapshotRevision);
 
     return (
-        <Box width="100%" height="100%" padding={0} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}
-            borderStyle="single" borderColor={BORDER_BLUE}>
+        <Box width="100%" height="100%" padding={0} flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
             <PlayerPane
                 player={miniSnapshot.player}
                 coverUrl={miniSnapshot.coverUrl}

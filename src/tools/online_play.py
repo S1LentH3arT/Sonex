@@ -64,7 +64,7 @@ COVER_TERMS = ("cover", "翻唱")
 QUERY_FILLER_TERMS = {"the", "a", "an"}
 IGNORABLE_TITLE_SUFFIX_RE = re.compile(
     r"(?:\s*[\[(\-{]\s*)?(?:official(?:\s+(?:audio|music\s+video|video|mv))?|"
-    r"lyrics?|lyric\s+video|(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?)(?:\s*[\])}]\s*)?$",
+    r"lyrics?|lyric\s+video|(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?)(?:\s*[])}]\s*)?$",
     re.IGNORECASE,
 )
 FEATURED_ARTIST_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring)\s+.*$", re.IGNORECASE)

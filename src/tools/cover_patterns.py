@@ -18,7 +18,7 @@ from src.tools.bead_pipeline import BeadGenerationProfile, BeadImageDecodeError,
 
 COVER_PATTERN_SIZES = (32, 36, 40, 44, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192)
 COVER_PATTERN_MAX_BYTES = 8 * 1024 * 1024
-COVER_PATTERN_ALGORITHM_VERSION = "lab-ciede2000-edge-refine-v3"
+COVER_PATTERN_ALGORITHM_VERSION = "lab-ciede2000-clean-preview-v4"
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +172,7 @@ def _valid_cached_pattern(value: Any, profile_data: dict[str, Any]) -> bool:
     if not isinstance(value, dict) or value.get("profile") != profile_data:
         return False
     palette = value.get("palette")
-    if not isinstance(palette, list) or not 32 <= len(palette) <= 48 or len(set(palette)) != len(palette):
+    if not isinstance(palette, list) or not 32 <= len(palette) <= 72 or len(set(palette)) != len(palette):
         return False
     if any(not isinstance(color, str) or len(color) != 7 or not color.startswith("#") for color in palette):
         return False

@@ -21,15 +21,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import unquote
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from urllib.parse import unquote
 
 from fastapi import WebSocket, WebSocketDisconnect
 
 from src.agent.core import agent_loop
 from src.agent.events import RunnerEvent, UiStatus
-from src.api.builtin_commands import BuiltinCommand, CommandIntent, command_suggestions, format_help, parse_builtin_command
+from src.api.builtin_commands import BuiltinCommand, CommandIntent, command_suggestions, format_help, \
+    parse_builtin_command
 from src.api.music_intent import (
     MusicIntentDecision,
     MusicIntentRoute,
@@ -59,8 +60,8 @@ from src.auth.spotify import (
     spotify_redirect_uri,
 )
 from src.auth.store import get_provider_auth, load_auth_store, remove_provider, set_api_key, set_default
-from src.llm.transport import ChatRequest, sanitize_error_message
 from src.llm.models import model_choices_for_provider
+from src.llm.transport import ChatRequest, sanitize_error_message
 from src.log import sonex_home
 from src.memory.memory import memory_store
 from src.thinking.config import ThinkingConfig
@@ -75,6 +76,7 @@ from src.tools.online_play import (
     search_online_audio_candidates,
 )
 from src.tools.track_search import search_track_metadata_candidates
+
 
 # Backward-compatible runner patch points; these now resolve the unified online-audio layer.
 def search_youtube_songs(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
@@ -124,7 +126,7 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
         return play_youtube_candidate(*args, **kwargs)
     return play_online_audio_candidate(*args, **kwargs)
 
-from src.tools.playback_controller import controller as local_playback_controller
+
 from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
 from src.tools.cover_sources import cover_bytes_for_source
 from src.tools.player_permission import complete_player_confirm

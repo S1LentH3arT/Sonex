@@ -185,6 +185,7 @@ sonex auth logout openai
 
 ```bash
 export SONEX_DEFAULT_PROVIDER=openai
+export SONEX_DEFAULT_MODEL=gpt-5.2
 export SONEX_OPENAI_API_KEY=sk-...
 export SONEX_ANTHROPIC_API_KEY=sk-ant-...
 export SONEX_GEMINI_API_KEY=...
@@ -195,8 +196,32 @@ export SONEX_DEEPSEEK_API_KEY=sk-...
 starts an interactive setup flow before planner or agent work begins. `ollama`
 can be used as a local provider when configured as the default provider.
 
+Sonex loads `.env`, then resolves runtime configuration in this order:
+environment variables, saved `sonex auth` credentials, and finally the JSON
+config file. Set `SONEX_CONFIG_PATH` to use a config file other than
+`~/.sonex/thinking.json`.
+
 🛠️ Advanced users can still override per-provider `base_url`, `model`,
-`timeout`, `extra_headers`, and `options` in `~/.sonex/thinking.json`.
+`timeout`, `extra_headers`, and `options` in `~/.sonex/thinking.json`:
+
+```json
+{
+  "default_provider": "openai",
+  "default_model": "gpt-5.2",
+  "providers": {
+    "openai": {
+      "base_url": "https://api.openai.com/v1",
+      "model": "gpt-5.2",
+      "timeout": 60,
+      "extra_headers": {},
+      "options": {}
+    }
+  },
+  "beads": {
+    "brand": "hama"
+  }
+}
+```
 
 ## 🎧 Music Setup
 
@@ -236,8 +261,86 @@ Apple Music playback requires Sonex's local MusicKit bridge.
 
 ### 📁 Local And YouTube Playback
 
-Install `vlc` or `mpv` if you want local-file or YouTube playback. Spotify
-Connect playback does not use these local players.
+Install `mpv` if you want controllable local-file or online playback. `auto`
+uses `mpv` only for playback stability. `cvlc` is available as an explicit
+diagnostic backend with `/player cvlc`; Spotify Connect playback does not use
+these local players.
+
+### 🌐 Online Audio Fallback
+
+Sonex can resolve selected songs through online audio sources when local,
+Spotify, or Apple Music playback is not available. Configure at least one online
+audio provider:
+
+```text
+/setup jamendo
+/setup audius
+```
+
+You can also provide credentials through environment variables:
+
+```bash
+export SONEX_JAMENDO_CLIENT_ID=...
+export SONEX_AUDIUS_API_KEY=...
+```
+
+The resolver keeps the selected song identity separate from provider metadata,
+revalidates cached audio, and shows provider fallback reasons in the TUI when a
+candidate cannot be used.
+
+## ▶️ Playback Tutorial
+
+Use `/play` or a natural-language play request:
+
+```text
+/play Space Oddity David Bowie
+play Mitski Nobody
+播放 方大同 忘了美丽
+```
+
+Sonex shows up to five track choices. After you choose a track, it asks which
+playback path to use: local-first, Spotify, Apple Music, or online audio when
+available. For recommendation prompts, Sonex returns a numbered text list first;
+you can then ask to play an item such as `play number 2` or `播放第2首`.
+
+While a local or online track is playing, use:
+
+```text
+/pause
+/resume
+/stop
+/progress
+/volume 65
+/player auto
+/player mpv
+/player cvlc
+```
+
+`/player auto` and `/player mpv` use mpv. `/player cvlc` opts into VLC for the
+current session when you want to diagnose player-specific behavior.
+
+## 🧩 Cover Bead Art
+
+The TUI can render album covers as static physical-bead patterns. Sonex uses the
+official cover image when one is available, then generates cached square variants
+from `32x32` through `192x192`. The current algorithm uses a shared, no-dither
+palette of 32 to 72 colors, weighted toward the 80 and 96 preview sizes, and
+invalidates older cache profiles automatically.
+
+Supported bead catalogs are 5 mm Hama Midi and Perler Classic. Configure the
+brand in `~/.sonex/thinking.json` or the file pointed to by `SONEX_CONFIG_PATH`:
+
+```json
+{
+  "beads": {
+    "brand": "perler"
+  }
+}
+```
+
+If `beads.brand` is omitted, Sonex uses `hama`. Generated patterns are stored
+under `~/.sonex/cache/cover_patterns` and the original cover image bytes are not
+stored in that cache.
 
 ## 🛟 Troubleshooting
 
@@ -252,3 +355,7 @@ Connect playback does not use these local players.
   before `sonex tui` when debugging.
 - 🟩 Spotify cannot play: run `sonex auth login spotify` again, check scopes and
   account product, and make sure Spotify is open on a device.
+- 🎬 Local or online playback cannot start: install `mpv`, keep `/player auto`,
+  and use `/player cvlc` only when manually testing VLC behavior.
+- 🧩 Cover bead art does not appear: check `beads.brand`, rerun playback with an
+  official cover source, and inspect `~/.sonex/log` for cover generation errors.

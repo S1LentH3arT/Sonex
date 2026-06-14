@@ -75,7 +75,7 @@ class CoverPatternTests(unittest.TestCase):
             payload = generate_cover_pattern(source, _png_bytes(), cache_root=Path(tempdir))
 
         self.assertGreaterEqual(len(payload["palette"]), 32)
-        self.assertLessEqual(len(payload["palette"]), 48)
+        self.assertLessEqual(len(payload["palette"]), 72)
         self.assertNotEqual(payload["source_hash"], "legacy")
 
     def test_generate_cover_pattern_caches_expected_variants_without_source_bytes(self) -> None:
@@ -93,7 +93,7 @@ class CoverPatternTests(unittest.TestCase):
             self.assertEqual(COVER_PATTERN_SIZES, EXPECTED_COVER_PATTERN_SIZES)
             self.assertEqual(set(payload["variants"]), EXPECTED_COVER_PATTERN_VARIANTS)
             self.assertGreaterEqual(len(payload["palette"]), 32)
-            self.assertLessEqual(len(payload["palette"]), 48)
+            self.assertLessEqual(len(payload["palette"]), 72)
             self.assertEqual(payload["bead_catalog"]["brand"], "hama")
             self.assertEqual(payload["bead_catalog"]["algorithm_version"], COVER_PATTERN_ALGORITHM_VERSION)
             self.assertEqual(len(payload["bead_catalog"]["colors"]), len(payload["palette"]))
@@ -116,16 +116,16 @@ class CoverPatternTests(unittest.TestCase):
             self.assertIn("generation_diagnostics", cached)
             self.assertNotIn("generation_diagnostics", payload)
             self.assertEqual(cached["generation_diagnostics"]["fallback_sizes"], [])
-            self.assertEqual(cached["profile"]["algorithm_version"], "lab-ciede2000-edge-refine-v3")
+            self.assertEqual(cached["profile"]["algorithm_version"], "lab-ciede2000-clean-preview-v4")
             self.assertEqual(cached["profile"]["sizes"], list(EXPECTED_COVER_PATTERN_SIZES))
-            self.assertEqual(cached["profile"]["sample_scales"], [32, 48, 64, 96, 128, 160, 192])
+            self.assertEqual(cached["profile"]["sample_scales"], [32, 48, 64, 80, 96, 128, 160, 192])
             self.assertEqual(cached["profile"]["refinement"], {
-                "candidate_count": 4,
+                "candidate_count": 6,
                 "smoothing_rounds": 2,
-                "continuity_weight": 2.5,
-                "edge_scale": 12.0,
+                "continuity_weight": 2.0,
+                "edge_scale": 10.0,
                 "island_max_size": 2,
-                "island_merge_delta_e_max": 18.0,
+                "island_merge_delta_e_max": 14.0,
             })
 
             with patch("src.tools.cover_patterns.generate_bead_pattern", side_effect=AssertionError("cache missed")):
@@ -193,8 +193,25 @@ class CoverPatternTests(unittest.TestCase):
             cache_path.write_text(json.dumps(cached), encoding="utf-8")
             regenerated = generate_cover_pattern(source, _png_bytes(), cache_root=root, brand="perler")
             self.assertNotEqual(regenerated["source_hash"], "legacy-profile")
-            self.assertEqual(COVER_PATTERN_ALGORITHM_VERSION, "lab-ciede2000-edge-refine-v3")
+            self.assertEqual(COVER_PATTERN_ALGORITHM_VERSION, "lab-ciede2000-clean-preview-v4")
             self.assertEqual(regenerated["bead_catalog"]["algorithm_version"], COVER_PATTERN_ALGORITHM_VERSION)
+
+    def test_v3_profile_cache_is_invalidated(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = "https://cdn.example.test/album/v3-profile.jpg"
+            payload = generate_cover_pattern(source, _png_bytes(), cache_root=root, brand="hama")
+            cache_path = cover_pattern_cache_path(source, cache_root=root)
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            cached["profile"]["algorithm_version"] = "lab-ciede2000-edge-refine-v3"
+            cached["bead_catalog"]["algorithm_version"] = "lab-ciede2000-edge-refine-v3"
+            cached["source_hash"] = "legacy-v3-profile"
+            cache_path.write_text(json.dumps(cached), encoding="utf-8")
+
+            regenerated = generate_cover_pattern(source, _png_bytes(), cache_root=root, brand="hama")
+
+        self.assertNotEqual(regenerated["source_hash"], "legacy-v3-profile")
+        self.assertEqual(payload["bead_catalog"]["brand"], regenerated["bead_catalog"]["brand"])
 
     def test_large_variant_payload_stays_under_half_megabyte(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

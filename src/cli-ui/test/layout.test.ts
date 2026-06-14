@@ -90,31 +90,41 @@ assert.equal(resolveChatHeaderVariant(72), 'full');
 
 const artwork = resolveMiniPlayerLayout({ columns: 124, rows: 44 });
 assert.equal(artwork.mode, 'artwork');
-assert.equal(artwork.contentColumns, 122);
-assert.equal(artwork.contentRows, 42);
-assert.equal(artwork.infoWidth, 38);
+assert.equal(artwork.contentColumns, 124);
+assert.equal(artwork.contentRows, 44);
+assert.equal(artwork.infoWidth, 40);
 assert.equal(artwork.infoLeftPadding, 4);
 assert.equal(artwork.gap, 1);
 assert.equal(artwork.coverWidth, 83);
-assert.equal(artwork.infoTop, 19);
+assert.equal(artwork.infoTop, 20);
 assert.deepEqual(artwork.progressSlot, {
     row: 23,
-    column: 6,
-    width: 34,
+    column: 5,
+    width: 36,
 });
 
-const exactMinimumArtwork = resolveMiniPlayerLayout({ columns: 59, rows: 18 });
+const exactMinimumArtwork = resolveMiniPlayerLayout({ columns: 57, rows: 16 });
 assert.equal(exactMinimumArtwork.mode, 'artwork');
 assert.equal(exactMinimumArtwork.coverWidth, 32);
 
-const infoOnly = resolveMiniPlayerLayout({ columns: 58, rows: 18 });
+const targetArtwork = resolveMiniPlayerLayout({ columns: 105, rows: 40 });
+assert.equal(targetArtwork.mode, 'artwork');
+assert.equal(targetArtwork.infoWidth, 24);
+assert.equal(targetArtwork.coverWidth, 80);
+
+const narrowArtwork = resolveMiniPlayerLayout({ columns: 100, rows: 40 });
+assert.equal(narrowArtwork.mode, 'artwork');
+assert.equal(narrowArtwork.infoWidth, 24);
+assert.equal(narrowArtwork.coverWidth, 75);
+
+const infoOnly = resolveMiniPlayerLayout({ columns: 56, rows: 16 });
 assert.equal(infoOnly.mode, 'infoOnly');
 assert.equal(infoOnly.infoWidth, 56);
 assert.equal(infoOnly.infoLeftPadding, 0);
 assert.equal(infoOnly.coverWidth, 0);
 assert.equal(infoOnly.gap, 0);
 
-const tooShortForArtwork = resolveMiniPlayerLayout({ columns: 124, rows: 17 });
+const tooShortForArtwork = resolveMiniPlayerLayout({ columns: 124, rows: 15 });
 assert.equal(tooShortForArtwork.mode, 'infoOnly');
 assert.equal(tooShortForArtwork.coverWidth, 0);
 

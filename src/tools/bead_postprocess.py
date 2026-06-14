@@ -16,12 +16,12 @@ from src.tools.bead_palette import PaletteMapping
 class BeadRefinementProfile:
     """Define the fixed construction-readability refinement parameters."""
 
-    candidate_count: int = 4
+    candidate_count: int = 6
     smoothing_rounds: int = 2
-    continuity_weight: float = 2.5
-    edge_scale: float = 12.0
+    continuity_weight: float = 2.0
+    edge_scale: float = 10.0
     island_max_size: int = 2
-    island_merge_delta_e_max: float = 18.0
+    island_merge_delta_e_max: float = 14.0
 
     def as_dict(self) -> dict[str, int | float]:
         """Return a stable cache representation."""

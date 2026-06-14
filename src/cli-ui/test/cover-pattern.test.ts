@@ -63,6 +63,8 @@ assert.equal(chooseCoverPatternVariant(pattern, { columns: 192, rows: 95 })?.siz
 assert.equal(chooseCoverPatternVariant(pattern, { columns: 192, rows: 96 })?.size, 192);
 assert.equal(chooseCoverPatternVariant(pattern, { columns: 70, rows: 34 }, { maxSize: 48 })?.size, 48);
 assert.equal(chooseCoverPatternVariant(pattern, { columns: 96, rows: 48 }, { maxSize: 80 })?.size, 80);
+const compactDisplay = resolveCoverPatternDisplay(pattern, { columns: 96, rows: 48 }, { maxSize: 80 });
+assert.equal(compactDisplay.status === 'renderable' ? compactDisplay.variant.size : null, 80);
 assert.equal(chooseCoverPatternVariant(pattern, { columns: 10, rows: 4 }), null);
 
 assert.equal(resolveCoverPatternDisplay(null, { columns: 10, rows: 4 }).status, 'none');

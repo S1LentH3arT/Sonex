@@ -33,17 +33,16 @@ export type MiniPlayerLayout = {
 };
 
 const CHAT_HEADER_FULL_MIN_COLUMNS = 72;
-const MINI_FRAME_COLUMNS = 2;
-const MINI_FRAME_ROWS = 2;
 const MINI_COLUMN_GAP = 1;
 const MINI_INFO_RATIO = 0.32;
 const MINI_INFO_MIN_COLUMNS = 24;
-const MINI_INFO_MAX_COLUMNS = 42;
+const MINI_INFO_MAX_COLUMNS = 40;
 const MINI_INFO_LEFT_PADDING = 4;
 const MINI_COVER_MIN_COLUMNS = 32;
 const MINI_COVER_MIN_ROWS = 16;
-const MINI_CONTENT_START_ROW = 2;
-const MINI_CONTENT_START_COLUMN = 2;
+const MINI_COVER_TARGET_COLUMNS = 80;
+const MINI_CONTENT_START_ROW = 1;
+const MINI_CONTENT_START_COLUMN = 1;
 const MINI_INFO_ROWS = 3;
 
 export function resolveChatHeaderVariant(columns: number | null): ChatHeaderVariant {
@@ -53,14 +52,20 @@ export function resolveChatHeaderVariant(columns: number | null): ChatHeaderVari
 export function resolveMiniPlayerLayout(size: TerminalSize): MiniPlayerLayout {
     const columns = Math.max(0, size.columns ?? 0);
     const rows = Math.max(0, size.rows ?? 0);
-    const contentColumns = Math.max(0, columns - MINI_FRAME_COLUMNS);
-    const contentRows = Math.max(0, rows - MINI_FRAME_ROWS);
+    const contentColumns = columns;
+    const contentRows = rows;
     const hasArtworkSpace = contentColumns >= MINI_INFO_MIN_COLUMNS + MINI_COLUMN_GAP + MINI_COVER_MIN_COLUMNS
         && contentRows >= MINI_COVER_MIN_ROWS;
     const mode = hasArtworkSpace ? 'artwork' : 'infoOnly';
     const gap = hasArtworkSpace ? MINI_COLUMN_GAP : 0;
     const availableSplitColumns = Math.max(0, contentColumns - gap);
-    const preferredInfoWidth = Math.floor(availableSplitColumns * MINI_INFO_RATIO);
+    const targetCoverRowsFit = contentRows >= MINI_COVER_TARGET_COLUMNS / 2;
+    const priorityCoverWidth = targetCoverRowsFit
+        ? Math.min(MINI_COVER_TARGET_COLUMNS, Math.max(MINI_COVER_MIN_COLUMNS, availableSplitColumns - MINI_INFO_MIN_COLUMNS))
+        : 0;
+    const preferredInfoWidth = targetCoverRowsFit
+        ? availableSplitColumns - priorityCoverWidth
+        : Math.floor(availableSplitColumns * MINI_INFO_RATIO);
     const maxInfoWidth = Math.min(MINI_INFO_MAX_COLUMNS, Math.max(0, availableSplitColumns - MINI_COVER_MIN_COLUMNS));
     const infoWidth = hasArtworkSpace
         ? Math.min(Math.max(preferredInfoWidth, MINI_INFO_MIN_COLUMNS), maxInfoWidth)

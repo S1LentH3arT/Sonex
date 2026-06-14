@@ -34,29 +34,29 @@ class BeadColorTests(unittest.TestCase):
         self.assertTrue(np.isfinite(matrix).all())
         self.assertTrue((matrix >= 0).all())
 
-    def test_palette_selection_is_deterministic_uses_shared_32_to_48_colors_and_catalog_order_ties(self) -> None:
+    def test_palette_selection_is_deterministic_uses_shared_32_to_72_colors_and_catalog_order_ties(self) -> None:
         sample_lab = np.repeat(np.array([[50.0, 0.0, 0.0]]), 40, axis=0)
         weights = np.ones(40)
-        catalog_lab = np.vstack([np.array([[50.0, 0.0, 0.0], [50.0, 0.0, 0.0]]), np.arange(48 * 3).reshape(48, 3)])
+        catalog_lab = np.vstack([np.array([[50.0, 0.0, 0.0], [50.0, 0.0, 0.0]]), np.arange(72 * 3).reshape(72, 3)])
 
-        first = select_shared_palette(sample_lab, weights, catalog_lab, minimum_colors=32, maximum_colors=48)
-        second = select_shared_palette(sample_lab, weights, catalog_lab, minimum_colors=32, maximum_colors=48)
+        first = select_shared_palette(sample_lab, weights, catalog_lab, minimum_colors=32, maximum_colors=72)
+        second = select_shared_palette(sample_lab, weights, catalog_lab, minimum_colors=32, maximum_colors=72)
 
         self.assertEqual(first, second)
         self.assertEqual(len(first), 32)
         self.assertEqual(first[0], 0)
         self.assertNotIn(1, first[:1])
 
-    def test_multiscale_samples_give_each_scale_equal_total_weight_and_add_bounded_edge_weight(self) -> None:
+    def test_multiscale_samples_give_non_review_scales_equal_total_weight_and_add_bounded_edge_weight(self) -> None:
         image = Image.new("RGB", (96, 96), "#101010")
         for x in range(48, 96):
             for y in range(96):
                 image.putpixel((x, y), (240, 240, 240))
 
-        samples = build_multiscale_samples(image, scales=(32, 48, 64, 96))
+        samples = build_multiscale_samples(image, scales=(32, 48, 64))
 
-        totals = [samples.weights[samples.scales == scale].sum() for scale in (32, 48, 64, 96)]
-        np.testing.assert_allclose(totals, np.ones(4), atol=1e-12)
+        totals = [samples.weights[samples.scales == scale].sum() for scale in (32, 48, 64)]
+        np.testing.assert_allclose(totals, np.ones(3), atol=1e-12)
         self.assertLessEqual(samples.edge_weights.max(), 0.5)
         self.assertGreater(samples.edge_weights.max(), 0.0)
 
@@ -66,12 +66,29 @@ class BeadColorTests(unittest.TestCase):
             for y in range(192):
                 image.putpixel((x, y), (240, 240, 240))
 
-        scales = (32, 48, 64, 96, 128, 160, 192)
+        scales = (32, 48, 64, 80, 96, 128, 160, 192)
         samples = build_multiscale_samples(image, scales=scales)
 
-        totals = [samples.weights[samples.scales == scale].sum() for scale in scales]
-        np.testing.assert_allclose(totals, np.ones(len(scales)), atol=1e-12)
+        totals = {scale: samples.weights[samples.scales == scale].sum() for scale in scales}
+        self.assertAlmostEqual(totals[80], 1.75)
+        self.assertAlmostEqual(totals[96], 1.75)
+        np.testing.assert_allclose(
+            [total for scale, total in totals.items() if scale not in (80, 96)],
+            np.ones(len(scales) - 2),
+            atol=1e-12,
+        )
         self.assertEqual(set(samples.scales.tolist()), set(scales))
+
+    def test_high_resolution_samples_weight_80_and_96_review_sizes_more_heavily(self) -> None:
+        image = Image.new("RGB", (192, 192), "#101010")
+        scales = (32, 48, 64, 80, 96, 128, 160, 192)
+
+        samples = build_multiscale_samples(image, scales=scales)
+
+        totals = {scale: samples.weights[samples.scales == scale].sum() for scale in scales}
+        self.assertGreater(totals[80], totals[64])
+        self.assertGreater(totals[96], totals[64])
+        self.assertAlmostEqual(sum(totals.values()), len(scales) + 1.5)
 
     def test_mapping_uses_only_selected_palette_without_dithering(self) -> None:
         image = Image.new("RGB", (3, 1))
