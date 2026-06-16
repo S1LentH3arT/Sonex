@@ -26,7 +26,7 @@ from src.tools.cover_patterns import (
     generate_cover_pattern,
 )
 
-EXPECTED_COVER_PATTERN_SIZES = (32, 48, 64, 80, 96)
+EXPECTED_COVER_PATTERN_SIZES = (40, 48, 56, 64, 80, 96)
 EXPECTED_COVER_PATTERN_VARIANTS = {str(size) for size in EXPECTED_COVER_PATTERN_SIZES}
 
 
@@ -119,7 +119,7 @@ class CoverPatternTests(unittest.TestCase):
             self.assertEqual(cached["profile"]["algorithm_version"], "lab-ciede2000-original-crop-v5")
             self.assertEqual(cached["profile"]["sizes"], list(EXPECTED_COVER_PATTERN_SIZES))
             self.assertEqual(cached["profile"]["crop"], {"mode": "center", "ratio": 0.825})
-            self.assertEqual(cached["profile"]["sample_scales"], [32, 48, 64, 80, 96, 128, 160, 192])
+            self.assertEqual(cached["profile"]["sample_scales"], [32, 40, 48, 56, 64, 80, 96, 128, 160, 192])
             self.assertEqual(cached["profile"]["refinement"], {
                 "candidate_count": 6,
                 "smoothing_rounds": 2,
