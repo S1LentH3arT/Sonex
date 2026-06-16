@@ -9,7 +9,7 @@ from pathlib import Path
 
 class CoverPatternEventTests(unittest.TestCase):
     def test_sender_emits_constrained_unavailable_reasons_instead_of_swallowing_failures(self) -> None:
-        source = Path("src/api/ws_runner.py").read_text(encoding="utf-8")
+        source = Path("src/ws/ui.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
         sender = next(
             node for node in tree.body
