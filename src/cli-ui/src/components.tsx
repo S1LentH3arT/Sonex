@@ -310,17 +310,26 @@ const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false }
     );
 };
 
-const TrackPanel = ({ panel }: { panel: TrackPanelState }) => {
+const TrackPanel = ({ panel, expanded = false }: { panel: TrackPanelState; expanded?: boolean }) => {
     if (!panel) return null;
     const rows: TrackPanelTrack[] = panel.tracks.slice(0, 10);
     return (
-        <Box flexDirection="column" minHeight={9} padding={1} paddingX={2} borderBottom={true} borderStyle="single"
-        borderColor={BORDER_BLUE}>
+        <Box
+            flexDirection="column"
+            flexGrow={expanded ? 1 : 0}
+            flexShrink={1}
+            minHeight={expanded ? 0 : 9}
+            height={expanded ? "100%" : undefined}
+            padding={1}
+            paddingX={2}
+            borderStyle="single"
+            borderColor={BORDER_BLUE}
+        >
             <Box marginBottom={1}>
                 <Text bold color="#f3b2c6">{panel.title}</Text>
                 {panel.hint ? <Text color="#7f5d6b"> - {panel.hint}; Esc to hide</Text> : null}
             </Box>
-            <Box flexDirection="column" paddingTop={1}>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingTop={1}>
                 {rows.length === 0 ? (
                     <Text color="#7f5d6b">{panel.panel === "queue" ? "Queue is empty." : "Playlist is empty."}</Text>
                 ) : rows.map((track, idx) => {
@@ -935,7 +944,13 @@ const MiniPlayerInputDock = ({
         helpPanelIndex={0}
         minimal={true}
         switchHint={switchHint}
-    />
+        />
+);
+
+const TrackPanelRegion = ({ trackPanel }: { trackPanel: TrackPanelState }) => (
+    <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
+        <TrackPanel panel={trackPanel} expanded={true} />
+    </Box>
 );
 
 const ConversationColumn = ({
@@ -1141,36 +1156,42 @@ const ConversationRegion = ({
     trackPanel: TrackPanelState;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
-}) => (
-    <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
-        <ConversationColumn
-            chatItems={chatItems}
-            statusText={statusText}
-            elapsed={elapsed}
-            tokens={tokens}
-            showRunMetrics={showRunMetrics}
-            input={input}
-            setInput={setInput}
-            onSubmit={onSubmit}
-            inputPlaceholder={inputPlaceholder}
-            inputMask={inputMask}
-            inputFocus={inputFocus}
-            inputRevision={inputRevision}
-            confirm={confirm}
-            confirmIndex={confirmIndex}
-            spotifySetup={spotifySetup}
-            authSetup={authSetup}
-            slashSuggestions={slashSuggestions}
-            slashIndex={slashIndex}
-            helpPanel={helpPanel}
-            helpPanelIndex={helpPanelIndex}
-            trackPanel={trackPanel}
-            chatScrollOffset={chatScrollOffset}
-            onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
-            fill={true}
-        />
-    </Box>
-);
+}) => {
+    if (trackPanel) {
+        return <TrackPanelRegion trackPanel={trackPanel} />;
+    }
+
+    return (
+        <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
+            <ConversationColumn
+                chatItems={chatItems}
+                statusText={statusText}
+                elapsed={elapsed}
+                tokens={tokens}
+                showRunMetrics={showRunMetrics}
+                input={input}
+                setInput={setInput}
+                onSubmit={onSubmit}
+                inputPlaceholder={inputPlaceholder}
+                inputMask={inputMask}
+                inputFocus={inputFocus}
+                inputRevision={inputRevision}
+                confirm={confirm}
+                confirmIndex={confirmIndex}
+                spotifySetup={spotifySetup}
+                authSetup={authSetup}
+                slashSuggestions={slashSuggestions}
+                slashIndex={slashIndex}
+                helpPanel={helpPanel}
+                helpPanelIndex={helpPanelIndex}
+                trackPanel={trackPanel}
+                chatScrollOffset={chatScrollOffset}
+                onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
+                fill={true}
+            />
+        </Box>
+    );
+};
 
 export const DynamicShell = ({
     input,
