@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import {
     buildPlaybackProgressLine,
+    buildPlaybackStatusIconLine,
     resolvePlaybackProgressUpdateMode,
     shouldRefreshMiniSnapshot,
     writeTerminalLine,
@@ -32,6 +33,8 @@ assert.equal(shouldRefreshMiniSnapshot('player'), false);
 assert.equal(shouldRefreshMiniSnapshot('cover'), false);
 
 assert.equal(buildPlaybackProgressLine(playing, 2_000, 22), '0:31 ━━━───────── 2:00');
+assert.equal(buildPlaybackStatusIconLine(playing, 6).trim(), '▶');
+assert.equal(buildPlaybackStatusIconLine({ ...playing, is_playing: false }, 6).trim(), '▌▌');
 
 const position = resolveMiniPlayerLayout({ columns: 88, rows: 32 }).progressSlot;
 assert.deepEqual(position, { row: 17, column: 5, width: 23 });

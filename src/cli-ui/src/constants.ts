@@ -24,7 +24,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "player", usage: "/player <auto|mpv|cvlc>", description: "Set playback backend; auto uses mpv", needsArgument: true },
     { name: "play", usage: "/play <query/number>", description: "Play a song by query or result number.", needsArgument: true },
     { name: "playlist", usage: "/playlist [name]|save [name]", description: "Browse or save playlists", needsArgument: false },
-    { name: "queue", usage: "/queue", description: "Show recent songs", needsArgument: false },
+    { name: "queue", usage: "/queue", description: "Show playback queue", needsArgument: false },
     { name: "quit", usage: "/quit", description: "Save session and exit", needsArgument: false },
     { name: "random", usage: "/random", description: "Play from recent songs", needsArgument: false },
     { name: "recommend", usage: "/recommend [taste]", description: "Recommend songs of preferred music taste.", needsArgument: true },

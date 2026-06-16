@@ -78,6 +78,7 @@ from src.tools.playlists import (
     playlist_choices,
     save_track_to_playlist,
 )
+from src.tools.playback_queue import playback_queue_snapshot, remember_playback_track
 from src.tools.track_search import search_track_metadata_candidates
 
 
@@ -505,11 +506,9 @@ def _queue_payload() -> list[dict[str, str]]:
     Example: _queue_payload() -> returns the value used by the surrounding Sonex flow.
     """
     try:
-        tracks = recent_cached_songs()
+        tracks = playback_queue_snapshot()
     except Exception:
         tracks = []
-    if not tracks:
-        tracks = recent_tracks_snapshot()
     return [
         {
             "index": f"{index:02d}",
@@ -597,6 +596,15 @@ def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
         progress_bucket,
         state.get("volume_percent"),
     )
+
+
+def _remember_actual_playback(player_state: dict[str, Any]) -> None:
+    """Updates persisted queue state from accepted playback state."""
+    remember_playback_track(player_state)
+    if player_state.get("provider") == "apple_music":
+        remember_apple_music_recent_track(player_state)
+    else:
+        remember_recent_track(player_state)
 
 
 def _is_spotify_setup_request(text: str) -> bool:
@@ -3015,7 +3023,7 @@ class WebSocketRunner:
                 if isinstance(result, dict) and result.get("status") == "success":
                     player_state, cover_url = _extract_music_state(result)
                     if player_state:
-                        remember_recent_track(player_state)
+                        _remember_actual_playback(player_state)
                         signature = _player_sync_signature(player_state)
                         if signature != last_signature:
                             setattr(ui, "_last_player_state", player_state)
@@ -3303,7 +3311,7 @@ class WebSocketRunner:
 
         if command_name == "queue":
             await ui._send(_track_panel_payload("queue", "Queue", _queue_payload()))
-            await ui.append_activity(kind="status", title="Queue", detail="Showing recent songs.", status="success")
+            await ui.append_activity(kind="status", title="Queue", detail="Showing playback queue.", status="success")
             return
 
         if command_name == "playlist":
@@ -3593,10 +3601,7 @@ class WebSocketRunner:
             setattr(ui, "_last_player_state", player_state)
             await ui._send({"type": "player", "state": player_state})
             if tool_name not in SEARCH_RESULT_TOOLS:
-                if player_state.get("provider") == "apple_music":
-                    remember_apple_music_recent_track(player_state)
-                else:
-                    remember_recent_track(player_state)
+                _remember_actual_playback(player_state)
                 await ui._send({"type": "queue", "tracks": _queue_payload()})
         if should_sync_player and cover_url:
             await ui.send_cover(cover_url)

@@ -15,6 +15,8 @@ assert.match(appSource, /authSetupActiveRef\.current/);
 assert.match(appSource, /slashMenuActiveRef\.current/);
 assert.match(appSource, /isLocalPlaybackShortcutSource\(playerRef\.current\)/);
 assert.match(appSource, /send\(\{ type: "internal_command", text: command \}\)/);
+assert.match(appSource, /usePlaybackStatusIconWriter\(\{/);
+assert.match(appSource, /position: miniLayout\.statusIconSlot/);
 assert.match(appSource, /case "track_panel":/);
 assert.match(appSource, /setTrackPanel\(\{/);
 assert.match(typesSource, /type: "track_panel"/);

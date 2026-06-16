@@ -290,9 +290,6 @@ const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false }
 
     return (
         <Box ref={containerRef} flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} overflowY="hidden" paddingX={1}>
-            <Box marginBottom={1} flexShrink={0}>
-                <Text bold color={BORDER_BLUE}>Conversation</Text>
-            </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} overflowY="hidden">
                 {items.length === 0 ? (
                     <Text color="#7f5d6b">No messages yet.</Text>
@@ -663,6 +660,7 @@ const MiniPlayerStaticBody = React.memo(({
                     <Text color="#ffffff" wrap="truncate-end">{formatMiniTrackSubtitle(player.artist, player.album)}</Text>
                 </Box>
                 <Text>{' '.repeat(infoInnerWidth)}</Text>
+                <Text>{' '.repeat(infoInnerWidth)}</Text>
             </Box>
             {layout.mode === 'artwork' ? (
                 <Box
@@ -947,7 +945,7 @@ const MiniPlayerInputDock = ({
         />
 );
 
-const TrackPanelRegion = ({ trackPanel }: { trackPanel: TrackPanelState }) => (
+const TrackPanelOverlay = ({ trackPanel }: { trackPanel: TrackPanelState }) => (
     <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
         <TrackPanel panel={trackPanel} expanded={true} />
     </Box>
@@ -1005,7 +1003,6 @@ const ConversationColumn = ({
     fill?: boolean;
 }) => (
     <Box flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} height={fill ? "100%" : undefined}>
-        <TrackPanel panel={trackPanel} />
         <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange} fill={fill} />
         <Box paddingX={1} height={1} flexShrink={0}>
             <Text color="#bf98a7">
@@ -1158,7 +1155,7 @@ const ConversationRegion = ({
     onMaxChatScrollOffsetChange: (value: number) => void;
 }) => {
     if (trackPanel) {
-        return <TrackPanelRegion trackPanel={trackPanel} />;
+        return <TrackPanelOverlay trackPanel={trackPanel} />;
     }
 
     return (

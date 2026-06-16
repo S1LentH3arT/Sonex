@@ -50,4 +50,4 @@ assert.equal(helpPlaylist?.description, "Browse or save playlists");
 
 const helpQueue = allHelpCommands.find((command) => command.name === "queue");
 assert.equal(helpQueue?.usage, "/queue");
-assert.equal(helpQueue?.description, "Show recent songs");
+assert.equal(helpQueue?.description, "Show playback queue");

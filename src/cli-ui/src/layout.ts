@@ -30,6 +30,7 @@ export type MiniPlayerLayout = {
     gap: number;
     coverWidth: number;
     progressSlot: TerminalLinePosition;
+    statusIconSlot: TerminalLinePosition;
 };
 
 const CHAT_HEADER_FULL_MIN_COLUMNS = 72;
@@ -43,7 +44,7 @@ const MINI_COVER_MIN_ROWS = 16;
 const MINI_COVER_TARGET_COLUMNS = 80;
 const MINI_CONTENT_START_ROW = 1;
 const MINI_CONTENT_START_COLUMN = 1;
-const MINI_INFO_ROWS = 3;
+const MINI_INFO_ROWS = 4;
 
 export function resolveChatHeaderVariant(columns: number | null): ChatHeaderVariant {
     return (columns ?? 0) >= CHAT_HEADER_FULL_MIN_COLUMNS ? 'full' : 'compact';
@@ -85,6 +86,14 @@ export function resolveMiniPlayerLayout(size: TerminalSize): MiniPlayerLayout {
         gap,
         coverWidth,
         progressSlot: {
+            row: Math.max(1, Math.min(
+                Math.max(1, rows - 1),
+                MINI_CONTENT_START_ROW + infoTop + MINI_INFO_ROWS - 2,
+            )),
+            column: MINI_CONTENT_START_COLUMN + infoLeftPadding,
+            width: infoInnerWidth,
+        },
+        statusIconSlot: {
             row: Math.max(1, Math.min(
                 Math.max(1, rows - 1),
                 MINI_CONTENT_START_ROW + infoTop + MINI_INFO_ROWS - 1,

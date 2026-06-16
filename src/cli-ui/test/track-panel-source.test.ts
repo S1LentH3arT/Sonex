@@ -3,9 +3,9 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
 
-assert.match(source, /const TrackPanelRegion =/);
+assert.match(source, /const TrackPanelOverlay =/);
 
-const trackPanelRegionStart = source.indexOf('const TrackPanelRegion =');
+const trackPanelRegionStart = source.indexOf('const TrackPanelOverlay =');
 const conversationColumnStart = source.indexOf('const ConversationColumn =');
 const conversationRegionStart = source.indexOf('const ConversationRegion =');
 assert.ok(trackPanelRegionStart >= 0);
@@ -20,5 +20,5 @@ const dynamicShellStart = source.indexOf('export const DynamicShell =');
 assert.ok(dynamicShellStart > conversationRegionStart);
 const conversationRegion = source.slice(conversationRegionStart, dynamicShellStart);
 assert.match(conversationRegion, /if \(trackPanel\) \{/);
-assert.match(conversationRegion, /<TrackPanelRegion trackPanel=\{trackPanel\} \/>/);
+assert.match(conversationRegion, /<TrackPanelOverlay trackPanel=\{trackPanel\} \/>/);
 assert.match(conversationRegion, /<ConversationColumn/);

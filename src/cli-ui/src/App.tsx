@@ -10,7 +10,7 @@ import { formatElapsed } from './format.js';
 import { useSonexSocket } from './hooks.js';
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
-import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter } from './mini-progress-writer.js';
+import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { isLocalPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import { clearTerminalForLayoutSwitch } from './terminal-clear.js';
 import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, PlayerState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion } from './types.js';
@@ -165,6 +165,12 @@ export const App = () => {
         position: miniLayout.progressSlot,
         stdout,
     });
+    usePlaybackStatusIconWriter({
+        enabled: miniVisible,
+        player,
+        position: miniLayout.statusIconSlot,
+        stdout,
+    });
 
     React.useEffect(() => {
         setSlashIndex((prev) => Math.min(prev, Math.max(0, slashSuggestions.length - 1)));
@@ -254,6 +260,7 @@ export const App = () => {
                 break;
             case "queue":
                 setQueueItems(evt.tracks);
+                setTrackPanel((current) => current && current.panel === "queue" ? { ...current, tracks: evt.tracks } : current);
                 break;
             case "track_panel":
                 setLaunchPreparing(false);

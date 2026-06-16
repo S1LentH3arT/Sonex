@@ -1143,52 +1143,45 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.providers["audius"].api_key, "audius-api-key")
         self.assertFalse(auth_events[-1].get("active", True))
 
-    def test_queue_payload_prefers_unified_song_cache_recent_10(self) -> None:
-        """Verifies that queue payload prefers unified song cache recent 10 behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the queue payload prefers unified song cache recent 10 behavior against regressions.
-
-        Example: test_queue_payload_prefers_unified_song_cache_recent_10() -> passes without assertion failures when the behavior remains correct.
-        """
-        cached_tracks = [
-            {"name": f"Cached {idx}", "artist": "Artist", "duration_ms": 60_000}
+    def test_queue_payload_reads_dedicated_playback_queue_snapshot(self) -> None:
+        queue_tracks = [
+            {"name": f"Queued {idx}", "artist": "Artist", "duration_ms": 60_000}
             for idx in range(10)
         ]
-        with patch("src.api.ws_runner.recent_cached_songs", return_value=cached_tracks), \
-             patch("src.api.ws_runner.recent_tracks_snapshot", return_value=[]):
+        with patch("src.api.ws_runner.playback_queue_snapshot", return_value=queue_tracks):
             queue = _queue_payload()
 
         self.assertEqual(len(queue), 10)
-        self.assertEqual(queue[0]["title"], "Cached 0")
+        self.assertEqual(queue[0]["title"], "Queued 0")
         self.assertEqual(queue[-1]["index"], "10")
 
     def test_track_panel_payload_uses_queue_title_and_tracks(self) -> None:
-        cached_tracks = [
-            {"name": "Cached Song", "artist": "Artist", "duration_ms": 90_000}
+        queue_tracks = [
+            {"name": "Queued Song", "artist": "Artist", "duration_ms": 90_000}
         ]
-        with patch("src.api.ws_runner.recent_cached_songs", return_value=cached_tracks), \
-             patch("src.api.ws_runner.recent_tracks_snapshot", return_value=[]):
+        with patch("src.api.ws_runner.playback_queue_snapshot", return_value=queue_tracks):
             panel = _track_panel_payload("queue", "Queue", _queue_payload())
 
         self.assertEqual(panel["type"], "track_panel")
         self.assertEqual(panel["panel"], "queue")
         self.assertEqual(panel["title"], "Queue")
-        self.assertEqual(panel["tracks"][0]["title"], "Cached Song")
+        self.assertEqual(panel["tracks"][0]["title"], "Queued Song")
 
     async def test_queue_command_sends_track_panel_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
-        cached_tracks = [{"name": "Cached Song", "artist": "Artist", "duration_ms": 90_000}]
+        queue_tracks = [{"name": "Queued Song", "artist": "Artist", "duration_ms": 90_000}]
 
-        with patch("src.api.ws_runner.recent_cached_songs", return_value=cached_tracks), \
-             patch("src.api.ws_runner.recent_tracks_snapshot", return_value=[]):
+        with patch("src.api.ws_runner.playback_queue_snapshot", return_value=queue_tracks):
             await runner._handle_user_input(ui, "/queue")
 
         self.assertFalse(runner._run_agent_turn.called)
         panels = [event for event in ui.events if event.get("type") == "track_panel"]
         self.assertEqual(panels[-1]["panel"], "queue")
-        self.assertEqual(panels[-1]["tracks"][0]["title"], "Cached Song")
+        self.assertEqual(panels[-1]["tracks"][0]["title"], "Queued Song")
+        activity_events = [event for event in ui.events if event.get("type") == "activity"]
+        self.assertIn("playback queue", str(activity_events[-1]["detail"]).lower())
 
     async def test_playlist_command_sends_playlist_track_panel(self) -> None:
         runner = WebSocketRunner()
@@ -1521,7 +1514,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        with patch("src.api.ws_runner.remember_recent_track"):
+        with patch("src.api.ws_runner.remember_recent_track"), patch("src.api.ws_runner.remember_playback_track") as remember_playback_track:
             await runner._sync_tool_result_ui(ui, "play_youtube_song", result)
 
         player_events = [event for event in ui.events if event.get("type") == "player"]
@@ -1531,6 +1524,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["name"], "Song")
         self.assertEqual(player_events[-1]["state"]["youtube_url"], "https://www.youtube.com/watch?v=abc")
         self.assertIsNone(player_events[-1]["state"]["apple_music_url"])
+        remember_playback_track.assert_called_once()
         self.assertTrue(cover_events)
         self.assertEqual(cover_events[-1]["url"], "https://coverartarchive.org/release-group/mbid/front-500")
 
@@ -1560,10 +1554,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        with patch("src.api.ws_runner.remember_recent_track"):
+        with patch("src.api.ws_runner.remember_recent_track"), patch("src.api.ws_runner.remember_playback_track") as remember_playback_track:
             await runner._sync_tool_result_ui(ui, "play_youtube_song", result)
 
         self.assertFalse([event for event in ui.events if event.get("type") == "cover"])
+        remember_playback_track.assert_called_once()
 
     async def test_failed_online_play_result_does_not_enter_player_mode(self) -> None:
         """Verifies that failed online play result does not enter player mode behaves as expected.
@@ -1592,13 +1587,37 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        with patch("src.api.ws_runner.remember_recent_track") as remember_recent_track:
+        with patch("src.api.ws_runner.remember_recent_track") as remember_recent_track, patch("src.api.ws_runner.remember_playback_track") as remember_playback_track:
             await runner._sync_tool_result_ui(ui, "play_youtube_song", result)
 
         self.assertFalse([event for event in ui.events if event.get("type") == "player"])
         self.assertFalse([event for event in ui.events if event.get("type") == "queue"])
         self.assertFalse([event for event in ui.events if event.get("type") == "cover"])
         remember_recent_track.assert_not_called()
+        remember_playback_track.assert_not_called()
+
+    async def test_search_result_tool_does_not_mutate_playback_queue(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        result = {
+            "status": "success",
+            "tool": "search_spotify_tracks",
+            "data": {
+                "tracks": [
+                    {
+                        "name": "Candidate Song",
+                        "artist": "Artist",
+                        "album": "Album",
+                        "duration_ms": 180000,
+                    }
+                ]
+            },
+        }
+
+        with patch("src.api.ws_runner.remember_playback_track") as remember_playback_track:
+            await runner._sync_tool_result_ui(ui, "search_spotify_tracks", result)
+
+        remember_playback_track.assert_not_called()
 
     async def test_online_play_choice_reports_pending_and_enters_player_mode(self) -> None:
         """Verifies that online play choice reports pending and enters player mode behaves as expected.
