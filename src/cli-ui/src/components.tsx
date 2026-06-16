@@ -9,7 +9,7 @@ import { isHttpCoverSource, useCoverArt } from './hooks.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion } from './layout.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackSummary } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary } from './types.js';
 
 const Mascot = () => {
     return (
@@ -310,30 +310,35 @@ const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false }
     );
 };
 
-const QueuePane = ({ tracks }: { tracks: Array<{ index: string; title: string; artist: string; duration: string }> }) => (
-    <Box flexDirection="column" minHeight={9} padding={1} paddingX={2} borderBottom={true} borderStyle="single"
+const TrackPanel = ({ panel }: { panel: TrackPanelState }) => {
+    if (!panel) return null;
+    const rows: TrackPanelTrack[] = panel.tracks.slice(0, 10);
+    return (
+        <Box flexDirection="column" minHeight={9} padding={1} paddingX={2} borderBottom={true} borderStyle="single"
         borderColor={BORDER_BLUE}>
-        <Box marginBottom={1}>
-            <Text bold color="#f3b2c6">Queue / Playlist</Text>
+            <Box marginBottom={1}>
+                <Text bold color="#f3b2c6">{panel.title}</Text>
+                {panel.hint ? <Text color="#7f5d6b"> - {panel.hint}; Esc to hide</Text> : null}
+            </Box>
+            <Box flexDirection="column" paddingTop={1}>
+                {rows.length === 0 ? (
+                    <Text color="#7f5d6b">{panel.panel === "queue" ? "Queue is empty." : "Playlist is empty."}</Text>
+                ) : rows.map((track, idx) => {
+                    const marker = idx === 0 ? <Text color="#f3b2c6">{">>"}</Text> :
+                        <Text color="#7f5d6b">{".."}</Text>;
+                    return (
+                        <Box key={`${track.index}_${idx}`} flexDirection="column" marginBottom={1}>
+                            <Text>{marker} <Text color="#bf98a7">{track.index}</Text> <Text
+                                color="#fff4f6">{track.title}</Text></Text>
+                            <Text> <Text color="#bf98a7">{track.artist}</Text> <Text color="#7f5d6b">•</Text> <Text
+                                color="#bf98a7">{track.duration}</Text></Text>
+                        </Box>
+                    );
+                })}
+            </Box>
         </Box>
-        <Box flexDirection="column" paddingTop={1}>
-            {tracks.length === 0 ? (
-                <Text color="#7f5d6b">Queue is empty.</Text>
-            ) : tracks.map((track, idx) => {
-                const marker = track.index === "01" ? <Text color="#f3b2c6">{">>"}</Text> :
-                    <Text color="#7f5d6b">{".."}</Text>;
-                return (
-                    <Box key={idx} flexDirection="column" marginBottom={1}>
-                        <Text>{marker} <Text color="#bf98a7">{track.index}</Text> <Text
-                            color="#fff4f6">{track.title}</Text></Text>
-                        <Text> <Text color="#bf98a7">{track.artist}</Text> <Text color="#7f5d6b">•</Text> <Text
-                            color="#bf98a7">{track.duration}</Text></Text>
-                    </Box>
-                );
-            })}
-        </Box>
-    </Box>
-);
+    );
+};
 
 const SearchResultsPane = ({ tracks }: { tracks: TrackSummary[] }) => (
     <Box flexDirection="column" minHeight={12} padding={1} paddingX={2} borderBottom={true} borderStyle="single"
@@ -954,6 +959,7 @@ const ConversationColumn = ({
     slashIndex,
     helpPanel,
     helpPanelIndex,
+    trackPanel,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
     fill = false,
@@ -978,11 +984,13 @@ const ConversationColumn = ({
     slashIndex: number;
     helpPanel: HelpPanelState;
     helpPanelIndex: number;
+    trackPanel: TrackPanelState;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
     fill?: boolean;
 }) => (
     <Box flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} height={fill ? "100%" : undefined}>
+        <TrackPanel panel={trackPanel} />
         <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange} fill={fill} />
         <Box paddingX={1} height={1} flexShrink={0}>
             <Text color="#bf98a7">
@@ -1106,6 +1114,7 @@ const ConversationRegion = ({
     slashIndex,
     helpPanel,
     helpPanelIndex,
+    trackPanel,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
 }: {
@@ -1129,6 +1138,7 @@ const ConversationRegion = ({
     slashIndex: number;
     helpPanel: HelpPanelState;
     helpPanelIndex: number;
+    trackPanel: TrackPanelState;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
 }) => (
@@ -1154,6 +1164,7 @@ const ConversationRegion = ({
             slashIndex={slashIndex}
             helpPanel={helpPanel}
             helpPanelIndex={helpPanelIndex}
+            trackPanel={trackPanel}
             chatScrollOffset={chatScrollOffset}
             onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
             fill={true}
@@ -1185,6 +1196,7 @@ export const DynamicShell = ({
     slashIndex,
     helpPanel,
     helpPanelIndex,
+    trackPanel,
     activeRegion,
     miniSnapshotRevision,
     miniLayout,
@@ -1215,6 +1227,7 @@ export const DynamicShell = ({
     slashIndex: number;
     helpPanel: HelpPanelState;
     helpPanelIndex: number;
+    trackPanel: TrackPanelState;
     activeRegion: ShellRegion;
     miniSnapshotRevision: number;
     miniLayout: MiniPlayerLayout;
@@ -1257,6 +1270,7 @@ export const DynamicShell = ({
             slashIndex={slashIndex}
             helpPanel={helpPanel}
             helpPanelIndex={helpPanelIndex}
+            trackPanel={trackPanel}
             chatScrollOffset={chatScrollOffset}
             onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
         />

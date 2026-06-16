@@ -3,6 +3,7 @@ export type ServerEvent =
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
     | { type: "status"; phase: string; message: string; tokens?: number | null; elapsed_ms?: number | null; active?: boolean | null; step?: number; max_steps?: number }
     | { type: "queue"; tracks: Array<{ index: string; title: string; artist: string; duration: string }> }
+    | { type: "track_panel"; panel: "queue" | "playlist"; title: string; hint?: string | null; tracks: TrackPanelTrack[] }
     | { type: "search_results"; tracks: TrackSummary[] }
     | { type: "player"; state: PlayerState }
     | { type: "cover"; url: string }
@@ -43,6 +44,7 @@ export type CoverPatternUnavailableEvent = {
 
 export type ClientEvent =
     | { type: "user_input"; text: string }
+    | { type: "internal_command"; text: string }
     | { type: "confirm_result"; id: string; decision: string }
     | { type: "setup_input"; value: string }
     | { type: "auth_setup_input"; value: string }
@@ -168,6 +170,20 @@ export type HelpPanelState = {
     title: string;
     hint: string;
     commands: HelpCommand[];
+} | null;
+
+export type TrackPanelTrack = {
+    index: string;
+    title: string;
+    artist: string;
+    duration: string;
+};
+
+export type TrackPanelState = {
+    panel: "queue" | "playlist";
+    title: string;
+    hint?: string | null;
+    tracks: TrackPanelTrack[];
 } | null;
 
 export type LayoutMode = "compact" | "full";

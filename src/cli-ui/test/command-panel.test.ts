@@ -31,14 +31,23 @@ assert.equal(helpPlay?.description, "Play a song by query or result number.");
 const helpRecommend = allHelpCommands.find((command) => command.name === "recommend");
 assert.equal(helpRecommend?.description, "Recommend songs of preferred music taste.");
 
-const helpPause = allHelpCommands.find((command) => command.name === "pause");
-assert.equal(helpPause?.usage, "/pause");
-assert.equal(helpPause?.description, "Pause current playback");
-
-const helpVolume = allHelpCommands.find((command) => command.name === "volume");
-assert.equal(helpVolume?.usage, "/volume <0-100>");
-assert.equal(helpVolume?.description, "Set local playback volume");
+for (const hiddenName of ["pause", "volume", "progress", "stop"]) {
+    assert.equal(SLASH_COMMANDS.find((command) => command.name === hiddenName), undefined);
+    assert.equal(allHelpCommands.find((command) => command.name === hiddenName), undefined);
+}
 
 const helpPlayer = allHelpCommands.find((command) => command.name === "player");
 assert.equal(helpPlayer?.usage, "/player <auto|mpv|cvlc>");
 assert.equal(helpPlayer?.description, "Set playback backend; auto uses mpv");
+
+const helpKeymap = allHelpCommands.find((command) => command.name === "keymap");
+assert.equal(helpKeymap?.usage, "/keymap [on|off|toggle|status]");
+assert.equal(helpKeymap?.description, "Toggle mini-player playback shortcuts");
+
+const helpPlaylist = allHelpCommands.find((command) => command.name === "playlist");
+assert.equal(helpPlaylist?.usage, "/playlist [name]|save [name]");
+assert.equal(helpPlaylist?.description, "Browse or save playlists");
+
+const helpQueue = allHelpCommands.find((command) => command.name === "queue");
+assert.equal(helpQueue?.usage, "/queue");
+assert.equal(helpQueue?.description, "Show recent songs");

@@ -23,6 +23,7 @@ class BuiltinCommand:
     mode: Literal["local", "agent"] = "local"
     intent_prompt: str | None = None
     allowed_tools: tuple[str, ...] = ()
+    visible: bool = True
 
 
 @dataclass(frozen=True)
@@ -79,13 +80,16 @@ class ParsedCommand:
 
 BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("help", "/help", "Show available Sonex commands.", aliases=("?",)),
+    BuiltinCommand("keymap", "/keymap [on|off|toggle|status]", "Toggle mini-player playback shortcuts."),
     BuiltinCommand("model", "/model", "Switch the active model for this session."),
     BuiltinCommand("logout", "/logout", "Log out current LLM provider and exit."),
-    BuiltinCommand("pause", "/pause", "Pause current local playback."),
+    BuiltinCommand("playlist", "/playlist [name]|save [name]", "Browse playlists or save the current song."),
+    BuiltinCommand("queue", "/queue", "Show recent songs."),
+    BuiltinCommand("pause", "/pause", "Pause current local playback.", visible=False),
     BuiltinCommand("resume", "/resume", "Resume current local playback."),
-    BuiltinCommand("stop", "/stop", "Stop current local playback."),
-    BuiltinCommand("progress", "/progress", "Show current local playback progress."),
-    BuiltinCommand("volume", "/volume <0-100>", "Set current local playback volume."),
+    BuiltinCommand("stop", "/stop", "Stop current local playback.", visible=False),
+    BuiltinCommand("progress", "/progress", "Show current local playback progress.", visible=False),
+    BuiltinCommand("volume", "/volume <0-100>", "Set current local playback volume.", visible=False),
     BuiltinCommand("player", "/player <auto|mpv|cvlc>", "Set playback backend; auto uses mpv, VLC is manual."),
     BuiltinCommand(
         "recommend",
@@ -186,7 +190,7 @@ def command_suggestions(prefix: str = "") -> list[BuiltinCommand]:
     Example: command_suggestions(prefix=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = prefix.strip().lower().removeprefix("/")
-    commands = sorted(BUILTIN_COMMANDS, key=lambda command: command.name.lower())
+    commands = sorted((command for command in BUILTIN_COMMANDS if command.visible), key=lambda command: command.name.lower())
     if not normalized:
         return list(commands)
     return [

@@ -20,7 +20,7 @@ from fastapi import WebSocketDisconnect
 from src.agent.core import AgentState
 from src.api import ws_runner
 from src.api.music_intent import MusicIntentDecision, MusicIntentRoute
-from src.api.ws_runner import WebSocketRunner, _queue_payload
+from src.api.ws_runner import WebSocketRunner, _queue_payload, _track_panel_payload
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
 from src.thinking.config import ThinkingConfig
@@ -421,6 +421,16 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner._run_agent_turn.called)
         self.assertTrue(getattr(ui, "_spotify_setup"))
         self.assertTrue([event for event in ui.events if event.get("type") == "spotify_setup"])
+
+    async def test_keymap_command_is_reported_as_tui_handled(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/keymap status")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any("handled by the TUI" in str(event.get("text")) for event in ui.events))
 
     async def test_unknown_command_does_not_trigger_agent(self) -> None:
         """Verifies that unknown command does not trigger agent behaves as expected.
@@ -1118,7 +1128,108 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queue[0]["title"], "Cached 0")
         self.assertEqual(queue[-1]["index"], "10")
 
-    async def test_pause_command_controls_local_playback_without_agent_turn(self) -> None:
+    def test_track_panel_payload_uses_queue_title_and_tracks(self) -> None:
+        cached_tracks = [
+            {"name": "Cached Song", "artist": "Artist", "duration_ms": 90_000}
+        ]
+        with patch("src.api.ws_runner.recent_cached_songs", return_value=cached_tracks), \
+             patch("src.api.ws_runner.recent_tracks_snapshot", return_value=[]):
+            panel = _track_panel_payload("queue", "Queue", _queue_payload())
+
+        self.assertEqual(panel["type"], "track_panel")
+        self.assertEqual(panel["panel"], "queue")
+        self.assertEqual(panel["title"], "Queue")
+        self.assertEqual(panel["tracks"][0]["title"], "Cached Song")
+
+    async def test_queue_command_sends_track_panel_without_agent_turn(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        cached_tracks = [{"name": "Cached Song", "artist": "Artist", "duration_ms": 90_000}]
+
+        with patch("src.api.ws_runner.recent_cached_songs", return_value=cached_tracks), \
+             patch("src.api.ws_runner.recent_tracks_snapshot", return_value=[]):
+            await runner._handle_user_input(ui, "/queue")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        panels = [event for event in ui.events if event.get("type") == "track_panel"]
+        self.assertEqual(panels[-1]["panel"], "queue")
+        self.assertEqual(panels[-1]["tracks"][0]["title"], "Cached Song")
+
+    async def test_playlist_command_sends_playlist_track_panel(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        tracks = [{"index": "01", "title": "Saved Song", "artist": "Artist", "duration": "03:00"}]
+
+        with patch("src.api.ws_runner.playlist_panel_tracks", return_value=tracks):
+            await runner._handle_user_input(ui, "/playlist likes")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        panels = [event for event in ui.events if event.get("type") == "track_panel"]
+        self.assertEqual(panels[-1]["panel"], "playlist")
+        self.assertEqual(panels[-1]["title"], "Playlist: likes")
+        self.assertEqual(panels[-1]["tracks"], tracks)
+
+    async def test_playlist_save_opens_target_picker_defaulting_to_likes(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_last_player_state", {
+            "name": "Current Song",
+            "artist": "Current Artist",
+            "album": "-",
+            "duration_ms": 180000,
+            "provider": "youtube",
+        })
+
+        with patch("src.api.ws_runner.playlist_choices", return_value=[
+            {"value": "playlist:likes", "label": "likes", "description": "1 saved track"},
+            {"value": "playlist:road", "label": "road", "description": "0 saved tracks"},
+        ]):
+            await runner._handle_user_input(ui, "/playlist save")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        confirms = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirms[-1]["tool_name"], "playlist_save")
+        self.assertEqual(confirms[-1]["choices"][0]["value"], "playlist:likes")
+
+    async def test_playlist_save_choice_saves_current_track(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_last_player_state", {
+            "name": "Current Song",
+            "artist": "Current Artist",
+            "album": "-",
+            "duration_ms": 180000,
+            "provider": "youtube",
+        })
+
+        await runner._start_playlist_save(ui, "")
+        session = getattr(ui, "_playlist_save")
+        with patch("src.api.ws_runner.save_track_to_playlist", return_value={
+            "added": True,
+            "playlist": {"name": "likes", "track_count": 1},
+            "track": {"name": "Current Song", "artist": "Current Artist"},
+        }) as save_track:
+            await session.handle_choice("playlist:likes")
+
+        save_track.assert_called_once()
+        self.assertTrue(any("Saved to likes" in str(event.get("text")) for event in ui.events))
+
+    async def test_pause_command_is_not_user_accessible_from_chat(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.registry.invoke") as invoke:
+            await runner._handle_user_input(ui, "/pause")
+
+        invoke.assert_not_called()
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any("keyboard shortcut" in str(event.get("text")) for event in ui.events))
+
+    async def test_internal_pause_command_controls_local_playback_without_agent_turn(self) -> None:
         """Verifies that pause command controls local playback without agent turn behaves as expected.
 
         Typical use: Use this in automated tests when guarding the pause command controls local playback without agent turn behavior against regressions.
@@ -1148,7 +1259,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke:
-            await runner._handle_user_input(ui, "/pause")
+            await runner._handle_internal_command(ui, "/pause")
 
         self.assertFalse(runner._run_agent_turn.called)
         invoke.assert_called_once_with("local_playback_pause", {})
@@ -1157,7 +1268,19 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["session_id"], "session-1")
         self.assertFalse(player_events[-1]["state"]["is_playing"])
 
-    async def test_volume_command_controls_local_playback_without_agent_turn(self) -> None:
+    async def test_volume_command_is_not_user_accessible_from_chat(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.registry.invoke") as invoke:
+            await runner._handle_user_input(ui, "/volume 50")
+
+        invoke.assert_not_called()
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any("keyboard shortcut" in str(event.get("text")) for event in ui.events))
+
+    async def test_internal_volume_command_controls_local_playback_without_agent_turn(self) -> None:
         """Verifies that volume command controls local playback without agent turn behaves as expected.
 
         Typical use: Use this in automated tests when guarding the volume command controls local playback without agent turn behavior against regressions.
@@ -1188,14 +1311,14 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke:
-            await runner._handle_user_input(ui, "/volume 50")
+            await runner._handle_internal_command(ui, "/volume 50")
 
         self.assertFalse(runner._run_agent_turn.called)
         invoke.assert_called_once_with("local_playback_volume", {"volume_percent": 50})
         player_events = [event for event in ui.events if event.get("type") == "player"]
         self.assertEqual(player_events[-1]["state"]["volume_percent"], 50)
 
-    async def test_volume_command_rejects_invalid_argument(self) -> None:
+    async def test_internal_volume_command_rejects_invalid_argument(self) -> None:
         """Verifies that volume command rejects invalid argument behaves as expected.
 
         Typical use: Use this in automated tests when guarding the volume command rejects invalid argument behavior against regressions.
@@ -1207,7 +1330,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ui = FakeUI()
 
         with patch("src.api.ws_runner.registry.invoke") as invoke:
-            await runner._handle_user_input(ui, "/volume loud")
+            await runner._handle_internal_command(ui, "/volume loud")
 
         invoke.assert_not_called()
         self.assertFalse(runner._run_agent_turn.called)

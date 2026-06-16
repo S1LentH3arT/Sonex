@@ -75,6 +75,12 @@ from src.tools.online_play import (
     resolve_online_playback_metadata,
     search_online_audio_candidates,
 )
+from src.tools.playlists import (
+    LIKES_PLAYLIST,
+    list_playlist_tracks,
+    playlist_choices,
+    save_track_to_playlist,
+)
 from src.tools.track_search import search_track_metadata_candidates
 
 
@@ -1006,6 +1012,34 @@ def _queue_payload() -> list[dict[str, str]]:
         {
             "index": f"{index:02d}",
             "title": str(track.get("name") or "-"),
+            "artist": str(track.get("artist") or "-"),
+            "duration": _duration_text(track.get("duration_ms")),
+        }
+        for index, track in enumerate(tracks, start=1)
+    ]
+
+
+def _track_panel_payload(panel: str, title: str, tracks: list[dict[str, str]]) -> dict[str, Any]:
+    """Prepares a browse-only track panel event payload."""
+    return {
+        "type": "track_panel",
+        "panel": panel,
+        "title": title,
+        "hint": "browse only",
+        "tracks": tracks,
+    }
+
+
+def playlist_panel_tracks(playlist_name: str = LIKES_PLAYLIST) -> list[dict[str, str]]:
+    """Formats persisted playlist tracks for the CLI track panel."""
+    try:
+        tracks = list_playlist_tracks(playlist_name)
+    except Exception:
+        tracks = []
+    return [
+        {
+            "index": f"{index:02d}",
+            "title": str(track.get("name") or track.get("title") or "-"),
             "artist": str(track.get("artist") or "-"),
             "duration": _duration_text(track.get("duration_ms")),
         }
@@ -3190,6 +3224,65 @@ class PlaySelectionSession:
         await self.ui.append_activity(kind="status", title="Playback selection", detail=detail, status=status)
 
 
+class PlaylistSaveSession:
+    """Owns the playlist target picker for saving the current playback snapshot."""
+
+    def __init__(self, ui: WebSocketUIAdapter, track: dict[str, Any]) -> None:
+        self.ui = ui
+        self.track = track
+        self.confirm_id = _new_event_id("playlist_save")
+
+    async def start(self, requested_playlist: str = "") -> None:
+        target = requested_playlist.strip()
+        if target:
+            await self._save(target)
+            return
+        try:
+            choices = playlist_choices()
+        except Exception:
+            choices = []
+        if not choices:
+            choices = [{"value": f"playlist:{LIKES_PLAYLIST}", "label": LIKES_PLAYLIST, "description": "0 saved tracks"}]
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "playlist_save",
+                "tool_args": {"track": self.track.get("name") or self.track.get("title") or "-", "default": LIKES_PLAYLIST},
+                "message": "Save current song to playlist",
+                "choices": choices,
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        value = str(decision or "")
+        if value in {"deny", "cancel", "false"}:
+            setattr(self.ui, "_playlist_save", None)
+            await self.ui.append_activity(kind="status", title="Playlist save", detail="Cancelled.", status="success")
+            return
+        playlist_name = value.removeprefix("playlist:").strip() or LIKES_PLAYLIST
+        await self._save(playlist_name)
+
+    async def _save(self, playlist_name: str) -> None:
+        try:
+            result = save_track_to_playlist(self.track, playlist_name=playlist_name or LIKES_PLAYLIST)
+        except Exception as exc:
+            message = sanitize_error_message(exc)
+            await self.ui.append_activity(kind="error", title="Playlist save failed", detail=message, status="error")
+            await self.ui.append_agent_message(message)
+            setattr(self.ui, "_playlist_save", None)
+            return
+        name = str(result.get("playlist", {}).get("name") or playlist_name or LIKES_PLAYLIST)
+        added = bool(result.get("added"))
+        message = f"Saved to {name}." if added else f"Already saved in {name}."
+        await self.ui.append_agent_message(message)
+        await self.ui.append_activity(kind="status", title="Playlist save", detail=message, status="success")
+        await self.ui._send(_track_panel_payload("playlist", f"Playlist: {name}", playlist_panel_tracks(name)))
+        setattr(self.ui, "_playlist_save", None)
+
+
 class WebSocketRunner:
     """Represents web socket runner.
 
@@ -3238,6 +3331,10 @@ class WebSocketRunner:
                     user_input = data.get("text") or data.get("content") or data.get("user_input") or ""
                     await self._handle_user_input(ui, user_input)
 
+                elif data.get("type") == "internal_command":
+                    command_text = data.get("text") or data.get("content") or ""
+                    await self._handle_internal_command(ui, str(command_text))
+
                 elif data.get("type") == "setup_input":
                     spotify_setup = getattr(ui, "_spotify_setup", None)
                     if spotify_setup:
@@ -3275,6 +3372,10 @@ class WebSocketRunner:
                     play_selection = getattr(ui, "_play_selection", None)
                     if play_selection and play_selection.owns_confirm(confirm_id):
                         await play_selection.handle_choice(decision)
+                        continue
+                    playlist_save = getattr(ui, "_playlist_save", None)
+                    if playlist_save and playlist_save.owns_confirm(confirm_id):
+                        await playlist_save.handle_choice(decision)
                         continue
                     self._confirm_queue.put((confirm_id, decision))
 
@@ -3339,6 +3440,7 @@ class WebSocketRunner:
                         remember_recent_track(player_state)
                         signature = _player_sync_signature(player_state)
                         if signature != last_signature:
+                            setattr(ui, "_last_player_state", player_state)
                             await ui._send({"type": "player", "state": player_state})
                             await ui._send({"type": "queue", "tracks": _queue_payload()})
                             last_signature = signature
@@ -3382,6 +3484,10 @@ class WebSocketRunner:
 
         parsed_command = parse_builtin_command(user_input)
         if parsed_command is not None:
+            if parsed_command.known and parsed_command.command and not parsed_command.command.visible:
+                await self._reject_internal_chat_command(ui, parsed_command.command.name)
+                return
+
             if parsed_command.known and parsed_command.command and parsed_command.command.name == "play":
                 if self._running_task and not self._running_task.done():
                     ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
@@ -3461,6 +3567,31 @@ class WebSocketRunner:
         self._running_task = asyncio.create_task(
             self._run_agent_turn(ui, user_input, command_intent=command_intent)
         )
+
+    async def _reject_internal_chat_command(self, ui: WebSocketUIAdapter, command_name: str) -> None:
+        message = f"/{command_name} is an internal playback command. Use the mini-player keyboard shortcut instead."
+        await ui.append_activity(kind="error", title="Internal command", detail=message, status="error")
+        await ui.append_agent_message(message)
+
+    async def _handle_internal_command(self, ui: WebSocketUIAdapter, command_text: str) -> None:
+        parsed_command = parse_builtin_command(command_text)
+        if parsed_command is None or not parsed_command.known:
+            await ui.append_activity(
+                kind="error",
+                title="Internal command",
+                detail="Unknown internal command.",
+                status="error",
+            )
+            return
+        if parsed_command.command_intent() is not None:
+            await ui.append_activity(
+                kind="error",
+                title="Internal command",
+                detail=f"/{parsed_command.command.name} is not an internal local command.",
+                status="error",
+            )
+            return
+        await self._handle_builtin_command(ui, parsed_command)
 
     async def _resolve_music_query(self, ui: WebSocketUIAdapter, decision: MusicIntentDecision) -> str | None:
         """Prepares resolve music query for an internal Sonex flow.
@@ -3586,6 +3717,21 @@ class WebSocketRunner:
             )
             return
 
+        if command_name == "keymap":
+            message = "The /keymap command is handled by the TUI for this session."
+            await ui.append_agent_message(message)
+            await ui.append_activity(kind="status", title="TUI keymap", detail=message, status="success")
+            return
+
+        if command_name == "queue":
+            await ui._send(_track_panel_payload("queue", "Queue", _queue_payload()))
+            await ui.append_activity(kind="status", title="Queue", detail="Showing recent songs.", status="success")
+            return
+
+        if command_name == "playlist":
+            await self._handle_playlist_command(ui, args)
+            return
+
         if command_name == "model":
             setup = ModelSelectionSession(ui)
             setattr(ui, "_model_setup", setup)
@@ -3618,6 +3764,33 @@ class WebSocketRunner:
 
         message = f"Command '/{command_name}' is handled by the agent."
         await ui.append_activity(kind="status", title="Agent command", detail=message, status="success")
+
+    async def _handle_playlist_command(self, ui: WebSocketUIAdapter, args: str) -> None:
+        parts = args.split(maxsplit=1)
+        action = parts[0].casefold() if parts else ""
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        if action == "save":
+            await self._start_playlist_save(ui, rest)
+            return
+        playlist_name = args.strip() or LIKES_PLAYLIST
+        await ui._send(_track_panel_payload("playlist", f"Playlist: {playlist_name}", playlist_panel_tracks(playlist_name)))
+        await ui.append_activity(
+            kind="status",
+            title="Playlist",
+            detail=f"Showing playlist: {playlist_name}.",
+            status="success",
+        )
+
+    async def _start_playlist_save(self, ui: WebSocketUIAdapter, requested_playlist: str) -> None:
+        track = getattr(ui, "_last_player_state", None)
+        if not isinstance(track, dict) or not str(track.get("name") or track.get("title") or "").strip() or str(track.get("name") or track.get("title")).strip() == "-":
+            message = "No current song is available to save."
+            await ui.append_activity(kind="error", title="Playlist save", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        session = PlaylistSaveSession(ui, track)
+        setattr(ui, "_playlist_save", session)
+        await session.start(requested_playlist)
 
     async def _handle_local_playback_control(self, ui: WebSocketUIAdapter, command_name: str) -> None:
         """Prepares handle local playback control for an internal Sonex flow.
@@ -3831,6 +4004,7 @@ class WebSocketRunner:
             player_state and (player_state.get("is_playing") or is_control_tool)
         )
         if should_sync_player and player_state:
+            setattr(ui, "_last_player_state", player_state)
             await ui._send({"type": "player", "state": player_state})
             if tool_name not in SEARCH_RESULT_TOOLS:
                 if player_state.get("provider") == "apple_music":

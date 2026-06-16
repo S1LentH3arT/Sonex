@@ -106,7 +106,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertTrue(parsed.known)
         self.assertIsNone(parsed.command_intent())
 
-    def test_volume_and_player_are_local_commands(self) -> None:
+    def test_volume_is_internal_and_player_is_public_local_command(self) -> None:
         """Verifies that volume and player are local commands behaves as expected.
 
         Typical use: Use this in automated tests when guarding the volume and player are local commands behavior against regressions.
@@ -122,10 +122,62 @@ class BuiltinCommandParserTests(unittest.TestCase):
         assert player is not None
         self.assertTrue(volume.known)
         self.assertTrue(player.known)
+        self.assertFalse(volume.command.visible)
+        self.assertTrue(player.command.visible)
         self.assertIsNone(volume.command_intent())
         self.assertIsNone(player.command_intent())
         self.assertEqual(volume.args, "50")
         self.assertEqual(player.args, "cvlc")
+
+    def test_playback_control_commands_are_hidden_from_help_and_suggestions(self) -> None:
+        hidden_names = {"pause", "volume", "progress", "stop"}
+        public_names = {command.name for command in command_suggestions()}
+
+        self.assertTrue(hidden_names.isdisjoint(public_names))
+        self.assertEqual(command_suggestions("/pa"), [])
+        self.assertNotIn("/pause", format_help())
+        self.assertNotIn("/volume", format_help())
+
+        for text in ("/pause", "/volume 50", "/progress", "/stop"):
+            with self.subTest(text=text):
+                parsed = parse_builtin_command(text)
+                self.assertIsNotNone(parsed)
+                assert parsed is not None
+                self.assertTrue(parsed.known)
+                self.assertFalse(parsed.command.visible)
+
+    def test_keymap_is_local_tui_command_metadata(self) -> None:
+        parsed = parse_builtin_command("/keymap off")
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.name, "keymap")
+        self.assertEqual(parsed.args, "off")
+        self.assertTrue(parsed.known)
+        self.assertIsNone(parsed.command_intent())
+
+        commands = {command.name: command for command in command_suggestions()}
+        self.assertEqual(commands["keymap"].usage, "/keymap [on|off|toggle|status]")
+        self.assertEqual(commands["keymap"].description, "Toggle mini-player playback shortcuts.")
+
+    def test_playlist_and_queue_are_local_commands(self) -> None:
+        playlist = parse_builtin_command("/playlist save likes")
+        queue = parse_builtin_command("/queue")
+
+        self.assertIsNotNone(playlist)
+        self.assertIsNotNone(queue)
+        assert playlist is not None
+        assert queue is not None
+        self.assertTrue(playlist.known)
+        self.assertTrue(queue.known)
+        self.assertEqual(playlist.name, "playlist")
+        self.assertEqual(playlist.args, "save likes")
+        self.assertEqual(queue.name, "queue")
+        self.assertIsNone(playlist.command_intent())
+        self.assertIsNone(queue.command_intent())
+
+        commands = {command.name: command for command in command_suggestions()}
+        self.assertEqual(commands["playlist"].usage, "/playlist [name]|save [name]")
+        self.assertEqual(commands["queue"].usage, "/queue")
 
     def test_random_includes_online_playback_fallback(self) -> None:
         """Verifies that random includes online playback fallback behaves as expected.
@@ -266,7 +318,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        for name in ["help", "model", "logout", "setup", "bye", "quit", "volume", "player"]:
+        for name in ["help", "model", "logout", "setup", "bye", "quit", "player", "keymap"]:
             with self.subTest(name=name):
                 self.assertEqual(commands[name].mode, "local")
 
