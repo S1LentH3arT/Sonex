@@ -151,6 +151,23 @@ def playlist_choices(*, playlists_root: Path | None = None) -> list[dict[str, st
     return choices
 
 
+def create_playlist(name: str, *, playlists_root: Path | None = None) -> dict[str, Any]:
+    playlist_name = _playlist_name(name)
+    path = _playlist_path(playlist_name, playlists_root)
+    if path.exists():
+        playlist = _load_playlist(playlist_name, playlists_root)
+    else:
+        playlist = _empty_playlist(playlist_name)
+        _save_playlist(playlist, playlists_root)
+    tracks = list(playlist.get("tracks") or [])
+    return {
+        "name": str(playlist.get("name") or playlist_name),
+        "protected": playlist_name == LIKES_PLAYLIST,
+        "track_count": len(tracks),
+        "updated_at": playlist.get("updated_at"),
+    }
+
+
 def save_track_to_playlist(
     track: dict[str, Any],
     *,

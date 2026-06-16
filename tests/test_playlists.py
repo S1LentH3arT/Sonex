@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from src.tools.playlists import (
+    create_playlist,
     list_playlist_tracks,
     list_playlists,
     playlist_choices,
@@ -55,6 +56,20 @@ class PlaylistStoreTests(unittest.TestCase):
             self.assertEqual(choices[0]["value"], "playlist:likes")
             self.assertEqual(choices[0]["label"], "likes")
             self.assertEqual(choices[1]["value"], "playlist:road trip")
+
+    def test_create_playlist_persists_empty_normalized_playlist_idempotently(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            created = create_playlist("  road   trip  ", playlists_root=root)
+            repeated = create_playlist("road trip", playlists_root=root)
+
+            self.assertEqual(created["name"], "road trip")
+            self.assertEqual(created["track_count"], 0)
+            self.assertEqual(repeated["name"], "road trip")
+            self.assertEqual(repeated["track_count"], 0)
+            self.assertEqual(list_playlist_tracks("road trip", playlists_root=root), [])
+            self.assertEqual([playlist["name"] for playlist in list_playlists(playlists_root=root)], ["likes", "road trip"])
 
 
 if __name__ == "__main__":

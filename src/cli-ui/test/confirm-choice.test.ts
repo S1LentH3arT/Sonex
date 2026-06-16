@@ -20,5 +20,9 @@ assert.equal(
     resolveConfirmInputDecision(' live:acoustic ', { value: 'refine_query', label: '没有想听的歌曲', input: { placeholder: '试试补充更多信息' } }),
     'refine_query:live%3Aacoustic',
 );
+assert.equal(
+    resolveConfirmInputDecision('road trip', { value: 'playlist_new', label: 'new?', input: { placeholder: 'new?' } }),
+    'playlist_new:road%20trip',
+);
 assert.equal(resolveConfirmInputDecision('', { value: 'refine_query', label: '没有想听的歌曲', input: { placeholder: '试试补充更多信息' } }), null);
 assert.equal(resolveConfirmInputDecision('live', { value: 'online_play', label: '在线播放' }), null);

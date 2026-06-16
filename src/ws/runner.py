@@ -73,6 +73,7 @@ from src.tools.online_play import (
 )
 from src.tools.playlists import (
     LIKES_PLAYLIST,
+    create_playlist,
     list_playlist_tracks,
     playlist_choices,
     save_track_to_playlist,
@@ -139,13 +140,11 @@ from src.ws.constants import (
     LLM_AUTH_PROVIDER_CHOICES,
     LLM_AUTH_PROVIDER_VALUES,
     LLM_MODEL_CHOICES,
-    LLM_MODEL_CHOICE_VALUES,
     LOCAL_PLAYBACK_BACKENDS,
     LOCAL_PLAYBACK_CHOICES,
     LOCAL_PLAYBACK_CONTROL_TOOLS,
     PLAYBACK_AGENT_TOOLS,
     PLAYBACK_METHOD_CHOICES,
-    PLAYBACK_ROUTER_TOOLS,
     RECOMMEND_AGENT_TOOLS,
     RECOMMENDATION_TOOLS,
     SEARCH_RESULT_TOOLS,
@@ -2786,6 +2785,78 @@ class PlaylistSaveSession:
         setattr(self.ui, "_playlist_save", None)
 
 
+class PlaylistBrowseSession:
+    """Owns the playlist picker for browsing existing or newly created playlists."""
+
+    def __init__(self, ui: WebSocketUIAdapter) -> None:
+        self.ui = ui
+        self.confirm_id = _new_event_id("playlist_browse")
+
+    async def start(self) -> None:
+        try:
+            choices = playlist_choices()
+        except Exception:
+            choices = []
+        if not choices:
+            choices = [{"value": f"playlist:{LIKES_PLAYLIST}", "label": LIKES_PLAYLIST, "description": "0 saved tracks"}]
+        choices = [
+            *choices,
+            {
+                "value": "playlist_new",
+                "label": "new?",
+                "description": "Create a new playlist",
+                "input": {"placeholder": "new?"},
+            },
+        ]
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "playlist_browse",
+                "tool_args": {"stage": "playlist_browse"},
+                "message": "Open playlist",
+                "choices": choices,
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        value = str(decision or "")
+        if value in {"deny", "cancel", "false"}:
+            setattr(self.ui, "_playlist_browse", None)
+            await self.ui.append_activity(kind="status", title="Playlist browse", detail="Cancelled.", status="success")
+            return
+        if value.startswith("playlist_new:"):
+            playlist_name = unquote(value.removeprefix("playlist_new:")).strip()
+            if not playlist_name:
+                setattr(self.ui, "_playlist_browse", None)
+                await self.ui.append_activity(kind="status", title="Playlist browse", detail="Cancelled.", status="success")
+                return
+            try:
+                created = create_playlist(playlist_name)
+            except Exception as exc:
+                message = sanitize_error_message(exc)
+                await self.ui.append_activity(kind="error", title="Playlist create failed", detail=message, status="error")
+                await self.ui.append_agent_message(message)
+                setattr(self.ui, "_playlist_browse", None)
+                return
+            await self._open(str(created.get("name") or playlist_name))
+            return
+        playlist_name = value.removeprefix("playlist:").strip() or LIKES_PLAYLIST
+        await self._open(playlist_name)
+
+    async def _open(self, playlist_name: str) -> None:
+        await self.ui._send(_track_panel_payload("playlist", f"Playlist: {playlist_name}", playlist_panel_tracks(playlist_name)))
+        await self.ui.append_activity(
+            kind="status",
+            title="Playlist",
+            detail=f"Showing playlist: {playlist_name}.",
+            status="success",
+        )
+        setattr(self.ui, "_playlist_browse", None)
+
+
 class WebSocketRunner:
     """Represents web socket runner.
 
@@ -2879,6 +2950,10 @@ class WebSocketRunner:
                     playlist_save = getattr(ui, "_playlist_save", None)
                     if playlist_save and playlist_save.owns_confirm(confirm_id):
                         await playlist_save.handle_choice(decision)
+                        continue
+                    playlist_browse = getattr(ui, "_playlist_browse", None)
+                    if playlist_browse and playlist_browse.owns_confirm(confirm_id):
+                        await playlist_browse.handle_choice(decision)
                         continue
                     self._confirm_queue.put((confirm_id, decision))
 
@@ -3275,6 +3350,9 @@ class WebSocketRunner:
         if action == "save":
             await self._start_playlist_save(ui, rest)
             return
+        if not args.strip():
+            await self._start_playlist_browse(ui)
+            return
         playlist_name = args.strip() or LIKES_PLAYLIST
         await ui._send(_track_panel_payload("playlist", f"Playlist: {playlist_name}", playlist_panel_tracks(playlist_name)))
         await ui.append_activity(
@@ -3294,6 +3372,11 @@ class WebSocketRunner:
         session = PlaylistSaveSession(ui, track)
         setattr(ui, "_playlist_save", session)
         await session.start(requested_playlist)
+
+    async def _start_playlist_browse(self, ui: WebSocketUIAdapter) -> None:
+        session = PlaylistBrowseSession(ui)
+        setattr(ui, "_playlist_browse", session)
+        await session.start()
 
     async def _handle_local_playback_control(self, ui: WebSocketUIAdapter, command_name: str) -> None:
         """Prepares handle local playback control for an internal Sonex flow.

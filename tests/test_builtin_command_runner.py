@@ -277,6 +277,40 @@ class DisconnectingWebSocket:
         raise WebSocketDisconnect()
 
 
+class PlaylistBrowseWebSocket:
+    def __init__(self, decision: str = "playlist:likes") -> None:
+        self.sent: list[dict[str, object]] = []
+        self.accepted = False
+        self._sent_user_input = False
+        self._sent_confirm_result = False
+        self.decision = decision
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def send_text(self, text: str) -> None:
+        self.sent.append(json.loads(text))
+
+    async def receive_text(self) -> str:
+        if not self._sent_user_input:
+            self._sent_user_input = True
+            return json.dumps({"type": "user_input", "text": "/playlist"})
+        if not self._sent_confirm_result:
+            confirm_id = next(
+                (
+                    str(event["id"])
+                    for event in self.sent
+                    if event.get("type") == "confirm" and event.get("tool_name") == "playlist_browse"
+                ),
+                None,
+            )
+            if confirm_id:
+                self._sent_confirm_result = True
+                return json.dumps({"type": "confirm_result", "id": confirm_id, "decision": self.decision})
+        await asyncio.sleep(0)
+        raise WebSocketDisconnect()
+
+
 class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
     """Groups related builtin command runner tests cases.
 
@@ -1170,6 +1204,83 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(panels[-1]["panel"], "playlist")
         self.assertEqual(panels[-1]["title"], "Playlist: likes")
         self.assertEqual(panels[-1]["tracks"], tracks)
+
+    async def test_playlist_command_without_args_opens_browse_picker(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.playlist_choices", return_value=[
+            {"value": "playlist:likes", "label": "likes", "description": "1 saved track"},
+            {"value": "playlist:road trip", "label": "road trip", "description": "0 saved tracks"},
+        ]):
+            await runner._handle_user_input(ui, "/playlist")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        confirms = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirms[-1]["tool_name"], "playlist_browse")
+        self.assertEqual(confirms[-1]["tool_args"], {"stage": "playlist_browse"})
+        self.assertEqual([choice["value"] for choice in confirms[-1]["choices"]], [
+            "playlist:likes",
+            "playlist:road trip",
+            "playlist_new",
+        ])
+        self.assertEqual(confirms[-1]["choices"][-1]["label"], "new?")
+        self.assertEqual(confirms[-1]["choices"][-1]["input"], {"placeholder": "new?"})
+
+    async def test_playlist_browse_confirm_result_opens_existing_playlist_without_agent_turn(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ws = PlaylistBrowseWebSocket("playlist:likes")
+        tracks = [{"index": "01", "title": "Saved Song", "artist": "Artist", "duration": "03:00"}]
+
+        async def idle_sync(_ui: object) -> None:
+            return None
+
+        with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
+             patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
+             patch("src.api.ws_runner.playlist_choices", return_value=[
+                 {"value": "playlist:likes", "label": "likes", "description": "1 saved track"},
+             ]), \
+             patch("src.api.ws_runner.playlist_panel_tracks", return_value=tracks):
+            await runner.handle_ws(ws)  # type: ignore[arg-type]
+
+        self.assertFalse(runner._run_agent_turn.called)
+        confirms = [event for event in ws.sent if event.get("type") == "confirm"]
+        self.assertEqual(confirms[-1]["tool_name"], "playlist_browse")
+        panels = [event for event in ws.sent if event.get("type") == "track_panel"]
+        self.assertEqual(panels[-1]["panel"], "playlist")
+        self.assertEqual(panels[-1]["title"], "Playlist: likes")
+        self.assertEqual(panels[-1]["tracks"], tracks)
+
+    async def test_playlist_browse_new_choice_creates_empty_playlist_and_opens_panel(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        await runner._start_playlist_browse(ui)
+        session = getattr(ui, "_playlist_browse")
+        with patch("src.api.ws_runner.create_playlist", return_value={"name": "road trip", "track_count": 0}) as create, \
+             patch("src.api.ws_runner.playlist_panel_tracks", return_value=[]) as tracks:
+            await session.handle_choice("playlist_new:road%20trip")
+
+        create.assert_called_once_with("road trip")
+        tracks.assert_called_once_with("road trip")
+        panels = [event for event in ui.events if event.get("type") == "track_panel"]
+        self.assertEqual(panels[-1]["title"], "Playlist: road trip")
+        self.assertEqual(panels[-1]["tracks"], [])
+        self.assertIsNone(getattr(ui, "_playlist_browse"))
+
+    async def test_playlist_browse_cancel_clears_session_without_track_panel(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        await runner._start_playlist_browse(ui)
+        session = getattr(ui, "_playlist_browse")
+        await session.handle_choice("cancel")
+
+        self.assertIsNone(getattr(ui, "_playlist_browse"))
+        self.assertFalse(any(event.get("type") == "track_panel" for event in ui.events))
+        self.assertTrue(any(event.get("title") == "Playlist browse" and event.get("detail") == "Cancelled." for event in ui.events))
 
     async def test_playlist_save_opens_target_picker_defaulting_to_likes(self) -> None:
         runner = WebSocketRunner()
