@@ -26,6 +26,7 @@ class BeadGenerationProfile:
     algorithm_version: str
     sizes: tuple[int, ...]
     sample_scales: tuple[int, ...] = (32, 48, 64, 80, 96, 128, 160, 192)
+    crop_ratio: float = 0.825
     contrast: float = 1.06
     unsharp_radius: float = 1.1
     unsharp_percent: int = 75
@@ -44,6 +45,10 @@ class BeadGenerationProfile:
             "algorithm_version": self.algorithm_version,
             "sizes": list(self.sizes),
             "sample_scales": list(self.sample_scales),
+            "crop": {
+                "mode": "center",
+                "ratio": self.crop_ratio,
+            },
             "enhancement": {
                 "contrast": self.contrast,
                 "unsharp_radius": self.unsharp_radius,
@@ -70,6 +75,13 @@ def prepare_cover_image(image: Image.Image, profile: BeadGenerationProfile) -> I
     left = (width - side) // 2
     top = (height - side) // 2
     cropped = rgb.crop((left, top, left + side, top + side))
+    crop_ratio = max(0.0, min(1.0, profile.crop_ratio))
+    if 0.0 < crop_ratio < 1.0:
+        crop_side = max(1, int(round(side * crop_ratio)))
+        crop_left = (side - crop_side) // 2
+        crop_top = (side - crop_side) // 2
+        cropped = cropped.crop((crop_left, crop_top, crop_left + crop_side, crop_top + crop_side))
+        side = crop_side
     if side > 640:
         cropped = cropped.resize((640, 640), Image.Resampling.LANCZOS)
     contrasted = ImageEnhance.Contrast(cropped).enhance(profile.contrast)

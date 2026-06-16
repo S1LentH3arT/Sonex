@@ -18,6 +18,7 @@ from src.tools.cover_patterns import generate_cover_pattern
 from src.tools.cover_sources import (
     cover_bytes_for_source,
     extract_embedded_cover,
+    lookup_cover_art_url,
     resolve_online_cover,
 )
 
@@ -119,6 +120,41 @@ class CoverSourceTests(unittest.TestCase):
             )
 
         self.assertEqual(cover, {})
+
+    def test_lookup_cover_art_url_prefers_original_front_before_front_500(self) -> None:
+        checked: list[str] = []
+
+        def exists(url: str) -> bool:
+            checked.append(url)
+            return url.endswith("/front")
+
+        with patch(
+            "src.tools.cover_sources._musicbrainz_cover_candidates",
+            return_value=("rg-id", "release-id"),
+        ), patch("src.tools.cover_sources._cover_art_exists", side_effect=exists):
+            cover_url = lookup_cover_art_url(name="Song", artist="Artist", album="Album")
+
+        self.assertEqual(cover_url, "https://coverartarchive.org/release-group/rg-id/front")
+        self.assertEqual(checked, ["https://coverartarchive.org/release-group/rg-id/front"])
+
+    def test_lookup_cover_art_url_uses_front_500_when_original_front_missing(self) -> None:
+        checked: list[str] = []
+
+        def exists(url: str) -> bool:
+            checked.append(url)
+            return url.endswith("/front-500")
+
+        with patch(
+            "src.tools.cover_sources._musicbrainz_cover_candidates",
+            return_value=("rg-id", None),
+        ), patch("src.tools.cover_sources._cover_art_exists", side_effect=exists):
+            cover_url = lookup_cover_art_url(name="Song", artist="Artist", album="Album")
+
+        self.assertEqual(cover_url, "https://coverartarchive.org/release-group/rg-id/front-500")
+        self.assertEqual(checked, [
+            "https://coverartarchive.org/release-group/rg-id/front",
+            "https://coverartarchive.org/release-group/rg-id/front-500",
+        ])
 
 
 if __name__ == "__main__":

@@ -327,9 +327,11 @@ def _caa_front_endpoints(release_group_mbid: str | None, release_mbid: str | Non
     """
     endpoints: list[str] = []
     if release_group_mbid:
-        endpoints.append(f"{COVER_ART_ARCHIVE_BASE}/release-group/{quote(release_group_mbid)}/front-500")
+        base = f"{COVER_ART_ARCHIVE_BASE}/release-group/{quote(release_group_mbid)}"
+        endpoints.extend([f"{base}/front", f"{base}/front-500"])
     if release_mbid:
-        endpoints.append(f"{COVER_ART_ARCHIVE_BASE}/release/{quote(release_mbid)}/front-500")
+        base = f"{COVER_ART_ARCHIVE_BASE}/release/{quote(release_mbid)}"
+        endpoints.extend([f"{base}/front", f"{base}/front-500"])
     return endpoints
 
 

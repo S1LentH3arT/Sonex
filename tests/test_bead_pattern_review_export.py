@@ -15,13 +15,14 @@ from urllib.request import Request, urlopen
 
 from PIL import Image, ImageDraw
 
-from src.tools.cover_patterns import generate_cover_pattern
+from src.tools.bead_pipeline import BeadGenerationProfile, prepare_cover_image
+from src.tools.cover_patterns import COVER_PATTERN_ALGORITHM_VERSION, COVER_PATTERN_SIZES, generate_cover_pattern
 from src.tools.track_search import search_track_metadata_candidates
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REVIEW_ROOT = PROJECT_ROOT / "temp" / "bead-pattern-review"
-REVIEW_SIZES = (32, 36, 40, 44, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192)
+REVIEW_SIZES = (32, 48, 64, 80, 96)
 REVIEW_PRIMARY_SIZES = (80, 96)
 
 
@@ -184,6 +185,17 @@ class BeadPatternReviewExportTests(unittest.TestCase):
             cache_root=cache_root,
             brand=os.environ.get("SONEX_REVIEW_BEAD_BRAND", "hama"),
         )
+        cached = json.loads(next((cache_root).glob("*.json")).read_text(encoding="utf-8"))
+        prepared_image = Image.open(io.BytesIO(image_bytes))
+
+        prepared = prepare_cover_image(
+            prepared_image,
+            BeadGenerationProfile(
+                algorithm_version=COVER_PATTERN_ALGORITHM_VERSION,
+                sizes=COVER_PATTERN_SIZES,
+            ),
+        )
+        prepared.save(REVIEW_ROOT / "prepared-cover-input.png")
 
         (REVIEW_ROOT / "cover-pattern-payload.json").write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
@@ -197,6 +209,7 @@ class BeadPatternReviewExportTests(unittest.TestCase):
                 "cover_path": os.environ.get("SONEX_REVIEW_COVER_PATH"),
                 "brand": payload["bead_catalog"]["brand"],
                 "algorithm_version": payload["bead_catalog"]["algorithm_version"],
+                "crop": cached["profile"]["crop"],
                 "primary_review_sizes": list(REVIEW_PRIMARY_SIZES),
             }, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -208,7 +221,7 @@ class BeadPatternReviewExportTests(unittest.TestCase):
             _write_pattern_png(REVIEW_ROOT / f"pattern-{size}.png", grid, payload["palette"], cell_size=cell_size)
             _write_half_block_preview(REVIEW_ROOT / f"pattern-{size}.ansi", grid, payload["palette"])
 
-        self.assertTrue((REVIEW_ROOT / "pattern-192.png").exists())
+        self.assertTrue((REVIEW_ROOT / "prepared-cover-input.png").exists())
         self.assertTrue((REVIEW_ROOT / "pattern-80.png").exists())
         self.assertTrue((REVIEW_ROOT / "pattern-96.png").exists())
         self.assertTrue((REVIEW_ROOT / "selected-cover-metadata.json").exists())

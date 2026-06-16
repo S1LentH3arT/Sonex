@@ -26,7 +26,7 @@ from src.tools.cover_patterns import (
     generate_cover_pattern,
 )
 
-EXPECTED_COVER_PATTERN_SIZES = (32, 36, 40, 44, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192)
+EXPECTED_COVER_PATTERN_SIZES = (32, 48, 64, 80, 96)
 EXPECTED_COVER_PATTERN_VARIANTS = {str(size) for size in EXPECTED_COVER_PATTERN_SIZES}
 
 
@@ -116,8 +116,9 @@ class CoverPatternTests(unittest.TestCase):
             self.assertIn("generation_diagnostics", cached)
             self.assertNotIn("generation_diagnostics", payload)
             self.assertEqual(cached["generation_diagnostics"]["fallback_sizes"], [])
-            self.assertEqual(cached["profile"]["algorithm_version"], "lab-ciede2000-clean-preview-v4")
+            self.assertEqual(cached["profile"]["algorithm_version"], "lab-ciede2000-original-crop-v5")
             self.assertEqual(cached["profile"]["sizes"], list(EXPECTED_COVER_PATTERN_SIZES))
+            self.assertEqual(cached["profile"]["crop"], {"mode": "center", "ratio": 0.825})
             self.assertEqual(cached["profile"]["sample_scales"], [32, 48, 64, 80, 96, 128, 160, 192])
             self.assertEqual(cached["profile"]["refinement"], {
                 "candidate_count": 6,
@@ -137,7 +138,7 @@ class CoverPatternTests(unittest.TestCase):
         from src.tools.bead_postprocess import refine_bead_grid as real_refine
 
         def refine_or_fail(mapping: object, profile: object) -> object:
-            if mapping.indices.shape == (44, 44):
+            if mapping.indices.shape == (48, 48):
                 raise RuntimeError("synthetic refinement failure")
             return real_refine(mapping, profile)
 
@@ -149,33 +150,49 @@ class CoverPatternTests(unittest.TestCase):
 
             cached = json.loads(cover_pattern_cache_path(source, cache_root=root).read_text(encoding="utf-8"))
 
-        self.assertEqual(cached["generation_diagnostics"]["fallback_sizes"], [44])
+        self.assertEqual(cached["generation_diagnostics"]["fallback_sizes"], [48])
         self.assertNotIn("generation_diagnostics", payload)
-        self.assertEqual(len(payload["variants"]["44"]), 44)
+        self.assertEqual(len(payload["variants"]["48"]), 48)
         self.assertEqual(
-            sum(item["count"] for item in payload["bead_catalog"]["usage_by_variant"]["44"]),
-            44 * 44,
+            sum(item["count"] for item in payload["bead_catalog"]["usage_by_variant"]["48"]),
+            48 * 48,
         )
 
-    def test_previous_five_size_cache_is_invalidated(self) -> None:
+    def test_previous_transition_size_cache_is_invalidated(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            source = "https://cdn.example.test/album/five-size-cover.jpg"
+            source = "https://cdn.example.test/album/transition-size-cover.jpg"
             cache_path = cover_pattern_cache_path(source, cache_root=Path(tempdir))
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             cache_path.write_text(json.dumps({
                 "palette": ["#000000"] * 32,
                 "variants": {
                     str(size): [[0 for _ in range(size)] for _ in range(size)]
-                    for size in (32, 48, 64, 80, 96)
+                    for size in (32, 36, 40, 44, 48, 56, 64, 80, 96)
                 },
-                "source_hash": "legacy-five-size",
+                "source_hash": "legacy-transition-size",
                 "generated_at": 1,
             }), encoding="utf-8")
 
             payload = generate_cover_pattern(source, _png_bytes(), cache_root=Path(tempdir))
 
         self.assertEqual(set(payload["variants"]), EXPECTED_COVER_PATTERN_VARIANTS)
-        self.assertNotEqual(payload["source_hash"], "legacy-five-size")
+        self.assertNotEqual(payload["source_hash"], "legacy-transition-size")
+
+    def test_no_crop_profile_cache_is_invalidated(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            source = "https://cdn.example.test/album/no-crop-profile.jpg"
+            payload = generate_cover_pattern(source, _png_bytes(), cache_root=root, brand="hama")
+            cache_path = cover_pattern_cache_path(source, cache_root=root)
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            cached["profile"].pop("crop", None)
+            cached["source_hash"] = "legacy-no-crop-profile"
+            cache_path.write_text(json.dumps(cached), encoding="utf-8")
+
+            regenerated = generate_cover_pattern(source, _png_bytes(), cache_root=root, brand="hama")
+
+        self.assertNotEqual(regenerated["source_hash"], "legacy-no-crop-profile")
+        self.assertEqual(set(payload["variants"]), set(regenerated["variants"]))
 
     def test_brand_and_profile_changes_invalidate_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -193,7 +210,7 @@ class CoverPatternTests(unittest.TestCase):
             cache_path.write_text(json.dumps(cached), encoding="utf-8")
             regenerated = generate_cover_pattern(source, _png_bytes(), cache_root=root, brand="perler")
             self.assertNotEqual(regenerated["source_hash"], "legacy-profile")
-            self.assertEqual(COVER_PATTERN_ALGORITHM_VERSION, "lab-ciede2000-clean-preview-v4")
+            self.assertEqual(COVER_PATTERN_ALGORITHM_VERSION, "lab-ciede2000-original-crop-v5")
             self.assertEqual(regenerated["bead_catalog"]["algorithm_version"], COVER_PATTERN_ALGORITHM_VERSION)
 
     def test_v3_profile_cache_is_invalidated(self) -> None:
@@ -225,8 +242,14 @@ class CoverPatternTests(unittest.TestCase):
 
         self.assertLess(len(encoded), 500 * 1024)
 
-    def test_preparation_composites_transparency_to_white_and_caps_square_at_640(self) -> None:
-        image = Image.new("RGBA", (800, 700), (0, 0, 0, 0))
+    def test_preparation_composites_transparency_to_white_center_crops_and_caps_square_at_640(self) -> None:
+        image = Image.new("RGBA", (1000, 1000), (0, 0, 0, 0))
+        for x in range(82, 918):
+            for y in range(82, 918):
+                image.putpixel((x, y), (20, 40, 80, 255))
+        for x in range(88, 912):
+            for y in range(88, 912):
+                image.putpixel((x, y), (230, 50, 70, 255))
         profile = BeadGenerationProfile(
             algorithm_version=COVER_PATTERN_ALGORITHM_VERSION,
             sizes=COVER_PATTERN_SIZES,
@@ -235,7 +258,8 @@ class CoverPatternTests(unittest.TestCase):
         prepared = prepare_cover_image(image, profile)
 
         self.assertEqual(prepared.size, (640, 640))
-        self.assertEqual(prepared.getpixel((0, 0)), (255, 255, 255))
+        self.assertNotEqual(prepared.getpixel((0, 0)), (255, 255, 255))
+        self.assertLess(prepared.getpixel((0, 0))[0], 80)
 
     def test_explicit_invalid_brand_fails_closed(self) -> None:
         with self.assertRaises(CoverPatternError) as raised:
@@ -317,6 +341,46 @@ class CoverPatternTests(unittest.TestCase):
         with patch("src.tools.cover_patterns.urlopen", return_value=OversizedResponse()):
             with self.assertRaises(CoverPatternError):
                 fetch_cover_pattern("https://cdn.example.test/huge.jpg")
+
+    def test_caa_original_download_failure_falls_back_to_front_500(self) -> None:
+        class Response:
+            def __init__(self, body: bytes) -> None:
+                self.body = body
+                self.offset = 0
+
+            def __enter__(self) -> "Response":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def read(self, size: int) -> bytes:
+                if self.offset >= len(self.body):
+                    return b""
+                chunk = self.body[self.offset:self.offset + size]
+                self.offset += len(chunk)
+                return chunk
+
+        requested: list[str] = []
+
+        def fake_urlopen(request: object, timeout: int = 0) -> Response:
+            url = request.full_url
+            requested.append(url)
+            if url.endswith("/front"):
+                raise URLError("original unavailable")
+            return Response(_png_bytes())
+
+        source = "https://coverartarchive.org/release-group/mbid/front"
+        with tempfile.TemporaryDirectory() as tempdir, \
+                patch("src.tools.cover_patterns.cover_pattern_cache_dir", return_value=Path(tempdir)), \
+                patch("src.tools.cover_patterns.urlopen", side_effect=fake_urlopen):
+            payload = fetch_cover_pattern(source)
+
+        self.assertEqual(requested, [
+            "https://coverartarchive.org/release-group/mbid/front",
+            "https://coverartarchive.org/release-group/mbid/front-500",
+        ])
+        self.assertEqual(payload["source_url"], "https://coverartarchive.org/release-group/mbid/front-500")
 
 
 if __name__ == "__main__":

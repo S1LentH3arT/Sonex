@@ -16,9 +16,9 @@ from src.tools.bead_catalogs import BeadCatalog, CatalogValidationError, load_be
 from src.tools.bead_config import InvalidBeadBrand, SUPPORTED_BEAD_BRANDS, load_bead_brand
 from src.tools.bead_pipeline import BeadGenerationProfile, BeadImageDecodeError, generate_bead_pattern
 
-COVER_PATTERN_SIZES = (32, 36, 40, 44, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192)
+COVER_PATTERN_SIZES = (32, 48, 64, 80, 96)
 COVER_PATTERN_MAX_BYTES = 8 * 1024 * 1024
-COVER_PATTERN_ALGORITHM_VERSION = "lab-ciede2000-clean-preview-v4"
+COVER_PATTERN_ALGORITHM_VERSION = "lab-ciede2000-original-crop-v5"
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +90,17 @@ def fetch_cover_pattern(source_url: str, *, brand: str | None = None) -> dict[st
     cached = _read_cached_pattern(source_url, profile_data=profile_data)
     if cached is not None:
         return _event_payload(source_url, cached)
-    return generate_cover_pattern(source_url, _download_cover(source_url), brand=catalog.brand)
+    fallback_url = _caa_front_500_fallback(source_url)
+    try:
+        return generate_cover_pattern(source_url, _download_cover(source_url), brand=catalog.brand)
+    except CoverPatternError as exc:
+        if not fallback_url or exc.stage not in {"download", "decode"}:
+            raise
+    assert fallback_url is not None
+    fallback_cached = _read_cached_pattern(fallback_url, profile_data=profile_data)
+    if fallback_cached is not None:
+        return _event_payload(fallback_url, fallback_cached)
+    return generate_cover_pattern(fallback_url, _download_cover(fallback_url), brand=catalog.brand)
 
 
 def generate_cover_pattern(
@@ -140,6 +150,13 @@ def _log_failure(catalog: BeadCatalog, stage: str, exc: BaseException) -> None:
         stage,
         exc,
     )
+
+
+def _caa_front_500_fallback(source_url: str) -> str | None:
+    lowered = source_url.lower()
+    if not lowered.startswith("https://coverartarchive.org/") or not lowered.endswith("/front"):
+        return None
+    return f"{source_url}-500"
 
 
 def _event_payload(source: str, cached: dict[str, Any]) -> dict[str, Any]:
