@@ -25,7 +25,7 @@ class BeadGenerationProfile:
 
     algorithm_version: str
     sizes: tuple[int, ...]
-    sample_scales: tuple[int, ...] = (32, 48, 64, 80, 96, 128, 160, 192)
+    sample_scales: tuple[int, ...] = (32, 40, 48, 56, 64, 80, 96, 128, 160, 192)
     crop_ratio: float = 0.825
     contrast: float = 1.06
     unsharp_radius: float = 1.1

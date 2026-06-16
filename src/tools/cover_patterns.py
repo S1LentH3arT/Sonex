@@ -16,7 +16,7 @@ from src.tools.bead_catalogs import BeadCatalog, CatalogValidationError, load_be
 from src.tools.bead_config import InvalidBeadBrand, SUPPORTED_BEAD_BRANDS, load_bead_brand
 from src.tools.bead_pipeline import BeadGenerationProfile, BeadImageDecodeError, generate_bead_pattern
 
-COVER_PATTERN_SIZES = (32, 48, 64, 80, 96)
+COVER_PATTERN_SIZES = (40, 48, 56, 64, 80, 96)
 COVER_PATTERN_MAX_BYTES = 8 * 1024 * 1024
 COVER_PATTERN_ALGORITHM_VERSION = "lab-ciede2000-original-crop-v5"
 

@@ -42,6 +42,8 @@ export type HalfBlockCell = {
     background: string;
 };
 
+const DEPRECATED_COVER_PATTERN_SIZES = new Set([32, 36]);
+
 /**
  * Coordinates the choose cover pattern variant operation for the CLI UI runtime.
  *
@@ -59,7 +61,7 @@ export function chooseCoverPatternVariant(
 
     const sizes = Object.keys(pattern.variants)
         .map((value) => Number(value))
-        .filter((value) => Number.isInteger(value) && value > 0)
+        .filter((value) => Number.isInteger(value) && value > 0 && !DEPRECATED_COVER_PATTERN_SIZES.has(value))
         .sort((left, right) => right - left);
 
     for (const size of sizes) {

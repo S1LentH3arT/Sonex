@@ -22,7 +22,7 @@ from src.tools.track_search import search_track_metadata_candidates
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 REVIEW_ROOT = PROJECT_ROOT / "temp" / "bead-pattern-review"
-REVIEW_SIZES = (32, 48, 64, 80, 96)
+REVIEW_SIZES = (40, 48, 56, 64, 80, 96)
 REVIEW_PRIMARY_SIZES = (80, 96)
 
 
