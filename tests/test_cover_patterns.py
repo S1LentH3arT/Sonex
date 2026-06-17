@@ -15,6 +15,7 @@ from urllib.error import URLError
 
 from PIL import Image
 
+from src.tools.bead_catalogs import BeadCatalog, BeadColor
 from src.tools.bead_pipeline import BeadGenerationProfile, prepare_cover_image
 from src.tools.cover_patterns import (
     COVER_PATTERN_ALGORITHM_VERSION,
@@ -134,6 +135,20 @@ class CoverPatternTests(unittest.TestCase):
 
             self.assertEqual(second["variants"], payload["variants"])
 
+    def test_generate_cover_pattern_supports_mard_brand_and_caches_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            source = "https://cdn.example.test/album/mard-cover.jpg"
+            payload = generate_cover_pattern(source, _png_bytes(), cache_root=Path(tempdir), brand="mard")
+
+            self.assertEqual(payload["source_url"], source)
+            self.assertEqual(payload["bead_catalog"]["brand"], "mard")
+
+            cache_path = cover_pattern_cache_path(source, cache_root=Path(tempdir))
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            self.assertEqual(cached["profile"]["brand"], "mard")
+            self.assertEqual(cached["bead_catalog"]["brand"], "mard")
+            self.assertEqual(len(cached["bead_catalog"]["colors"]), len(payload["palette"]))
+
     def test_single_size_refinement_failure_falls_back_and_records_diagnostics(self) -> None:
         from src.tools.bead_postprocess import refine_bead_grid as real_refine
 
@@ -212,6 +227,43 @@ class CoverPatternTests(unittest.TestCase):
             self.assertNotEqual(regenerated["source_hash"], "legacy-profile")
             self.assertEqual(COVER_PATTERN_ALGORITHM_VERSION, "lab-ciede2000-original-crop-v5")
             self.assertEqual(regenerated["bead_catalog"]["algorithm_version"], COVER_PATTERN_ALGORITHM_VERSION)
+
+    def test_small_catalog_clamps_palette_budget_before_generation(self) -> None:
+        tiny_catalog = BeadCatalog(
+            brand="mard",
+            product_line="Tiny Test Catalog",
+            diameter_mm=5.0,
+            version="tiny-1",
+            license="MIT",
+            retrieved_at="2026-06-16",
+            calibration_disclaimer="Community RGB approximation.",
+            sources={
+                "brand_reference": {"url": "https://example.test/mard", "license": "reference-only"},
+                "rgb": {"url": "https://example.test/mard-rgb", "license": "MIT"},
+            },
+            colors=tuple(
+                BeadColor(
+                    code=f"M{index}",
+                    name=f"Color {index}",
+                    rgb=(index * 20, index * 20, index * 20),
+                    material="standard_opaque",
+                    identity_source_id="brand_reference",
+                    rgb_source_id="rgb",
+                )
+                for index in range(1, 7)
+            ),
+        )
+        with tempfile.TemporaryDirectory() as tempdir:
+            with patch("src.tools.cover_patterns._resolve_catalog", return_value=tiny_catalog):
+                payload = generate_cover_pattern(
+                    "https://cdn.example.test/album/tiny-catalog.jpg",
+                    _png_bytes(),
+                    brand="mard",
+                    cache_root=Path(tempdir),
+                )
+
+        self.assertGreaterEqual(len(payload["palette"]), 1)
+        self.assertLessEqual(len(payload["palette"]), len(tiny_catalog.colors))
 
     def test_v3_profile_cache_is_invalidated(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

@@ -323,12 +323,14 @@ current session when you want to diagnose player-specific behavior.
 
 The TUI can render album covers as static physical-bead patterns. Sonex uses the
 official cover image when one is available, then generates cached square variants
-from `32x32` through `192x192`. The current algorithm uses a shared, no-dither
+at `40x40`, `48x48`, `56x56`, `64x64`, `80x80`, and `96x96`. The current algorithm uses a shared, no-dither
 palette of 32 to 72 colors, weighted toward the 80 and 96 preview sizes, and
 invalidates older cache profiles automatically.
 
-Supported bead catalogs are 5 mm Hama Midi and Perler Classic. Configure the
-brand in `~/.sonex/thinking.json` or the file pointed to by `SONEX_CONFIG_PATH`:
+Supported bead catalogs are 5 mm Hama Midi, Perler Classic, and Mard Standard
+Opaque. Mard color identities follow the bundled official brand reference, while
+the RGB approximation remains sourced from the redistributable community
+`beadcolors` catalog. Configure the brand in `~/.sonex/thinking.json` or the file pointed to by `SONEX_CONFIG_PATH`:
 
 ```json
 {

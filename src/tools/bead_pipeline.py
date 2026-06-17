@@ -102,12 +102,13 @@ def generate_bead_pattern(image_bytes: bytes, catalog: BeadCatalog, profile: Bea
 
     samples = build_multiscale_samples(prepared, scales=profile.sample_scales)
     catalog_rgb = np.asarray([color.rgb for color in catalog.colors], dtype=np.uint8)
+    minimum_colors = min(max(1, profile.minimum_colors), len(catalog_rgb))
     maximum_colors = min(profile.maximum_colors, len(catalog_rgb))
     selected_catalog_indices = select_shared_palette(
         samples.lab,
         samples.weights,
         srgb_to_lab(catalog_rgb),
-        minimum_colors=profile.minimum_colors,
+        minimum_colors=minimum_colors,
         maximum_colors=maximum_colors,
         relative_improvement_threshold=profile.relative_improvement_threshold,
     )

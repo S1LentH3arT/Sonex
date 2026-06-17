@@ -14,7 +14,11 @@ from src.tools.bead_config import InvalidBeadBrand, load_bead_brand
 
 class BeadCatalogTests(unittest.TestCase):
     def test_bundled_catalogs_are_auditable_standard_opaque_five_mm_lines(self) -> None:
-        expected = {"hama": ("Hama Midi", 65), "perler": ("Perler Classic", 102)}
+        expected = {
+            "hama": ("Hama Midi", 65),
+            "perler": ("Perler Classic", 102),
+            "mard": ("Mard Standard Opaque", 250),
+        }
 
         for brand, (product_line, minimum_count) in expected.items():
             catalog = load_bead_catalog(brand)
@@ -75,6 +79,9 @@ class BeadCatalogTests(unittest.TestCase):
 
             config_path.write_text(json.dumps({"beads": {"brand": "perler"}}), encoding="utf-8")
             self.assertEqual(load_bead_brand(config_path), "perler")
+
+            config_path.write_text(json.dumps({"beads": {"brand": "mard"}}), encoding="utf-8")
+            self.assertEqual(load_bead_brand(config_path), "mard")
 
             config_path.write_text(json.dumps({"beads": {"brand": "generic"}}), encoding="utf-8")
             with self.assertRaises(InvalidBeadBrand):

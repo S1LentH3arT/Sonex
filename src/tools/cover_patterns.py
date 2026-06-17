@@ -48,7 +48,7 @@ def cover_pattern_cache_path(source: str, *, cache_root: Path | None = None) -> 
 
 def _resolve_catalog(brand: str | None) -> BeadCatalog:
     if brand is not None and brand not in SUPPORTED_BEAD_BRANDS:
-        exc = InvalidBeadBrand("beads.brand must be one of: hama, perler.")
+        exc = InvalidBeadBrand("beads.brand must be one of: hama, perler, mard.")
         logger.warning(
             "cover pattern failed brand=%r catalog=unresolved algorithm=%s stage=config error=%s",
             brand,
@@ -189,7 +189,7 @@ def _valid_cached_pattern(value: Any, profile_data: dict[str, Any]) -> bool:
     if not isinstance(value, dict) or value.get("profile") != profile_data:
         return False
     palette = value.get("palette")
-    if not isinstance(palette, list) or not 32 <= len(palette) <= 72 or len(set(palette)) != len(palette):
+    if not isinstance(palette, list) or not 1 <= len(palette) <= 72 or len(set(palette)) != len(palette):
         return False
     if any(not isinstance(color, str) or len(color) != 7 or not color.startswith("#") for color in palette):
         return False

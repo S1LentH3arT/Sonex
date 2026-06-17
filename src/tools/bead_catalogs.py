@@ -130,7 +130,7 @@ def validate_catalog_data(data: Any) -> BeadCatalog:
 
 
 def load_bead_catalog(brand: str) -> BeadCatalog:
-    """Load a bundled, validated Hama or Perler catalog resource."""
+    """Load a bundled, validated physical bead catalog resource."""
     if brand not in SUPPORTED_BEAD_BRANDS:
         raise CatalogValidationError(f"Unsupported catalog brand: {brand}")
     resource = files("src.tools.bead_catalog_data").joinpath(f"{brand}.json")

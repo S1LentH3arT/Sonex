@@ -9,7 +9,7 @@ from typing import Any
 
 from src.log import sonex_home
 
-SUPPORTED_BEAD_BRANDS = frozenset({"hama", "perler"})
+SUPPORTED_BEAD_BRANDS = frozenset({"hama", "perler", "mard"})
 
 
 class InvalidBeadBrand(ValueError):
@@ -40,5 +40,5 @@ def load_bead_brand(config_path: Path | None = None) -> str:
         raise InvalidBeadBrand("beads configuration must be a JSON object.")
     brand = beads.get("brand", "hama")
     if not isinstance(brand, str) or brand not in SUPPORTED_BEAD_BRANDS:
-        raise InvalidBeadBrand("beads.brand must be one of: hama, perler.")
+        raise InvalidBeadBrand("beads.brand must be one of: hama, perler, mard.")
     return brand

@@ -307,12 +307,14 @@ VLC，适合排查播放器相关问题。
 ## 🧩 封面珠子图
 
 TUI 可以把专辑封面渲染成静态实体拼豆图。Sonex 会优先使用官方封面，随后生成
-从 `32x32` 到 `192x192` 的缓存方形变体。当前算法使用共享、无抖动的 32 到 72
-色调色板，并提高 80 和 96 预览尺寸的权重；旧算法 profile 的缓存会自动失效并
-重新生成。
+`40x40`、`48x48`、`56x56`、`64x64`、`80x80`、`96x96` 这几档缓存方形变体。
+当前算法使用共享、无抖动的 32 到 72 色调色板，并提高 80 和 96 预览尺寸的权重；
+旧算法 profile 的缓存会自动失效并重新生成。
 
-支持的拼豆目录是 5 mm Hama Midi 和 Perler Classic。可以在
-`~/.sonex/thinking.json` 或 `SONEX_CONFIG_PATH` 指向的文件中配置品牌：
+支持的拼豆目录是 5 mm Hama Midi、Perler Classic 和 Mard Standard Opaque。
+Mard 的品牌/色号身份来自打包的官方品牌参考，RGB 近似值继续来自可再分发的社区
+`beadcolors` 目录。可以在 `~/.sonex/thinking.json` 或 `SONEX_CONFIG_PATH`
+指向的文件中配置品牌：
 
 ```json
 {
