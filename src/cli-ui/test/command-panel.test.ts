@@ -44,10 +44,14 @@ const helpKeymap = allHelpCommands.find((command) => command.name === "keymap");
 assert.equal(helpKeymap?.usage, "/keymap [on|off|toggle|status]");
 assert.equal(helpKeymap?.description, "Toggle mini-player playback shortcuts");
 
+const helpLang = allHelpCommands.find((command) => command.name === "lang");
+assert.equal(helpLang?.usage, "/lang");
+assert.equal(helpLang?.description, "Choose the TUI display language.");
+
 const helpPlaylist = allHelpCommands.find((command) => command.name === "playlist");
 assert.equal(helpPlaylist?.usage, "/playlist [name]|save [name]");
 assert.equal(helpPlaylist?.description, "Browse or save playlists");
 
 const helpQueue = allHelpCommands.find((command) => command.name === "queue");
 assert.equal(helpQueue?.usage, "/queue");
-assert.equal(helpQueue?.description, "Show recent songs");
+assert.equal(helpQueue?.description, "Show playback queue");

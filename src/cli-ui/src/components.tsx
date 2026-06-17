@@ -1,15 +1,17 @@
 import React from 'react';
 import { Box, Text, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
-import { APP_TIP_PLACEHOLDER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT } from './constants.js';
+import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle } from './format.js';
 import { getVisibleChatWindow } from './chat-window.js';
 import { isHttpCoverSource, useCoverArt } from './hooks.js';
+import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion } from './layout.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary } from './types.js';
+import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -43,7 +45,7 @@ export const formatAuthLabel = (state: AuthRuntimeState): string => {
     return state.auth_type || state.credential_source || "auth";
 };
 
-export const HeaderFrame = ({ authState, variant }: { authState: AuthRuntimeState; variant: ChatHeaderVariant }) => {
+export const HeaderFrame = ({ authState, variant, language = "en" }: { authState: AuthRuntimeState; variant: ChatHeaderVariant; language?: UiLanguage }) => {
     const identity = `${authState.model || authState.provider || FALLBACK_MODEL_NAME} • ${formatAuthLabel(authState)}`;
     if (variant === 'compact') {
         return (
@@ -61,7 +63,7 @@ export const HeaderFrame = ({ authState, variant }: { authState: AuthRuntimeStat
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text color="#bf98a7">v{APP_VERSION}</Text></Text>
                 <Text color="#d8bcc7">{identity}</Text>
                 <Text color="#bf98a7">~/dev/sonex</Text>
-                <Text color={BORDER_BLUE_SOFT}>{APP_TIP_PLACEHOLDER}</Text>
+                <Text color={BORDER_BLUE_SOFT}>{t(language, "tips.placeholder")}</Text>
             </Box>
         </Box>
     );
@@ -108,7 +110,8 @@ export const LoginScreen = ({
     apiKeyInput,
     setApiKeyInput,
     onApiKeySubmit,
-}: LoginScreenProps) => {
+    language = "en",
+}: LoginScreenProps & { language?: UiLanguage }) => {
     if (!authSetup) return null;
 
     const providerChoices = authSetup.providers ?? [];
@@ -121,7 +124,7 @@ export const LoginScreen = ({
     const isOauthWait = authSetup.step === "oauth_wait";
     const choices = isProviderStep ? providerChoices : isMethodStep ? methodChoices : isModelStep ? modelChoices : [];
     const displayMessage = isProviderStep
-        ? "A little warm-up before we get started."
+        ? t(language, "login.warmup")
         : authSetup.message;
 
     return (
@@ -137,7 +140,7 @@ export const LoginScreen = ({
                             selectedIndex={selectedIndex}
                             visibleLimit={isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
                         />
-                        <Text color="#7f5d6b">Use Up/Down to choose, Enter to continue.</Text>
+                        <Text color="#7f5d6b">{t(language, "login.continue")}</Text>
                     </>
                 ) : null}
 
@@ -160,8 +163,8 @@ export const LoginScreen = ({
 
                 {isOauthWait ? (
                     <Box flexDirection="column" marginTop={1}>
-                        <Text color={BORDER_BLUE_SOFT}>Waiting for browser authorization...</Text>
-                        <Text color="#7f5d6b">Complete the OAuth flow in your browser, then return here.</Text>
+                        <Text color={BORDER_BLUE_SOFT}>{t(language, "auth.oauth.waiting")}</Text>
+                        <Text color="#7f5d6b">{t(language, "auth.oauth.return")}</Text>
                     </Box>
                 ) : null}
             </Box>
@@ -213,7 +216,7 @@ const SlashCommandList = ({ suggestions, selectedIndex }: {
     );
 };
 
-const HelpPanel = ({ panel, selectedIndex }: { panel: HelpPanelState; selectedIndex: number }) => {
+const HelpPanel = ({ panel, selectedIndex, language = "en" }: { panel: HelpPanelState; selectedIndex: number; language?: UiLanguage }) => {
     if (!panel) return null;
     const commands = helpPanelCommands(panel.commands);
     const { items: visibleCommands, boundedIndex, startIndex } = visibleCommandWindow(
@@ -230,7 +233,7 @@ const HelpPanel = ({ panel, selectedIndex }: { panel: HelpPanelState; selectedIn
                 <Text color="#9d7787">{panel.hint}</Text>
             </Text>
             {panel.commands.length === 0 ? (
-                <Text color="#7f5d6b">No matching commands.</Text>
+                <Text color="#7f5d6b">{t(language, "help.empty")}</Text>
             ) : visibleCommands.map((command, index) => {
                 const absoluteIndex = startIndex + index;
                 const commandColor = absoluteIndex === boundedIndex ? BORDER_BLUE : "#fff4f6";
@@ -262,11 +265,12 @@ const ChatBubble = ({ role, content }: ChatBubbleProps) => {
     );
 };
 
-const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false }: {
+const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false, language = "en" }: {
     items: ChatItem[];
     scrollOffset: number;
     onMaxScrollOffsetChange: (value: number) => void;
     fill?: boolean;
+    language?: UiLanguage;
 }) => {
     const containerRef = React.useRef<any>(null);
     const [viewportSize, setViewportSize] = React.useState({ width: 68, height: 12 });
@@ -290,19 +294,16 @@ const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false }
 
     return (
         <Box ref={containerRef} flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} overflowY="hidden" paddingX={1}>
-            <Box marginBottom={1} flexShrink={0}>
-                <Text bold color={BORDER_BLUE}>Conversation</Text>
-            </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} overflowY="hidden">
                 {items.length === 0 ? (
-                    <Text color="#7f5d6b">No messages yet.</Text>
+                    <Text color="#7f5d6b">{t(language, "chat.empty")}</Text>
                 ) : (
                     <>
-                        {visibleWindow.hasHiddenAbove ? <Text color="#7f5d6b">↑ earlier messages</Text> : null}
+                        {visibleWindow.hasHiddenAbove ? <Text color="#7f5d6b">{t(language, "chat.hiddenAbove")}</Text> : null}
                         {visibleWindow.items.map((chat, idx) => (
                             <ChatBubble key={`${items.indexOf(chat)}_${idx}`} role={chat.role} content={chat.content} />
                         ))}
-                        {visibleWindow.hasHiddenBelow ? <Text color="#7f5d6b">↓ newer messages</Text> : null}
+                        {visibleWindow.hasHiddenBelow ? <Text color="#7f5d6b">{t(language, "chat.hiddenBelow")}</Text> : null}
                     </>
                 )}
             </Box>
@@ -310,17 +311,26 @@ const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false }
     );
 };
 
-const TrackPanel = ({ panel }: { panel: TrackPanelState }) => {
+const TrackPanel = ({ panel, expanded = false }: { panel: TrackPanelState; expanded?: boolean }) => {
     if (!panel) return null;
     const rows: TrackPanelTrack[] = panel.tracks.slice(0, 10);
     return (
-        <Box flexDirection="column" minHeight={9} padding={1} paddingX={2} borderBottom={true} borderStyle="single"
-        borderColor={BORDER_BLUE}>
+        <Box
+            flexDirection="column"
+            flexGrow={expanded ? 1 : 0}
+            flexShrink={1}
+            minHeight={expanded ? 0 : 9}
+            height={expanded ? "100%" : undefined}
+            padding={1}
+            paddingX={2}
+            borderStyle="single"
+            borderColor={BORDER_BLUE}
+        >
             <Box marginBottom={1}>
                 <Text bold color="#f3b2c6">{panel.title}</Text>
                 {panel.hint ? <Text color="#7f5d6b"> - {panel.hint}; Esc to hide</Text> : null}
             </Box>
-            <Box flexDirection="column" paddingTop={1}>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingTop={1}>
                 {rows.length === 0 ? (
                     <Text color="#7f5d6b">{panel.panel === "queue" ? "Queue is empty." : "Playlist is empty."}</Text>
                 ) : rows.map((track, idx) => {
@@ -339,6 +349,12 @@ const TrackPanel = ({ panel }: { panel: TrackPanelState }) => {
         </Box>
     );
 };
+
+const TrackPanelOverlay = ({ trackPanel }: { trackPanel: TrackPanelState }) => (
+    <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
+        <TrackPanel panel={trackPanel} expanded={true} />
+    </Box>
+);
 
 const SearchResultsPane = ({ tracks }: { tracks: TrackSummary[] }) => (
     <Box flexDirection="column" minHeight={12} padding={1} paddingX={2} borderBottom={true} borderStyle="single"
@@ -369,12 +385,13 @@ const SearchResultsPane = ({ tracks }: { tracks: TrackSummary[] }) => (
     </Box>
 );
 
-const ActivityPane = ({ items, confirm, confirmIndex, spotifySetup, authSetup }: {
+const ActivityPane = ({ items, confirm, confirmIndex, spotifySetup, authSetup, language = "en" }: {
     items: ActivityItem[];
     confirm: ConfirmState;
     confirmIndex: number;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
+    language?: UiLanguage;
 }) => {
     const colors: Record<ActivityKind, string> = {
         tool: "#8fd3ff",
@@ -412,7 +429,7 @@ const ActivityPane = ({ items, confirm, confirmIndex, spotifySetup, authSetup }:
                     <Text color="#fff4f6">{spotifySetup.title}</Text>
                     <Text color="#bf98a7">{spotifySetup.message}</Text>
                     {spotifySetup.active && spotifySetup.prompt ? (
-                        <Text color="#9d7787">Input: {spotifySetup.prompt}</Text>
+                        <Text color="#9d7787">{t(language, "input.label")}: {spotifySetup.prompt}</Text>
                     ) : null}
                 </Box>
             )}
@@ -426,13 +443,13 @@ const ActivityPane = ({ items, confirm, confirmIndex, spotifySetup, authSetup }:
                         </Text>
                     ) : null}
                     {authSetup.active && authSetup.prompt ? (
-                        <Text color="#9d7787">Input: {authSetup.prompt}</Text>
+                        <Text color="#9d7787">{t(language, "input.label")}: {authSetup.prompt}</Text>
                     ) : null}
                 </Box>
             )}
             <Box flexDirection="column" flexGrow={1}>
                 {items.length === 0 ? (
-                    <Text color="#7f5d6b">Waiting for agent activity.</Text>
+                    <Text color="#7f5d6b">{t(language, "activity.empty")}</Text>
                 ) : (
                     items.map((item) => {
                         const statusColor = item.status === "error" ? "#ff9c9c" :
@@ -643,6 +660,7 @@ const MiniPlayerStaticBody = React.memo(({
     layout: MiniPlayerLayout;
 }) => {
     const infoInnerWidth = Math.max(0, layout.infoWidth - layout.infoLeftPadding);
+    const statusLine = buildPlaybackStatusIconLine(player, infoInnerWidth);
 
     return (
         <Box flexDirection="row" width={layout.contentColumns} height={layout.contentRows}>
@@ -654,6 +672,13 @@ const MiniPlayerStaticBody = React.memo(({
                     <Text color="#ffffff" wrap="truncate-end">{formatMiniTrackSubtitle(player.artist, player.album)}</Text>
                 </Box>
                 <Text>{' '.repeat(infoInnerWidth)}</Text>
+                <Box width={infoInnerWidth}>
+                    <Text>
+                        {statusLine.segments.map((segment, index) => (
+                            <Text key={index} color={segment.color}>{segment.text}</Text>
+                        ))}
+                    </Text>
+                </Box>
             </Box>
             {layout.mode === 'artwork' ? (
                 <Box
@@ -788,7 +813,35 @@ const CompactConfirm = ({ confirm, confirmIndex }: { confirm: ConfirmState; conf
     );
 };
 
-const CompactSetup = ({ spotifySetup, authSetup }: { spotifySetup: SpotifySetupState; authSetup: AuthSetupState }) => {
+const LanguagePanel = ({ panel, selectedIndex, language = "en" }: {
+    panel: LanguagePanelState;
+    selectedIndex: number;
+    language?: UiLanguage;
+}) => {
+    if (!panel) return null;
+    const choices: UiLanguage[] = ["en", "zh-CN"];
+    const boundedIndex = Math.min(Math.max(selectedIndex, 0), choices.length - 1);
+    return (
+        <Box flexDirection="column" marginBottom={1} paddingX={1} borderStyle="single" borderColor={BORDER_BLUE_SOFT}>
+            <Text color="#fff4f6">{t(language, "language.title")}</Text>
+            <Text color="#bf98a7">{t(language, "language.hint")}</Text>
+            <Box flexDirection="column" marginTop={1}>
+                {choices.map((choice, index) => (
+                    <Text key={choice} color={index === boundedIndex ? "#fff4f6" : "#7f5d6b"}>
+                        <Text color={index === boundedIndex ? BORDER_BLUE_SOFT : "#7f5d6b"}>
+                            {index === boundedIndex ? "> " : "  "}
+                        </Text>
+                        {languageLabel(choice)}
+                        {choice === panel.selected ? <Text color="#9d7787"> *</Text> : null}
+                    </Text>
+                ))}
+            </Box>
+            {panel.saveError ? <Text color="#ff9c9c">{panel.saveError}</Text> : null}
+        </Box>
+    );
+};
+
+const CompactSetup = ({ spotifySetup, authSetup, language = "en" }: { spotifySetup: SpotifySetupState; authSetup: AuthSetupState; language?: UiLanguage }) => {
     if (authSetup && authSetup.provider === "apple_music") {
         return (
             <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={BORDER_BLUE}>
@@ -796,16 +849,16 @@ const CompactSetup = ({ spotifySetup, authSetup }: { spotifySetup: SpotifySetupS
                 <Text color="#bf98a7">{authSetup.message}</Text>
                 {authSetup.providers && authSetup.providers.length > 0 ? (
                     <Text color="#9d7787">
-                        Providers: {authSetup.providers.map((provider) => provider.value).join(" / ")}
+                        {t(language, "providers.label")}: {authSetup.providers.map((provider) => provider.value).join(" / ")}
                     </Text>
                 ) : null}
                 {authSetup.methods && authSetup.methods.length > 0 ? (
                     <Text color="#9d7787">
-                        Methods: {authSetup.methods.map((method) => method.value).join(" / ")}
+                        {t(language, "methods.label")}: {authSetup.methods.map((method) => method.value).join(" / ")}
                     </Text>
                 ) : null}
                 {authSetup.active && authSetup.prompt ? (
-                    <Text color="#9d7787">Input: {authSetup.prompt}</Text>
+                    <Text color="#9d7787">{t(language, "input.label")}: {authSetup.prompt}</Text>
                 ) : null}
             </Box>
         );
@@ -818,7 +871,7 @@ const CompactSetup = ({ spotifySetup, authSetup }: { spotifySetup: SpotifySetupS
             <Text color="#fff4f6">{spotifySetup.title}</Text>
             <Text color="#bf98a7">{spotifySetup.message}</Text>
             {spotifySetup.active && spotifySetup.prompt ? (
-                <Text color="#9d7787">Input: {spotifySetup.prompt}</Text>
+                <Text color="#9d7787">{t(language, "input.label")}: {spotifySetup.prompt}</Text>
             ) : null}
         </Box>
     );
@@ -840,8 +893,11 @@ const InputDock = ({
     slashIndex,
     helpPanel,
     helpPanelIndex,
+    languagePanel,
+    languagePanelIndex,
     minimal = false,
     switchHint = null,
+    language = "en",
 }: {
     input: string;
     setInput: (value: string) => void;
@@ -858,8 +914,11 @@ const InputDock = ({
     slashIndex: number;
     helpPanel: HelpPanelState;
     helpPanelIndex: number;
+    languagePanel: LanguagePanelState;
+    languagePanelIndex: number;
     minimal?: boolean;
     switchHint?: string | null;
+    language?: UiLanguage;
 }) => {
     const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
     const showInput = !confirm || Boolean(selectedChoice?.input);
@@ -868,10 +927,11 @@ const InputDock = ({
         <Box flexDirection="column">
             {!minimal ? (
                 <Box flexDirection="column" flexShrink={0} paddingX={1}>
-                    <HelpPanel panel={helpPanel} selectedIndex={helpPanelIndex} />
+                    <HelpPanel panel={helpPanel} selectedIndex={helpPanelIndex} language={language} />
                     <SlashCommandList suggestions={slashSuggestions} selectedIndex={slashIndex} />
                     <CompactConfirm confirm={confirm} confirmIndex={confirmIndex} />
-                    <CompactSetup spotifySetup={spotifySetup} authSetup={authSetup} />
+                    <LanguagePanel panel={languagePanel} selectedIndex={languagePanelIndex} language={language} />
+                    <CompactSetup spotifySetup={spotifySetup} authSetup={authSetup} language={language} />
                 </Box>
             ) : null}
             {minimal ? <CompactConfirm confirm={confirm} confirmIndex={confirmIndex} /> : null}
@@ -933,6 +993,8 @@ const MiniPlayerInputDock = ({
         slashIndex={0}
         helpPanel={null}
         helpPanelIndex={0}
+        languagePanel={null}
+        languagePanelIndex={0}
         minimal={true}
         switchHint={switchHint}
     />
@@ -959,9 +1021,12 @@ const ConversationColumn = ({
     slashIndex,
     helpPanel,
     helpPanelIndex,
+    languagePanel,
+    languagePanelIndex,
     trackPanel,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
+    language = "en",
     fill = false,
 }: {
     chatItems: ChatItem[];
@@ -984,14 +1049,16 @@ const ConversationColumn = ({
     slashIndex: number;
     helpPanel: HelpPanelState;
     helpPanelIndex: number;
+    languagePanel: LanguagePanelState;
+    languagePanelIndex: number;
     trackPanel: TrackPanelState;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
+    language?: UiLanguage;
     fill?: boolean;
 }) => (
     <Box flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} height={fill ? "100%" : undefined}>
-        <TrackPanel panel={trackPanel} />
-        <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange} fill={fill} />
+        <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange} fill={fill} language={language} />
         <Box paddingX={1} height={1} flexShrink={0}>
             <Text color="#bf98a7">
                 {statusText}
@@ -1029,6 +1096,9 @@ const ConversationColumn = ({
             slashIndex={slashIndex}
             helpPanel={helpPanel}
             helpPanelIndex={helpPanelIndex}
+            languagePanel={languagePanel}
+            languagePanelIndex={languagePanelIndex}
+            language={language}
         />
     </Box>
 );
@@ -1114,9 +1184,12 @@ const ConversationRegion = ({
     slashIndex,
     helpPanel,
     helpPanelIndex,
+    languagePanel,
+    languagePanelIndex,
     trackPanel,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
+    language = "en",
 }: {
     chatItems: ChatItem[];
     statusText: string;
@@ -1138,12 +1211,20 @@ const ConversationRegion = ({
     slashIndex: number;
     helpPanel: HelpPanelState;
     helpPanelIndex: number;
+    languagePanel: LanguagePanelState;
+    languagePanelIndex: number;
     trackPanel: TrackPanelState;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
-}) => (
-    <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
-        <ConversationColumn
+    language?: UiLanguage;
+}) => {
+    if (trackPanel) {
+        return <TrackPanelOverlay trackPanel={trackPanel} />;
+    }
+
+    return (
+        <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
+            <ConversationColumn
             chatItems={chatItems}
             statusText={statusText}
             elapsed={elapsed}
@@ -1164,13 +1245,17 @@ const ConversationRegion = ({
             slashIndex={slashIndex}
             helpPanel={helpPanel}
             helpPanelIndex={helpPanelIndex}
+            languagePanel={languagePanel}
+            languagePanelIndex={languagePanelIndex}
             trackPanel={trackPanel}
             chatScrollOffset={chatScrollOffset}
             onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
+            language={language}
             fill={true}
-        />
-    </Box>
-);
+            />
+        </Box>
+    );
+};
 
 export const DynamicShell = ({
     input,
@@ -1196,6 +1281,8 @@ export const DynamicShell = ({
     slashIndex,
     helpPanel,
     helpPanelIndex,
+    languagePanel,
+    languagePanelIndex,
     trackPanel,
     activeRegion,
     miniSnapshotRevision,
@@ -1203,6 +1290,7 @@ export const DynamicShell = ({
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
     terminalSpace,
+    language = "en",
 }: {
     input: string;
     setInput: (value: string) => void;
@@ -1227,6 +1315,8 @@ export const DynamicShell = ({
     slashIndex: number;
     helpPanel: HelpPanelState;
     helpPanelIndex: number;
+    languagePanel: LanguagePanelState;
+    languagePanelIndex: number;
     trackPanel: TrackPanelState;
     activeRegion: ShellRegion;
     miniSnapshotRevision: number;
@@ -1234,6 +1324,7 @@ export const DynamicShell = ({
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
     terminalSpace: TerminalSpace;
+    language?: UiLanguage;
 }) => {
     if (activeRegion === "miniPlayer") {
         return (
@@ -1270,9 +1361,12 @@ export const DynamicShell = ({
             slashIndex={slashIndex}
             helpPanel={helpPanel}
             helpPanelIndex={helpPanelIndex}
+            languagePanel={languagePanel}
+            languagePanelIndex={languagePanelIndex}
             trackPanel={trackPanel}
             chatScrollOffset={chatScrollOffset}
             onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
+            language={language}
         />
     );
 };

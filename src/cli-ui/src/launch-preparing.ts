@@ -1,4 +1,5 @@
 import type { ActivityItem } from './types.js';
+import type { UiLanguage } from './types.js';
 
 export const LAUNCH_PREPARING_INTERVAL_MS = 1000;
 
@@ -8,9 +9,10 @@ export const LAUNCH_PREPARING_INTERVAL_MS = 1000;
  * @param frame Input value used by the launch preparing text operation.
  * @returns The computed result for the surrounding CLI UI flow.
  */
-export function launchPreparingText(frame: number): string {
+export function launchPreparingText(frame: number, language: UiLanguage = "en"): string {
     const dotCount = (Math.max(0, frame) % 3) + 1;
-    return `Launch preparing${'.'.repeat(dotCount)}`;
+    const base = language === "zh-CN" ? "启动准备中" : "Launch preparing";
+    return `${base}${'.'.repeat(dotCount)}`;
 }
 
 /**

@@ -11,6 +11,7 @@ from src.tools.playlists import (
     list_playlists,
     playlist_choices,
     save_track_to_playlist,
+    track_in_playlist,
 )
 
 
@@ -55,6 +56,26 @@ class PlaylistStoreTests(unittest.TestCase):
             self.assertEqual(choices[0]["value"], "playlist:likes")
             self.assertEqual(choices[0]["label"], "likes")
             self.assertEqual(choices[1]["value"], "playlist:road trip")
+
+    def test_track_in_playlist_matches_saved_likes_track_without_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            track = {
+                "cache_id": "track_1",
+                "name": "Orange Moon",
+                "artist": "Khalil Fong",
+                "album": "Orange Moon",
+                "duration_ms": 240000,
+                "provider": "youtube",
+            }
+            save_track_to_playlist(track, playlist_name="likes", playlists_root=root, now=10)
+            before = {path.name: path.stat().st_mtime_ns for path in root.glob("*.json")}
+
+            self.assertTrue(track_in_playlist(track, playlist_name="likes", playlists_root=root))
+            self.assertFalse(track_in_playlist({**track, "cache_id": "track_2", "name": "Blue Moon"}, playlist_name="likes", playlists_root=root))
+
+            after = {path.name: path.stat().st_mtime_ns for path in root.glob("*.json")}
+            self.assertEqual(after, before)
 
 
 if __name__ == "__main__":

@@ -188,6 +188,21 @@ def save_track_to_playlist(
     }
 
 
+def track_in_playlist(
+    track: dict[str, Any],
+    *,
+    playlist_name: str = LIKES_PLAYLIST,
+    playlists_root: Path | None = None,
+) -> bool:
+    name = _playlist_name(playlist_name)
+    try:
+        key = _track_key(_track_snapshot(track, saved_at=0))
+    except ValueError:
+        return False
+    playlist = _load_playlist(name, playlists_root)
+    return any(item.get("key") == key for item in playlist.get("tracks") or [])
+
+
 def list_playlist_tracks(
     playlist_name: str = LIKES_PLAYLIST,
     *,

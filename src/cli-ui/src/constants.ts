@@ -6,7 +6,7 @@ export const APP_VERSION = "1.0.1";
 export const FALLBACK_MODEL_NAME = "GPT-5.2";
 export const BORDER_BLUE = "#3b82f6";
 export const BORDER_BLUE_SOFT = "#9fd9ff";
-export const APP_TIP_PLACEHOLDER = "Tips: coming soon";
+export const APP_TIP_PLACEHOLDER = "Tips: try /random for a free play.";
 export const MAX_CHAT_ITEMS = 80;
 export const MAX_ACTIVITY_ITEMS = 80;
 export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
@@ -19,15 +19,16 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "bye", usage: "/bye", description: "Save session and exit", needsArgument: false, aliases: ["exit"] },
     { name: "help", usage: "/help", description: "Show available commands", needsArgument: false },
     { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "Toggle mini-player playback shortcuts", needsArgument: false },
+    { name: "lang", usage: "/lang", description: "Choose the TUI display language.", needsArgument: false },
     { name: "logout", usage: "/logout", description: "Log out current LLM provider and exit", needsArgument: false },
     { name: "model", usage: "/model", description: "Switch active model", needsArgument: false },
     { name: "player", usage: "/player <auto|mpv|cvlc>", description: "Set playback backend; auto uses mpv", needsArgument: true },
     { name: "play", usage: "/play <query/number>", description: "Play a song by query or result number.", needsArgument: true },
     { name: "playlist", usage: "/playlist [name]|save [name]", description: "Browse or save playlists", needsArgument: false },
-    { name: "queue", usage: "/queue", description: "Show recent songs", needsArgument: false },
+    { name: "queue", usage: "/queue", description: "Show playback queue", needsArgument: false },
     { name: "quit", usage: "/quit", description: "Save session and exit", needsArgument: false },
     { name: "random", usage: "/random", description: "Play from recent songs", needsArgument: false },
-    { name: "recommend", usage: "/recommend [taste]", description: "Recommend songs of preferred music taste.", needsArgument: true },
+    { name: "recommend", usage: "/recommend", description: "Recommend songs of preferred music taste.", needsArgument: true },
     { name: "resume", usage: "/resume", description: "Resume current playback", needsArgument: false },
     { name: "search", usage: "/search <query>", description: "Search songs by keywords.", needsArgument: true },
     { name: "setup", usage: "/setup [provider]", description: "Configure a music provider.", needsArgument: true },

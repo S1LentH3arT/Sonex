@@ -76,7 +76,9 @@ from src.tools.playlists import (
     list_playlist_tracks,
     playlist_choices,
     save_track_to_playlist,
+    track_in_playlist,
 )
+from src.tools.playback_queue import playback_queue_snapshot, remember_playback_track
 from src.tools.track_search import search_track_metadata_candidates
 
 
@@ -131,8 +133,7 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 from src.tools.player_permission import complete_player_confirm
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
-from src.tools.spotify_play import remember_recent_track, recent_tracks_snapshot, spotify_current_playback, \
-    spotify_account
+from src.tools.spotify_play import remember_recent_track, spotify_current_playback, spotify_account
 from src.tools.song_cache import find_best_cached_song, recent_cached_songs, resolve_cached_song, upsert_cached_song
 from src.ws.constants import (
     APPLE_MUSIC_SETUP_TRIGGERS,
@@ -506,11 +507,9 @@ def _queue_payload() -> list[dict[str, str]]:
     Example: _queue_payload() -> returns the value used by the surrounding Sonex flow.
     """
     try:
-        tracks = recent_cached_songs()
+        tracks = playback_queue_snapshot()
     except Exception:
         tracks = []
-    if not tracks:
-        tracks = recent_tracks_snapshot()
     return [
         {
             "index": f"{index:02d}",
@@ -597,7 +596,26 @@ def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
         bool(state.get("is_playing")),
         progress_bucket,
         state.get("volume_percent"),
+        state.get("is_liked"),
     )
+
+
+def _decorate_player_state(state: dict[str, Any]) -> dict[str, Any]:
+    """Adds derived, read-only playlist metadata to a player payload."""
+    try:
+        is_liked = track_in_playlist(state, playlist_name=LIKES_PLAYLIST)
+    except Exception:
+        is_liked = False
+    return {**state, "is_liked": is_liked}
+
+
+def _remember_actual_playback(player_state: dict[str, Any]) -> None:
+    """Updates persisted queue state from accepted playback state."""
+    remember_playback_track(player_state)
+    if player_state.get("provider") == "apple_music":
+        remember_apple_music_recent_track(player_state)
+    else:
+        remember_recent_track(player_state)
 
 
 def _is_spotify_setup_request(text: str) -> bool:
@@ -2780,6 +2798,10 @@ class PlaylistSaveSession:
         name = str(result.get("playlist", {}).get("name") or playlist_name or LIKES_PLAYLIST)
         added = bool(result.get("added"))
         message = f"Saved to {name}." if added else f"Already saved in {name}."
+        if name == LIKES_PLAYLIST:
+            player_state = _decorate_player_state(self.track)
+            setattr(self.ui, "_last_player_state", player_state)
+            await self.ui._send({"type": "player", "state": player_state})
         await self.ui.append_agent_message(message)
         await self.ui.append_activity(kind="status", title="Playlist save", detail=message, status="success")
         await self.ui._send(_track_panel_payload("playlist", f"Playlist: {name}", playlist_panel_tracks(name)))
@@ -2940,7 +2962,8 @@ class WebSocketRunner:
                 if isinstance(result, dict) and result.get("status") == "success":
                     player_state, cover_url = _extract_music_state(result)
                     if player_state:
-                        remember_recent_track(player_state)
+                        player_state = _decorate_player_state(player_state)
+                        _remember_actual_playback(player_state)
                         signature = _player_sync_signature(player_state)
                         if signature != last_signature:
                             setattr(ui, "_last_player_state", player_state)
@@ -3226,9 +3249,15 @@ class WebSocketRunner:
             await ui.append_activity(kind="status", title="TUI keymap", detail=message, status="success")
             return
 
+        if command_name == "lang":
+            message = "The /lang command is handled by the TUI for this session."
+            await ui.append_agent_message(message)
+            await ui.append_activity(kind="status", title="TUI language", detail=message, status="success")
+            return
+
         if command_name == "queue":
             await ui._send(_track_panel_payload("queue", "Queue", _queue_payload()))
-            await ui.append_activity(kind="status", title="Queue", detail="Showing recent songs.", status="success")
+            await ui.append_activity(kind="status", title="Queue", detail="Showing playback queue.", status="success")
             return
 
         if command_name == "playlist":
@@ -3507,13 +3536,11 @@ class WebSocketRunner:
             player_state and (player_state.get("is_playing") or is_control_tool)
         )
         if should_sync_player and player_state:
+            player_state = _decorate_player_state(player_state)
             setattr(ui, "_last_player_state", player_state)
             await ui._send({"type": "player", "state": player_state})
             if tool_name not in SEARCH_RESULT_TOOLS:
-                if player_state.get("provider") == "apple_music":
-                    remember_apple_music_recent_track(player_state)
-                else:
-                    remember_recent_track(player_state)
+                _remember_actual_playback(player_state)
                 await ui._send({"type": "queue", "tracks": _queue_payload()})
         if should_sync_player and cover_url:
             await ui.send_cover(cover_url)

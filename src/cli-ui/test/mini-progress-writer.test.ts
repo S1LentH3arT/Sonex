@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 
 import {
     buildPlaybackProgressLine,
+    buildPlaybackStatusIconLine,
+    playbackStatusIconSegments,
     resolvePlaybackProgressUpdateMode,
     shouldRefreshMiniSnapshot,
     writeTerminalLine,
@@ -32,9 +34,19 @@ assert.equal(shouldRefreshMiniSnapshot('player'), false);
 assert.equal(shouldRefreshMiniSnapshot('cover'), false);
 
 assert.equal(buildPlaybackProgressLine(playing, 2_000, 22), '0:31 ━━━───────── 2:00');
+assert.equal(buildPlaybackStatusIconLine(playing, 10).text.trim(), '▶  ⣠ ⣄');
+assert.equal(buildPlaybackStatusIconLine({ ...playing, is_playing: false, is_liked: true }, 10).text.trim(), '▌▌ ⣠⣶⣄');
+assert.equal(buildPlaybackStatusIconLine(playing, 1).text, '▶');
+assert.deepEqual(playbackStatusIconSegments({ ...playing, is_liked: true }), [
+    { text: '▶ ' },
+    { text: ' ' },
+    { text: '⣠⣶⣄', color: 'red' },
+]);
 
 const position = resolveMiniPlayerLayout({ columns: 88, rows: 32 }).progressSlot;
 assert.deepEqual(position, { row: 17, column: 5, width: 23 });
 const writes: string[] = [];
 writeTerminalLine({ write: (chunk: string) => writes.push(chunk) }, position, 'abc');
 assert.deepEqual(writes, [`\u001B7\u001B[${position.row};${position.column}Habc${' '.repeat(position.width - 3)}\u001B8`]);
+writeTerminalLine({ write: (chunk: string) => writes.push(chunk) }, { ...position, width: 10 }, buildPlaybackStatusIconLine({ ...playing, is_liked: true }, 10));
+assert.equal(writes.at(-1), `\u001B7\u001B[${position.row};${position.column}H  ▶  \u001B[31m⣠⣶⣄\u001B[39m  \u001B8`);

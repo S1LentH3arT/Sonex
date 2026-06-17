@@ -102,6 +102,11 @@ assert.deepEqual(artwork.progressSlot, {
     column: 5,
     width: 36,
 });
+assert.deepEqual(artwork.statusIconSlot, {
+    row: 24,
+    column: 5,
+    width: 36,
+});
 
 const exactMinimumArtwork = resolveMiniPlayerLayout({ columns: 57, rows: 16 });
 assert.equal(exactMinimumArtwork.mode, 'artwork');
@@ -130,5 +135,7 @@ assert.equal(tooShortForArtwork.coverWidth, 0);
 
 const tinyTerminal = resolveMiniPlayerLayout({ columns: 40, rows: 2 });
 assert.equal(tinyTerminal.progressSlot.row, 1);
+assert.equal(tinyTerminal.statusIconSlot.row, 1);
 assert.ok(tinyTerminal.progressSlot.width >= 0);
+assert.ok(tinyTerminal.statusIconSlot.width >= 0);
 assert.ok(tinyTerminal.infoWidth >= 0);

@@ -42,6 +42,14 @@ export type CoverPatternUnavailableEvent = {
     reason: "invalid_brand" | "catalog_invalid" | "decode_failed" | "generation_failed";
 };
 
+export type UiLanguage = "en" | "zh-CN";
+
+export type LanguagePanelState = {
+    active: boolean;
+    selected: UiLanguage;
+    saveError?: string | null;
+} | null;
+
 export type ClientEvent =
     | { type: "user_input"; text: string }
     | { type: "internal_command"; text: string }
@@ -133,6 +141,7 @@ export type PlayerState = {
     session_id?: string | null;
     ended?: boolean | null;
     volume_percent?: number | null;
+    is_liked?: boolean | null;
     source?: "local" | "youtube" | "spotify" | "apple_music" | string | null;
 };
 
@@ -206,6 +215,12 @@ export type LoginScreenProps = {
     apiKeyInput: string;
     setApiKeyInput: (value: string) => void;
     onApiKeySubmit: (value: string) => void;
+};
+
+export type LanguagePanelProps = {
+    panel: LanguagePanelState;
+    activeLanguage: UiLanguage;
+    selectedIndex: number;
 };
 
 export type SlashCommandSuggestion = {

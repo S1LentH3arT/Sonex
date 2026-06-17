@@ -20,7 +20,7 @@ from fastapi import WebSocketDisconnect
 from src.agent.core import AgentState
 from src.api import ws_runner
 from src.api.music_intent import MusicIntentDecision, MusicIntentRoute
-from src.api.ws_runner import WebSocketRunner, _queue_payload, _track_panel_payload
+from src.api.ws_runner import WebSocketRunner, _decorate_player_state, _queue_payload, _track_panel_payload
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
 from src.thinking.config import ThinkingConfig
@@ -369,6 +369,17 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(help_events)
         self.assertTrue(any(command.usage == "/recommend [taste]" for command in help_events[0]["commands"]))
         self.assertFalse(any("Available commands" in str(event.get("text")) for event in ui.events))
+
+    async def test_lang_backend_fallback_is_local_and_does_not_trigger_agent(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/lang")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
+        self.assertTrue(any("handled by the TUI" in str(event.get("text")) for event in ui.events))
 
     async def test_help_prefix_filters_help_panel_commands(self) -> None:
         """Verifies that help prefix filters help panel commands behaves as expected.
@@ -1109,52 +1120,45 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.providers["audius"].api_key, "audius-api-key")
         self.assertFalse(auth_events[-1].get("active", True))
 
-    def test_queue_payload_prefers_unified_song_cache_recent_10(self) -> None:
-        """Verifies that queue payload prefers unified song cache recent 10 behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the queue payload prefers unified song cache recent 10 behavior against regressions.
-
-        Example: test_queue_payload_prefers_unified_song_cache_recent_10() -> passes without assertion failures when the behavior remains correct.
-        """
-        cached_tracks = [
-            {"name": f"Cached {idx}", "artist": "Artist", "duration_ms": 60_000}
+    def test_queue_payload_reads_dedicated_playback_queue_snapshot(self) -> None:
+        queue_tracks = [
+            {"name": f"Queued {idx}", "artist": "Artist", "duration_ms": 60_000}
             for idx in range(10)
         ]
-        with patch("src.api.ws_runner.recent_cached_songs", return_value=cached_tracks), \
-             patch("src.api.ws_runner.recent_tracks_snapshot", return_value=[]):
+        with patch("src.api.ws_runner.playback_queue_snapshot", return_value=queue_tracks):
             queue = _queue_payload()
 
         self.assertEqual(len(queue), 10)
-        self.assertEqual(queue[0]["title"], "Cached 0")
+        self.assertEqual(queue[0]["title"], "Queued 0")
         self.assertEqual(queue[-1]["index"], "10")
 
     def test_track_panel_payload_uses_queue_title_and_tracks(self) -> None:
-        cached_tracks = [
-            {"name": "Cached Song", "artist": "Artist", "duration_ms": 90_000}
+        queue_tracks = [
+            {"name": "Queued Song", "artist": "Artist", "duration_ms": 90_000}
         ]
-        with patch("src.api.ws_runner.recent_cached_songs", return_value=cached_tracks), \
-             patch("src.api.ws_runner.recent_tracks_snapshot", return_value=[]):
+        with patch("src.api.ws_runner.playback_queue_snapshot", return_value=queue_tracks):
             panel = _track_panel_payload("queue", "Queue", _queue_payload())
 
         self.assertEqual(panel["type"], "track_panel")
         self.assertEqual(panel["panel"], "queue")
         self.assertEqual(panel["title"], "Queue")
-        self.assertEqual(panel["tracks"][0]["title"], "Cached Song")
+        self.assertEqual(panel["tracks"][0]["title"], "Queued Song")
 
     async def test_queue_command_sends_track_panel_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
-        cached_tracks = [{"name": "Cached Song", "artist": "Artist", "duration_ms": 90_000}]
+        queue_tracks = [{"name": "Queued Song", "artist": "Artist", "duration_ms": 90_000}]
 
-        with patch("src.api.ws_runner.recent_cached_songs", return_value=cached_tracks), \
-             patch("src.api.ws_runner.recent_tracks_snapshot", return_value=[]):
+        with patch("src.api.ws_runner.playback_queue_snapshot", return_value=queue_tracks):
             await runner._handle_user_input(ui, "/queue")
 
         self.assertFalse(runner._run_agent_turn.called)
         panels = [event for event in ui.events if event.get("type") == "track_panel"]
         self.assertEqual(panels[-1]["panel"], "queue")
-        self.assertEqual(panels[-1]["tracks"][0]["title"], "Cached Song")
+        self.assertEqual(panels[-1]["tracks"][0]["title"], "Queued Song")
+        activity_events = [event for event in ui.events if event.get("type") == "activity"]
+        self.assertIn("playback queue", str(activity_events[-1]["detail"]).lower())
 
     async def test_playlist_command_sends_playlist_track_panel(self) -> None:
         runner = WebSocketRunner()
@@ -1216,6 +1220,79 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         save_track.assert_called_once()
         self.assertTrue(any("Saved to likes" in str(event.get("text")) for event in ui.events))
+
+    def test_player_state_decoration_includes_likes_membership(self) -> None:
+        state = {
+            "name": "Current Song",
+            "artist": "Current Artist",
+            "album": "-",
+            "duration_ms": 180000,
+            "provider": "youtube",
+        }
+
+        with patch("src.api.ws_runner.track_in_playlist", return_value=True) as in_playlist:
+            decorated = _decorate_player_state(state)
+
+        in_playlist.assert_called_once()
+        self.assertIsNot(decorated, state)
+        self.assertTrue(decorated["is_liked"])
+
+        with patch("src.api.ws_runner.track_in_playlist", return_value=False):
+            self.assertFalse(_decorate_player_state(state)["is_liked"])
+
+    async def test_player_event_includes_likes_membership(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        result = {
+            "status": "success",
+            "tool": "local_playback_player",
+            "message": "Playback backend set.",
+            "data": {
+                "provider": "youtube",
+                "source": "youtube",
+                "player": "mpv",
+                "session_id": "session-1",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "-",
+                "duration_ms": 180000,
+                "progress_ms": 42000,
+                "timestamp": 123456,
+                "is_playing": True,
+            },
+        }
+
+        with patch("src.api.ws_runner.registry.invoke", return_value=result), \
+                patch("src.api.ws_runner.track_in_playlist", return_value=True):
+            await runner._handle_internal_command(ui, "/player mpv")
+
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertTrue(player_events[-1]["state"]["is_liked"])
+
+    async def test_playlist_save_to_likes_emits_updated_liked_player_state(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_last_player_state", {
+            "name": "Current Song",
+            "artist": "Current Artist",
+            "album": "-",
+            "duration_ms": 180000,
+            "provider": "youtube",
+            "is_liked": False,
+        })
+
+        await runner._start_playlist_save(ui, "")
+        session = getattr(ui, "_playlist_save")
+        with patch("src.api.ws_runner.save_track_to_playlist", return_value={
+            "added": True,
+            "playlist": {"name": "likes", "track_count": 1},
+            "track": {"name": "Current Song", "artist": "Current Artist"},
+        }), patch("src.api.ws_runner.track_in_playlist", return_value=True):
+            await session.handle_choice("playlist:likes")
+
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertTrue(player_events)
+        self.assertTrue(player_events[-1]["state"]["is_liked"])
 
     async def test_pause_command_is_not_user_accessible_from_chat(self) -> None:
         runner = WebSocketRunner()
@@ -1410,7 +1487,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        with patch("src.api.ws_runner.remember_recent_track"):
+        with patch("src.api.ws_runner.remember_recent_track"), patch("src.api.ws_runner.remember_playback_track") as remember_playback_track:
             await runner._sync_tool_result_ui(ui, "play_youtube_song", result)
 
         player_events = [event for event in ui.events if event.get("type") == "player"]
@@ -1420,6 +1497,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["name"], "Song")
         self.assertEqual(player_events[-1]["state"]["youtube_url"], "https://www.youtube.com/watch?v=abc")
         self.assertIsNone(player_events[-1]["state"]["apple_music_url"])
+        remember_playback_track.assert_called_once()
         self.assertTrue(cover_events)
         self.assertEqual(cover_events[-1]["url"], "https://coverartarchive.org/release-group/mbid/front-500")
 
@@ -1481,13 +1559,14 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        with patch("src.api.ws_runner.remember_recent_track") as remember_recent_track:
+        with patch("src.api.ws_runner.remember_recent_track") as remember_recent_track, patch("src.api.ws_runner.remember_playback_track") as remember_playback_track:
             await runner._sync_tool_result_ui(ui, "play_youtube_song", result)
 
         self.assertFalse([event for event in ui.events if event.get("type") == "player"])
         self.assertFalse([event for event in ui.events if event.get("type") == "queue"])
         self.assertFalse([event for event in ui.events if event.get("type") == "cover"])
         remember_recent_track.assert_not_called()
+        remember_playback_track.assert_not_called()
 
     async def test_online_play_choice_reports_pending_and_enters_player_mode(self) -> None:
         """Verifies that online play choice reports pending and enters player mode behaves as expected.

@@ -8,18 +8,21 @@ import { DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './co
 import { clamp, trimList } from './chat-window.js';
 import { formatElapsed } from './format.js';
 import { useSonexSocket } from './hooks.js';
+import { applyLanguageToServerEvent, helpCommandsForLanguage, languageLabel, localizeSlashCommands, t } from './i18n.js';
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
-import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter } from './mini-progress-writer.js';
+import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { isLocalPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import { clearTerminalForLayoutSwitch } from './terminal-clear.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, PlayerState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion } from './types.js';
+import { loadUiLanguage, saveUiLanguage } from './ui-settings.js';
+import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 
 export const App = () => {
     const { exit } = useApp();
     const { isRawModeSupported } = useStdin();
     const { stdout } = useStdout();
     const rawModeAvailable = Boolean(isRawModeSupported && typeof process.stdin.setRawMode === "function");
+    const [language, setLanguage] = useState<UiLanguage>(() => loadUiLanguage());
     const [input, setInput] = useState("");
     const [inputRevision, setInputRevision] = useState(0);
     const [chatItems, setChatItems] = useState<ChatItem[]>([]);
@@ -28,7 +31,7 @@ export const App = () => {
     const [searchItems, setSearchItems] = useState<TrackSummary[]>([]);
     const [trackPanel, setTrackPanel] = useState<TrackPanelState>(null);
     const [player, setPlayer] = useState<PlayerState>({ name: "-", artist: "-", album: "-", duration_ms: 0, progress_ms: 0, is_playing: false });
-    const [statusText, setStatusText] = useState("Snoozing...");
+    const [statusText, setStatusText] = useState(() => t(loadUiLanguage(), "status.snoozing"));
     const [launchPreparing, setLaunchPreparing] = useState(false);
     const [launchPreparingFrame, setLaunchPreparingFrame] = useState(0);
     const [elapsed, setElapsed] = useState<string | null>(null);
@@ -61,6 +64,8 @@ export const App = () => {
     const [isExiting, setIsExiting] = useState(false);
     const [helpPanel, setHelpPanel] = useState<HelpPanelState>(null);
     const [helpPanelIndex, setHelpPanelIndex] = useState(0);
+    const [languagePanel, setLanguagePanel] = useState<LanguagePanelState>(null);
+    const [languagePanelIndex, setLanguagePanelIndex] = useState(0);
     const [chatScrollOffset, setChatScrollOffset] = useState(0);
     const [maxChatScrollOffset, setMaxChatScrollOffset] = useState(0);
     const [loginSelectionIndex, setLoginSelectionIndex] = useState(0);
@@ -74,7 +79,7 @@ export const App = () => {
     const authSetupActiveRef = React.useRef(false);
     const slashMenuActiveRef = React.useRef(false);
     const isLoginScreenActive = isGenericAuthSetup(authSetup);
-    const slashSuggestions = authSetup?.active || spotifySetup?.active ? [] : slashCommandSuggestions(input);
+    const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active ? [] : slashCommandSuggestions(input, language);
     const slashInput = input.trimStart();
     const isSlashInput = slashInput.startsWith("/");
     const isSlashMenuActive = rawModeAvailable && !confirm && isSlashInput && slashMenuDismissedFor !== input && slashSuggestions.length > 0;
@@ -84,6 +89,7 @@ export const App = () => {
     const miniVisible = activeRegion === "miniPlayer";
     const miniLayout = React.useMemo(() => resolveMiniPlayerLayout(terminalSize), [terminalSize.columns, terminalSize.rows]);
     const headerVariant = resolveChatHeaderVariant(terminalSize.columns);
+    const languageChoices = React.useMemo<UiLanguage[]>(() => ["en", "zh-CN"], []);
 
     React.useEffect(() => {
         playbackKeymapEnabledRef.current = playbackKeymapEnabled;
@@ -165,6 +171,12 @@ export const App = () => {
         position: miniLayout.progressSlot,
         stdout,
     });
+    usePlaybackStatusIconWriter({
+        enabled: miniVisible,
+        player,
+        position: miniLayout.statusIconSlot,
+        stdout,
+    });
 
     React.useEffect(() => {
         setSlashIndex((prev) => Math.min(prev, Math.max(0, slashSuggestions.length - 1)));
@@ -196,6 +208,7 @@ export const App = () => {
         if (sanitized) {
             setHelpPanel(null);
             setTrackPanel(null);
+            setLanguagePanel(null);
         }
         if (sanitized !== slashMenuDismissedFor) {
             setSlashMenuDismissedFor(null);
@@ -215,13 +228,14 @@ export const App = () => {
             ? authSetup.prompt
             : spotifySetup?.active && spotifySetup.prompt
                 ? spotifySetup.prompt
-                : "Say something to awake Sonex.";
+                : t(language, "input.placeholder");
     const inputMask = authSetup?.active && authSetup.mask
         ? "*"
         : spotifySetup?.active && spotifySetup.mask
             ? "*"
             : undefined;
-    const onEvent = React.useCallback((evt: ServerEvent) => {
+    const onEvent = React.useCallback((rawEvent: ServerEvent) => {
+        const evt = applyLanguageToServerEvent(rawEvent, language);
         switch (evt.type) {
             case "chat":
                 setChatItems((prev) => trimList([...prev, { role: evt.role, content: evt.text }], MAX_CHAT_ITEMS));
@@ -237,7 +251,7 @@ export const App = () => {
                 }
                 break;
             case "status":
-                setLaunchPreparing(evt.active !== false && evt.message === "Launch preparing...");
+                setLaunchPreparing(rawEvent.type === "status" && rawEvent.active !== false && rawEvent.message === "Launch preparing...");
                 setStatusText(evt.message);
                 if (evt.active === false) {
                     setShowRunMetrics(false);
@@ -254,6 +268,7 @@ export const App = () => {
                 break;
             case "queue":
                 setQueueItems(evt.tracks);
+                setTrackPanel((current) => current && current.panel === "queue" ? { ...current, tracks: evt.tracks } : current);
                 break;
             case "track_panel":
                 setLaunchPreparing(false);
@@ -388,9 +403,10 @@ export const App = () => {
                 setHelpPanel({
                     title: evt.title,
                     hint: evt.hint,
-                    commands: evt.commands,
+                    commands: helpCommandsForLanguage(evt.commands, language),
                 });
                 setTrackPanel(null);
+                setLanguagePanel(null);
                 setHelpPanelIndex(0);
                 setStatusText(evt.title);
                 break;
@@ -403,12 +419,17 @@ export const App = () => {
                 setTimeout(() => exit(), 80);
                 break;
         }
-    }, [exit, showError, switchRegion]);
+    }, [exit, language, showError, switchRegion]);
 
     const { send } = useSonexSocket({
         url: wsUrl,
         onEvent,
-        onClientError: (message, detail) => showError(message, detail),
+        onClientError: (message, detail) => showError(
+            language === "zh-CN" && message.startsWith("Sonex API is not running")
+                ? `${t(language, "api.notRunning.message")}。 ${t(language, "api.notRunning.detail")}`
+                : message,
+            detail,
+        ),
     });
 
     React.useEffect(() => {
@@ -444,8 +465,9 @@ export const App = () => {
         setSlashMenuDismissedFor(null);
         setHelpPanel(null);
         setTrackPanel(null);
+        setLanguagePanel(null);
         setHelpPanelIndex(0);
-        setStatusText("Saving session...");
+        setStatusText(t(language, "status.saving"));
         setActivityItems((prev) => upsertActivity(prev, {
             id: "bye_saving",
             kind: "status",
@@ -458,19 +480,22 @@ export const App = () => {
         const sent = send({ type: "bye", messages: chatItems, reason });
         if (!sent) {
             setIsExiting(false);
-            showError("Unable to save session before exit.", "Sonex API connection is not open.");
+            showError(
+                language === "zh-CN" ? "退出前无法保存会话。" : "Unable to save session before exit.",
+                language === "zh-CN" ? "Sonex API 连接未打开。" : "Sonex API connection is not open.",
+            );
         }
-    }, [chatItems, isExiting, send, showError]);
+    }, [chatItems, isExiting, language, send, showError]);
 
     const appendKeymapMessage = React.useCallback((enabled: boolean) => {
         const mode = enabled ? "enabled" : "pure mode";
         setChatItems((prev) => trimList([...prev, {
             role: "agent",
-            content: `Mini-player keymap is ${mode}.`,
+            content: language === "zh-CN" ? `迷你播放器快捷键已${enabled ? "启用" : "进入纯净模式"}。` : `Mini-player keymap is ${mode}.`,
         }], MAX_CHAT_ITEMS));
         setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
         setShowRunMetrics(false);
-    }, []);
+    }, [language]);
 
     const handleKeymapCommand = React.useCallback((args: string) => {
         const value = args.trim().toLowerCase();
@@ -498,10 +523,10 @@ export const App = () => {
         }
         setChatItems((prev) => trimList([...prev, {
             role: "agent",
-            content: "Usage: /keymap [on|off|toggle|status]",
+            content: t(language, "keymap.usage"),
         }], MAX_CHAT_ITEMS));
         setShowRunMetrics(false);
-    }, [appendKeymapMessage]);
+    }, [appendKeymapMessage, language]);
 
     const loginChoices = authSetup?.step === "provider"
         ? authSetup.providers ?? []
@@ -510,7 +535,33 @@ export const App = () => {
             : authSetup?.step === "model"
                 ? authSetup.models ?? []
                 : [];
-    const displayStatusText = launchPreparing ? launchPreparingText(launchPreparingFrame) : statusText;
+    const displayStatusText = launchPreparing ? launchPreparingText(launchPreparingFrame, language) : statusText;
+
+    const openLanguagePanel = React.useCallback(() => {
+        const currentIndex = Math.max(0, languageChoices.indexOf(language));
+        setInput("");
+        setSlashMenuDismissedFor(null);
+        setHelpPanel(null);
+        setTrackPanel(null);
+        setLanguagePanel({ active: true, selected: language });
+        setLanguagePanelIndex(currentIndex);
+        setStatusText(t(language, "language.title"));
+    }, [language, languageChoices]);
+
+    const chooseLanguage = React.useCallback((nextLanguage: UiLanguage) => {
+        let saveError: string | null = null;
+        try {
+            saveUiLanguage(nextLanguage);
+        } catch {
+            saveError = t(nextLanguage, "language.saveError");
+        }
+        setLanguage(nextLanguage);
+        setLanguagePanel(saveError ? { active: true, selected: nextLanguage, saveError } : null);
+        setStatusText(t(nextLanguage, "language.saved", { language: languageLabel(nextLanguage) }));
+        if (saveError) {
+            showError(saveError);
+        }
+    }, [showError]);
 
     const submitLoginChoice = React.useCallback(() => {
         if (!authSetup?.active) return;
@@ -571,11 +622,17 @@ export const App = () => {
             return;
         }
 
+        if (!authSetup?.active && !spotifySetup?.active && command?.name === "lang") {
+            openLanguagePanel();
+            return;
+        }
+
         if (!authSetup?.active && !spotifySetup?.active && command?.name === "keymap") {
             setInput("");
             setSlashMenuDismissedFor(null);
             setHelpPanel(null);
             setTrackPanel(null);
+            setLanguagePanel(null);
             setHelpPanelIndex(0);
             handleKeymapCommand(text.slice(text.trimStart().split(/\s+/, 1)[0]?.length ?? 0));
             return;
@@ -606,6 +663,7 @@ export const App = () => {
             setHelpPanel(null);
             setHelpPanelIndex(0);
         }
+        setLanguagePanel(null);
         if (spotifySetup?.active) {
             send({ type: "setup_input", value: text });
         } else if (authSetup?.active) {
@@ -613,7 +671,7 @@ export const App = () => {
         } else {
             send({ type: "user_input", text });
         }
-    }, [applySlashCompletion, authSetup?.active, confirm, handleKeymapCommand, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active]);
+    }, [applySlashCompletion, authSetup?.active, confirm, handleKeymapCommand, openLanguagePanel, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -655,6 +713,21 @@ export const App = () => {
     }, { isActive: isSlashMenuActive });
 
     useInput((inputKey, key) => {
+        if (!languagePanel?.active) return;
+
+        if (key.upArrow) {
+            setLanguagePanelIndex((prev) => (prev - 1 + languageChoices.length) % languageChoices.length);
+        } else if (key.downArrow) {
+            setLanguagePanelIndex((prev) => (prev + 1) % languageChoices.length);
+        } else if (key.return) {
+            const selected = languageChoices[Math.min(languagePanelIndex, languageChoices.length - 1)] ?? "en";
+            chooseLanguage(selected);
+        } else if (key.escape) {
+            setLanguagePanel(null);
+        }
+    }, { isActive: Boolean(languagePanel?.active) && rawModeAvailable });
+
+    useInput((inputKey, key) => {
         if (key.pageUp) {
             scrollChat(5);
         } else if (key.pageDown) {
@@ -664,7 +737,7 @@ export const App = () => {
         } else if (input.trim().length === 0 && key.downArrow) {
             scrollChat(-1);
         }
-    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && !confirm && !isSlashMenuActive && !isLoginScreenActive });
+    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && !confirm && !isSlashMenuActive && !isLoginScreenActive && !languagePanel?.active });
 
     useInput((inputKey, key) => {
         if (!confirm) return;
@@ -690,7 +763,7 @@ export const App = () => {
     }, { isActive: Boolean(confirm) && rawModeAvailable });
 
     useInput((inputKey, key) => {
-        if (!helpPanel || confirm || isSlashMenuActive) return;
+        if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active) return;
 
         if (key.upArrow && helpPanel.commands.length > 0) {
             setHelpPanelIndex((prev) => (prev - 1 + helpPanel.commands.length) % helpPanel.commands.length);
@@ -700,22 +773,22 @@ export const App = () => {
             setHelpPanel(null);
             setHelpPanelIndex(0);
         }
-    }, { isActive: Boolean(helpPanel) && rawModeAvailable && !confirm && !isSlashMenuActive });
+    }, { isActive: Boolean(helpPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active });
 
     useInput((inputKey, key) => {
-        if (!trackPanel || confirm || isSlashMenuActive) return;
+        if (!trackPanel || confirm || isSlashMenuActive || languagePanel?.active) return;
         if (key.escape) {
             setTrackPanel(null);
         }
-    }, { isActive: Boolean(trackPanel) && rawModeAvailable && !confirm && !isSlashMenuActive });
+    }, { isActive: Boolean(trackPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active });
 
     useInput((inputKey, key) => {
-        if (!playbackSessionActive || confirm || isSlashMenuActive) return;
+        if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active) return;
 
         if (key.tab || inputKey === "\t") {
             switchRegion(toggleShellRegion(activeRegionRef.current, playbackSessionActiveRef.current));
         }
-    }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive });
+    }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active });
 
     return (
         <Box
@@ -724,7 +797,7 @@ export const App = () => {
             height={terminalSize.rows ?? undefined}
             minHeight={0}
         >
-            {activeRegion === "chat" ? <HeaderFrame authState={authState} variant={headerVariant} /> : null}
+            {activeRegion === "chat" ? <HeaderFrame authState={authState} variant={headerVariant} language={language} /> : null}
             {isLoginScreenActive ? (
                 <LoginScreen
                     authSetup={authSetup}
@@ -732,6 +805,7 @@ export const App = () => {
                     apiKeyInput={loginApiKeyInput}
                     setApiKeyInput={setLoginApiKeyInput}
                     onApiKeySubmit={submitLoginApiKey}
+                    language={language}
                 />
             ) : (
                 <Box flexDirection="column" width="100%" flexGrow={1} flexShrink={1} minHeight={0}>
@@ -741,7 +815,7 @@ export const App = () => {
                         onSubmit={submitInput}
                         inputPlaceholder={inputPlaceholder}
                         inputMask={inputMask}
-                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable}
+                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !languagePanel?.active}
                         inputRevision={inputRevision}
                         chatItems={chatItems}
                         player={player}
@@ -759,6 +833,8 @@ export const App = () => {
                         slashIndex={slashIndex}
                         helpPanel={helpPanel}
                         helpPanelIndex={helpPanelIndex}
+                        languagePanel={languagePanel}
+                        languagePanelIndex={languagePanelIndex}
                         trackPanel={trackPanel}
                         activeRegion={activeRegion}
                         miniSnapshotRevision={miniSnapshotRevision}
@@ -766,6 +842,7 @@ export const App = () => {
                         chatScrollOffset={chatScrollOffset}
                         onMaxChatScrollOffsetChange={setMaxChatScrollOffset}
                         terminalSpace={terminalSize}
+                        language={language}
                     />
                 </Box>
             )}

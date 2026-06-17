@@ -159,6 +159,21 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertEqual(commands["keymap"].usage, "/keymap [on|off|toggle|status]")
         self.assertEqual(commands["keymap"].description, "Toggle mini-player playback shortcuts.")
 
+    def test_lang_is_visible_local_tui_command_metadata(self) -> None:
+        parsed = parse_builtin_command("/lang zh-CN")
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.name, "lang")
+        self.assertEqual(parsed.args, "zh-CN")
+        self.assertTrue(parsed.known)
+        self.assertEqual(parsed.command.mode, "local")
+        self.assertTrue(parsed.command.visible)
+        self.assertIsNone(parsed.command_intent())
+
+        commands = {command.name: command for command in command_suggestions()}
+        self.assertEqual(commands["lang"].usage, "/lang")
+        self.assertEqual(commands["lang"].description, "Choose the TUI display language.")
+
     def test_playlist_and_queue_are_local_commands(self) -> None:
         playlist = parse_builtin_command("/playlist save likes")
         queue = parse_builtin_command("/queue")
@@ -318,7 +333,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        for name in ["help", "model", "logout", "setup", "bye", "quit", "player", "keymap"]:
+        for name in ["help", "model", "logout", "setup", "bye", "quit", "player", "keymap", "lang"]:
             with self.subTest(name=name):
                 self.assertEqual(commands[name].mode, "local")
 

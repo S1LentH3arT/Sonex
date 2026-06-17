@@ -1,5 +1,6 @@
 import { SLASH_COMMANDS } from './constants.js';
-import type { SlashCommandSuggestion } from './types.js';
+import { localizeSlashCommands } from './i18n.js';
+import type { SlashCommandSuggestion, UiLanguage } from './types.js';
 
 /**
  * Coordinates the slash command suggestions operation for the CLI UI runtime.
@@ -7,11 +8,11 @@ import type { SlashCommandSuggestion } from './types.js';
  * @param input Input value used by the slash command suggestions operation.
  * @returns The computed result for the surrounding CLI UI flow.
  */
-export function slashCommandSuggestions(input: string): SlashCommandSuggestion[] {
+export function slashCommandSuggestions(input: string, language: UiLanguage = "en"): SlashCommandSuggestion[] {
     const trimmed = input.trimStart();
     if (!trimmed.startsWith("/")) return [];
     const token = trimmed.slice(1).split(/\s+/, 1)[0]?.toLowerCase() ?? "";
-    return SLASH_COMMANDS.filter((command) => command.name.startsWith(token));
+    return localizeSlashCommands(SLASH_COMMANDS.filter((command) => command.name.startsWith(token)), language);
 }
 
 /**
