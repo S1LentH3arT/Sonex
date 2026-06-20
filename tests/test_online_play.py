@@ -2343,6 +2343,7 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertIn("VLC", choices[1]["label"])
         self.assertIn("default", choices[0]["description"])
         self.assertIn("manual diagnostic", choices[1]["description"])
+        self.assertNotIn("description", choices[2])
 
     def test_player_confirm_choice_selects_requested_backend(self) -> None:
         """Verifies that player confirm choice selects requested backend behaves as expected.

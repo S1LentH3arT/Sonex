@@ -25,5 +25,6 @@ assert.match(typesSource, /panel: "queue" \| "playlist"/);
 const chatScrollInput = appSource.match(/useInput\(\(inputKey, key\) => \{[\s\S]*?scrollChat\(-1\);[\s\S]*?\}, \{ isActive: ([\s\S]*?) \}\);/);
 assert.ok(chatScrollInput);
 assert.match(chatScrollInput[1] ?? "", /activeRegion !== "miniPlayer"/);
+assert.match(chatScrollInput[1] ?? "", /!helpPanel/);
 
 assert.match(typesSource, /type: "internal_command"; text: string/);

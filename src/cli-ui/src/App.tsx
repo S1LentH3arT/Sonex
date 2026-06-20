@@ -671,7 +671,7 @@ export const App = () => {
         } else if (input.trim().length === 0 && key.downArrow) {
             scrollChat(-1);
         }
-    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && !confirm && !isSlashMenuActive && !isLoginScreenActive });
+    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && !confirm && !helpPanel && !isSlashMenuActive && !isLoginScreenActive });
 
     useInput((inputKey, key) => {
         if (!confirm) return;

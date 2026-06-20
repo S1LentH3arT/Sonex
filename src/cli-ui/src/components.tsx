@@ -9,7 +9,7 @@ import { isHttpCoverSource, useCoverArt } from './hooks.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion } from './layout.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmChoice, ConfirmState, HelpPanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary } from './types.js';
 
 const Mascot = () => {
     return (
@@ -181,6 +181,12 @@ const PromptInput = ({ input, setInput, onSubmit, focus, placeholder, mask, inpu
     />
 );
 
+const COMMAND_LIST_LABEL_WIDTH = 10;
+
+const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): string => (
+    `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
+);
+
 const SlashCommandList = ({ suggestions, selectedIndex }: {
     suggestions: SlashCommandSuggestion[];
     selectedIndex: number;
@@ -203,8 +209,7 @@ const SlashCommandList = ({ suggestions, selectedIndex }: {
                         <Text color={commandColor}>
                             {absoluteIndex === boundedIndex ? "> " : "  "}
                         </Text>
-                        <Text color={commandColor}>{command.usage}</Text>
-                        <Text color={commandColor}> - </Text>
+                        <Text color={commandColor}>{formatCommandListLabel(command)}</Text>
                         <Text color={commandColor}>{command.description}</Text>
                     </Text>
                 );
@@ -223,7 +228,7 @@ const HelpPanel = ({ panel, selectedIndex }: { panel: HelpPanelState; selectedIn
     );
 
     return (
-        <Box flexDirection="column" paddingX={1} paddingBottom={1}>
+        <Box flexDirection="column" paddingX={1} paddingBottom={1} borderStyle="single" borderColor={BORDER_BLUE}>
             <Text>
                 <Text bold color="#fff4f6">{panel.title}</Text>
                 <Text color="#7f5d6b"> - </Text>
@@ -239,8 +244,7 @@ const HelpPanel = ({ panel, selectedIndex }: { panel: HelpPanelState; selectedIn
                         <Text color={commandColor}>
                             {absoluteIndex === boundedIndex ? "> " : "  "}
                         </Text>
-                        <Text color={commandColor}>{command.usage}</Text>
-                        <Text color={commandColor}> - </Text>
+                        <Text color={commandColor}>{formatCommandListLabel(command)}</Text>
                         <Text color={commandColor}>{command.description}</Text>
                     </Text>
                 );
@@ -401,14 +405,7 @@ const ActivityPane = ({ items, confirm, confirmIndex, spotifySetup, authSetup }:
                     <Text color="#bf98a7">{confirm.tool_name} {JSON.stringify(confirm.tool_args)}</Text>
                     <Box flexDirection="column">
                         {confirm.choices.map((choice, idx) => (
-                            <Box key={choice.value} flexDirection="column">
-                                <Text color={confirmIndex === idx ? "#fff4f6" : "#7f5d6b"}>
-                                    {confirmIndex === idx ? "> " : "  "}{choice.label}
-                                </Text>
-                                {choice.description ? (
-                                    <Text color="#8f6f7c">    {choice.description}</Text>
-                                ) : null}
-                            </Box>
+                            <ConfirmChoiceRow key={choice.value} choice={choice} selected={confirmIndex === idx} />
                         ))}
                     </Box>
                 </Box>
@@ -775,6 +772,28 @@ const CompactConversation = ({ items, statusText }: { items: ChatItem[]; statusT
     );
 };
 
+const isCancelChoice = (choice: ConfirmChoice): boolean => (
+    choice.value === "cancel"
+    || choice.value === "deny"
+    || choice.label.toLowerCase() === "cancel"
+    || choice.label === "取消"
+);
+
+const ConfirmChoiceRow = ({ choice, selected }: { choice: ConfirmChoice; selected: boolean }) => {
+    const description = isCancelChoice(choice) ? null : choice.description;
+
+    return (
+        <Box flexDirection="row">
+            <Text color={selected ? "#fff4f6" : "#7f5d6b"}>
+                {selected ? "> " : "  "}{choice.label}
+            </Text>
+            {description ? (
+                <Text color="#8f6f7c">  {description}</Text>
+            ) : null}
+        </Box>
+    );
+};
+
 const CompactConfirm = ({ confirm, confirmIndex }: { confirm: ConfirmState; confirmIndex: number }) => {
     if (!confirm) return null;
 
@@ -782,14 +801,7 @@ const CompactConfirm = ({ confirm, confirmIndex }: { confirm: ConfirmState; conf
         <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={BORDER_BLUE}>
             <Text color="#fff4f6">{confirm.message}</Text>
             {confirm.choices.map((choice, idx) => (
-                <Box key={choice.value} flexDirection="column">
-                    <Text color={confirmIndex === idx ? "#fff4f6" : "#7f5d6b"}>
-                        {confirmIndex === idx ? "> " : "  "}{choice.label}
-                    </Text>
-                    {choice.description ? (
-                        <Text color="#8f6f7c">    {choice.description}</Text>
-                    ) : null}
-                </Box>
+                <ConfirmChoiceRow key={choice.value} choice={choice} selected={confirmIndex === idx} />
             ))}
         </Box>
     );
