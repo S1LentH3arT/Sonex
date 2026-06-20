@@ -11,8 +11,10 @@ export type TerminalWriter = {
 export type PlaybackProgressUpdateMode = 'off' | 'once' | 'interval';
 export type MiniSnapshotRefreshReason = 'region' | 'resize' | 'player' | 'cover';
 
-const PLAYING_STATUS_ICON = '▶ ';
+const PLAYING_STATUS_ICON = '▶';
 const PAUSED_STATUS_ICON = '▌▌';
+const LIKED_HEART = '⣿⣿';
+const UNLIKED_HEART = '⢿⡿';
 
 export function resolvePlaybackProgressUpdateMode(enabled: boolean, player: PlayerState): PlaybackProgressUpdateMode {
     if (!enabled || player.ended === true) return 'off';
@@ -34,9 +36,19 @@ export function buildPlaybackProgressLine(player: PlayerState, now: number, widt
 
 export function buildPlaybackStatusIconLine(player: PlayerState, width: number): string {
     const icon = player.is_playing === true ? PLAYING_STATUS_ICON : PAUSED_STATUS_ICON;
-    if (width <= icon.length) return icon.slice(0, Math.max(0, width));
-    const leftPadding = Math.floor((width - icon.length) / 2);
-    return `${' '.repeat(leftPadding)}${icon}`;
+    const heart = player.is_liked === true ? LIKED_HEART : UNLIKED_HEART;
+    const controls = `${icon} ${heart}`;
+    if (width <= controls.length) return controls.slice(0, Math.max(0, width));
+
+    const progress = formatDuration(player.progress_ms ?? 0);
+    const duration = formatDuration(player.duration_ms);
+    const barWidth = Math.max(6, width - progress.length - duration.length - 2);
+    const barStart = progress.length + 1;
+    const controlsStart = Math.max(0, Math.min(
+        width - controls.length,
+        barStart + Math.floor((barWidth - controls.length) / 2),
+    ));
+    return `${' '.repeat(controlsStart)}${controls}`;
 }
 
 export function writeTerminalLine(stdout: TerminalWriter, position: TerminalLinePosition, text: string): void {
@@ -87,5 +99,5 @@ export function usePlaybackStatusIconWriter({
     React.useEffect(() => {
         if (!enabled) return;
         writeTerminalLine(stdout, position, buildPlaybackStatusIconLine(player, position.width));
-    }, [enabled, player.is_playing, position.column, position.row, position.width, stdout]);
+    }, [enabled, player.is_liked, player.is_playing, position.column, position.row, position.width, stdout]);
 }

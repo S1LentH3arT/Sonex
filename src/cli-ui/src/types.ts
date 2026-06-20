@@ -133,6 +133,7 @@ export type PlayerState = {
     session_id?: string | null;
     ended?: boolean | null;
     volume_percent?: number | null;
+    is_liked?: boolean | null;
     source?: "local" | "youtube" | "spotify" | "apple_music" | string | null;
 };
 
