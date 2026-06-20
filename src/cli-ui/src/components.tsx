@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
-import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT } from './constants.js';
+import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle } from './format.js';
 import { getVisibleChatWindow } from './chat-window.js';
@@ -17,6 +17,22 @@ const Mascot = () => {
     return (
         <Box width={16} flexDirection="column" marginRight={3}>
             {SONEX_MASCOT.map((row, rowIndex) => (
+                <Text key={rowIndex}>
+                    {row.map((segment, segmentIndex) => (
+                        <Text key={segmentIndex} color={segment.fg} backgroundColor={segment.bg}>
+                            {segment.text}
+                        </Text>
+                    ))}
+                </Text>
+            ))}
+        </Box>
+    );
+};
+
+const MiniMascotStatus = () => {
+    return (
+        <Box height={2} flexShrink={0} paddingX={1} flexDirection="column">
+            {SONEX_MASCOT_MICRO.map((row, rowIndex) => (
                 <Text key={rowIndex}>
                     {row.map((segment, segmentIndex) => (
                         <Text key={segmentIndex} color={segment.fg} backgroundColor={segment.bg}>
@@ -1002,10 +1018,6 @@ const MiniPlayerInputDock = ({
 
 const ConversationColumn = ({
     chatItems,
-    statusText,
-    elapsed,
-    tokens,
-    showRunMetrics,
     input,
     setInput,
     onSubmit,
@@ -1030,10 +1042,6 @@ const ConversationColumn = ({
     fill = false,
 }: {
     chatItems: ChatItem[];
-    statusText: string;
-    elapsed: string | null;
-    tokens: string | null;
-    showRunMetrics: boolean;
     input: string;
     setInput: (value: string) => void;
     onSubmit: (value: string) => void;
@@ -1059,27 +1067,7 @@ const ConversationColumn = ({
 }) => (
     <Box flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} height={fill ? "100%" : undefined}>
         <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange} fill={fill} language={language} />
-        <Box paddingX={1} height={1} flexShrink={0}>
-            <Text color="#bf98a7">
-                {statusText}
-                {showRunMetrics && (elapsed || tokens) ? (
-                    <>
-                        {elapsed ? (
-                            <>
-                                <Text color="#7f5d6b"> • </Text>
-                                <Text color="#d8bcc7">{elapsed}</Text>
-                            </>
-                        ) : null}
-                        {tokens ? (
-                            <>
-                                <Text color="#7f5d6b"> • </Text>
-                                <Text color="#d8bcc7">{tokens}</Text>
-                            </>
-                        ) : null}
-                    </>
-                ) : null}
-            </Text>
-        </Box>
+        <MiniMascotStatus />
         <InputDock
             input={input}
             setInput={setInput}
@@ -1226,10 +1214,6 @@ const ConversationRegion = ({
         <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
             <ConversationColumn
             chatItems={chatItems}
-            statusText={statusText}
-            elapsed={elapsed}
-            tokens={tokens}
-            showRunMetrics={showRunMetrics}
             input={input}
             setInput={setInput}
             onSubmit={onSubmit}

@@ -237,3 +237,27 @@ export const SONEX_MASCOT: MascotSegment[][] = [
     //     {text: "    "},
     // ],
 ];
+
+export const SONEX_MASCOT_MICRO: MascotSegment[][] = [
+    [
+        { text: "  " },
+        { text: "▄", fg: "#000000" },
+        { text: "▀▀▀", fg: "#000000", bg: "#f4f1f3" },
+        { text: "▄", fg: "#000000" },
+        { text: "   " },
+        { text: "▄", fg: "#4b5161" },
+        { text: "▀▀", fg: "#4b5161", bg: "#9fd9ff" },
+        { text: "▄", fg: "#4b5161" },
+    ],
+    [
+        { text: " " },
+        { text: "█", fg: "#000000" },
+        { text: "▀", fg: "#f4f1f3", bg: "#000000" },
+        { text: "█", fg: "#9fd9ff" },
+        { text: "█", fg: "#000000" },
+        { text: "   " },
+        { text: "▀", fg: "#4b5161" },
+        { text: "██", fg: "#9fd9ff" },
+        { text: "▀", fg: "#4b5161" },
+    ],
+];
