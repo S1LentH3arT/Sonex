@@ -22,7 +22,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "lang", usage: "/lang", description: "Choose the TUI display language.", needsArgument: false },
     { name: "logout", usage: "/logout", description: "Log out current LLM provider and exit", needsArgument: false },
     { name: "model", usage: "/model", description: "Switch active model", needsArgument: false },
-    { name: "player", usage: "/player <auto|mpv|cvlc>", description: "Set playback backend; auto uses mpv", needsArgument: true },
+    { name: "player", usage: "/player", description: "Choose playback backend from a panel", needsArgument: false },
     { name: "play", usage: "/play <query/number>", description: "Play a song by query or result number.", needsArgument: true },
     { name: "playlist", usage: "/playlist [name]|save [name]", description: "Browse or save playlists", needsArgument: false },
     { name: "queue", usage: "/queue", description: "Show playback queue", needsArgument: false },

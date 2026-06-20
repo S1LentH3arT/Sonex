@@ -2808,6 +2808,85 @@ class PlaylistSaveSession:
         setattr(self.ui, "_playlist_save", None)
 
 
+class PlayerBackendSelectionSession:
+    """Represents player backend selection session."""
+
+    def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner") -> None:
+        self.ui = ui
+        self.runner = runner
+        self.confirm_id = _new_event_id("player_backend")
+
+    async def start(self) -> None:
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Player backend",
+            detail="Choose playback backend.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "type": "confirm",
+                "id": self.confirm_id,
+                "tool_name": "local_playback_player",
+                "tool_args": {"stage": "player_backend_selection"},
+                "message": "Choose playback backend.",
+                "choices": [
+                    {
+                        "value": "auto",
+                        "label": "Auto",
+                        "description": "Default stable mpv backend.",
+                    },
+                    {
+                        "value": "mpv",
+                        "label": "mpv",
+                        "description": "Use mpv explicitly.",
+                    },
+                    {
+                        "value": "cvlc",
+                        "label": "VLC",
+                        "description": "Use VLC as the manual diagnostic backend.",
+                    },
+                    {
+                        "value": "deny",
+                        "label": "Cancel",
+                        "description": "Keep the current playback backend unchanged.",
+                    },
+                ],
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        setattr(self.ui, "_player_backend_selection", None)
+        backend = str(decision or "deny").strip().lower()
+        if backend == "deny":
+            message = "Playback backend unchanged."
+            await self.ui.append_agent_message(message)
+            await self.ui.append_activity(kind="status", title="Player backend", detail=message, status="success")
+            return
+        if backend not in LOCAL_PLAYBACK_BACKENDS:
+            message = "Playback backend unchanged."
+            await self.ui.append_agent_message(message)
+            await self.ui.append_activity(kind="status", title="Player backend", detail=message, status="success")
+            return
+
+        tool_name = "local_playback_player"
+        try:
+            result = registry.invoke(tool_name, {"backend": backend})
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": tool_name,
+                "message": sanitize_error_message(exc),
+                "error_code": "PLAYBACK_CONTROL_FAILED",
+                "data": {},
+            }
+        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
+
+
 class WebSocketRunner:
     """Represents web socket runner.
 
@@ -2901,6 +2980,10 @@ class WebSocketRunner:
                     playlist_save = getattr(ui, "_playlist_save", None)
                     if playlist_save and playlist_save.owns_confirm(confirm_id):
                         await playlist_save.handle_choice(decision)
+                        continue
+                    player_backend = getattr(ui, "_player_backend_selection", None)
+                    if player_backend and player_backend.owns_confirm(confirm_id):
+                        await player_backend.handle_choice(decision)
                         continue
                     self._confirm_queue.put((confirm_id, decision))
 
@@ -3381,25 +3464,9 @@ class WebSocketRunner:
 
         Example: await _handle_local_playback_player(ui=..., args=...) -> returns the value used by the surrounding Sonex flow.
         """
-        backend = args.strip().lower()
-        if backend not in LOCAL_PLAYBACK_BACKENDS:
-            message = "Usage: /player <auto|mpv|cvlc>"
-            await ui.append_activity(kind="error", title="Invalid player backend", detail=message, status="error")
-            await ui.append_agent_message(message)
-            return
-
-        tool_name = "local_playback_player"
-        try:
-            result = registry.invoke(tool_name, {"backend": backend})
-        except Exception as exc:
-            result = {
-                "status": "fail",
-                "tool": tool_name,
-                "message": sanitize_error_message(exc),
-                "error_code": "PLAYBACK_CONTROL_FAILED",
-                "data": {},
-            }
-        await self._sync_tool_result_ui(ui, tool_name, result)
+        session = PlayerBackendSelectionSession(ui, self)
+        setattr(ui, "_player_backend_selection", session)
+        await session.start()
 
     async def _handle_logout(self, ui: WebSocketUIAdapter) -> None:
         """Prepares handle logout for an internal Sonex flow.

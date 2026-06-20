@@ -103,7 +103,7 @@ const commandDescriptions: Record<string, Record<UiLanguage, string>> = {
     lang: { en: "Choose the TUI display language.", "zh-CN": "选择 TUI 显示语言。" },
     logout: { en: "Log out current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
     model: { en: "Switch active model", "zh-CN": "切换当前模型" },
-    player: { en: "Set playback backend; auto uses mpv", "zh-CN": "设置播放后端；auto 使用 mpv" },
+    player: { en: "Choose playback backend from a panel", "zh-CN": "打开播放后端选择面板" },
     play: { en: "Play a song by query or result number.", "zh-CN": "按查询或结果编号播放歌曲。" },
     playlist: { en: "Browse or save playlists", "zh-CN": "浏览或保存播放列表" },
     queue: { en: "Show playback queue", "zh-CN": "显示播放队列" },

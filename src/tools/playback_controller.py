@@ -635,8 +635,8 @@ class LocalPlaybackController:
         detail = "; ".join(failures) or "No playback backend could start."
         if backend == "auto":
             raise RuntimeError(
-                f"{detail}. Auto uses mpv only for playback stability; run /player cvlc "
-                "if you want to try the manual VLC diagnostic backend."
+                f"{detail}. Auto uses mpv only for playback stability; run /player "
+                "and choose VLC if you want to try the manual diagnostic backend."
             )
         raise RuntimeError(detail)
 

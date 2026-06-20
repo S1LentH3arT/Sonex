@@ -251,8 +251,8 @@ Apple Music 播放需要 Sonex 的本地 MusicKit bridge。
 ### 📁 本地和 YouTube 播放
 
 如果需要可控制的本地文件或在线播放，请安装 `mpv`。`auto` 为了播放稳定性只使用
-`mpv`。`cvlc` 仍可通过 `/player cvlc` 作为显式诊断后端使用；Spotify Connect
-播放不使用这些本地播放器。
+`mpv`。`cvlc` 仍可在 `/player` 后端选择面板中作为显式诊断后端使用；Spotify
+Connect 播放不使用这些本地播放器。
 
 ### 🌐 在线音频 fallback
 
@@ -296,13 +296,11 @@ Spotify、Apple Music，或在可用时使用在线音频。对于推荐类请�
 /stop
 /progress
 /volume 65
-/player auto
-/player mpv
-/player cvlc
+/player
 ```
 
-`/player auto` 和 `/player mpv` 使用 mpv。`/player cvlc` 会在当前会话中显式切到
-VLC，适合排查播放器相关问题。
+`/player` 会打开后端选择面板。选择 `Auto` 或 `mpv` 使用稳定的 mpv 路径；只有在
+排查播放器相关问题时选择 `VLC`；取消则保持当前设置不变。
 
 ## 🧩 封面珠子图
 
@@ -339,7 +337,7 @@ Mard 的品牌/色号身份来自打包的官方品牌参考，RGB 近似值继�
   `sonex tui`。
 - 🟩 Spotify 无法播放：重新运行 `sonex auth login spotify`，检查 scope 和账号
   product，并确认 Spotify 已在某个设备上打开。
-- 🎬 本地或在线播放无法启动：安装 `mpv`，保持 `/player auto`，只有在手动测试
-  VLC 行为时使用 `/player cvlc`。
+- 🎬 本地或在线播放无法启动：安装 `mpv`，打开 `/player`，保持 Auto/mpv 后端；
+  只有在手动测试 VLC 行为时选择 VLC。
 - 🧩 封面珠子图没有出现：检查 `beads.brand`，用带官方封面的曲目重新播放，并查看
   `~/.sonex/log` 中的封面生成错误。

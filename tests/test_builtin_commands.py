@@ -129,6 +129,10 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertEqual(volume.args, "50")
         self.assertEqual(player.args, "cvlc")
 
+        commands = {command.name: command for command in command_suggestions()}
+        self.assertEqual(commands["player"].usage, "/player")
+        self.assertEqual(commands["player"].description, "Choose playback backend from a panel.")
+
     def test_playback_control_commands_are_hidden_from_help_and_suggestions(self) -> None:
         hidden_names = {"pause", "volume", "progress", "stop"}
         public_names = {command.name for command in command_suggestions()}

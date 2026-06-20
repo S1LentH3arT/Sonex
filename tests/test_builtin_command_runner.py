@@ -262,6 +262,39 @@ class FakeWebSocket:
         raise WebSocketDisconnect()
 
 
+class PlayerBackendWebSocket:
+    def __init__(self) -> None:
+        self.sent: list[dict[str, object]] = []
+        self.accepted = False
+        self._sent_player_command = False
+        self._sent_confirm_result = False
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def send_text(self, text: str) -> None:
+        self.sent.append(json.loads(text))
+
+    async def receive_text(self) -> str:
+        if not self._sent_player_command:
+            self._sent_player_command = True
+            return json.dumps({"type": "user_input", "text": "/player mpv"})
+        if not self._sent_confirm_result:
+            confirm_id = next(
+                (
+                    str(event["id"])
+                    for event in self.sent
+                    if event.get("type") == "confirm" and event.get("tool_name") == "local_playback_player"
+                ),
+                None,
+            )
+            if confirm_id:
+                self._sent_confirm_result = True
+                return json.dumps({"type": "confirm_result", "id": confirm_id, "decision": "cvlc"})
+        await asyncio.sleep(0)
+        raise WebSocketDisconnect()
+
+
 class DisconnectingWebSocket:
     def __init__(self) -> None:
         self.sent: list[dict[str, object]] = []
@@ -1262,9 +1295,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
+        await runner._handle_internal_command(ui, "/player mpv")
+        session = getattr(ui, "_player_backend_selection")
         with patch("src.api.ws_runner.registry.invoke", return_value=result), \
                 patch("src.api.ws_runner.track_in_playlist", return_value=True):
-            await runner._handle_internal_command(ui, "/player mpv")
+            await session.handle_choice("mpv")
 
         player_events = [event for event in ui.events if event.get("type") == "player"]
         self.assertTrue(player_events[-1]["state"]["is_liked"])
@@ -1415,38 +1450,39 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(activity_events[-1]["status"], "error")
         self.assertIn("/volume <0-100>", activity_events[-1]["detail"])
 
-    async def test_player_command_sets_backend_without_agent_turn(self) -> None:
-        """Verifies that player command sets backend without agent turn behaves as expected.
+    async def test_player_command_opens_backend_choice_panel_without_agent_turn(self) -> None:
+        """Verifies that player command opens backend choice panel without agent turn behaves as expected.
 
-        Typical use: Use this in automated tests when guarding the player command sets backend without agent turn behavior against regressions.
+        Typical use: Use this in automated tests when guarding the player command opens backend choice panel behavior against regressions.
 
-        Example: test_player_command_sets_backend_without_agent_turn() -> passes without assertion failures when the behavior remains correct.
+        Example: test_player_command_opens_backend_choice_panel_without_agent_turn() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
-        result = {
-            "status": "success",
-            "tool": "local_playback_player",
-            "message": "Local playback backend set to cvlc.",
-            "data": {"backend": "cvlc"},
-        }
 
-        with patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke:
-            await runner._handle_user_input(ui, "/player cvlc")
+        with patch("src.api.ws_runner.registry.invoke") as invoke:
+            await runner._handle_user_input(ui, "/player")
 
         self.assertFalse(runner._run_agent_turn.called)
-        invoke.assert_called_once_with("local_playback_player", {"backend": "cvlc"})
-        activity_events = [event for event in ui.events if event.get("type") == "activity"]
-        self.assertEqual(activity_events[-1]["status"], "success")
-        self.assertIn("cvlc", activity_events[-1]["detail"])
+        invoke.assert_not_called()
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertTrue(confirm_events)
+        self.assertEqual(confirm_events[-1]["tool_name"], "local_playback_player")
+        self.assertEqual(confirm_events[-1]["tool_args"]["stage"], "player_backend_selection")
+        self.assertEqual(
+            [choice["value"] for choice in confirm_events[-1]["choices"]],
+            ["auto", "mpv", "cvlc", "deny"],
+        )
+        self.assertIn("VLC", confirm_events[-1]["choices"][2]["label"])
+        self.assertTrue(getattr(ui, "_player_backend_selection"))
 
-    async def test_player_command_rejects_invalid_backend(self) -> None:
-        """Verifies that player command rejects invalid backend behaves as expected.
+    async def test_player_command_ignores_typed_backend_and_opens_same_panel(self) -> None:
+        """Verifies that player command ignores typed backend and opens same panel behaves as expected.
 
-        Typical use: Use this in automated tests when guarding the player command rejects invalid backend behavior against regressions.
+        Typical use: Use this in automated tests when guarding the player command ignores typed backend behavior against regressions.
 
-        Example: test_player_command_rejects_invalid_backend() -> passes without assertion failures when the behavior remains correct.
+        Example: test_player_command_ignores_typed_backend_and_opens_same_panel() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -1457,9 +1493,74 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         invoke.assert_not_called()
         self.assertFalse(runner._run_agent_turn.called)
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertTrue(confirm_events)
+        self.assertEqual(
+            [choice["value"] for choice in confirm_events[-1]["choices"]],
+            ["auto", "mpv", "cvlc", "deny"],
+        )
+        self.assertFalse([event for event in ui.events if event.get("status") == "error"])
+
+    async def test_player_backend_choice_invokes_tool_and_syncs_result(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        result = {
+            "status": "success",
+            "tool": "local_playback_player",
+            "message": "Local playback backend set to cvlc.",
+            "data": {"backend": "cvlc"},
+        }
+
+        await runner._handle_user_input(ui, "/player")
+        session = getattr(ui, "_player_backend_selection")
+        with patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke:
+            await session.handle_choice("cvlc")
+
+        invoke.assert_called_once_with("local_playback_player", {"backend": "cvlc"})
+        self.assertIsNone(getattr(ui, "_player_backend_selection"))
         activity_events = [event for event in ui.events if event.get("type") == "activity"]
-        self.assertEqual(activity_events[-1]["status"], "error")
-        self.assertIn("/player <auto|mpv|cvlc>", activity_events[-1]["detail"])
+        self.assertEqual(activity_events[-1]["status"], "success")
+        self.assertIn("cvlc", activity_events[-1]["detail"])
+
+    async def test_player_backend_confirm_result_from_websocket_invokes_tool(self) -> None:
+        runner = WebSocketRunner()
+        ws = PlayerBackendWebSocket()
+        result = {
+            "status": "success",
+            "tool": "local_playback_player",
+            "message": "Local playback backend set to cvlc.",
+            "data": {"backend": "cvlc"},
+        }
+
+        async def idle_sync(_ui: object) -> None:
+            while True:
+                await asyncio.sleep(60)
+
+        with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
+                patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
+                patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke:
+            await runner.handle_ws(ws)  # type: ignore[arg-type]
+
+        invoke.assert_called_once_with("local_playback_player", {"backend": "cvlc"})
+        self.assertTrue(any(event.get("type") == "confirm" for event in ws.sent))
+        queued = []
+        while not runner._confirm_queue.empty():
+            queued.append(runner._confirm_queue.get_nowait())
+        self.assertNotIn("cvlc", [decision for _confirm_id, decision in queued])
+
+    async def test_player_backend_cancel_does_not_invoke_tool(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/player mpv")
+        session = getattr(ui, "_player_backend_selection")
+        with patch("src.api.ws_runner.registry.invoke") as invoke:
+            await session.handle_choice("deny")
+
+        invoke.assert_not_called()
+        self.assertIsNone(getattr(ui, "_player_backend_selection"))
+        self.assertTrue(any("unchanged" in str(event.get("text")) for event in ui.events))
 
     async def test_online_play_result_updates_player_and_cover(self) -> None:
         """Verifies that online play result updates player and cover behaves as expected.

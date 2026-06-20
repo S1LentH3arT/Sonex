@@ -150,7 +150,7 @@ class PlaybackControllerTests(unittest.TestCase):
             patch.object(playback, "MpvPlaybackAdapter", return_value=mpv_adapter),
             patch.object(playback, "CvlcRcPlaybackAdapter") as cvlc_adapter,
         ):
-            with self.assertRaisesRegex(RuntimeError, r"mpv missing.*\/player cvlc"):
+            with self.assertRaisesRegex(RuntimeError, r"mpv missing.*\/player.*choose VLC"):
                 self.controller.play(source_url="song.mp3", source="youtube", metadata={"name": "Song"})
 
         mpv_adapter.stop.assert_called_once()

@@ -37,8 +37,10 @@ for (const hiddenName of ["pause", "volume", "progress", "stop"]) {
 }
 
 const helpPlayer = allHelpCommands.find((command) => command.name === "player");
-assert.equal(helpPlayer?.usage, "/player <auto|mpv|cvlc>");
-assert.equal(helpPlayer?.description, "Set playback backend; auto uses mpv");
+const slashPlayer = SLASH_COMMANDS.find((command) => command.name === "player");
+assert.equal(helpPlayer?.usage, "/player");
+assert.equal(helpPlayer?.description, "Choose playback backend from a panel");
+assert.equal(slashPlayer?.needsArgument, false);
 
 const helpKeymap = allHelpCommands.find((command) => command.name === "keymap");
 assert.equal(helpKeymap?.usage, "/keymap [on|off|toggle|status]");

@@ -263,8 +263,8 @@ Apple Music playback requires Sonex's local MusicKit bridge.
 
 Install `mpv` if you want controllable local-file or online playback. `auto`
 uses `mpv` only for playback stability. `cvlc` is available as an explicit
-diagnostic backend with `/player cvlc`; Spotify Connect playback does not use
-these local players.
+diagnostic backend from the `/player` backend choice panel; Spotify Connect
+playback does not use these local players.
 
 ### 🌐 Online Audio Fallback
 
@@ -311,13 +311,12 @@ While a local or online track is playing, use:
 /stop
 /progress
 /volume 65
-/player auto
-/player mpv
-/player cvlc
+/player
 ```
 
-`/player auto` and `/player mpv` use mpv. `/player cvlc` opts into VLC for the
-current session when you want to diagnose player-specific behavior.
+`/player` opens a backend choice panel. Choose `Auto` or `mpv` for the stable
+mpv path, `VLC` when you want to diagnose player-specific behavior, or cancel to
+keep the current setting unchanged.
 
 ## 🧩 Cover Bead Art
 
@@ -357,7 +356,7 @@ stored in that cache.
   before `sonex tui` when debugging.
 - 🟩 Spotify cannot play: run `sonex auth login spotify` again, check scopes and
   account product, and make sure Spotify is open on a device.
-- 🎬 Local or online playback cannot start: install `mpv`, keep `/player auto`,
-  and use `/player cvlc` only when manually testing VLC behavior.
+- 🎬 Local or online playback cannot start: install `mpv`, open `/player`, keep
+  the Auto/mpv backend, and choose VLC only when manually testing VLC behavior.
 - 🧩 Cover bead art does not appear: check `beads.brand`, rerun playback with an
   official cover source, and inspect `~/.sonex/log` for cover generation errors.
