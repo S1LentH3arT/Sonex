@@ -32,6 +32,12 @@ export function visibleCommandWindow<T>(
     };
 }
 
+export function selectedHelpPanelCommand<T>(commands: T[], selectedIndex: number): T | null {
+    if (commands.length === 0) return null;
+    const boundedIndex = Math.min(Math.max(selectedIndex, 0), commands.length - 1);
+    return commands[boundedIndex] ?? null;
+}
+
 /**
  * Coordinates the help panel commands operation for the CLI UI runtime.
  *

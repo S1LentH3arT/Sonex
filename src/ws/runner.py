@@ -1523,7 +1523,19 @@ class ModelSelectionSession:
 
         Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
         """
-        parsed = _parse_model_choice(value, self.model_choices)
+        text = value.strip()
+        if text.lower() in {"__cancel__", "cancel"}:
+            await self.ui.send_auth_setup(
+                provider=self.provider,
+                step="done",
+                title="Model switch canceled",
+                message="Model selection canceled.",
+                active=False,
+            )
+            setattr(self.ui, "_model_setup", None)
+            return
+
+        parsed = _parse_model_choice(text, self.model_choices)
         if parsed is None:
             await self.ui.send_auth_setup(
                 provider=self.provider,

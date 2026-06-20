@@ -19,21 +19,3 @@ export function upsertActivity(items: ActivityItem[], item: ActivityItem): Activ
     next[index] = { ...next[index], ...item };
     return trimList(next, MAX_ACTIVITY_ITEMS);
 }
-
-/**
- * Coordinates the build error activity operation for the CLI UI runtime.
- *
- * @param message Input value used by the build error activity operation.
- * @param detail Input value used by the build error activity operation.
- * @returns The computed result for the surrounding CLI UI flow.
- */
-export function buildErrorActivity(message: string, detail?: string | null): ActivityItem {
-    return {
-        id: `error_${Date.now()}_${Math.random().toString(16).slice(2)}`,
-        kind: "error",
-        title: message,
-        detail,
-        status: "error",
-        timestamp: Date.now(),
-    };
-}

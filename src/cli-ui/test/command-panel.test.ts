@@ -4,6 +4,7 @@ import { SLASH_COMMANDS } from '../src/constants.js';
 import {
     HELP_PANEL_VISIBLE_COMMANDS,
     helpPanelCommands,
+    selectedHelpPanelCommand,
     visibleCommandWindow,
 } from '../src/command-panel.js';
 
@@ -18,6 +19,9 @@ assert.deepEqual(
 assert.equal(visibleCommandWindow(allHelpCommands, 0, HELP_PANEL_VISIBLE_COMMANDS).items.length, 8);
 assert.equal(visibleCommandWindow(allHelpCommands, 0, HELP_PANEL_VISIBLE_COMMANDS).items[0]?.name, "bye");
 assert.equal(visibleCommandWindow(allHelpCommands, 8, HELP_PANEL_VISIBLE_COMMANDS).items.at(-1)?.name, allHelpCommands[8]?.name);
+assert.equal(selectedHelpPanelCommand(allHelpCommands, 0)?.name, "bye");
+assert.equal(selectedHelpPanelCommand(allHelpCommands, 999)?.name, allHelpCommands.at(-1)?.name);
+assert.equal(selectedHelpPanelCommand([], 0), null);
 
 const slashSearch = SLASH_COMMANDS.find((command) => command.name === "search");
 const helpSearch = allHelpCommands.find((command) => command.name === "search");

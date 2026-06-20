@@ -3,6 +3,7 @@ import { Box, useApp, useInput, useStdin, useStdout } from 'ink';
 import { upsertActivity } from './activity.js';
 import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions } from './commands.js';
 import { resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
+import { selectedHelpPanelCommand } from './command-panel.js';
 import { DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl } from './constants.js';
 import { DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
 import { clamp, trimList } from './chat-window.js';
@@ -78,7 +79,8 @@ export const App = () => {
     const spotifySetupActiveRef = React.useRef(false);
     const authSetupActiveRef = React.useRef(false);
     const slashMenuActiveRef = React.useRef(false);
-    const isLoginScreenActive = isGenericAuthSetup(authSetup);
+    const isModelPanelActive = authSetup?.active && authSetup.step === "model";
+    const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
     const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active ? [] : slashCommandSuggestions(input, language);
     const slashInput = input.trimStart();
     const isSlashInput = slashInput.startsWith("/");
@@ -682,7 +684,7 @@ export const App = () => {
     useInput((inputKey, key) => {
         if (!isLoginScreenActive || authSetup?.step === "api_key") return;
 
-        if ((authSetup?.step === "provider" || authSetup?.step === "method" || authSetup?.step === "model") && loginChoices.length > 0) {
+        if ((authSetup?.step === "provider" || authSetup?.step === "method") && loginChoices.length > 0) {
             if (key.upArrow) {
                 setLoginSelectionIndex((prev) => (prev - 1 + loginChoices.length) % loginChoices.length);
             } else if (key.downArrow) {
@@ -692,6 +694,26 @@ export const App = () => {
             }
         }
     }, { isActive: rawModeAvailable && isLoginScreenActive });
+
+    useInput((inputKey, key) => {
+        if (!isModelPanelActive) return;
+        const choices = authSetup?.models ?? [];
+
+        if (key.upArrow && choices.length > 0) {
+            setLoginSelectionIndex((prev) => (prev - 1 + choices.length) % choices.length);
+        } else if (key.downArrow && choices.length > 0) {
+            setLoginSelectionIndex((prev) => (prev + 1) % choices.length);
+        } else if (key.return && choices.length > 0) {
+            const choice = choices[Math.min(loginSelectionIndex, Math.max(0, choices.length - 1))];
+            if (choice) {
+                send({ type: "auth_setup_input", value: choice.value });
+            }
+        } else if (key.escape) {
+            setAuthSetup(null);
+            setLoginSelectionIndex(0);
+            send({ type: "auth_setup_input", value: "__cancel__" });
+        }
+    }, { isActive: rawModeAvailable && Boolean(isModelPanelActive) });
 
     useInput((inputKey, key) => {
         if (!isSlashMenuActive || !selectedSlashCommand) return;
@@ -737,7 +759,7 @@ export const App = () => {
         } else if (input.trim().length === 0 && key.downArrow) {
             scrollChat(-1);
         }
-    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && !confirm && !isSlashMenuActive && !isLoginScreenActive && !languagePanel?.active });
+    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && !confirm && !isSlashMenuActive && !isLoginScreenActive && !languagePanel?.active && !isModelPanelActive });
 
     useInput((inputKey, key) => {
         if (!confirm) return;
@@ -769,6 +791,15 @@ export const App = () => {
             setHelpPanelIndex((prev) => (prev - 1 + helpPanel.commands.length) % helpPanel.commands.length);
         } else if (key.downArrow && helpPanel.commands.length > 0) {
             setHelpPanelIndex((prev) => (prev + 1) % helpPanel.commands.length);
+        } else if (key.return && helpPanel.commands.length > 0) {
+            const selectedHelpPanelItem = selectedHelpPanelCommand(helpPanel.commands, helpPanelIndex);
+            const selectedHelpCommand = selectedHelpPanelItem ? matchingSlashCommand(`/${selectedHelpPanelItem.name}`) : null;
+            if (selectedHelpCommand) {
+                setHelpPanel(null);
+                setHelpPanelIndex(0);
+                setInput(completeSlashCommand(selectedHelpCommand));
+                setInputRevision((prev) => prev + 1);
+            }
         } else if (key.escape) {
             setHelpPanel(null);
             setHelpPanelIndex(0);
@@ -776,19 +807,19 @@ export const App = () => {
     }, { isActive: Boolean(helpPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active });
 
     useInput((inputKey, key) => {
-        if (!trackPanel || confirm || isSlashMenuActive || languagePanel?.active) return;
+        if (!trackPanel || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
         if (key.escape) {
             setTrackPanel(null);
         }
-    }, { isActive: Boolean(trackPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active });
+    }, { isActive: Boolean(trackPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
 
     useInput((inputKey, key) => {
-        if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active) return;
+        if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
 
         if (key.tab || inputKey === "\t") {
             switchRegion(toggleShellRegion(activeRegionRef.current, playbackSessionActiveRef.current));
         }
-    }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active });
+    }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
 
     return (
         <Box
@@ -815,7 +846,7 @@ export const App = () => {
                         onSubmit={submitInput}
                         inputPlaceholder={inputPlaceholder}
                         inputMask={inputMask}
-                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !languagePanel?.active}
+                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !helpPanel && !languagePanel?.active && !isModelPanelActive}
                         inputRevision={inputRevision}
                         chatItems={chatItems}
                         player={player}
@@ -835,6 +866,7 @@ export const App = () => {
                         helpPanelIndex={helpPanelIndex}
                         languagePanel={languagePanel}
                         languagePanelIndex={languagePanelIndex}
+                        modelPanelIndex={loginSelectionIndex}
                         trackPanel={trackPanel}
                         activeRegion={activeRegion}
                         miniSnapshotRevision={miniSnapshotRevision}

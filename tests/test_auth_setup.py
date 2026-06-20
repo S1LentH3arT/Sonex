@@ -520,6 +520,33 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(auth_states[-1]["provider"], "openai")
             self.assertEqual(auth_states[-1]["model"], "gpt-5.2")
 
+    async def test_model_selection_cancel_closes_setup(self) -> None:
+        """Verifies that model selection cancel closes setup without changing model.
+
+        Typical use: Use this in automated tests when guarding the model selection cancel behavior against regressions.
+
+        Example: test_model_selection_cancel_closes_setup() -> passes without assertion failures when the behavior remains correct.
+        """
+        with self._isolated_auth_env({"SONEX_OPENAI_API_KEY": "sk-env"}):
+            runner = WebSocketRunner()
+            ui = FakeUI()
+
+            with patch(
+                "src.api.ws_runner._model_choices_for_provider",
+                return_value=[
+                    {"value": "openai::gpt-5.2", "label": "GPT-5.2", "provider": "OpenAI"},
+                ],
+            ):
+                await runner._handle_user_input(ui, "/model")
+                setup = getattr(ui, "_model_setup")
+                await setup.handle_input("__cancel__")
+
+            self.assertIsNone(getattr(ui, "_model_setup"))
+            auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+            self.assertEqual(auth_events[-1]["step"], "done")
+            self.assertFalse(auth_events[-1]["active"])
+            self.assertIn("cancel", str(auth_events[-1]["message"]).lower())
+
     def _isolated_auth_env(self, extra: dict[str, str] | None = None):
         """Verifies that isolated auth env behaves as expected.
 
