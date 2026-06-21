@@ -130,22 +130,6 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             "play_youtube_song",
         ),
     ),
-    BuiltinCommand(
-        "search",
-        "/search <query>",
-        "Search songs by keywords.",
-        mode="agent",
-        intent_prompt=(
-            "The user invoked /search. Treat the args as the search query and prefer track search tools. "
-            "If args are missing, ask for a query instead of inventing one."
-        ),
-        allowed_tools=("spotify_search", "search_track", "apple_music_search"),
-    ),
-    BuiltinCommand(
-        "play",
-        "/play <query>",
-        "Play a song by query.",
-    ),
     BuiltinCommand("setup", "/setup [provider]", "Configure a music provider."),
     BuiltinCommand("bye", "/bye", "Save the current session and exit safely.", aliases=("exit",)),
     BuiltinCommand("quit", "/quit", "Save the current session and exit safely."),

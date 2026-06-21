@@ -11,7 +11,7 @@ export const LAUNCH_PREPARING_INTERVAL_MS = 1000;
  */
 export function launchPreparingText(frame: number, language: UiLanguage = "en"): string {
     const dotCount = (Math.max(0, frame) % 3) + 1;
-    const base = language === "zh-CN" ? "启动准备中" : "Launch preparing";
+    const base = language === "zh-CN" ? "播放准备中" : "Launch preparing";
     return `${base}${'.'.repeat(dotCount)}`;
 }
 

@@ -7,8 +7,10 @@ const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8
 assert.match(source, /type ChoicePanelRow =/);
 assert.match(source, /const ChoicePanel = \(/);
 assert.match(source, /<Text color=\{rowColor\}>\{row\.label\}<\/Text>/);
-assert.match(source, /<Text color=\{rowColor\}> - <\/Text>/);
+assert.doesNotMatch(source, /<Text color=\{rowColor\}> - <\/Text>/);
 assert.match(source, /<Text color=\{rowColor\}>\{row\.description\}<\/Text>/);
+assert.match(source, /const MODEL_PANEL_LABEL_WIDTH = 20/);
+assert.match(source, /modelIdFromChoice\(model\)\.padEnd\(MODEL_PANEL_LABEL_WIDTH, " "\)/);
 
 const compactConfirmStart = source.indexOf('const CompactConfirm =');
 const languagePanelStart = source.indexOf('const LanguagePanel =');
@@ -23,10 +25,16 @@ const inputDockBody = source.slice(inputDockStart, source.indexOf('const Convers
 
 assert.match(compactConfirmBody, /<ChoicePanel/);
 assert.match(languagePanelBody, /<ChoicePanel/);
+assert.match(languagePanelBody, /orderedLanguageChoices\(panel\.selected\)/);
+assert.match(languagePanelBody, /label: choice === panel\.selected \? `\* \$\{languageLabel\(choice\)\}` : languageLabel\(choice\)/);
+assert.doesNotMatch(languagePanelBody, /description: choice === panel\.selected \? "current" : choice/);
 assert.match(inputDockBody, /modelPanel/);
+assert.match(inputDockBody, /formatModelPanelLabel\(model\)/);
 assert.match(inputDockBody, /<ChoicePanel[\s\S]*rows=\{modelPanel\.rows\}/);
 
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
 assert.match(appSource, /const isLoginScreenActive = isGenericAuthSetup\(authSetup\) && !isModelPanelActive/);
+assert.match(appSource, /\[language,[\s\S]*filter\(\(choice\) => choice !== language\)/);
+assert.match(appSource, /setLanguagePanelIndex\(0\);/);
 assert.match(appSource, /completeSlashCommand\(selectedHelpCommand\)/);
 assert.match(appSource, /send\(\{ type: "auth_setup_input", value: "__cancel__" \}\)/);

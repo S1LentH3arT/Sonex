@@ -233,7 +233,7 @@ class FakeWebSocket:
         """
         if not self._sent_user_input:
             self._sent_user_input = True
-            return json.dumps({"type": "user_input", "text": "/play Song Artist"})
+            return json.dumps({"type": "user_input", "text": "play Song Artist"})
         if not self._sent_confirm_result:
             confirm_id = next(
                 (
@@ -555,7 +555,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai"}) as home:
             set_api_key("openai", "sk-test")
-            set_default("openai", model="gpt-5.2")
+            set_default("openai", model="gpt-5.5")
 
             await runner._handle_user_input(ui, "/logout")
 
@@ -641,12 +641,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(intent.args, "华语女声")
         self.assertIn("spotify_recommend", intent.allowed_tools)
 
-    async def test_search_routes_to_agent_with_search_intent(self) -> None:
-        """Verifies that search routes to agent with search intent behaves as expected.
+    async def test_search_slash_command_is_not_user_facing(self) -> None:
+        """Verifies that search slash command is not user facing.
 
-        Typical use: Use this in automated tests when guarding the search routes to agent with search intent behavior against regressions.
+        Typical use: Use this in automated tests when guarding the public command surface against regressions.
 
-        Example: test_search_routes_to_agent_with_search_intent() -> passes without assertion failures when the behavior remains correct.
+        Example: test_search_slash_command_is_not_user_facing() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -656,11 +656,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "/search jay")
             await asyncio.sleep(0)
 
-        runner._run_agent_turn.assert_awaited_once()
-        intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
-        self.assertEqual(intent.command, "search")
-        self.assertEqual(intent.args, "jay")
-        self.assertIn("spotify_search", intent.allowed_tools)
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any(
+            event.get("type") == "activity"
+            and event.get("title") == "Unknown command"
+            and "/search" in str(event.get("detail"))
+            for event in ui.events
+        ))
 
     async def test_play_number_starts_play_selection_without_agent_turn(self) -> None:
         """Verifies that play number starts play selection without agent turn behaves as expected.
@@ -676,7 +678,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to '1'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
              self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
-            await runner._handle_user_input(ui, "/play 1")
+            await runner._handle_user_input(ui, "play 1")
             await asyncio.sleep(0)
 
         self.assertFalse(runner._run_agent_turn.called)
@@ -699,7 +701,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="/home/user/Music/song.mp3"), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play song")
+            await runner._handle_user_input(ui, "play song")
 
             first_confirm = [event for event in ui.events if event.get("type") == "confirm"][-1]
             self.assertIn("播放本地文件 song.mp3", first_confirm["message"])
@@ -727,7 +729,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                  "data": {"logged_in": False, "product": "unknown"},
              }), \
              patch("src.api.ws_runner.load_apple_music_user_token", return_value=None):
-            await runner._handle_user_input(ui, "/play song")
+            await runner._handle_user_input(ui, "play song")
 
         confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
         self.assertEqual([choice["value"] for choice in confirm["choices"]], [
@@ -749,7 +751,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                  "data": {"logged_in": True, "product": "free"},
              }), \
              patch("src.api.ws_runner.load_apple_music_user_token", return_value=object()):
-            await runner._handle_user_input(ui, "/play song")
+            await runner._handle_user_input(ui, "play song")
 
         confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
         self.assertEqual(confirm["choices"][0]["value"], "online_play")
@@ -766,7 +768,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                  "data": {"logged_in": True, "product": "premium"},
              }), \
              patch("src.api.ws_runner.load_apple_music_user_token", return_value=None):
-            await runner._handle_user_input(ui, "/play song")
+            await runner._handle_user_input(ui, "play song")
 
         confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
         self.assertEqual(confirm["choices"][0]["value"], "spotify_play")
@@ -1089,7 +1091,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
              patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result) as metadata_search, \
              patch("src.api.ws_runner.search_online_audio_candidates") as online_search, \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await runner._handle_user_input(ui, "/play 青花瓷")
+            await runner._handle_user_input(ui, "play 青花瓷")
             session = getattr(ui, "_play_selection")
             await session.handle_choice("online_play")
 
@@ -1162,7 +1164,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             queue = _queue_payload()
 
         self.assertEqual(len(queue), 10)
-        self.assertEqual(queue[0]["title"], "Queued 0")
+        self.assertEqual(queue[0]["title"], "Queued 0-Artist")
         self.assertEqual(queue[-1]["index"], "10")
 
     def test_track_panel_payload_uses_queue_title_and_tracks(self) -> None:
@@ -1175,7 +1177,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(panel["type"], "track_panel")
         self.assertEqual(panel["panel"], "queue")
         self.assertEqual(panel["title"], "Queue")
-        self.assertEqual(panel["tracks"][0]["title"], "Queued Song")
+        self.assertNotIn("hint", panel)
+        self.assertEqual(panel["tracks"][0]["title"], "Queued Song-Artist")
 
     async def test_queue_command_sends_track_panel_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
@@ -1189,7 +1192,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner._run_agent_turn.called)
         panels = [event for event in ui.events if event.get("type") == "track_panel"]
         self.assertEqual(panels[-1]["panel"], "queue")
-        self.assertEqual(panels[-1]["tracks"][0]["title"], "Queued Song")
+        self.assertNotIn("hint", panels[-1])
+        self.assertEqual(panels[-1]["tracks"][0]["title"], "Queued Song-Artist")
+        self.assertEqual(len(panels[-1]["tracks"]), 1)
         activity_events = [event for event in ui.events if event.get("type") == "activity"]
         self.assertIn("playback queue", str(activity_events[-1]["detail"]).lower())
 
@@ -1474,7 +1479,16 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             [choice["value"] for choice in confirm_events[-1]["choices"]],
             ["auto", "mpv", "cvlc", "deny"],
         )
-        self.assertIn("VLC", confirm_events[-1]["choices"][2]["label"])
+        self.assertEqual([choice["label"] for choice in confirm_events[-1]["choices"]], ["auto ", "mpv  ", "VLC  ", "Cancel"])
+        self.assertEqual(
+            [choice.get("description") for choice in confirm_events[-1]["choices"]],
+            [
+                "default stable mpv backend",
+                "use mpv explicitly",
+                "use VLC as the manual diagnostic backend",
+                None,
+            ],
+        )
         self.assertTrue(getattr(ui, "_player_backend_selection"))
 
     async def test_player_command_ignores_typed_backend_and_opens_same_panel(self) -> None:
@@ -1706,7 +1720,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
              patch("src.api.ws_runner.play_youtube_candidate", return_value=result), \
@@ -1748,7 +1762,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_online_audio_candidates", return_value=candidates), \
              patch("src.api.ws_runner.online_audio_configured", return_value=True), \
@@ -1812,7 +1826,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_online_audio_candidates", return_value=candidates), \
              patch("src.api.ws_runner.online_audio_configured", return_value=True), \
@@ -1854,7 +1868,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result) as metadata_search, \
              patch("src.api.ws_runner.search_youtube_songs") as youtube_search, \
@@ -1922,7 +1936,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'messy query'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play messy query")
+            await runner._handle_user_input(ui, "play messy query")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_track_metadata_candidates", return_value={"candidates": [song_candidate], "source_attempts": []}), \
              patch("src.api.ws_runner.search_online_audio_candidates", return_value=[online_candidate]) as online_search, \
@@ -1980,7 +1994,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'messy query'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play messy query")
+            await runner._handle_user_input(ui, "play messy query")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_track_metadata_candidates", return_value={"candidates": [song_candidate], "source_attempts": []}), \
              patch(
@@ -2023,7 +2037,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch(
             "src.api.ws_runner.search_track_metadata_candidates",
@@ -2067,7 +2081,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'raw query'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play raw query")
+            await runner._handle_user_input(ui, "play raw query")
         session = getattr(ui, "_play_selection")
         with patch(
             "src.api.ws_runner.search_track_metadata_candidates",
@@ -2129,7 +2143,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", side_effect=[first_candidates, refined_candidates]) as search, \
              patch("src.api.ws_runner.online_audio_configured", return_value=True), \
@@ -2179,7 +2193,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", side_effect=[first_candidates, refined_candidates]) as search, \
              patch("src.api.ws_runner.online_audio_configured", return_value=True), \
@@ -2234,7 +2248,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
              patch("src.api.ws_runner.play_youtube_candidate", return_value=result) as play_candidate, \
@@ -2309,7 +2323,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
              patch("src.api.ws_runner.play_youtube_candidate", return_value=pending_result), \
@@ -2422,7 +2436,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "/play Song Artist")
+            await runner._handle_user_input(ui, "play Song Artist")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
              patch("src.api.ws_runner.play_youtube_candidate", return_value=result), \
@@ -2470,12 +2484,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(log_path, Path(home) / "log")
             self.assertIn("sonex log filename test", log_path.read_text(encoding="utf-8"))
 
-    async def test_agent_turn_reports_live_planning_metrics_while_llm_is_waiting(self) -> None:
-        """Verifies that agent turn reports live planning metrics while llm is waiting behaves as expected.
+    async def test_agent_turn_reports_live_planning_status_without_run_metrics(self) -> None:
+        """Verifies that agent turn reports live planning status without run metrics.
 
-        Typical use: Use this in automated tests when guarding the agent turn reports live planning metrics while llm is waiting behavior against regressions.
+        Typical use: Use this in automated tests when guarding planning status against old token/time counters.
 
-        Example: test_agent_turn_reports_live_planning_metrics_while_llm_is_waiting() -> passes without assertion failures when the behavior remains correct.
+        Example: test_agent_turn_reports_live_planning_status_without_run_metrics() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -2499,8 +2513,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await task
 
         self.assertTrue(early_status_events)
-        self.assertEqual(early_status_events[-1]["tokens"], 0)
-        self.assertIsNotNone(early_status_events[-1]["elapsed_ms"])
+        self.assertNotIn("tokens", early_status_events[-1])
+        self.assertNotIn("elapsed_ms", early_status_events[-1])
         self.assertTrue(
             [
                 event
@@ -2510,7 +2524,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         )
 
         status_events = [event for event in ui.events if event.get("type") == "status"]
-        self.assertTrue(any(event.get("tokens") == 42 for event in status_events))
+        self.assertTrue(status_events)
+        self.assertFalse(any("tokens" in event or "elapsed_ms" in event for event in status_events))
         planning_events = [
             event
             for event in ui.events

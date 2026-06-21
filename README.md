@@ -290,10 +290,10 @@ candidate cannot be used.
 
 ## ▶️ Playback Tutorial
 
-Use `/play` or a natural-language play request:
+Use a natural-language play request:
 
 ```text
-/play Space Oddity David Bowie
+play Space Oddity David Bowie
 play Mitski Nobody
 播放 方大同 忘了美丽
 ```
@@ -314,7 +314,7 @@ While a local or online track is playing, use:
 /player
 ```
 
-`/player` opens a backend choice panel. Choose `Auto` or `mpv` for the stable
+`/player` opens a backend choice panel. Choose `auto` or `mpv` for the stable
 mpv path, `VLC` when you want to diagnose player-specific behavior, or cancel to
 keep the current setting unchanged.
 
@@ -357,6 +357,6 @@ stored in that cache.
 - 🟩 Spotify cannot play: run `sonex auth login spotify` again, check scopes and
   account product, and make sure Spotify is open on a device.
 - 🎬 Local or online playback cannot start: install `mpv`, open `/player`, keep
-  the Auto/mpv backend, and choose VLC only when manually testing VLC behavior.
+  the auto/mpv backend, and choose VLC only when manually testing VLC behavior.
 - 🧩 Cover bead art does not appear: check `beads.brand`, rerun playback with an
   official cover source, and inspect `~/.sonex/log` for cover generation errors.

@@ -1,7 +1,7 @@
 export type ServerEvent =
     | { type: "chat"; role: ChatRole; text: string }
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
-    | { type: "status"; phase: string; message: string; tokens?: number | null; elapsed_ms?: number | null; active?: boolean | null; step?: number; max_steps?: number }
+    | { type: "status"; phase: string; message: string; active?: boolean | null; step?: number; max_steps?: number }
     | { type: "queue"; tracks: Array<{ index: string; title: string; artist: string; duration: string }> }
     | { type: "track_panel"; panel: "queue" | "playlist"; title: string; hint?: string | null; tracks: TrackPanelTrack[] }
     | { type: "search_results"; tracks: TrackSummary[] }

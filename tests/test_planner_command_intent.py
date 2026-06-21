@@ -8,10 +8,20 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from src.api.builtin_commands import parse_builtin_command
+from src.api.builtin_commands import CommandIntent
 from src.llm.transport import ChatResponse, ToolCall, Usage
 from src.llm.planner import llm_plan
 from src.tools.registry import Params, ToolRegistry
+
+
+def _search_intent() -> CommandIntent:
+    return CommandIntent(
+        command="search",
+        raw="search jay",
+        args="jay",
+        intent_prompt="Treat this as an interactive search request.",
+        allowed_tools=("spotify_search",),
+    )
 
 
 class FakeClient:
@@ -74,8 +84,7 @@ class PlannerCommandIntentTests(unittest.TestCase):
         Example: test_empty_allowlist_exposes_no_tools() -> passes without assertion failures when the behavior remains correct.
         """
         client = FakeClient(ChatResponse(output_text="answer", usage=Usage(total_tokens=1)))
-        intent = parse_builtin_command("/search jay").command_intent()
-        intent = type(intent)(
+        intent = CommandIntent(
             command="general",
             raw="hello",
             args="",
@@ -98,10 +107,7 @@ class PlannerCommandIntentTests(unittest.TestCase):
 
         Example: test_command_intent_prompt_and_args_are_included_and_tools_are_narrowed() -> passes without assertion failures when the behavior remains correct.
         """
-        parsed = parse_builtin_command("/search jay")
-        assert parsed is not None
-        intent = parsed.command_intent()
-        assert intent is not None
+        intent = _search_intent()
         client = FakeClient(
             ChatResponse(
                 tool_calls=[ToolCall(id="1", name="spotify_search", arguments={"query": "jay"})],
@@ -112,12 +118,12 @@ class PlannerCommandIntentTests(unittest.TestCase):
         with patch("src.llm.planner.ThinkingConfig.get_client", return_value=client), \
             patch("src.llm.planner.ThinkingConfig.get_model", return_value="model"), \
             patch("src.llm.planner.build_planning_context", return_value="cached context"):
-            action = llm_plan(user_input="/search jay", tools=_registry(), command_intent=intent)
+            action = llm_plan(user_input="search jay", tools=_registry(), command_intent=intent)
 
         self.assertEqual(action.tool, "spotify_search")
         request = client.requests[0]
         self.assertIn("Command intent guidance", request.messages[0]["content"])
-        self.assertIn("The user invoked /search", request.messages[0]["content"])
+        self.assertIn("Treat this as an interactive search request.", request.messages[0]["content"])
         user_content = request.messages[1]["content"]
         self.assertIn("[command_intent]", user_content)
         self.assertIn("command: search", user_content)

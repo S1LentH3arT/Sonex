@@ -25,15 +25,16 @@ assert.equal(selectedHelpPanelCommand([], 0), null);
 
 const slashSearch = SLASH_COMMANDS.find((command) => command.name === "search");
 const helpSearch = allHelpCommands.find((command) => command.name === "search");
-assert.equal(slashSearch?.description, "Search songs by keywords.");
-assert.equal(helpSearch?.description, "Search songs by keywords.");
+assert.equal(slashSearch, undefined);
+assert.equal(helpSearch, undefined);
 
+const slashPlay = SLASH_COMMANDS.find((command) => command.name === "play");
 const helpPlay = allHelpCommands.find((command) => command.name === "play");
-assert.equal(helpPlay?.usage, "/play <query/number>");
-assert.equal(helpPlay?.description, "Play a song by query or result number.");
+assert.equal(slashPlay, undefined);
+assert.equal(helpPlay, undefined);
 
 const helpRecommend = allHelpCommands.find((command) => command.name === "recommend");
-assert.equal(helpRecommend?.description, "Recommend songs of preferred music taste.");
+assert.equal(helpRecommend?.description, "recommend songs of preferred music taste");
 
 for (const hiddenName of ["pause", "volume", "progress", "stop"]) {
     assert.equal(SLASH_COMMANDS.find((command) => command.name === hiddenName), undefined);
@@ -43,21 +44,21 @@ for (const hiddenName of ["pause", "volume", "progress", "stop"]) {
 const helpPlayer = allHelpCommands.find((command) => command.name === "player");
 const slashPlayer = SLASH_COMMANDS.find((command) => command.name === "player");
 assert.equal(helpPlayer?.usage, "/player");
-assert.equal(helpPlayer?.description, "Choose playback backend from a panel");
+assert.equal(helpPlayer?.description, "choose playback backend from a panel");
 assert.equal(slashPlayer?.needsArgument, false);
 
 const helpKeymap = allHelpCommands.find((command) => command.name === "keymap");
 assert.equal(helpKeymap?.usage, "/keymap [on|off|toggle|status]");
-assert.equal(helpKeymap?.description, "Toggle mini-player playback shortcuts");
+assert.equal(helpKeymap?.description, "toggle mini-player playback shortcuts");
 
 const helpLang = allHelpCommands.find((command) => command.name === "lang");
 assert.equal(helpLang?.usage, "/lang");
-assert.equal(helpLang?.description, "Choose the TUI display language.");
+assert.equal(helpLang?.description, "choose the TUI display language");
 
 const helpPlaylist = allHelpCommands.find((command) => command.name === "playlist");
 assert.equal(helpPlaylist?.usage, "/playlist [name]|save [name]");
-assert.equal(helpPlaylist?.description, "Browse or save playlists");
+assert.equal(helpPlaylist?.description, "browse or save playlists");
 
 const helpQueue = allHelpCommands.find((command) => command.name === "queue");
 assert.equal(helpQueue?.usage, "/queue");
-assert.equal(helpQueue?.description, "Show playback queue");
+assert.equal(helpQueue?.description, "show playback queue");

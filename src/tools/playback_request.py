@@ -24,7 +24,7 @@ def request_playback_selection(query: str) -> dict[str, Any]:
         "message": f"Entering playback selection for {normalized}.",
         "data": {
             "query": normalized,
-            "rewritten_input": f"/play {normalized}",
+            "rewritten_input": f"play {normalized}",
         },
     }
 

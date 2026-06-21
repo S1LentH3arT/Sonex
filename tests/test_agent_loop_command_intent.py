@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from src.agent.action import Action
 from src.agent.core import agent_loop
-from src.api.builtin_commands import CommandIntent, parse_builtin_command
+from src.api.builtin_commands import CommandIntent
 from src.tools.registry import Params, ToolRegistry
 
 
@@ -76,6 +76,16 @@ def _premium_error_registry() -> ToolRegistry:
         read_only=True,
     )
     return tools
+
+
+def _search_intent() -> CommandIntent:
+    return CommandIntent(
+        command="search",
+        raw="search jay",
+        args="jay",
+        intent_prompt="Treat this as an interactive search request.",
+        allowed_tools=("spotify_search",),
+    )
 
 
 def _search_premium_error_registry() -> ToolRegistry:
@@ -162,16 +172,13 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
 
         Example: test_command_intent_is_passed_to_planner() -> passes without assertion failures when the behavior remains correct.
         """
-        parsed = parse_builtin_command("/search jay")
-        assert parsed is not None
-        intent = parsed.command_intent()
-        assert intent is not None
+        intent = _search_intent()
 
         with patch("src.agent.core.append_context"), \
             patch("src.agent.core.append_tool_summary"), \
             patch("src.agent.core.llm_plan", return_value=Action(output="answer", usage=3)) as plan, \
             patch("src.agent.core.finalize_turn"):
-            states = list(agent_loop("/search jay", _registry(), command_intent=intent))
+            states = list(agent_loop("search jay", _registry(), command_intent=intent))
 
         plan.assert_called_once()
         self.assertEqual(plan.call_args.kwargs["command_intent"], intent)

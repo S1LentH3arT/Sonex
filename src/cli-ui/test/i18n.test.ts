@@ -20,9 +20,8 @@ const langCommand = zhSlashCommands.find((command) => command.name === "lang");
 assert.equal(langCommand?.usage, "/lang");
 assert.equal(langCommand?.description, "选择 TUI 显示语言。");
 
-const playCommand = zhSlashCommands.find((command) => command.name === "play");
-assert.equal(playCommand?.usage, "/play <query/number>");
-assert.equal(playCommand?.description, "按查询或结果编号播放歌曲。");
+assert.equal(zhSlashCommands.find((command) => command.name === "play"), undefined);
+assert.equal(zhSlashCommands.find((command) => command.name === "search"), undefined);
 
 const helpCommands = helpCommandsForLanguage([
     { name: "help", usage: "/help", description: "Show available Sonex commands." },

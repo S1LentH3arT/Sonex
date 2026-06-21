@@ -513,8 +513,8 @@ def _queue_payload() -> list[dict[str, str]]:
     return [
         {
             "index": f"{index:02d}",
-            "title": str(track.get("name") or "-"),
-            "artist": str(track.get("artist") or "-"),
+            "title": f"{str(track.get('name') or '-').strip()}-{str(track.get('artist') or '-').strip()}",
+            "artist": str(track.get("artist") or ""),
             "duration": _duration_text(track.get("duration_ms")),
         }
         for index, track in enumerate(tracks, start=1)
@@ -522,12 +522,11 @@ def _queue_payload() -> list[dict[str, str]]:
 
 
 def _track_panel_payload(panel: str, title: str, tracks: list[dict[str, str]]) -> dict[str, Any]:
-    """Prepares a browse-only track panel event payload."""
+    """Prepares a track panel event payload."""
     return {
         "type": "track_panel",
         "panel": panel,
         "title": title,
-        "hint": "browse only",
         "tracks": tracks,
     }
 
@@ -660,7 +659,7 @@ def _rule_parse_play_request(text: str) -> PlayRequestParse:
             continue
         query = stripped[match.end():].strip(" \t\r\n,.!?:;")
         if query:
-            return PlayRequestParse(True, query, "high", f"/play {query}")
+            return PlayRequestParse(True, query, "high", f"play {query}")
 
     # Use substring matching for Chinese prompt.
     for marker in zh_markers:
@@ -669,7 +668,7 @@ def _rule_parse_play_request(text: str) -> PlayRequestParse:
             continue
         query = stripped[idx + len(marker):].strip(" \t\r\n,，.。!！?？:：;；")
         if query:
-            return PlayRequestParse(True, query, "high", f"/play {query}")
+            return PlayRequestParse(True, query, "high", f"play {query}")
 
     return PlayRequestParse(False, None, "low", text)
 
@@ -816,7 +815,7 @@ def _default_model_name() -> str:
         or auth_model
         or file_model
         or get_provider_capability(provider).default_model
-        or "gpt-5.2"
+        or "gpt-5.5"
     )
     return str(normalize_provider_model(provider, str(model)) or model)
 
@@ -1983,7 +1982,7 @@ class PlaySelectionSession:
         Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         if not self.query:
-            message = "Usage: /play <query>"
+            message = "Tell Sonex what you want to play, for example: play Space Oddity."
             await self.ui.append_activity(kind="error", title="Invalid play request", detail=message, status="error")
             await self.ui.append_agent_message(message)
             return
@@ -2846,23 +2845,22 @@ class PlayerBackendSelectionSession:
                 "choices": [
                     {
                         "value": "auto",
-                        "label": "Auto",
-                        "description": "Default stable mpv backend.",
+                        "label": "auto ",
+                        "description": "default stable mpv backend",
                     },
                     {
                         "value": "mpv",
-                        "label": "mpv",
-                        "description": "Use mpv explicitly.",
+                        "label": "mpv  ",
+                        "description": "use mpv explicitly",
                     },
                     {
                         "value": "cvlc",
-                        "label": "VLC",
-                        "description": "Use VLC as the manual diagnostic backend.",
+                        "label": "VLC  ",
+                        "description": "use VLC as the manual diagnostic backend",
                     },
                     {
                         "value": "deny",
                         "label": "Cancel",
-                        "description": "Keep the current playback backend unchanged.",
                     },
                 ],
             }
@@ -3107,15 +3105,6 @@ class WebSocketRunner:
         if parsed_command is not None:
             if parsed_command.known and parsed_command.command and not parsed_command.command.visible:
                 await self._reject_internal_chat_command(ui, parsed_command.command.name)
-                return
-
-            if parsed_command.known and parsed_command.command and parsed_command.command.name == "play":
-                if self._running_task and not self._running_task.done():
-                    ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
-                    return
-                session = PlaySelectionSession(ui, self, parsed_command.args)
-                setattr(ui, "_play_selection", session)
-                await session.start()
                 return
 
             command_intent = parsed_command.command_intent()
@@ -3639,22 +3628,11 @@ class WebSocketRunner:
         event_queue: asyncio.Queue[RunnerEvent] = asyncio.Queue()
         self._confirm_queue = queue.Queue()
         loop = asyncio.get_running_loop()
-        turn_started = time.monotonic()
         tick_interval = 0.25
         current_phase = "Planning"
         current_message = "Planning..."
-        latest_tokens = 0
         planning_activity_id = _new_event_id("activity")
         planning_finished = False
-
-        def elapsed_ms() -> int:
-            """Coordinates elapsed ms for the current Sonex flow.
-
-            Typical use: Use this function when runtime code needs elapsed ms as part of a Sonex command, playback, auth, llm, or ui path.
-
-            Example: elapsed_ms() -> returns the value used by the surrounding Sonex flow.
-            """
-            return int((time.monotonic() - turn_started) * 1000)
 
         def emit(event: RunnerEvent) -> None:
             """Coordinates emit for the current Sonex flow.
@@ -3721,7 +3699,7 @@ class WebSocketRunner:
 
                     data: dict[str, Any] = {}
                     if evt.type == "status":
-                        data = {"content": evt.content, "tokens": evt.tokens}
+                        data = {"content": evt.content}
                     elif evt.type == "tool":
                         data = {
                             "tool_name": evt.tool,
@@ -3750,8 +3728,6 @@ class WebSocketRunner:
             """
             await ui.send_status(
                 UiStatus(phase=current_phase, message=current_message),
-                tokens=latest_tokens,
-                elapsed_ms=elapsed_ms(),
                 active=True,
             )
 
@@ -3803,8 +3779,6 @@ class WebSocketRunner:
                 phase = event.data.get("content")
                 current_phase = str(phase).title()
                 current_message = f"{phase}..."
-                if isinstance(event.data.get("tokens"), int):
-                    latest_tokens = int(event.data["tokens"])
                 await finish_planning("success", "Planning complete.")
                 await send_current_status()
                 if current_phase != "Planning":

@@ -276,10 +276,10 @@ export SONEX_AUDIUS_API_KEY=...
 
 ## ▶️ 播放教程
 
-使用 `/play` 或自然语言播放请求：
+使用自然语言播放请求：
 
 ```text
-/play Space Oddity David Bowie
+play Space Oddity David Bowie
 play Mitski Nobody
 播放 方大同 忘了美丽
 ```
@@ -299,7 +299,7 @@ Spotify、Apple Music，或在可用时使用在线音频。对于推荐类请�
 /player
 ```
 
-`/player` 会打开后端选择面板。选择 `Auto` 或 `mpv` 使用稳定的 mpv 路径；只有在
+`/player` 会打开后端选择面板。选择 `auto` 或 `mpv` 使用稳定的 mpv 路径；只有在
 排查播放器相关问题时选择 `VLC`；取消则保持当前设置不变。
 
 ## 🧩 封面珠子图
@@ -337,7 +337,7 @@ Mard 的品牌/色号身份来自打包的官方品牌参考，RGB 近似值继�
   `sonex tui`。
 - 🟩 Spotify 无法播放：重新运行 `sonex auth login spotify`，检查 scope 和账号
   product，并确认 Spotify 已在某个设备上打开。
-- 🎬 本地或在线播放无法启动：安装 `mpv`，打开 `/player`，保持 Auto/mpv 后端；
+- 🎬 本地或在线播放无法启动：安装 `mpv`，打开 `/player`，保持 auto/mpv 后端；
   只有在手动测试 VLC 行为时选择 VLC。
 - 🧩 封面珠子图没有出现：检查 `beads.brand`，用带官方封面的曲目重新播放，并查看
   `~/.sonex/log` 中的封面生成错误。

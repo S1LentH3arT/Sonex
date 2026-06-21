@@ -134,22 +134,18 @@ class WebSocketUIAdapter:
         self,
         status: UiStatus,
         *,
-        tokens: int | None = None,
-        elapsed_ms: int | None = None,
         active: bool | None = None,
     ) -> None:
         """Sends status to the active runtime client.
 
         Typical use: Use this function when runtime code needs send status as part of a Sonex command, playback, auth, llm, or ui path.
 
-        Example: await send_status(status=..., tokens=..., elapsed_ms=..., active=...) -> returns the value used by the surrounding Sonex flow.
+        Example: await send_status(status=..., active=...) -> returns the value used by the surrounding Sonex flow.
         """
         payload = {
             "type": "status",
             "phase": status.phase,
             "message": status.message,
-            "tokens": tokens,
-            "elapsed_ms": elapsed_ms,
             "tool": status.tool_name,
             "step": status.step,
             "max_steps": status.max_steps,

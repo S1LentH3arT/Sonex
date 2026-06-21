@@ -73,38 +73,28 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertEqual(intent.args, "华语女声")
         self.assertIn("spotify_recommend", intent.allowed_tools)
 
-    def test_search_with_query(self) -> None:
-        """Verifies that search with query behaves as expected.
+    def test_play_and_search_are_not_user_level_commands(self) -> None:
+        """Verifies that play and search are not public slash commands.
 
-        Typical use: Use this in automated tests when guarding the search with query behavior against regressions.
+        Typical use: Use this in automated tests when guarding the public command surface against regressions.
 
-        Example: test_search_with_query() -> passes without assertion failures when the behavior remains correct.
+        Example: test_play_and_search_are_not_user_level_commands() -> passes without assertion failures when the behavior remains correct.
         """
-        parsed = parse_builtin_command("/search jay chou")
-        self.assertIsNotNone(parsed)
-        assert parsed is not None
-        self.assertEqual(parsed.name, "search")
-        self.assertEqual(parsed.args, "jay chou")
-        self.assertTrue(parsed.known)
-        intent = parsed.command_intent()
-        self.assertIsNotNone(intent)
-        assert intent is not None
-        self.assertNotIn("play_youtube_song", intent.allowed_tools)
+        search = parse_builtin_command("/search jay chou")
+        play = parse_builtin_command("/play 1")
 
-    def test_play_number_is_plain_query_not_recent_result_intent(self) -> None:
-        """Verifies that play number is plain query not recent result intent behaves as expected.
+        self.assertIsNotNone(search)
+        self.assertIsNotNone(play)
+        assert search is not None
+        assert play is not None
+        self.assertFalse(search.known)
+        self.assertFalse(play.known)
+        self.assertIsNone(search.command_intent())
+        self.assertIsNone(play.command_intent())
 
-        Typical use: Use this in automated tests when guarding the play number is plain query not recent result intent behavior against regressions.
-
-        Example: test_play_number_is_plain_query_not_recent_result_intent() -> passes without assertion failures when the behavior remains correct.
-        """
-        parsed = parse_builtin_command("/play 1")
-        self.assertIsNotNone(parsed)
-        assert parsed is not None
-        self.assertEqual(parsed.name, "play")
-        self.assertEqual(parsed.args, "1")
-        self.assertTrue(parsed.known)
-        self.assertIsNone(parsed.command_intent())
+        commands = {command.name: command for command in command_suggestions()}
+        self.assertNotIn("search", commands)
+        self.assertNotIn("play", commands)
 
     def test_volume_is_internal_and_player_is_public_local_command(self) -> None:
         """Verifies that volume and player are local commands behaves as expected.
@@ -323,10 +313,9 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        self.assertEqual(commands["play"].usage, "/play <query>")
-        self.assertEqual(commands["play"].description, "Play a song by query.")
         self.assertEqual(commands["recommend"].description, "Recommend songs of preferred music taste.")
-        self.assertEqual(commands["search"].description, "Search songs by keywords.")
+        self.assertNotIn("play", commands)
+        self.assertNotIn("search", commands)
 
     def test_local_commands_are_marked_local(self) -> None:
         """Verifies that local commands are markedlocal behaves as expected.

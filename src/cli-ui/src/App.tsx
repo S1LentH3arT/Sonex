@@ -7,7 +7,6 @@ import { selectedHelpPanelCommand } from './command-panel.js';
 import { DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl } from './constants.js';
 import { DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
 import { clamp, trimList } from './chat-window.js';
-import { formatElapsed } from './format.js';
 import { useSonexSocket } from './hooks.js';
 import { applyLanguageToServerEvent, helpCommandsForLanguage, languageLabel, localizeSlashCommands, t } from './i18n.js';
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
@@ -35,9 +34,6 @@ export const App = () => {
     const [statusText, setStatusText] = useState(() => t(loadUiLanguage(), "status.snoozing"));
     const [launchPreparing, setLaunchPreparing] = useState(false);
     const [launchPreparingFrame, setLaunchPreparingFrame] = useState(0);
-    const [elapsed, setElapsed] = useState<string | null>(null);
-    const [tokens, setTokens] = useState<string | null>(null);
-    const [showRunMetrics, setShowRunMetrics] = useState(false);
     const [coverUrl, setCoverUrl] = useState<string | null>(null);
     const [coverPattern, setCoverPattern] = useState<CoverPatternEvent | null>(null);
     const coverUrlRef = React.useRef<string | null>(null);
@@ -91,7 +87,11 @@ export const App = () => {
     const miniVisible = activeRegion === "miniPlayer";
     const miniLayout = React.useMemo(() => resolveMiniPlayerLayout(terminalSize), [terminalSize.columns, terminalSize.rows]);
     const headerVariant = resolveChatHeaderVariant(terminalSize.columns);
-    const languageChoices = React.useMemo<UiLanguage[]>(() => ["en", "zh-CN"], []);
+    const baseLanguageChoices = React.useMemo<UiLanguage[]>(() => ["en", "zh-CN"], []);
+    const languageChoices = React.useMemo<UiLanguage[]>(
+        () => [language, ...baseLanguageChoices.filter((choice) => choice !== language)],
+        [baseLanguageChoices, language],
+    );
 
     React.useEffect(() => {
         playbackKeymapEnabledRef.current = playbackKeymapEnabled;
@@ -221,7 +221,6 @@ export const App = () => {
         const content = detail ? `${message}\n${detail}` : message;
         setChatItems((prev) => trimList([...prev, { role: "agent", content }], MAX_CHAT_ITEMS));
         setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
-        setShowRunMetrics(false);
     }, []);
 
     const inputPlaceholder = selectedConfirmInput
@@ -255,18 +254,6 @@ export const App = () => {
             case "status":
                 setLaunchPreparing(rawEvent.type === "status" && rawEvent.active !== false && rawEvent.message === "Launch preparing...");
                 setStatusText(evt.message);
-                if (evt.active === false) {
-                    setShowRunMetrics(false);
-                    break;
-                }
-                const hasRunMetrics = typeof evt.elapsed_ms === "number" || typeof evt.tokens === "number";
-                setShowRunMetrics(hasRunMetrics);
-                if (typeof evt.elapsed_ms === "number") {
-                    setElapsed(formatElapsed(evt.elapsed_ms));
-                }
-                if (typeof evt.tokens === "number") {
-                    setTokens(`${evt.tokens} tokens`);
-                }
                 break;
             case "queue":
                 setQueueItems(evt.tracks);
@@ -496,7 +483,6 @@ export const App = () => {
             content: language === "zh-CN" ? `迷你播放器快捷键已${enabled ? "启用" : "进入纯净模式"}。` : `Mini-player keymap is ${mode}.`,
         }], MAX_CHAT_ITEMS));
         setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
-        setShowRunMetrics(false);
     }, [language]);
 
     const handleKeymapCommand = React.useCallback((args: string) => {
@@ -527,7 +513,6 @@ export const App = () => {
             role: "agent",
             content: t(language, "keymap.usage"),
         }], MAX_CHAT_ITEMS));
-        setShowRunMetrics(false);
     }, [appendKeymapMessage, language]);
 
     const loginChoices = authSetup?.step === "provider"
@@ -540,15 +525,14 @@ export const App = () => {
     const displayStatusText = launchPreparing ? launchPreparingText(launchPreparingFrame, language) : statusText;
 
     const openLanguagePanel = React.useCallback(() => {
-        const currentIndex = Math.max(0, languageChoices.indexOf(language));
         setInput("");
         setSlashMenuDismissedFor(null);
         setHelpPanel(null);
         setTrackPanel(null);
         setLanguagePanel({ active: true, selected: language });
-        setLanguagePanelIndex(currentIndex);
+        setLanguagePanelIndex(0);
         setStatusText(t(language, "language.title"));
-    }, [language, languageChoices]);
+    }, [language]);
 
     const chooseLanguage = React.useCallback((nextLanguage: UiLanguage) => {
         let saveError: string | null = null;
@@ -759,7 +743,7 @@ export const App = () => {
         } else if (input.trim().length === 0 && key.downArrow) {
             scrollChat(-1);
         }
-    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && !confirm && !isSlashMenuActive && !isLoginScreenActive && !languagePanel?.active && !isModelPanelActive });
+    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && !confirm && !helpPanel && !isSlashMenuActive && !isLoginScreenActive && !languagePanel?.active && !isModelPanelActive });
 
     useInput((inputKey, key) => {
         if (!confirm) return;
@@ -851,9 +835,6 @@ export const App = () => {
                         chatItems={chatItems}
                         player={player}
                         statusText={displayStatusText}
-                        elapsed={elapsed}
-                        tokens={tokens}
-                        showRunMetrics={showRunMetrics}
                         coverUrl={coverUrl}
                         coverPattern={coverPattern}
                         confirm={confirm}

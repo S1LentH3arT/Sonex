@@ -3,7 +3,7 @@ import type { ConfirmChoice, SlashCommandSuggestion } from './types.js';
 export const wsUrl = process.env.SONEX_WS_URL ?? "ws://localhost:9001/ws";
 
 export const APP_VERSION = "1.0.1";
-export const FALLBACK_MODEL_NAME = "GPT-5.2";
+export const FALLBACK_MODEL_NAME = "gpt-5.5";
 export const BORDER_BLUE = "#3b82f6";
 export const BORDER_BLUE_SOFT = "#9fd9ff";
 export const APP_TIP_PLACEHOLDER = "Tips: try /random for a free play.";
@@ -16,22 +16,20 @@ export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
 export const MAX_VISIBLE_SLASH_COMMANDS = 4;
 export const MAX_VISIBLE_MODEL_CHOICES = 3;
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
-    { name: "bye", usage: "/bye", description: "Save session and exit", needsArgument: false, aliases: ["exit"] },
-    { name: "help", usage: "/help", description: "Show available commands", needsArgument: false },
-    { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "Toggle mini-player playback shortcuts", needsArgument: false },
-    { name: "lang", usage: "/lang", description: "Choose the TUI display language.", needsArgument: false },
-    { name: "logout", usage: "/logout", description: "Log out current LLM provider and exit", needsArgument: false },
-    { name: "model", usage: "/model", description: "Switch active model", needsArgument: false },
-    { name: "player", usage: "/player", description: "Choose playback backend from a panel", needsArgument: false },
-    { name: "play", usage: "/play <query/number>", description: "Play a song by query or result number.", needsArgument: true },
-    { name: "playlist", usage: "/playlist [name]|save [name]", description: "Browse or save playlists", needsArgument: false },
-    { name: "queue", usage: "/queue", description: "Show playback queue", needsArgument: false },
-    { name: "quit", usage: "/quit", description: "Save session and exit", needsArgument: false },
-    { name: "random", usage: "/random", description: "Play from recent songs", needsArgument: false },
-    { name: "recommend", usage: "/recommend", description: "Recommend songs of preferred music taste.", needsArgument: true },
-    { name: "resume", usage: "/resume", description: "Resume current playback", needsArgument: false },
-    { name: "search", usage: "/search <query>", description: "Search songs by keywords.", needsArgument: true },
-    { name: "setup", usage: "/setup", description: "Configure a music provider.", needsArgument: true },
+    { name: "bye", usage: "/bye", description: "save session and exit", needsArgument: false, aliases: ["exit"] },
+    { name: "help", usage: "/help", description: "show available commands", needsArgument: false },
+    { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "toggle mini-player playback shortcuts", needsArgument: false },
+    { name: "lang", usage: "/lang", description: "choose the TUI display language", needsArgument: false },
+    { name: "logout", usage: "/logout", description: "log out current LLM provider and exit", needsArgument: false },
+    { name: "model", usage: "/model", description: "switch active model", needsArgument: false },
+    { name: "player", usage: "/player", description: "choose playback backend from a panel", needsArgument: false },
+    { name: "playlist", usage: "/playlist [name]|save [name]", description: "browse or save playlists", needsArgument: false },
+    { name: "queue", usage: "/queue", description: "show playback queue", needsArgument: false },
+    { name: "quit", usage: "/quit", description: "save session and exit", needsArgument: false },
+    { name: "random", usage: "/random", description: "play from recent songs", needsArgument: false },
+    { name: "recommend", usage: "/recommend", description: "recommend songs of preferred music taste", needsArgument: true },
+    { name: "resume", usage: "/resume", description: "resume current playback", needsArgument: false },
+    { name: "setup", usage: "/setup", description: "configure a music provider", needsArgument: true },
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";
 export const API_NOT_RUNNING_DETAIL = "Start with `sonex`, or run `sonex api` before `sonex tui`.";
@@ -109,18 +107,10 @@ export const SONEX_MASCOT: MascotSegment[][] = [
 
 export const SONEX_MASCOT_MICRO: MascotSegment[][] = [
     [
-        { text: "  ", },
-        { text: "▄▄▄▄▄", fg: "#000000" },
-    ],
-    [
-        { text: "  ", },
-        { text: "█", fg: "#000000" },
-        { text: "    ", },
-        { text: "█", fg: "#000000" },
-    ],
-    [
-        { text: "██", fg: "#000000" },
-        { text: "   ", },
-        { text: "██", fg: "#000000" },
+        { text: "█", fg: "#9fd9ff" },
+        { text: "▀", fg: "#9fd9ff", bg: "#000000" },
+        { text: "██", fg: "#9fd9ff" },
+        { text: "▀", fg: "#9fd9ff", bg: "#000000" },
+        { text: "█", fg: "#9fd9ff" },
     ],
 ];

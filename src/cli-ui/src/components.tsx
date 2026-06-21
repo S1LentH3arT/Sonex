@@ -31,7 +31,7 @@ const Mascot = () => {
 
 const MiniMascotStatus = () => {
     return (
-        <Box height={3} flexShrink={0} paddingLeft={1} paddingRight={1} flexDirection="column" alignItems="flex-start">
+        <Box height={1} flexShrink={0} paddingLeft={1} paddingRight={1} flexDirection="column" alignItems="flex-start">
             {SONEX_MASCOT_MICRO.map((row, rowIndex) => (
                 <Text key={rowIndex}>
                     {row.map((segment, segmentIndex) => (
@@ -206,6 +206,22 @@ type ChoicePanelRow = {
     description?: string | null;
 };
 
+const COMMAND_LIST_LABEL_WIDTH = 12;
+const MODEL_PANEL_LABEL_WIDTH = 20;
+
+const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): string => (
+    `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
+);
+
+const modelIdFromChoice = (model: AuthMethodChoice): string => {
+    const valueParts = model.value.split("::");
+    return valueParts.length > 1 ? valueParts.slice(1).join("::") : model.label;
+};
+
+const formatModelPanelLabel = (model: AuthMethodChoice): string => (
+    modelIdFromChoice(model).padEnd(MODEL_PANEL_LABEL_WIDTH, " ")
+);
+
 const ChoicePanel = ({ rows, selectedIndex, visibleLimit }: {
     rows: ChoicePanelRow[];
     selectedIndex: number;
@@ -229,7 +245,6 @@ const ChoicePanel = ({ rows, selectedIndex, visibleLimit }: {
                         <Text color={rowColor}>{row.label}</Text>
                         {row.description ? (
                             <>
-                                <Text color={rowColor}> - </Text>
                                 <Text color={rowColor}>{row.description}</Text>
                             </>
                         ) : null}
@@ -262,8 +277,7 @@ const SlashCommandList = ({ suggestions, selectedIndex }: {
                         <Text color={commandColor}>
                             {absoluteIndex === boundedIndex ? "> " : "  "}
                         </Text>
-                        <Text color={commandColor}>{command.usage}</Text>
-                        <Text color={commandColor}>-</Text>
+                        <Text color={commandColor}>{formatCommandListLabel(command)}</Text>
                         <Text color={commandColor}>{command.description}</Text>
                     </Text>
                 );
@@ -282,7 +296,7 @@ const HelpPanel = ({ panel, selectedIndex, language = "en" }: { panel: HelpPanel
     );
 
     return (
-        <Box flexDirection="column" paddingX={1} paddingBottom={1}>
+        <Box flexDirection="column" paddingX={1} paddingBottom={1} borderStyle="single" borderColor={BORDER_BLUE}>
             <Text>
                 <Text bold color="#fff4f6">{panel.title}</Text>
                 <Text color="#7f5d6b"> - </Text>
@@ -291,15 +305,19 @@ const HelpPanel = ({ panel, selectedIndex, language = "en" }: { panel: HelpPanel
             {panel.commands.length === 0 ? (
                 <Text color="#7f5d6b">{t(language, "help.empty")}</Text>
             ) : (
-                <ChoicePanel
-                    rows={visibleCommands.map((command) => ({
-                        key: command.name,
-                        label: command.usage,
-                        description: command.description,
-                    }))}
-                    selectedIndex={boundedIndex - startIndex}
-                    visibleLimit={HELP_PANEL_VISIBLE_COMMANDS}
-                />
+                <Box flexDirection="column" marginTop={1}>
+                    {visibleCommands.map((command, index) => {
+                        const absoluteIndex = startIndex + index;
+                        const commandColor = absoluteIndex === boundedIndex ? BORDER_BLUE : "#fff4f6";
+                        return (
+                            <Text key={command.name}>
+                                <Text color={commandColor}>{absoluteIndex === boundedIndex ? "> " : "  "}</Text>
+                                <Text color={commandColor}>{formatCommandListLabel(command)}</Text>
+                                <Text color={commandColor}>{command.description}</Text>
+                            </Text>
+                        );
+                    })}
+                </Box>
             )}
         </Box>
     );
@@ -364,9 +382,25 @@ const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false, 
     );
 };
 
-const TrackPanel = ({ panel, expanded = false }: { panel: TrackPanelState; expanded?: boolean }) => {
+const localizeTrackPanelTitle = (panel: NonNullable<TrackPanelState>, language: UiLanguage): string => {
+    if (panel.panel === "queue") return t(language, "trackPanel.queue");
+    const playlistPrefix = "Playlist:";
+    if (panel.title.startsWith(playlistPrefix)) {
+        const playlistName = panel.title.slice(playlistPrefix.length).trim();
+        return playlistName ? `${t(language, "trackPanel.playlist")}: ${playlistName}` : t(language, "trackPanel.playlist");
+    }
+    if (panel.title === "Playlist") return t(language, "trackPanel.playlist");
+    return panel.title;
+};
+
+const trackPanelEmptyText = (panel: NonNullable<TrackPanelState>, language: UiLanguage): string => (
+    panel.panel === "queue" ? t(language, "trackPanel.queueEmpty") : t(language, "trackPanel.playlistEmpty")
+);
+
+const TrackPanel = ({ panel, expanded = false, language = "en" }: { panel: TrackPanelState; expanded?: boolean; language?: UiLanguage }) => {
     if (!panel) return null;
     const rows: TrackPanelTrack[] = panel.tracks.slice(0, 10);
+    const panelTitle = localizeTrackPanelTitle(panel, language);
     return (
         <Box
             flexDirection="column"
@@ -380,21 +414,21 @@ const TrackPanel = ({ panel, expanded = false }: { panel: TrackPanelState; expan
             borderColor={BORDER_BLUE}
         >
             <Box marginBottom={1}>
-                <Text bold color="#f3b2c6">{panel.title}</Text>
+                <Text bold color="#f3b2c6">{panelTitle}</Text>
                 {panel.hint ? <Text color="#7f5d6b"> - {panel.hint}; Esc to hide</Text> : null}
             </Box>
             <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingTop={1}>
                 {rows.length === 0 ? (
-                    <Text color="#7f5d6b">{panel.panel === "queue" ? "Queue is empty." : "Playlist is empty."}</Text>
+                    <Text color="#7f5d6b">{trackPanelEmptyText(panel, language)}</Text>
                 ) : rows.map((track, idx) => {
                     const marker = idx === 0 ? <Text color="#f3b2c6">{">>"}</Text> :
                         <Text color="#7f5d6b">{".."}</Text>;
+                    const meta = panel.panel === "queue" ? track.duration : `${track.artist} • ${track.duration}`;
                     return (
                         <Box key={`${track.index}_${idx}`} flexDirection="column" marginBottom={1}>
                             <Text>{marker} <Text color="#bf98a7">{track.index}</Text> <Text
                                 color="#fff4f6">{track.title}</Text></Text>
-                            <Text> <Text color="#bf98a7">{track.artist}</Text> <Text color="#7f5d6b">•</Text> <Text
-                                color="#bf98a7">{track.duration}</Text></Text>
+                            <Text> <Text color="#bf98a7">{meta}</Text></Text>
                         </Box>
                     );
                 })}
@@ -403,9 +437,9 @@ const TrackPanel = ({ panel, expanded = false }: { panel: TrackPanelState; expan
     );
 };
 
-const TrackPanelOverlay = ({ trackPanel }: { trackPanel: TrackPanelState }) => (
+const TrackPanelOverlay = ({ trackPanel, language = "en" }: { trackPanel: TrackPanelState; language?: UiLanguage }) => (
     <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
-        <TrackPanel panel={trackPanel} expanded={true} />
+        <TrackPanel panel={trackPanel} expanded={true} language={language} />
     </Box>
 );
 
@@ -728,6 +762,13 @@ const CompactConversation = ({ items, statusText }: { items: ChatItem[]; statusT
     );
 };
 
+const LANGUAGE_CHOICES: UiLanguage[] = ["en", "zh-CN"];
+
+const orderedLanguageChoices = (current: UiLanguage): UiLanguage[] => [
+    current,
+    ...LANGUAGE_CHOICES.filter((choice) => choice !== current),
+];
+
 const CompactConfirm = ({ confirm, confirmIndex }: { confirm: ConfirmState; confirmIndex: number }) => {
     if (!confirm) return null;
 
@@ -752,7 +793,7 @@ const LanguagePanel = ({ panel, selectedIndex, language = "en" }: {
     language?: UiLanguage;
 }) => {
     if (!panel) return null;
-    const choices: UiLanguage[] = ["en", "zh-CN"];
+    const choices = orderedLanguageChoices(panel.selected);
     const boundedIndex = Math.min(Math.max(selectedIndex, 0), choices.length - 1);
     return (
         <Box flexDirection="column" marginBottom={1} paddingX={1} borderStyle="single" borderColor={BORDER_BLUE_SOFT}>
@@ -761,8 +802,7 @@ const LanguagePanel = ({ panel, selectedIndex, language = "en" }: {
             <ChoicePanel
                 rows={choices.map((choice) => ({
                     key: choice,
-                    label: languageLabel(choice),
-                    description: choice === panel.selected ? "current" : choice,
+                    label: choice === panel.selected ? `* ${languageLabel(choice)}` : languageLabel(choice),
                 }))}
                 selectedIndex={boundedIndex}
             />
@@ -859,7 +899,7 @@ const InputDock = ({
             hint: authSetup.message,
             rows: (authSetup.models ?? []).map((model) => ({
                 key: model.value,
-                label: model.label,
+                label: formatModelPanelLabel(model),
                 description: model.provider ?? model.value,
             })),
         }
@@ -1069,9 +1109,6 @@ const ConversationRegion = ({
 }: {
     chatItems: ChatItem[];
     statusText: string;
-    elapsed: string | null;
-    tokens: string | null;
-    showRunMetrics: boolean;
     input: string;
     setInput: (value: string) => void;
     onSubmit: (value: string) => void;
@@ -1096,7 +1133,7 @@ const ConversationRegion = ({
     language?: UiLanguage;
 }) => {
     if (trackPanel) {
-        return <TrackPanelOverlay trackPanel={trackPanel} />;
+        return <TrackPanelOverlay trackPanel={trackPanel} language={language} />;
     }
 
     return (
@@ -1142,9 +1179,6 @@ export const DynamicShell = ({
     chatItems,
     player,
     statusText,
-    elapsed,
-    tokens,
-    showRunMetrics,
     coverUrl,
     coverPattern,
     confirm,
@@ -1177,9 +1211,6 @@ export const DynamicShell = ({
     chatItems: ChatItem[];
     player: PlayerState;
     statusText: string;
-    elapsed: string | null;
-    tokens: string | null;
-    showRunMetrics: boolean;
     coverUrl: string | null;
     coverPattern: CoverPatternPayload | null;
     confirm: ConfirmState;
@@ -1219,9 +1250,6 @@ export const DynamicShell = ({
         <ConversationRegion
             chatItems={chatItems}
             statusText={statusText}
-            elapsed={elapsed}
-            tokens={tokens}
-            showRunMetrics={showRunMetrics}
             input={input}
             setInput={setInput}
             onSubmit={onSubmit}

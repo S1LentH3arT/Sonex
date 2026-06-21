@@ -29,7 +29,11 @@ type MessageKey =
     | "providers.label"
     | "status.saving"
     | "status.snoozing"
-    | "tips.placeholder";
+    | "tips.placeholder"
+    | "trackPanel.playlist"
+    | "trackPanel.playlistEmpty"
+    | "trackPanel.queue"
+    | "trackPanel.queueEmpty";
 
 const messages: Record<UiLanguage, Record<MessageKey, string>> = {
     en: {
@@ -62,6 +66,10 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "status.saving": "Saving session...",
         "status.snoozing": "Snoozing...",
         "tips.placeholder": "Tips: try /random for a free play.",
+        "trackPanel.playlist": "Playlist",
+        "trackPanel.playlistEmpty": "Playlist is empty.",
+        "trackPanel.queue": "Queue",
+        "trackPanel.queueEmpty": "Queue is empty.",
     },
     "zh-CN": {
         "activity.empty": "等待代理活动。",
@@ -93,6 +101,10 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "status.saving": "正在保存会话...",
         "status.snoozing": "休眠中...",
         "tips.placeholder": "提示：试试 /random 随机播放。",
+        "trackPanel.playlist": "歌单",
+        "trackPanel.playlistEmpty": "歌单为空。",
+        "trackPanel.queue": "播放队列",
+        "trackPanel.queueEmpty": "播放队列为空。",
     },
 };
 
@@ -104,14 +116,12 @@ const commandDescriptions: Record<string, Record<UiLanguage, string>> = {
     logout: { en: "Log out current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
     model: { en: "Switch active model", "zh-CN": "切换当前模型" },
     player: { en: "Choose playback backend from a panel", "zh-CN": "打开播放后端选择面板" },
-    play: { en: "Play a song by query or result number.", "zh-CN": "按查询或结果编号播放歌曲。" },
     playlist: { en: "Browse or save playlists", "zh-CN": "浏览或保存播放列表" },
     queue: { en: "Show playback queue", "zh-CN": "显示播放队列" },
     quit: { en: "Save session and exit", "zh-CN": "保存会话并退出" },
     random: { en: "Play from recent songs", "zh-CN": "从最近歌曲中播放" },
     recommend: { en: "Recommend songs of preferred music taste.", "zh-CN": "按偏好的音乐口味推荐歌曲。" },
     resume: { en: "Resume current playback", "zh-CN": "继续当前播放" },
-    search: { en: "Search songs by keywords.", "zh-CN": "按关键词搜索歌曲。" },
     setup: { en: "Configure a music provider.", "zh-CN": "配置音乐服务。" },
 };
 
