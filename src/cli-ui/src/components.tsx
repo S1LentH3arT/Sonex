@@ -13,7 +13,7 @@ import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js'
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion } from './layout.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -212,6 +212,7 @@ type ChoicePanelRow = {
 const COMMAND_LIST_LABEL_WIDTH = 12;
 const CONFIRM_CHOICE_LABEL_WIDTH = 18;
 const MODEL_PANEL_LABEL_WIDTH = 20;
+const SPOTIFY_GREEN = "#1db954";
 
 const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): string => (
     `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
@@ -232,10 +233,11 @@ const formatChoicePanelLabel = (row: ChoicePanelRow): string => (
         : row.label
 );
 
-const ChoicePanel = ({ rows, selectedIndex, visibleLimit }: {
+const ChoicePanel = ({ rows, selectedIndex, visibleLimit, selectedBackgroundColor }: {
     rows: ChoicePanelRow[];
     selectedIndex: number;
     visibleLimit?: number;
+    selectedBackgroundColor?: string;
 }) => {
     if (rows.length === 0) return null;
     const { items: visibleRows, boundedIndex, startIndex } = visibleCommandWindow(
@@ -248,14 +250,16 @@ const ChoicePanel = ({ rows, selectedIndex, visibleLimit }: {
         <Box flexDirection="column" marginTop={1}>
             {visibleRows.map((row, index) => {
                 const absoluteIndex = startIndex + index;
-                const rowColor = absoluteIndex === boundedIndex ? BORDER_BLUE : "#fff4f6";
+                const selected = absoluteIndex === boundedIndex;
+                const rowBackgroundColor = selected ? selectedBackgroundColor : undefined;
+                const rowColor = selectedBackgroundColor && selected ? "#06140c" : selected ? BORDER_BLUE : "#fff4f6";
                 return (
-                    <Text key={row.key}>
-                        <Text color={rowColor}>{absoluteIndex === boundedIndex ? "> " : "  "}</Text>
-                        <Text color={rowColor}>{formatChoicePanelLabel(row)}</Text>
+                    <Text key={row.key} backgroundColor={rowBackgroundColor}>
+                        <Text color={rowColor} backgroundColor={rowBackgroundColor}>{selected ? "> " : "  "}</Text>
+                        <Text color={rowColor} backgroundColor={rowBackgroundColor}>{formatChoicePanelLabel(row)}</Text>
                         {row.description ? (
                             <>
-                                <Text color={rowColor}>{row.description}</Text>
+                                <Text color={rowColor} backgroundColor={rowBackgroundColor}>{row.description}</Text>
                             </>
                         ) : null}
                     </Text>
@@ -788,9 +792,10 @@ const confirmCancelHint = (choices: ConfirmChoice[]): string => (
 const CompactConfirm = ({ confirm, confirmIndex }: { confirm: ConfirmState; confirmIndex: number }) => {
     if (!confirm) return null;
     const visibleChoices = getVisibleConfirmChoices(confirm.choices);
+    const isSpotifyDeviceConfirm = confirm.tool_name === "spotify_device";
 
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={BORDER_BLUE}>
+        <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={isSpotifyDeviceConfirm ? SPOTIFY_GREEN : BORDER_BLUE}>
             <Text color="#fff4f6">{confirm.message}</Text>
             <Text color="#7f5d6b">{confirmCancelHint(confirm.choices)}</Text>
             <ChoicePanel
@@ -801,6 +806,7 @@ const CompactConfirm = ({ confirm, confirmIndex }: { confirm: ConfirmState; conf
                     labelWidth: CONFIRM_CHOICE_LABEL_WIDTH,
                 }))}
                 selectedIndex={confirmIndex}
+                selectedBackgroundColor={isSpotifyDeviceConfirm ? SPOTIFY_GREEN : undefined}
             />
         </Box>
     );
@@ -910,6 +916,7 @@ const InputDock = ({
     inputRevision,
     confirm,
     confirmIndex,
+    spotifyMode,
     spotifySetup,
     authSetup,
     slashSuggestions,
@@ -932,6 +939,7 @@ const InputDock = ({
     inputRevision: number;
     confirm: ConfirmState;
     confirmIndex: number;
+    spotifyMode: SpotifyModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
     slashSuggestions: SlashCommandSuggestion[];
@@ -990,18 +998,25 @@ const InputDock = ({
                 language={language}
             /> : null}
             {showInput ? (
-                <Box borderTop={true} borderStyle="single" borderColor={BORDER_BLUE} paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="row"
+                <Box borderTop={true} borderStyle="single" borderColor={spotifyMode?.enabled ? SPOTIFY_GREEN : BORDER_BLUE} paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="column"
                     minHeight={minimal ? 3 : 4} flexShrink={0}>
-                    <Text color="#7f5d6b">{minimal && switchHint ? `${switchHint} · > ` : "> "}</Text>
-                    <PromptInput
-                        input={input}
-                        setInput={setInput}
-                        onSubmit={onSubmit}
-                        focus={inputFocus}
-                        placeholder={inputPlaceholder}
-                        mask={inputMask}
-                        inputRevision={inputRevision}
-                    />
+                    {spotifyMode?.enabled ? (
+                        <Box justifyContent="flex-end">
+                            <Text color={SPOTIFY_GREEN}>Spotify Mode</Text>
+                        </Box>
+                    ) : null}
+                    <Box flexDirection="row">
+                        <Text color={spotifyMode?.enabled ? SPOTIFY_GREEN : "#7f5d6b"}>{minimal && switchHint ? `${switchHint} · > ` : "> "}</Text>
+                        <PromptInput
+                            input={input}
+                            setInput={setInput}
+                            onSubmit={onSubmit}
+                            focus={inputFocus}
+                            placeholder={inputPlaceholder}
+                            mask={inputMask}
+                            inputRevision={inputRevision}
+                        />
+                    </Box>
                 </Box>
             ) : null}
         </Box>
@@ -1019,6 +1034,7 @@ const ConversationColumn = ({
     inputRevision,
     confirm,
     confirmIndex,
+    spotifyMode,
     spotifySetup,
     authSetup,
     slashSuggestions,
@@ -1044,6 +1060,7 @@ const ConversationColumn = ({
     inputRevision: number;
     confirm: ConfirmState;
     confirmIndex: number;
+    spotifyMode: SpotifyModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
     slashSuggestions: SlashCommandSuggestion[];
@@ -1080,6 +1097,7 @@ const ConversationColumn = ({
                 inputRevision={inputRevision}
                 confirm={confirm}
                 confirmIndex={confirmIndex}
+                spotifyMode={spotifyMode}
                 spotifySetup={spotifySetup}
                 authSetup={authSetup}
                 slashSuggestions={slashSuggestions}
@@ -1166,6 +1184,7 @@ const ConversationRegion = ({
     inputRevision,
     confirm,
     confirmIndex,
+    spotifyMode,
     spotifySetup,
     authSetup,
     slashSuggestions,
@@ -1191,6 +1210,7 @@ const ConversationRegion = ({
     inputRevision: number;
     confirm: ConfirmState;
     confirmIndex: number;
+    spotifyMode: SpotifyModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
     slashSuggestions: SlashCommandSuggestion[];
@@ -1222,6 +1242,7 @@ const ConversationRegion = ({
             inputRevision={inputRevision}
             confirm={confirm}
             confirmIndex={confirmIndex}
+            spotifyMode={spotifyMode}
             spotifySetup={spotifySetup}
             authSetup={authSetup}
             slashSuggestions={slashSuggestions}
@@ -1256,6 +1277,7 @@ export const DynamicShell = ({
     coverPattern,
     confirm,
     confirmIndex,
+    spotifyMode,
     spotifySetup,
     authSetup,
     slashSuggestions,
@@ -1288,6 +1310,7 @@ export const DynamicShell = ({
     coverPattern: CoverPatternPayload | null;
     confirm: ConfirmState;
     confirmIndex: number;
+    spotifyMode: SpotifyModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
     slashSuggestions: SlashCommandSuggestion[];
@@ -1332,6 +1355,7 @@ export const DynamicShell = ({
             inputRevision={inputRevision}
             confirm={confirm}
             confirmIndex={confirmIndex}
+            spotifyMode={spotifyMode}
             spotifySetup={spotifySetup}
             authSetup={authSetup}
             slashSuggestions={slashSuggestions}

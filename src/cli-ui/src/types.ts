@@ -6,6 +6,7 @@ export type ServerEvent =
     | { type: "track_panel"; panel: "queue" | "playlist"; title: string; hint?: string | null; tracks: TrackPanelTrack[] }
     | { type: "search_results"; tracks: TrackSummary[] }
     | { type: "player"; state: PlayerState }
+    | { type: "spotify_mode"; enabled: boolean; device_id?: string | null; device_name?: string | null }
     | { type: "cover"; url: string }
     | CoverPatternEvent
     | CoverPatternUnavailableEvent
@@ -83,6 +84,12 @@ export type SpotifySetupState = {
     mask?: boolean | null;
     active: boolean;
 } | null;
+
+export type SpotifyModeState = {
+    enabled: boolean;
+    device_id?: string | null;
+    device_name?: string | null;
+};
 
 export type AuthMethodChoice = {
     value: string;

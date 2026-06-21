@@ -483,6 +483,61 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(getattr(ui, "_spotify_mode", None))
         self.assertTrue(any("Premium" in str(event.get("detail")) for event in ui.events if event.get("type") == "activity"))
 
+    async def test_spotify_command_reports_pending_before_account_check_returns(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        async def blocked_to_thread(fn, /, *args, **kwargs):
+            await asyncio.sleep(30)
+
+        with patch("src.api.ws_runner.asyncio.to_thread", side_effect=blocked_to_thread):
+            task = asyncio.create_task(runner._handle_user_input(ui, "/spotify"))
+            await asyncio.sleep(0)
+            try:
+                self.assertTrue(
+                    any(
+                        event.get("type") == "activity"
+                        and event.get("status") == "pending"
+                        and "Checking Spotify account" in str(event.get("detail"))
+                        for event in ui.events
+                    )
+                )
+            finally:
+                task.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await task
+
+    async def test_spotify_command_times_out_account_check_with_visible_error(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        async def blocked_to_thread(fn, /, *args, **kwargs):
+            await asyncio.sleep(30)
+
+        with patch("src.api.ws_runner.SPOTIFY_MODE_CALL_TIMEOUT_SECONDS", 0.01), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=blocked_to_thread):
+            await runner._handle_user_input(ui, "/spotify")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertIsNone(getattr(ui, "_spotify_mode", None))
+        self.assertTrue(
+            any(
+                event.get("type") == "activity"
+                and event.get("status") == "error"
+                and "Spotify did not respond while checking your account" in str(event.get("detail"))
+                for event in ui.events
+            )
+        )
+        self.assertTrue(
+            any(
+                event.get("type") == "chat"
+                and "Spotify did not respond while checking your account" in str(event.get("text"))
+                for event in ui.events
+            )
+        )
+
     async def test_spotify_command_starts_reauth_when_scopes_are_missing(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -556,6 +611,24 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(mode["enabled"])
         self.assertEqual(mode["device_id"], "desktop")
         self.assertEqual(mode["device_name"], "Studio Desktop")
+        mode_events = [event for event in ui.events if event.get("type") == "spotify_mode"]
+        self.assertTrue(mode_events)
+        self.assertTrue(mode_events[-1]["enabled"])
+        self.assertEqual(mode_events[-1]["device_name"], "Studio Desktop")
+
+    async def test_spotify_command_toggles_off_in_spotify_mode(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        await runner._handle_user_input(ui, "/spotify")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertIsNone(getattr(ui, "_spotify_mode", None))
+        mode_events = [event for event in ui.events if event.get("type") == "spotify_mode"]
+        self.assertTrue(mode_events)
+        self.assertFalse(mode_events[-1]["enabled"])
 
     async def test_spotify_off_exits_session_mode(self) -> None:
         runner = WebSocketRunner()

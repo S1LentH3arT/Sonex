@@ -2947,6 +2947,7 @@ SPOTIFY_MODE_AGENT_TOOLS = (
     "search_track",
     "spotify_play",
 )
+SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 
 
 def _spotify_mode_state(device: dict[str, Any]) -> dict[str, Any]:
@@ -2956,6 +2957,39 @@ def _spotify_mode_state(device: dict[str, Any]) -> dict[str, Any]:
         "device_name": device.get("name"),
         "entered_at": _timestamp_ms(),
     }
+
+
+async def _send_spotify_mode(ui: WebSocketUIAdapter, mode: dict[str, Any] | None) -> None:
+    await ui._send(
+        {
+            "type": "spotify_mode",
+            "enabled": bool(mode and mode.get("enabled")),
+            "device_id": (mode or {}).get("device_id"),
+            "device_name": (mode or {}).get("device_name"),
+        }
+    )
+
+
+async def _run_spotify_mode_call(
+    ui: WebSocketUIAdapter,
+    *,
+    func: Any,
+    pending_detail: str,
+    timeout_message: str,
+    failure_title: str = "Spotify mode",
+) -> Any | None:
+    await ui.append_activity(kind="tool", title="Spotify mode", detail=pending_detail, status="pending")
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(func), timeout=SPOTIFY_MODE_CALL_TIMEOUT_SECONDS)
+    except TimeoutError:
+        await ui.append_activity(kind="error", title=failure_title, detail=timeout_message, status="error")
+        await ui.append_agent_message(timeout_message)
+        return None
+    except Exception as exc:
+        message = sanitize_error_message(exc)
+        await ui.append_activity(kind="error", title=failure_title, detail=message, status="error")
+        await ui.append_agent_message(message)
+        return None
 
 
 def _spotify_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -3032,7 +3066,9 @@ class SpotifyDeviceSelectionSession:
             await self.ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
             await self.ui.append_agent_message(message)
             return
-        setattr(self.ui, "_spotify_mode", _spotify_mode_state(device))
+        mode = _spotify_mode_state(device)
+        setattr(self.ui, "_spotify_mode", mode)
+        await _send_spotify_mode(self.ui, mode)
         message = f"Spotify mode on: {device.get('name') or 'selected device'}."
         await self.ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
         await self.ui.append_agent_message(message)
@@ -3883,11 +3919,12 @@ class WebSocketRunner:
 
     async def _handle_spotify_mode_command(self, ui: WebSocketUIAdapter, args: str) -> None:
         action = args.strip().casefold()
-        if action == "off":
+        if action == "off" or (not action and self._spotify_mode_enabled(ui)):
             setattr(ui, "_spotify_mode", None)
             setattr(ui, "_spotify_library_synced", False)
             setattr(ui, "_spotify_device_selection", None)
             setattr(ui, "_spotify_play_selection", None)
+            await _send_spotify_mode(ui, None)
             message = "Spotify mode off."
             await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
             await ui.append_agent_message(message)
@@ -3911,7 +3948,17 @@ class WebSocketRunner:
         await session.start()
 
     async def _enter_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
-        account = await asyncio.to_thread(spotify_account)
+        account = await _run_spotify_mode_call(
+            ui,
+            func=spotify_account,
+            pending_detail="Checking Spotify account.",
+            timeout_message=(
+                "Spotify did not respond while checking your account. "
+                "Try /spotify again after confirming Spotify is reachable."
+            ),
+        )
+        if account is None:
+            return
         data = account.get("data") if isinstance(account, dict) else {}
         if not isinstance(data, dict) or not data.get("logged_in"):
             message = "Spotify login required. Run /setup spotify or `sonex auth login spotify` first."
@@ -3929,7 +3976,17 @@ class WebSocketRunner:
             await self._start_spotify_reauthorization(ui, missing_scopes)
             return
 
-        devices_result = await asyncio.to_thread(spotify_devices)
+        devices_result = await _run_spotify_mode_call(
+            ui,
+            func=spotify_devices,
+            pending_detail="Loading Spotify Connect devices.",
+            timeout_message=(
+                "Spotify did not respond while loading Connect devices. "
+                "Open Spotify on desktop or mobile, then try /spotify again."
+            ),
+        )
+        if devices_result is None:
+            return
         if not isinstance(devices_result, dict) or devices_result.get("status") != "success":
             message = _friendly_runtime_error_message(devices_result, fallback="Could not load Spotify Connect devices.")
             await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
@@ -3945,7 +4002,9 @@ class WebSocketRunner:
             return
         active_device = next((device for device in usable_devices if device.get("is_active")), None)
         if active_device:
-            setattr(ui, "_spotify_mode", _spotify_mode_state(active_device))
+            mode = _spotify_mode_state(active_device)
+            setattr(ui, "_spotify_mode", mode)
+            await _send_spotify_mode(ui, mode)
             message = f"Spotify mode on: {active_device.get('name') or 'active device'}."
             await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
             await ui.append_agent_message(message)

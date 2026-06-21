@@ -15,7 +15,7 @@ import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatus
 import { isLocalPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import { clearTerminalForLayoutSwitch } from './terminal-clear.js';
 import { loadUiLanguage, saveUiLanguage } from './ui-settings.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 
 export const App = () => {
     const { exit } = useApp();
@@ -39,6 +39,7 @@ export const App = () => {
     const coverUrlRef = React.useRef<string | null>(null);
     const [confirm, setConfirm] = useState<ConfirmState>(null);
     const [confirmIndex, setConfirmIndex] = useState(0); // 0=Yes, 1=No
+    const [spotifyMode, setSpotifyMode] = useState<SpotifyModeState>({ enabled: false });
     const [spotifySetup, setSpotifySetup] = useState<SpotifySetupState>(null);
     const [authSetup, setAuthSetup] = useState<AuthSetupState>(null);
     const [authState, setAuthState] = useState<AuthRuntimeState>({
@@ -300,6 +301,9 @@ export const App = () => {
                 playbackSessionActiveRef.current = transition.sessionActive;
                 setPlaybackSessionActive(transition.sessionActive);
                 switchRegion(transition.region);
+                break;
+            case "spotify_mode":
+                setSpotifyMode({ enabled: evt.enabled, device_id: evt.device_id, device_name: evt.device_name });
                 break;
             case "cover":
                 coverUrlRef.current = evt.url;
@@ -850,6 +854,7 @@ export const App = () => {
                         coverPattern={coverPattern}
                         confirm={confirm}
                         confirmIndex={confirmIndex}
+                        spotifyMode={spotifyMode}
                         spotifySetup={spotifySetup}
                         authSetup={authSetup}
                         slashSuggestions={slashSuggestions}

@@ -6,13 +6,16 @@ const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8
 
 assert.match(source, /type ChoicePanelRow =/);
 assert.match(source, /const ChoicePanel = \(/);
+assert.match(source, /const SPOTIFY_GREEN = "#1db954"/);
 assert.match(source, /const CONFIRM_CHOICE_LABEL_WIDTH = 18/);
 assert.match(source, /const formatChoicePanelLabel = \(row: ChoicePanelRow\): string =>/);
 assert.match(source, /stringWidth\(row\.label\)/);
 assert.match(source, /row\.label \+ " "\.repeat\(Math\.max\(0, row\.labelWidth - stringWidth\(row\.label\)\)\)/);
-assert.match(source, /<Text color=\{rowColor\}>\{formatChoicePanelLabel\(row\)\}<\/Text>/);
+assert.match(source, /<Text color=\{rowColor\} backgroundColor=\{rowBackgroundColor\}>\{formatChoicePanelLabel\(row\)\}<\/Text>/);
+assert.match(source, /selectedBackgroundColor/);
+assert.match(source, /backgroundColor=\{rowBackgroundColor\}/);
 assert.doesNotMatch(source, /<Text color=\{rowColor\}> - <\/Text>/);
-assert.match(source, /<Text color=\{rowColor\}>\{row\.description\}<\/Text>/);
+assert.match(source, /<Text color=\{rowColor\} backgroundColor=\{rowBackgroundColor\}>\{row\.description\}<\/Text>/);
 assert.match(source, /const MODEL_PANEL_LABEL_WIDTH = 20/);
 assert.match(source, /modelIdFromChoice\(model\)\.padEnd\(MODEL_PANEL_LABEL_WIDTH, " "\)/);
 
@@ -29,8 +32,11 @@ const inputDockBody = source.slice(inputDockStart, source.indexOf('const Convers
 
 assert.match(compactConfirmBody, /<ChoicePanel/);
 assert.match(compactConfirmBody, /const visibleChoices = getVisibleConfirmChoices\(confirm\.choices\);/);
+assert.match(compactConfirmBody, /const isSpotifyDeviceConfirm = confirm\.tool_name === "spotify_device"/);
+assert.match(compactConfirmBody, /borderColor=\{isSpotifyDeviceConfirm \? SPOTIFY_GREEN : BORDER_BLUE\}/);
 assert.match(compactConfirmBody, /<Text color="#7f5d6b">\{confirmCancelHint\(confirm\.choices\)\}<\/Text>/);
 assert.match(compactConfirmBody, /labelWidth: CONFIRM_CHOICE_LABEL_WIDTH,/);
+assert.match(compactConfirmBody, /selectedBackgroundColor=\{isSpotifyDeviceConfirm \? SPOTIFY_GREEN : undefined\}/);
 assert.match(languagePanelBody, /<ChoicePanel/);
 assert.match(languagePanelBody, /orderedLanguageChoices\(panel\.selected\)/);
 assert.match(languagePanelBody, /label: choice === panel\.selected \? `\* \$\{languageLabel\(choice\)\}` : languageLabel\(choice\)/);
@@ -40,6 +46,8 @@ assert.match(inputDockBody, /formatModelPanelLabel\(model\)/);
 assert.match(inputDockBody, /<ChoicePanel[\s\S]*rows=\{modelPanel\.rows\}/);
 assert.match(inputDockBody, /const setupPanel = spotifySetup \?\? \(authSetup && authSetup\.step !== "model" \? authSetup : null\);/);
 assert.match(inputDockBody, /const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
+assert.match(inputDockBody, /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN : BORDER_BLUE\}/);
+assert.match(inputDockBody, /Spotify Mode/);
 assert.match(inputDockBody, /<CompactSetup[\s\S]*input=\{input\}[\s\S]*onSubmit=\{onSubmit\}/);
 assert.match(inputDockBody, /setupPanel \? <CompactSetup/);
 assert.match(source, /setupDoneHint\(setupPanel, language\)/);
@@ -50,6 +58,7 @@ assert.match(source, /text\.includes\("connected"\) \|\| text\.includes\("succes
 assert.match(source, /PromptInput[\s\S]*placeholder=\{setupPanel\.prompt \?\? inputPlaceholder\}/);
 
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
+assert.match(appSource, /const \[spotifyMode, setSpotifyMode\] = useState<SpotifyModeState>/);
 assert.match(appSource, /const visibleConfirmChoices = React\.useMemo\(\(\) => confirm \? getVisibleConfirmChoices\(confirm\.choices\) : \[\], \[confirm\]\);/);
 assert.match(appSource, /const selectedConfirmChoice = visibleConfirmChoices\[Math\.min\(confirmIndex, Math\.max\(0, visibleConfirmChoices\.length - 1\)\)\] \?\? null;/);
 assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, visibleConfirmChoices\);/);
@@ -59,4 +68,6 @@ assert.match(appSource, /\[language,[\s\S]*filter\(\(choice\) => choice !== lang
 assert.match(appSource, /setLanguagePanelIndex\(0\);/);
 assert.match(appSource, /completeSlashCommand\(selectedHelpCommand\)/);
 assert.match(appSource, /send\(\{ type: "auth_setup_input", value: "__cancel__" \}\)/);
+assert.match(appSource, /case "spotify_mode":/);
+assert.match(appSource, /setSpotifyMode\(\{ enabled: evt\.enabled, device_id: evt\.device_id, device_name: evt\.device_name \}\);/);
 assert.match(appSource, /if \(spotifySetup && spotifySetup\.active === false && key\.escape\) \{\s*setSpotifySetup\(null\);/);
