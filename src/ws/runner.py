@@ -3492,6 +3492,79 @@ class PlayerBackendSelectionSession:
         await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
 
 
+class PlayerBackendSelectionSession:
+    """Owns the local playback backend picker."""
+
+    def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner") -> None:
+        self.ui = ui
+        self.runner = runner
+        self.confirm_id = _new_event_id("player_backend")
+
+    async def start(self) -> None:
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Player backend",
+            detail="Choose playback backend.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "type": "confirm",
+                "id": self.confirm_id,
+                "tool_name": "local_playback_player",
+                "tool_args": {"stage": "player_backend_selection"},
+                "message": "选择播放后端",
+                "choices": [
+                    {
+                        "value": "auto",
+                        "label": "🎧 auto",
+                        "description": "默认稳定的 mpv 后端",
+                    },
+                    {
+                        "value": "mpv",
+                        "label": "🎧 mpv",
+                        "description": "明确使用 mpv",
+                    },
+                    {
+                        "value": "cvlc",
+                        "label": "📻 VLC",
+                        "description": "手动诊断后端仅在你明确想使用 VLC 时选择",
+                    },
+                    {
+                        "value": "deny",
+                        "label": "🚫 取消",
+                    },
+                ],
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        setattr(self.ui, "_player_backend_selection", None)
+        backend = str(decision or "deny").strip().lower()
+        if backend == "deny" or backend not in LOCAL_PLAYBACK_BACKENDS:
+            message = "Playback backend unchanged."
+            await self.ui.append_agent_message(message)
+            await self.ui.append_activity(kind="status", title="Player backend", detail=message, status="success")
+            return
+
+        tool_name = "local_playback_player"
+        try:
+            result = registry.invoke(tool_name, {"backend": backend})
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": tool_name,
+                "message": sanitize_error_message(exc),
+                "error_code": "PLAYBACK_CONTROL_FAILED",
+                "data": {},
+            }
+        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
+
+
 class WebSocketRunner:
     """Represents web socket runner.
 
@@ -3578,21 +3651,7 @@ class WebSocketRunner:
                             confirmed = data.get("ok")
                         decision = "allow_once" if confirmed else "deny"
                     confirm_id = str(data.get("id") or "")
-                    music_confirmation = getattr(ui, "_music_intent_confirmation", None)
-                    if music_confirmation and music_confirmation.owns_confirm(confirm_id):
-                        await music_confirmation.handle_choice(decision)
-                        continue
-                    play_selection = getattr(ui, "_play_selection", None)
-                    if play_selection and play_selection.owns_confirm(confirm_id):
-                        await play_selection.handle_choice(decision)
-                        continue
-                    playlist_save = getattr(ui, "_playlist_save", None)
-                    if playlist_save and playlist_save.owns_confirm(confirm_id):
-                        await playlist_save.handle_choice(decision)
-                        continue
-                    playlist_browse = getattr(ui, "_playlist_browse", None)
-                    if playlist_browse and playlist_browse.owns_confirm(confirm_id):
-                        await playlist_browse.handle_choice(decision)
+                    if await self._handle_confirm_result(ui, confirm_id, decision):
                         continue
                     spotify_device = getattr(ui, "_spotify_device_selection", None)
                     if spotify_device and spotify_device.owns_confirm(confirm_id):
@@ -3638,6 +3697,29 @@ class WebSocketRunner:
             with suppress(asyncio.CancelledError):
                 await playback_sync_task
             self._confirm_queue.put(("", False))
+
+    async def _handle_confirm_result(self, ui: WebSocketUIAdapter, confirm_id: str, decision: Any) -> bool:
+        music_confirmation = getattr(ui, "_music_intent_confirmation", None)
+        if music_confirmation and music_confirmation.owns_confirm(confirm_id):
+            await music_confirmation.handle_choice(decision)
+            return True
+        play_selection = getattr(ui, "_play_selection", None)
+        if play_selection and play_selection.owns_confirm(confirm_id):
+            await play_selection.handle_choice(decision)
+            return True
+        playlist_save = getattr(ui, "_playlist_save", None)
+        if playlist_save and playlist_save.owns_confirm(confirm_id):
+            await playlist_save.handle_choice(decision)
+            return True
+        playlist_browse = getattr(ui, "_playlist_browse", None)
+        if playlist_browse and playlist_browse.owns_confirm(confirm_id):
+            await playlist_browse.handle_choice(decision)
+            return True
+        player_backend = getattr(ui, "_player_backend_selection", None)
+        if player_backend and player_backend.owns_confirm(confirm_id):
+            await player_backend.handle_choice(decision)
+            return True
+        return False
 
     async def _handle_startup_auth(self, ui: WebSocketUIAdapter) -> None:
         """Prepares handle startup auth for an internal Sonex flow.
