@@ -185,7 +185,7 @@ sonex auth logout openai
 
 ```bash
 export SONEX_DEFAULT_PROVIDER=openai
-export SONEX_DEFAULT_MODEL=gpt-5.2
+export SONEX_DEFAULT_MODEL=gpt-5.5
 export SONEX_OPENAI_API_KEY=sk-...
 export SONEX_ANTHROPIC_API_KEY=sk-ant-...
 export SONEX_GEMINI_API_KEY=...
@@ -207,11 +207,11 @@ config file. Set `SONEX_CONFIG_PATH` to use a config file other than
 ```json
 {
   "default_provider": "openai",
-  "default_model": "gpt-5.2",
+  "default_model": "gpt-5.5",
   "providers": {
     "openai": {
       "base_url": "https://api.openai.com/v1",
-      "model": "gpt-5.2",
+      "model": "gpt-5.5",
       "timeout": 60,
       "extra_headers": {},
       "options": {}

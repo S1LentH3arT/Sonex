@@ -63,59 +63,43 @@ class ModelCatalog(Protocol):
 DEEPSEEK_FALLBACK_MODELS = [
     ModelInfo(
         id="deepseek-v4-pro",
-        label="DeepSeek V4 Pro",
+        label="deepseek-v4-pro",
         provider="deepseek",
         description="DeepSeek V4 Pro",
         source="fallback",
     ),
     ModelInfo(
         id="deepseek-v4-flash",
-        label="DeepSeek V4 Flash",
+        label="deepseek-v4-flash",
         provider="deepseek",
         description="DeepSeek V4 Flash",
         source="fallback",
     ),
-    ModelInfo(
-        id="deepseek-chat",
-        label="deepseek-chat",
-        provider="deepseek",
-        description="Compatibility alias for DeepSeek V4 Flash non-thinking mode.",
-        deprecated=True,
-        source="fallback",
-    ),
-    ModelInfo(
-        id="deepseek-reasoner",
-        label="deepseek-reasoner",
-        provider="deepseek",
-        description="Compatibility alias for DeepSeek V4 Flash thinking mode.",
-        deprecated=True,
-        source="fallback",
-    ),
 ]
 OPENAI_FALLBACK_MODELS = [
-    ModelInfo(id="gpt-5.2", label="GPT-5.2", provider="openai", source="fallback"),
-    ModelInfo(id="gpt-5.2-pro", label="GPT-5.2 Pro", provider="openai", source="fallback"),
-    ModelInfo(id="gpt-5-mini", label="GPT-5 Mini", provider="openai", source="fallback"),
-    ModelInfo(id="gpt-5-nano", label="GPT-5 Nano", provider="openai", source="fallback"),
-    ModelInfo(id="gpt-4.1", label="GPT-4.1", provider="openai", source="fallback"),
-    ModelInfo(id="gpt-4.1-mini", label="GPT-4.1 Mini", provider="openai", source="fallback"),
+    ModelInfo(id="gpt-5.5", label="gpt-5.5", provider="openai", source="fallback"),
+    ModelInfo(id="gpt-5.4", label="gpt-5.4", provider="openai", source="fallback"),
+    ModelInfo(id="gpt-5.4-mini", label="gpt-5.4-mini", provider="openai", source="fallback"),
+    ModelInfo(id="gpt-5.4-nano", label="gpt-5.4-nano", provider="openai", source="fallback"),
 ]
 ANTHROPIC_FALLBACK_MODELS = [
+    ModelInfo(id="claude-fable-5", label="claude-fable-5", provider="anthropic", source="fallback"),
     ModelInfo(
-        id="claude-opus-4-1-20250805",
-        label="Claude Opus 4.1",
+        id="claude-opus-4-8",
+        label="claude-opus-4-8",
         provider="anthropic",
         source="fallback",
     ),
-    ModelInfo(id="claude-sonnet-4-20250514", label="Claude Sonnet 4", provider="anthropic", source="fallback"),
-    ModelInfo(id="claude-3-7-sonnet-20250219", label="Claude Sonnet 3.7", provider="anthropic", source="fallback"),
-    ModelInfo(id="claude-3-5-haiku-20241022", label="Claude Haiku 3.5", provider="anthropic", source="fallback"),
+    ModelInfo(id="claude-sonnet-4-6", label="claude-sonnet-4-6", provider="anthropic", source="fallback"),
+    ModelInfo(id="claude-haiku-4-5-20251001", label="claude-haiku-4-5-20251001", provider="anthropic", source="fallback"),
 ]
 GEMINI_FALLBACK_MODELS = [
-    ModelInfo(id="gemini-3-flash-preview", label="Gemini 3 Flash Preview", provider="gemini", source="fallback"),
-    ModelInfo(id="gemini-3-pro-preview", label="Gemini 3 Pro Preview", provider="gemini", source="fallback"),
-    ModelInfo(id="gemini-2.5-pro", label="Gemini 2.5 Pro", provider="gemini", source="fallback"),
-    ModelInfo(id="gemini-2.5-flash", label="Gemini 2.5 Flash", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-3.5-flash", label="gemini-3.5-flash", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-3.1-pro", label="gemini-3.1-pro", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-3.1-flash-lite", label="gemini-3.1-flash-lite", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-2.5-pro", label="gemini-2.5-pro", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-2.5-flash", label="gemini-2.5-flash", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-2.5-flash-lite", label="gemini-2.5-flash-lite", provider="gemini", source="fallback"),
 ]
 
 class DeepSeekModelCatalog(ModelCatalog):
@@ -251,14 +235,13 @@ def _fetch_deepseek_models(config: ProviderConfig) -> list[ModelInfo]:
         if not isinstance(item, dict):
             continue
         model_id = str(item.get("id") or "").strip()
-        if not model_id:
+        if not model_id or not _is_supported_deepseek_model(model_id):
             continue
         models.append(
             ModelInfo(
                 id=model_id,
-                label=_deepseek_label(model_id),
+                label=model_id,
                 provider="deepseek",
-                deprecated=model_id in {"deepseek-chat", "deepseek-reasoner"},
                 source="api",
             )
         )
@@ -287,9 +270,9 @@ def _fetch_openai_models(config: ProviderConfig) -> list[ModelInfo]:
         if not isinstance(item, dict):
             continue
         model_id = str(item.get("id") or "").strip()
-        if not model_id:
+        if not model_id or not _is_supported_openai_model(model_id):
             continue
-        models.append(ModelInfo(id=model_id, label=_openai_label(model_id), provider="openai", source="api"))
+        models.append(ModelInfo(id=model_id, label=model_id, provider="openai", source="api"))
     return _sort_models(models)
 
 
@@ -316,10 +299,9 @@ def _fetch_anthropic_models(config: ProviderConfig) -> list[ModelInfo]:
         if not isinstance(item, dict):
             continue
         model_id = str(item.get("id") or "").strip()
-        if not model_id:
+        if not model_id or not _is_supported_anthropic_model(model_id):
             continue
-        label = str(item.get("display_name") or "").strip() or _anthropic_label(model_id)
-        models.append(ModelInfo(id=model_id, label=label, provider="anthropic", source="api"))
+        models.append(ModelInfo(id=model_id, label=model_id, provider="anthropic", source="api"))
     return _sort_models(models)
 
 
@@ -355,11 +337,42 @@ def _fetch_gemini_models(config: ProviderConfig) -> list[ModelInfo]:
         model_id = str(item.get("name") or "").strip()
         if model_id.startswith("models/"):
             model_id = model_id.removeprefix("models/")
-        if not model_id:
+        if not model_id or not _is_supported_gemini_model(model_id):
             continue
-        label = str(item.get("displayName") or "").strip() or _gemini_label(model_id)
-        models.append(ModelInfo(id=model_id, label=label, provider="gemini", source="api"))
+        models.append(ModelInfo(id=model_id, label=model_id, provider="gemini", source="api"))
     return _sort_models(models)
+
+
+def _is_supported_deepseek_model(model_id: str) -> bool:
+    return model_id in {"deepseek-v4-pro", "deepseek-v4-flash"}
+
+
+def _is_supported_openai_model(model_id: str) -> bool:
+    return model_id in {"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
+
+
+def _is_supported_anthropic_model(model_id: str) -> bool:
+    if model_id in {"claude-mythos-5", "claude-mythos-preview"}:
+        return False
+    return model_id in {
+        "claude-fable-5",
+        "claude-opus-4-8",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+    }
+
+
+def _is_supported_gemini_model(model_id: str) -> bool:
+    if any(token in model_id for token in ("embedding", "live", "tts", "imagen", "veo", "lyria", "banana")):
+        return False
+    return model_id in {
+        "gemini-3.5-flash",
+        "gemini-3.1-pro",
+        "gemini-3.1-flash-lite",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash-lite",
+    }
 
 
 def _read_json_response(request: urllib.request.Request, timeout: float | None) -> dict[str, Any]:
@@ -500,7 +513,7 @@ def _provider_label(provider: str) -> str:
         "openai": "OpenAI",
         "anthropic": "Anthropic",
         "gemini": "Gemini",
-        "deepseek": "DeepSeek",
+        "deepseek": "Deepseek",
         "ollama": "Ollama",
     }
     return labels.get(provider, provider)
@@ -514,23 +527,21 @@ def _sort_models(models: list[ModelInfo]) -> list[ModelInfo]:
     Example: _sort_models(models=...) -> returns the value used by the surrounding Sonex flow.
     """
     priority = {
-        "gpt-5.2": 0,
-        "gpt-5.2-pro": 1,
-        "gpt-5-mini": 2,
-        "gpt-5-nano": 3,
-        "gpt-4.1": 10,
-        "gpt-4.1-mini": 11,
-        "claude-opus-4-1-20250805": 0,
-        "claude-sonnet-4-20250514": 1,
-        "claude-3-7-sonnet-20250219": 2,
-        "claude-3-5-haiku-20241022": 3,
-        "gemini-3-flash-preview": 0,
-        "gemini-3-pro-preview": 1,
-        "gemini-2.5-pro": 2,
-        "gemini-2.5-flash": 3,
+        "gpt-5.5": 0,
+        "gpt-5.4": 1,
+        "gpt-5.4-mini": 2,
+        "gpt-5.4-nano": 3,
+        "claude-fable-5": 0,
+        "claude-opus-4-8": 1,
+        "claude-sonnet-4-6": 2,
+        "claude-haiku-4-5-20251001": 3,
+        "gemini-3.5-flash": 0,
+        "gemini-3.1-pro": 1,
+        "gemini-3.1-flash-lite": 2,
+        "gemini-2.5-pro": 3,
+        "gemini-2.5-flash": 4,
+        "gemini-2.5-flash-lite": 5,
         "deepseek-v4-pro": 0,
         "deepseek-v4-flash": 1,
-        "deepseek-chat": 90,
-        "deepseek-reasoner": 91,
     }
     return sorted(models, key=lambda model: (priority.get(model.id, 50), model.label.lower()))

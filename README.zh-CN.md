@@ -177,7 +177,7 @@ sonex auth logout openai
 
 ```bash
 export SONEX_DEFAULT_PROVIDER=openai
-export SONEX_DEFAULT_MODEL=gpt-5.2
+export SONEX_DEFAULT_MODEL=gpt-5.5
 export SONEX_OPENAI_API_KEY=sk-...
 export SONEX_ANTHROPIC_API_KEY=sk-ant-...
 export SONEX_GEMINI_API_KEY=...
@@ -198,11 +198,11 @@ Sonex 会加载 `.env`，然后按以下顺序解析运行时配置：环境变�
 ```json
 {
   "default_provider": "openai",
-  "default_model": "gpt-5.2",
+  "default_model": "gpt-5.5",
   "providers": {
     "openai": {
       "base_url": "https://api.openai.com/v1",
-      "model": "gpt-5.2",
+      "model": "gpt-5.5",
       "timeout": 60,
       "extra_headers": {},
       "options": {}

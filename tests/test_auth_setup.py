@@ -455,9 +455,9 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
         with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "anthropic"}):
             ThinkingConfig.reload()
 
-            self.assertEqual(ThinkingConfig.get_model(), "claude-opus-4-1-20250805")
-            self.assertEqual(ThinkingConfig.get_provider_config("openai").model, "gpt-5.2")
-            self.assertEqual(ThinkingConfig.get_provider_config("gemini").model, "gemini-3-flash-preview")
+            self.assertEqual(ThinkingConfig.get_model(), "claude-fable-5")
+            self.assertEqual(ThinkingConfig.get_provider_config("openai").model, "gpt-5.5")
+            self.assertEqual(ThinkingConfig.get_provider_config("gemini").model, "gemini-3.5-flash")
             self.assertEqual(ThinkingConfig.get_provider_config("ollama").model, "Gemma4-31b:cloud")
             self.assertEqual(ThinkingConfig.get_provider_config("deepseek").model, "deepseek-v4-pro")
 
@@ -476,9 +476,9 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             with patch(
                 "src.api.ws_runner._model_choices_for_provider",
                 return_value=[
-                    {"value": "openai::gpt-5.2", "label": "GPT-5.2", "provider": "OpenAI"},
-                    {"value": "openai::gpt-5.2-pro", "label": "GPT-5.2 Pro", "provider": "OpenAI"},
-                    {"value": "openai::gpt-5-mini", "label": "GPT-5 Mini", "provider": "OpenAI"},
+                    {"value": "openai::gpt-5.5", "label": "gpt-5.5", "provider": "OpenAI"},
+                    {"value": "openai::gpt-5.4", "label": "gpt-5.4", "provider": "OpenAI"},
+                    {"value": "openai::gpt-5.4-mini", "label": "gpt-5.4-mini", "provider": "OpenAI"},
                 ],
             ):
                 await runner._handle_user_input(ui, "/model")
@@ -487,7 +487,7 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
             self.assertEqual(auth_events[-1]["step"], "model")
             values = [choice["value"] for choice in auth_events[-1]["models"]]
-            self.assertEqual(values[:3], ["openai::gpt-5.2", "openai::gpt-5.2-pro", "openai::gpt-5-mini"])
+            self.assertEqual(values[:3], ["openai::gpt-5.5", "openai::gpt-5.4", "openai::gpt-5.4-mini"])
             self.assertGreater(len(values), 1)
 
     async def test_model_selection_sets_default_provider_and_model(self) -> None:
@@ -504,21 +504,21 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             with patch(
                 "src.api.ws_runner._model_choices_for_provider",
                 return_value=[
-                    {"value": "openai::gpt-5.2", "label": "GPT-5.2", "provider": "OpenAI"},
+                    {"value": "openai::gpt-5.5", "label": "gpt-5.5", "provider": "OpenAI"},
                 ],
             ):
                 await runner._handle_user_input(ui, "/model")
                 setup = getattr(ui, "_model_setup")
-                await setup.handle_input("GPT-5.2")
+                await setup.handle_input("gpt-5.5")
 
             store = load_auth_store()
             self.assertEqual(store.default_provider, "openai")
-            self.assertEqual(store.default_model, "gpt-5.2")
-            self.assertEqual(store.providers["openai"].model, "gpt-5.2")
+            self.assertEqual(store.default_model, "gpt-5.5")
+            self.assertEqual(store.providers["openai"].model, "gpt-5.5")
             auth_states = [event for event in ui.events if event.get("type") == "auth_state"]
             self.assertTrue(auth_states[-1]["ready"])
             self.assertEqual(auth_states[-1]["provider"], "openai")
-            self.assertEqual(auth_states[-1]["model"], "gpt-5.2")
+            self.assertEqual(auth_states[-1]["model"], "gpt-5.5")
 
     async def test_model_selection_cancel_closes_setup(self) -> None:
         """Verifies that model selection cancel closes setup without changing model.
@@ -534,7 +534,7 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             with patch(
                 "src.api.ws_runner._model_choices_for_provider",
                 return_value=[
-                    {"value": "openai::gpt-5.2", "label": "GPT-5.2", "provider": "OpenAI"},
+                    {"value": "openai::gpt-5.5", "label": "gpt-5.5", "provider": "OpenAI"},
                 ],
             ):
                 await runner._handle_user_input(ui, "/model")

@@ -86,6 +86,8 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
                     "data": [
                         {"id": "deepseek-v4-flash", "object": "model"},
                         {"id": "deepseek-v4-pro", "object": "model"},
+                        {"id": "deepseek-chat", "object": "model"},
+                        {"id": "deepseek-reasoner", "object": "model"},
                     ]
                 }
             )
@@ -109,8 +111,10 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
         with patch("src.llm.models.urllib.request.urlopen", side_effect=OSError("offline")):
             choices = model_choices_for_provider(config)
 
-        self.assertIn("deepseek::deepseek-v4-pro", [choice["value"] for choice in choices])
-        self.assertIn("deepseek::deepseek-v4-flash", [choice["value"] for choice in choices])
+        self.assertEqual(
+            [choice["value"] for choice in choices],
+            ["deepseek::deepseek-v4-pro", "deepseek::deepseek-v4-flash"],
+        )
 
     def test_normalizes_legacy_deepseek_model_names(self) -> None:
         """Verifies that normalizes legacy deepseek model names behaves as expected.
@@ -142,16 +146,16 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
             urlopen.return_value = _FakeResponse(
                 {
                     "data": [
-                        {"id": "gpt-5-mini", "object": "model"},
-                        {"id": "gpt-5.2", "object": "model"},
+                        {"id": "gpt-5.4-mini", "object": "model"},
+                        {"id": "gpt-5.5", "object": "model"},
                     ]
                 }
             )
 
             models = OpenAIModelCatalog().list_models(config)
 
-        self.assertEqual([model.id for model in models], ["gpt-5.2", "gpt-5-mini"])
-        self.assertEqual([model.label for model in models], ["GPT-5.2", "GPT-5 Mini"])
+        self.assertEqual([model.id for model in models], ["gpt-5.5", "gpt-5.4-mini"])
+        self.assertEqual([model.label for model in models], ["gpt-5.5", "gpt-5.4-mini"])
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://api.openai.com/v1/models")
         self.assertEqual(request.headers["Authorization"], "Bearer sk-test")
@@ -170,13 +174,18 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
                 {
                     "data": [
                         {
-                            "id": "claude-sonnet-4-20250514",
-                            "display_name": "Claude Sonnet 4",
+                            "id": "claude-sonnet-4-6",
+                            "display_name": "Claude Sonnet 4.6",
                             "type": "model",
                         },
                         {
-                            "id": "claude-opus-4-1-20250805",
-                            "display_name": "Claude Opus 4.1",
+                            "id": "claude-mythos-5",
+                            "display_name": "Claude Mythos 5",
+                            "type": "model",
+                        },
+                        {
+                            "id": "claude-fable-5",
+                            "display_name": "Claude Fable 5",
                             "type": "model",
                         },
                     ]
@@ -185,8 +194,8 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
 
             models = AnthropicModelCatalog().list_models(config)
 
-        self.assertEqual([model.id for model in models], ["claude-opus-4-1-20250805", "claude-sonnet-4-20250514"])
-        self.assertEqual([model.label for model in models], ["Claude Opus 4.1", "Claude Sonnet 4"])
+        self.assertEqual([model.id for model in models], ["claude-fable-5", "claude-sonnet-4-6"])
+        self.assertEqual([model.label for model in models], ["claude-fable-5", "claude-sonnet-4-6"])
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://api.anthropic.com/v1/models")
         self.assertEqual(request.headers["X-api-key"], "sk-ant")
@@ -211,9 +220,14 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
                             "supportedGenerationMethods": ["embedContent"],
                         },
                         {
-                            "name": "models/gemini-3-flash-preview",
-                            "displayName": "Gemini 3 Flash Preview",
+                            "name": "models/gemini-3.5-flash",
+                            "displayName": "Gemini 3.5 Flash",
                             "supportedGenerationMethods": ["generateContent"],
+                        },
+                        {
+                            "name": "models/veo-3.1-preview",
+                            "displayName": "Veo 3.1 Preview",
+                            "supportedGenerationMethods": ["generateVideos"],
                         },
                     ]
                 }
@@ -221,8 +235,8 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
 
             models = GeminiModelCatalog().list_models(config)
 
-        self.assertEqual([model.id for model in models], ["gemini-3-flash-preview"])
-        self.assertEqual([model.label for model in models], ["Gemini 3 Flash Preview"])
+        self.assertEqual([model.id for model in models], ["gemini-3.5-flash"])
+        self.assertEqual([model.label for model in models], ["gemini-3.5-flash"])
         request = urlopen.call_args.args[0]
         self.assertEqual(
             request.full_url,
@@ -237,9 +251,9 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
         Example: test_official_provider_model_choices_fall_back_to_curated_ids() -> passes without assertion failures when the behavior remains correct.
         """
         expected = {
-            "openai": "openai::gpt-5.2",
-            "anthropic": "anthropic::claude-opus-4-1-20250805",
-            "gemini": "gemini::gemini-3-flash-preview",
+            "openai": "openai::gpt-5.5",
+            "anthropic": "anthropic::claude-fable-5",
+            "gemini": "gemini::gemini-3.5-flash",
         }
 
         with patch("src.llm.models.urllib.request.urlopen", side_effect=OSError("offline")):

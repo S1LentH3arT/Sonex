@@ -91,10 +91,10 @@ LLM_AUTH_PROVIDER_CHOICES = [
 LLM_AUTH_PROVIDER_VALUES = {choice["value"] for choice in LLM_AUTH_PROVIDER_CHOICES}
 
 LLM_MODEL_CHOICES = [
-    {"value": "openai::gpt-5.2", "label": "GPT-5.2", "provider": "OpenAI"},
-    {"value": "anthropic::claude-opus-4-1-20250805", "label": "Claude Opus 4.1", "provider": "Anthropic"},
-    {"value": "gemini::gemini-3-flash-preview", "label": "Gemini 3 Flash Preview", "provider": "Gemini"},
-    {"value": "deepseek::deepseek-v4-pro", "label": "DeepSeek V4 Pro", "provider": "DeepSeek"},
+    {"value": "openai::gpt-5.5", "label": "gpt-5.5", "provider": "OpenAI"},
+    {"value": "anthropic::claude-fable-5", "label": "claude-fable-5", "provider": "Anthropic"},
+    {"value": "gemini::gemini-3.5-flash", "label": "gemini-3.5-flash", "provider": "Gemini"},
+    {"value": "deepseek::deepseek-v4-pro", "label": "deepseek-v4-pro", "provider": "Deepseek"},
     {"value": "ollama::Gemma4-31b:cloud", "label": "Gemma4-31b:cloud", "provider": "Ollama"},
 ]
 

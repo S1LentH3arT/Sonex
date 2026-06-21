@@ -30,7 +30,7 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         supports_api_key=True,
         supports_oauth=False,
         default_base_url="https://api.openai.com/v1",
-        default_model="gpt-5.2",
+        default_model="gpt-5.5",
     ),
     "anthropic": ProviderCapability(
         name="anthropic",
@@ -38,7 +38,7 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         supports_oauth=False,
         default_base_url="https://api.anthropic.com/v1",
         default_custom_llm_provider="anthropic",
-        default_model="claude-opus-4-1-20250805",
+        default_model="claude-fable-5",
     ),
     "gemini": ProviderCapability(
         name="gemini",
@@ -46,7 +46,7 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         supports_oauth=True,
         default_base_url="https://generativelanguage.googleapis.com/v1beta",
         default_custom_llm_provider="gemini",
-        default_model="gemini-3-flash-preview",
+        default_model="gemini-3.5-flash",
     ),
     "deepseek": ProviderCapability(
         name="deepseek",
