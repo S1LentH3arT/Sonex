@@ -35,6 +35,7 @@ SPOTIFY_MODIFY_PLAYBACK_SCOPES = {"user-modify-playback-state"}
 SPOTIFY_PRIVATE_SCOPES = {"user-read-private"}
 SPOTIFY_RECENTLY_PLAYED_SCOPES = {"user-read-recently-played"}
 SPOTIFY_TOP_READ_SCOPES = {"user-top-read"}
+SPOTIFY_PLAYLIST_READ_SCOPES = {"playlist-read-private", "playlist-read-collaborative"}
 MAX_RECENT_TRACKS = 10
 
 _RECENT_TRACKS: list[dict[str, Any]] = []
@@ -484,6 +485,22 @@ def _normalize_device(device: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _normalize_playlist(item: dict[str, Any]) -> dict[str, Any]:
+    owner = item.get("owner") if isinstance(item.get("owner"), dict) else {}
+    tracks = item.get("tracks") if isinstance(item.get("tracks"), dict) else {}
+    return {
+        "id": item.get("id"),
+        "name": item.get("name"),
+        "description": item.get("description"),
+        "owner": owner.get("display_name") or owner.get("id"),
+        "track_count": tracks.get("total") or 0,
+        "spotify_url": (item.get("external_urls") or {}).get("spotify"),
+        "uri": item.get("uri"),
+        "public": item.get("public"),
+        "collaborative": item.get("collaborative"),
+    }
+
+
 def _list_devices(client: Any) -> list[dict[str, Any]]:
     """Prepares list devices for an internal Sonex flow.
 
@@ -702,6 +719,7 @@ def _account_capabilities(product: str, scopes: set[str], logged_in: bool) -> di
             and bool(scopes & (SPOTIFY_READ_PLAYBACK_SCOPES | SPOTIFY_NOW_PLAYING_SCOPES))
         ),
         "playback_control": logged_in and product == "premium" and SPOTIFY_MODIFY_PLAYBACK_SCOPES <= scopes,
+        "playlist_read": logged_in and SPOTIFY_PLAYLIST_READ_SCOPES <= scopes,
     }
 
 
@@ -795,6 +813,68 @@ def spotify_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
         tool="spotify_recent_tracks",
         message=f"Loaded {len(tracks)} recently played Spotify track(s).",
         data={"tracks": tracks[:bounded_limit]},
+    ).to_dict()
+
+
+def spotify_playlists(limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    """List current user's Spotify playlists in a compact Sonex shape."""
+    bounded_limit = min(50, max(1, int(limit or 50)))
+    bounded_offset = max(0, int(offset or 0))
+    try:
+        client = spotify_user_client(SPOTIFY_PLAYLIST_READ_SCOPES)
+        payload = client.current_user_playlists(limit=bounded_limit, offset=bounded_offset)
+    except Exception as exc:
+        return _spotify_error("spotify_playlists", exc, "SPOTIFY_API_ERROR")
+
+    playlists = [
+        _normalize_playlist(item)
+        for item in payload.get("items") or []
+        if isinstance(item, dict)
+    ]
+    return ToolResult.success(
+        tool="spotify_playlists",
+        message=f"Loaded {len(playlists)} Spotify playlist(s).",
+        data={"playlists": playlists, "limit": bounded_limit, "offset": bounded_offset},
+    ).to_dict()
+
+
+def spotify_playlist_tracks(playlist_id: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    """List tracks from a Spotify playlist in the same compact track shape as spotify_play."""
+    playlist_id = str(playlist_id or "").strip()
+    if not playlist_id:
+        return ToolResult.fail(
+            tool="spotify_playlist_tracks",
+            message="Provide a Spotify playlist_id.",
+            error_code="SPOTIFY_PLAYLIST_REQUIRED",
+        ).to_dict()
+    bounded_limit = min(100, max(1, int(limit or 50)))
+    bounded_offset = max(0, int(offset or 0))
+    try:
+        client = spotify_user_client(SPOTIFY_PLAYLIST_READ_SCOPES)
+        payload = client.playlist_items(
+            playlist_id,
+            fields="items(track(id,name,duration_ms,artists(name),album(name,images),external_urls,uri,type,is_playable))",
+            limit=bounded_limit,
+            offset=bounded_offset,
+            additional_types=("track",),
+        )
+    except Exception as exc:
+        return _spotify_error("spotify_playlist_tracks", exc, "SPOTIFY_API_ERROR")
+
+    tracks: list[dict[str, Any]] = []
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        track_payload = item.get("track")
+        if not isinstance(track_payload, dict) or track_payload.get("type") not in {None, "track"}:
+            continue
+        track = _normalize_track(track_payload)
+        if track.get("uri"):
+            tracks.append(track)
+    return ToolResult.success(
+        tool="spotify_playlist_tracks",
+        message=f"Loaded {len(tracks)} Spotify playlist track(s).",
+        data={"playlist_id": playlist_id, "tracks": tracks, "limit": bounded_limit, "offset": bounded_offset},
     ).to_dict()
 
 
@@ -1367,6 +1447,17 @@ _register_tool(
 _register_tool("spotify_account", "Show Spotify login status and account capabilities.", {}, [], spotify_account)
 _register_tool("spotify_current_playback", "Read the user's current Spotify playback state.", {}, [], spotify_current_playback)
 _register_tool("spotify_recent_tracks", "Read the user's recently played Spotify tracks.", {}, [], spotify_recent_tracks)
+_register_tool("spotify_playlists", "List current user's Spotify playlists.", {}, [], spotify_playlists)
+_register_tool(
+    "spotify_playlist_tracks",
+    "List tracks from one Spotify playlist.",
+    {
+        "playlist_id": {"type": "string", "description": "Spotify playlist id."},
+        "limit": {"type": "integer", "description": "Maximum number of tracks to return."},
+    },
+    ["playlist_id"],
+    spotify_playlist_tracks,
+)
 _register_tool("spotify_devices", "List the user's available Spotify Connect devices.", {}, [], spotify_devices)
 _register_tool(
     "spotify_recommend",

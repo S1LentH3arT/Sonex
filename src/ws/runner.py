@@ -69,6 +69,7 @@ from src.tools.online_play import (
     online_audio_configured,
     play_online_audio_candidate,
     resolve_online_playback_metadata,
+    search_spotify_track_candidates,
     search_online_audio_candidates,
 )
 from src.tools.playlists import (
@@ -133,7 +134,14 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 from src.tools.player_permission import complete_player_confirm
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
-from src.tools.spotify_play import remember_recent_track, spotify_current_playback, spotify_account
+from src.tools.spotify_play import (
+    remember_recent_track,
+    spotify_account,
+    spotify_current_playback,
+    spotify_devices,
+    spotify_playlist_tracks,
+    spotify_playlists,
+)
 from src.tools.song_cache import find_best_cached_song, recent_cached_songs, resolve_cached_song, upsert_cached_song
 from src.ws.constants import (
     APPLE_MUSIC_SETUP_TRIGGERS,
@@ -1117,6 +1125,39 @@ class SpotifySetupSession:
             message=message,
             prompt="Spotify Client ID",
         )
+
+    async def start_reauthorization(self, missing_scopes: list[str]) -> None:
+        """Starts OAuth again when an existing Spotify token lacks required scopes."""
+        scopes = ", ".join(missing_scopes)
+        message = (
+            "需要重新授权 Spotify 以授予新增权限: "
+            f"{scopes}. 我会在当前聊天区继续引导；如果已保存 Spotify app credentials，"
+            "请在打开的 Spotify 授权页面确认访问权限。"
+        )
+        await self.ui.append_agent_message(message)
+        try:
+            authorize_url, expected_state = spotify_authorize_url()
+        except Exception:
+            await self.start()
+            return
+
+        self.step = "oauth"
+        await self.ui.append_activity(
+            kind="status",
+            title="Spotify reauthorization",
+            detail="Opening Spotify authorization and waiting for the loopback callback.",
+            status="pending",
+        )
+        await self.ui.send_spotify_setup(
+            step="oauth",
+            title="Authorize Spotify",
+            message=(
+                "Spotify scopes need updating. Approve access in the browser, then return here. "
+                f"Authorization URL: {authorize_url}"
+            ),
+            active=False,
+        )
+        self.oauth_task = asyncio.create_task(self._finish_oauth(authorize_url, expected_state))
 
     async def handle_input(self, value: str) -> None:
         """Coordinates handle input for the current Sonex flow.
@@ -2819,6 +2860,251 @@ class PlaylistSaveSession:
         setattr(self.ui, "_playlist_save", None)
 
 
+SPOTIFY_MODE_REQUIRED_SCOPES = {
+    "user-read-private",
+    "user-read-playback-state",
+    "user-modify-playback-state",
+    "playlist-read-private",
+    "playlist-read-collaborative",
+}
+
+SPOTIFY_MODE_AGENT_TOOLS = (
+    "spotify_account",
+    "spotify_current_playback",
+    "spotify_recent_tracks",
+    "spotify_devices",
+    "spotify_playlists",
+    "spotify_playlist_tracks",
+    "spotify_recommend",
+    "spotify_search",
+    "search_track",
+    "spotify_play",
+)
+
+
+def _spotify_mode_state(device: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "device_id": device.get("id"),
+        "device_name": device.get("name"),
+        "entered_at": _timestamp_ms(),
+    }
+
+
+def _spotify_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, str]]:
+    return [
+        {
+            "index": f"{index:02d}",
+            "title": str(track.get("name") or track.get("title") or "-"),
+            "artist": str(track.get("artist") or "-"),
+            "duration": _duration_text(track.get("duration_ms")),
+        }
+        for index, track in enumerate(tracks, start=1)
+    ]
+
+
+def _spotify_playlist_choice(index: int, playlist: dict[str, Any]) -> dict[str, Any]:
+    count = _compact_count(playlist.get("track_count")) or "0"
+    owner = str(playlist.get("owner") or "Spotify").strip()
+    return {
+        "value": f"spotify_playlist:{index}",
+        "label": str(playlist.get("name") or "Untitled playlist"),
+        "description": f"{count} tracks · {owner}",
+    }
+
+
+class SpotifyDeviceSelectionSession:
+    """Owns the Spotify Connect device picker for mode entry."""
+
+    def __init__(self, ui: WebSocketUIAdapter, devices: list[dict[str, Any]]) -> None:
+        self.ui = ui
+        self.devices = devices
+        self.confirm_id = _new_event_id("spotify_device")
+
+    async def start(self) -> None:
+        choices = [
+            {
+                "value": f"spotify_device:{device.get('id')}",
+                "label": str(device.get("name") or "Spotify device"),
+                "description": str(device.get("type") or "Spotify Connect"),
+            }
+            for device in self.devices
+            if device.get("id") and not device.get("is_restricted")
+        ]
+        choices.append({"value": "cancel", "label": "Cancel"})
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Spotify mode",
+            detail="Choose a Spotify Connect device for this session.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "spotify_device",
+                "tool_args": {"stage": "device_choice"},
+                "message": "Choose Spotify device",
+                "choices": choices,
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        setattr(self.ui, "_spotify_device_selection", None)
+        value = str(decision or "cancel")
+        if value in {"cancel", "deny", "false"}:
+            await self.ui.append_activity(kind="status", title="Spotify mode", detail="Spotify mode cancelled.", status="success")
+            return
+        device_id = value.removeprefix("spotify_device:").strip()
+        device = next((item for item in self.devices if str(item.get("id") or "") == device_id), None)
+        if not device:
+            message = "Selected Spotify device is no longer available."
+            await self.ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
+            await self.ui.append_agent_message(message)
+            return
+        setattr(self.ui, "_spotify_mode", _spotify_mode_state(device))
+        message = f"Spotify mode on: {device.get('name') or 'selected device'}."
+        await self.ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
+        await self.ui.append_agent_message(message)
+
+
+class SpotifyPlaySelectionSession:
+    """Owns Spotify-only track candidate playback."""
+
+    def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner", query: str, tracks: list[dict[str, Any]]) -> None:
+        self.ui = ui
+        self.runner = runner
+        self.query = query
+        self.tracks = tracks[:5]
+        self.confirm_id = _new_event_id("spotify_track")
+
+    async def start(self) -> None:
+        choices = [self._track_choice(index, track) for index, track in enumerate(self.tracks)]
+        choices.append({"value": "cancel", "label": "Cancel"})
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Spotify tracks",
+            detail=f"Choose a Spotify result for {self.query}.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "spotify_track",
+                "tool_args": {"query": self.query, "stage": "spotify_track_candidates"},
+                "message": "Choose Spotify track",
+                "choices": choices,
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    def _track_choice(self, index: int, track: dict[str, Any]) -> dict[str, Any]:
+        artist = str(track.get("artist") or "-")
+        album = str(track.get("album") or "-")
+        name = str(track.get("name") or track.get("title") or "-")
+        return {
+            "value": f"spotify_track:{index}",
+            "label": f"{artist}-{album}--{name}",
+            "description": _duration_text(track.get("duration_ms")),
+        }
+
+    async def handle_choice(self, decision: Any) -> None:
+        value = str(decision or "cancel")
+        if value in {"cancel", "deny", "false"}:
+            setattr(self.ui, "_spotify_play_selection", None)
+            await self.ui.append_activity(kind="status", title="Spotify playback", detail="Playback cancelled.", status="success")
+            return
+        try:
+            index = int(value.removeprefix("spotify_track:"))
+        except ValueError:
+            index = -1
+        track = self.tracks[index] if 0 <= index < len(self.tracks) else None
+        if not track or not track.get("uri"):
+            message = "Selected Spotify track is no longer available."
+            await self.ui.append_activity(kind="error", title="Spotify playback", detail=message, status="error")
+            await self.ui.append_agent_message(message)
+            return
+        mode = getattr(self.ui, "_spotify_mode", {}) or {}
+        args = {"uri": track["uri"]}
+        if mode.get("device_id"):
+            args["device_id"] = mode["device_id"]
+        result = await asyncio.to_thread(registry.invoke, "spotify_play", args)
+        await self.runner._sync_tool_result_ui(self.ui, "spotify_play", result)
+        if _is_failed_tool_result(result):
+            message = _friendly_runtime_error_message(result, fallback="Spotify playback failed.")
+            await self.ui.append_agent_message(message)
+            await self.ui.send_error(message)
+        else:
+            await self.ui.append_activity(kind="status", title="Spotify playback", detail="Spotify playback selected.", status="success")
+        setattr(self.ui, "_spotify_play_selection", None)
+
+
+class SpotifyPlaylistSelectionSession:
+    """Owns Spotify playlist browsing inside Spotify mode."""
+
+    def __init__(self, ui: WebSocketUIAdapter, playlists: list[dict[str, Any]]) -> None:
+        self.ui = ui
+        self.playlists = playlists[:50]
+        self.confirm_id = _new_event_id("spotify_playlist")
+
+    async def start(self) -> None:
+        choices = [_spotify_playlist_choice(index, playlist) for index, playlist in enumerate(self.playlists)]
+        choices.append({"value": "cancel", "label": "Cancel"})
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Spotify playlists",
+            detail="Choose a Spotify playlist.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "spotify_playlist",
+                "tool_args": {"stage": "spotify_playlist_choice"},
+                "message": "Choose Spotify playlist",
+                "choices": choices,
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        setattr(self.ui, "_spotify_playlist_selection", None)
+        value = str(decision or "cancel")
+        if value in {"cancel", "deny", "false"}:
+            await self.ui.append_activity(kind="status", title="Spotify playlists", detail="Playlist browsing cancelled.", status="success")
+            return
+        try:
+            index = int(value.removeprefix("spotify_playlist:"))
+        except ValueError:
+            index = -1
+        playlist = self.playlists[index] if 0 <= index < len(self.playlists) else None
+        if not playlist or not playlist.get("id"):
+            message = "Selected Spotify playlist is no longer available."
+            await self.ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
+            await self.ui.append_agent_message(message)
+            return
+        result = await asyncio.to_thread(spotify_playlist_tracks, str(playlist["id"]), 50)
+        if not isinstance(result, dict) or result.get("status") != "success":
+            message = _friendly_runtime_error_message(result, fallback="Spotify playlist tracks failed.")
+            await self.ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
+            await self.ui.append_agent_message(message)
+            return
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        tracks = [item for item in data.get("tracks") or [] if isinstance(item, dict)]
+        title = f"Spotify Playlist: {playlist.get('name') or 'Playlist'}"
+        await self.ui._send(_track_panel_payload("playlist", title, _spotify_track_panel_tracks(tracks)))
+        await self.ui.append_activity(kind="status", title="Spotify playlists", detail=f"Showing {title}.", status="success")
+
+
 class PlayerBackendSelectionSession:
     """Represents player backend selection session."""
 
@@ -2991,6 +3277,18 @@ class WebSocketRunner:
                     if playlist_save and playlist_save.owns_confirm(confirm_id):
                         await playlist_save.handle_choice(decision)
                         continue
+                    spotify_device = getattr(ui, "_spotify_device_selection", None)
+                    if spotify_device and spotify_device.owns_confirm(confirm_id):
+                        await spotify_device.handle_choice(decision)
+                        continue
+                    spotify_play = getattr(ui, "_spotify_play_selection", None)
+                    if spotify_play and spotify_play.owns_confirm(confirm_id):
+                        await spotify_play.handle_choice(decision)
+                        continue
+                    spotify_playlist = getattr(ui, "_spotify_playlist_selection", None)
+                    if spotify_playlist and spotify_playlist.owns_confirm(confirm_id):
+                        await spotify_playlist.handle_choice(decision)
+                        continue
                     player_backend = getattr(ui, "_player_backend_selection", None)
                     if player_backend and player_backend.owns_confirm(confirm_id):
                         await player_backend.handle_choice(decision)
@@ -3107,6 +3405,26 @@ class WebSocketRunner:
                 await self._reject_internal_chat_command(ui, parsed_command.command.name)
                 return
 
+            if self._spotify_mode_enabled(ui) and parsed_command.command and parsed_command.command.mode == "agent":
+                if self._running_task and not self._running_task.done():
+                    ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
+                    return
+                ready, provider, reason = _llm_auth_ready()
+                if not ready:
+                    setup = AuthSetupSession(ui, provider, user_input, self)
+                    setattr(ui, "_auth_setup", setup)
+                    await setup.start(reason)
+                    return
+                route = MusicIntentRoute.RECOMMEND if parsed_command.command.name == "recommend" else MusicIntentRoute.GENERAL
+                decision = MusicIntentDecision(route=route, query=parsed_command.args or user_input, confidence=1.0)
+                command_intent = self._spotify_mode_agent_intent(user_input, decision)
+                if command_intent.command == "recommend":
+                    setattr(ui, "_recommendation_turn_active", True)
+                self._running_task = asyncio.create_task(
+                    self._run_agent_turn(ui, user_input, command_intent=command_intent)
+                )
+                return
+
             command_intent = parsed_command.command_intent()
             if command_intent is None:
                 await self._handle_builtin_command(ui, parsed_command)
@@ -3140,6 +3458,10 @@ class WebSocketRunner:
             setup = AppleMusicSetupSession(ui)
             await setup.start()
             setattr(ui, "_apple_music_setup", setup)
+            return
+
+        if self._spotify_mode_enabled(ui):
+            await self._handle_spotify_mode_input(ui, user_input)
             return
 
         if self._running_task and not self._running_task.done():
@@ -3177,6 +3499,84 @@ class WebSocketRunner:
         self._running_task = asyncio.create_task(
             self._run_agent_turn(ui, user_input, command_intent=command_intent)
         )
+
+    def _spotify_mode_enabled(self, ui: WebSocketUIAdapter) -> bool:
+        mode = getattr(ui, "_spotify_mode", None)
+        return isinstance(mode, dict) and bool(mode.get("enabled"))
+
+    async def _handle_spotify_mode_input(self, ui: WebSocketUIAdapter, user_input: str) -> None:
+        if self._running_task and not self._running_task.done():
+            ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
+            return
+        if self._looks_like_spotify_playlist_request(user_input):
+            await self._show_spotify_playlists(ui)
+            return
+        parsed_play = _rule_parse_play_request(user_input)
+        if parsed_play.is_play_request and parsed_play.query:
+            await self._start_spotify_track_selection(ui, parsed_play.query)
+            return
+        decision = classify_music_intent_fast(user_input)
+        if decision is None:
+            decision = await asyncio.to_thread(classify_music_intent, user_input)
+        if decision.route in {MusicIntentRoute.EXPLICIT_PLAY, MusicIntentRoute.CONFIRM_TRACK_PLAY}:
+            query = await self._resolve_music_query(ui, decision)
+            if query:
+                await self._start_spotify_track_selection(ui, query)
+            return
+
+        ready, provider, reason = _llm_auth_ready()
+        if not ready:
+            setup = AuthSetupSession(ui, provider, user_input, self)
+            setattr(ui, "_auth_setup", setup)
+            await setup.start(reason)
+            return
+        command_intent = self._spotify_mode_agent_intent(user_input, decision)
+        if command_intent.command == "recommend":
+            setattr(ui, "_recommendation_turn_active", True)
+        self._running_task = asyncio.create_task(
+            self._run_agent_turn(ui, user_input, command_intent=command_intent)
+        )
+
+    def _looks_like_spotify_playlist_request(self, user_input: str) -> bool:
+        text = user_input.strip().lower()
+        return "playlist" in text or "歌单" in text
+
+    def _spotify_mode_agent_intent(self, user_input: str, decision: MusicIntentDecision) -> CommandIntent:
+        command = "recommend" if decision.route == MusicIntentRoute.RECOMMEND else "spotify"
+        return CommandIntent(
+            command=command,
+            raw=user_input,
+            args=decision.query or user_input,
+            intent_prompt=(
+                "Spotify mode is active. Use only Spotify tools. Do not call local playback, Apple Music, "
+                "online audio, YouTube, or non-Spotify playback tools. For playback, use spotify_play only "
+                "with Spotify URIs or Spotify search results."
+            ),
+            allowed_tools=SPOTIFY_MODE_AGENT_TOOLS,
+        )
+
+    async def _start_spotify_track_selection(self, ui: WebSocketUIAdapter, query: str) -> None:
+        await ui.append_activity(
+            kind="tool",
+            title="Searching Spotify",
+            detail=f"Finding Spotify tracks for {query}.",
+            status="pending",
+        )
+        try:
+            tracks = await asyncio.to_thread(search_spotify_track_candidates, query, 5)
+        except Exception as exc:
+            message = sanitize_error_message(exc)
+            await ui.append_activity(kind="error", title="Spotify search failed", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        if not tracks:
+            message = f"No Spotify tracks found for '{query}'."
+            await ui.append_activity(kind="error", title="Spotify search", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        session = SpotifyPlaySelectionSession(ui, self, query, tracks)
+        setattr(ui, "_spotify_play_selection", session)
+        await session.start()
 
     async def _reject_internal_chat_command(self, ui: WebSocketUIAdapter, command_name: str) -> None:
         message = f"/{command_name} is an internal playback command. Use the mini-player keyboard shortcut instead."
@@ -3344,7 +3744,14 @@ class WebSocketRunner:
             await ui.append_activity(kind="status", title="Queue", detail="Showing playback queue.", status="success")
             return
 
+        if command_name == "spotify":
+            await self._handle_spotify_mode_command(ui, args)
+            return
+
         if command_name == "playlist":
+            if self._spotify_mode_enabled(ui):
+                await self._show_spotify_playlists(ui)
+                return
             await self._handle_playlist_command(ui, args)
             return
 
@@ -3396,6 +3803,91 @@ class WebSocketRunner:
             detail=f"Showing playlist: {playlist_name}.",
             status="success",
         )
+
+    async def _handle_spotify_mode_command(self, ui: WebSocketUIAdapter, args: str) -> None:
+        action = args.strip().casefold()
+        if action == "off":
+            setattr(ui, "_spotify_mode", None)
+            setattr(ui, "_spotify_device_selection", None)
+            setattr(ui, "_spotify_play_selection", None)
+            message = "Spotify mode off."
+            await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
+            await ui.append_agent_message(message)
+            return
+        if action:
+            message = "Usage: /spotify or /spotify off."
+            await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        await self._enter_spotify_mode(ui)
+
+    async def _enter_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
+        account = await asyncio.to_thread(spotify_account)
+        data = account.get("data") if isinstance(account, dict) else {}
+        if not isinstance(data, dict) or not data.get("logged_in"):
+            message = "Spotify login required. Run /setup spotify or `sonex auth login spotify` first."
+            await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        if str(data.get("product") or "").lower() != "premium":
+            message = "Spotify mode requires Spotify Premium."
+            await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        scopes = set(data.get("scopes") or [])
+        missing_scopes = sorted(SPOTIFY_MODE_REQUIRED_SCOPES - scopes)
+        if missing_scopes:
+            await self._start_spotify_reauthorization(ui, missing_scopes)
+            return
+
+        devices_result = await asyncio.to_thread(spotify_devices)
+        if not isinstance(devices_result, dict) or devices_result.get("status") != "success":
+            message = _friendly_runtime_error_message(devices_result, fallback="Could not load Spotify Connect devices.")
+            await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        devices_data = devices_result.get("data") if isinstance(devices_result.get("data"), dict) else {}
+        devices = [device for device in devices_data.get("devices") or [] if isinstance(device, dict)]
+        usable_devices = [device for device in devices if device.get("id") and not device.get("is_restricted")]
+        if not usable_devices:
+            message = "No usable Spotify Connect device found. Open Spotify on desktop or mobile first."
+            await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        active_device = next((device for device in usable_devices if device.get("is_active")), None)
+        if active_device:
+            setattr(ui, "_spotify_mode", _spotify_mode_state(active_device))
+            message = f"Spotify mode on: {active_device.get('name') or 'active device'}."
+            await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
+            await ui.append_agent_message(message)
+            return
+        session = SpotifyDeviceSelectionSession(ui, usable_devices)
+        setattr(ui, "_spotify_device_selection", session)
+        await session.start()
+
+    async def _start_spotify_reauthorization(self, ui: WebSocketUIAdapter, missing_scopes: list[str]) -> None:
+        setup = SpotifySetupSession(ui)
+        setattr(ui, "_spotify_setup", setup)
+        await setup.start_reauthorization(missing_scopes)
+
+    async def _show_spotify_playlists(self, ui: WebSocketUIAdapter) -> None:
+        await ui.append_activity(kind="tool", title="Spotify playlists", detail="Loading Spotify playlists.", status="pending")
+        result = await asyncio.to_thread(spotify_playlists, 50)
+        if not isinstance(result, dict) or result.get("status") != "success":
+            message = _friendly_runtime_error_message(result, fallback="Spotify playlists failed.")
+            await ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        playlists = [item for item in data.get("playlists") or [] if isinstance(item, dict)]
+        if not playlists:
+            message = "No Spotify playlists found."
+            await ui.append_activity(kind="status", title="Spotify playlists", detail=message, status="success")
+            await ui.append_agent_message(message)
+            return
+        session = SpotifyPlaylistSelectionSession(ui, playlists)
+        setattr(ui, "_spotify_playlist_selection", session)
+        await session.start()
 
     async def _start_playlist_save(self, ui: WebSocketUIAdapter, requested_playlist: str) -> None:
         track = getattr(ui, "_last_player_state", None)

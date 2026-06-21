@@ -30,6 +30,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "recommend", usage: "/recommend", description: "recommend songs of preferred music taste", needsArgument: true },
     { name: "resume", usage: "/resume", description: "resume current playback", needsArgument: false },
     { name: "setup", usage: "/setup", description: "configure a music provider", needsArgument: true },
+    { name: "spotify", usage: "/spotify [off]", description: "enter or exit session-only Spotify mode", needsArgument: false },
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";
 export const API_NOT_RUNNING_DETAIL = "Start with `sonex`, or run `sonex api` before `sonex tui`.";

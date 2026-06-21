@@ -105,11 +105,11 @@ const playbackMethodConfirm = applyLanguageToServerEvent({
 }, "zh-CN");
 assert.equal(playbackMethodConfirm.message, "选择播放方式");
 assert.equal(playbackMethodConfirm.choices?.[0]?.label, "🎧 Spotify 播放");
-assert.equal(playbackMethodConfirm.choices?.[0]?.description, "需要 Spotify Premium 订阅，以及桌面或移动端 Spotify app。");
+assert.equal(playbackMethodConfirm.choices?.[0]?.description, "需要 Spotify Premium 订阅，以及桌面或移动端 Spotify app");
 assert.equal(playbackMethodConfirm.choices?.[1]?.label, "🍎 Apple Music 播放");
-assert.equal(playbackMethodConfirm.choices?.[1]?.description, "需要 Apple Music 订阅。通过 Sonex 内置播放器播放。");
+assert.equal(playbackMethodConfirm.choices?.[1]?.description, "需要 Apple Music 订阅并通过 Sonex 内置播放器播放");
 assert.equal(playbackMethodConfirm.choices?.[2]?.label, "🌐 Sonex 在线播放");
-assert.equal(playbackMethodConfirm.choices?.[2]?.description, "无需订阅。通过 Sonex 内置播放器播放。");
+assert.equal(playbackMethodConfirm.choices?.[2]?.description, "需要先配置 Jamendo/Audius API Key");
 assert.equal(playbackMethodConfirm.choices?.[3]?.label, "取消");
 
 const playerConfirm = applyLanguageToServerEvent({
@@ -131,9 +131,9 @@ const playerConfirm = applyLanguageToServerEvent({
 }, "zh-CN");
 assert.equal(playerConfirm.message, "Sonex 想打开 auto 本地播放器（mpv 默认），是否确认？");
 assert.equal(playerConfirm.choices?.[0]?.label, "🎧 mpv");
-assert.equal(playerConfirm.choices?.[0]?.description, "默认可控后端用于更流畅的后台播放");
+assert.equal(playerConfirm.choices?.[0]?.description, "默认播放后端，提供更丝滑的播放体验");
 assert.equal(playerConfirm.choices?.[1]?.label, "📻 VLC");
-assert.equal(playerConfirm.choices?.[1]?.description, "手动诊断后端仅在你明确想使用 VLC 时选择");
+assert.equal(playerConfirm.choices?.[1]?.description, "备用播放后台，适配性较差，通常不建议选择");
 assert.equal(playerConfirm.choices?.[2]?.label, "🚫 取消");
 
 const englishPlayerConfirm = applyLanguageToServerEvent({
@@ -154,7 +154,7 @@ const englishPlayerConfirm = applyLanguageToServerEvent({
     ],
 }, "en");
 assert.equal(englishPlayerConfirm.choices?.[0]?.label, "🎧 mpv");
-assert.equal(englishPlayerConfirm.choices?.[0]?.description, "default controllable backend for smoother background playback");
+assert.equal(englishPlayerConfirm.choices?.[0]?.description, "default playback backend with smooth experience");
 assert.equal(englishPlayerConfirm.choices?.[1]?.label, "📻 VLC");
-assert.equal(englishPlayerConfirm.choices?.[1]?.description, "manual diagnostic backend use only when you explicitly want VLC");
+assert.equal(englishPlayerConfirm.choices?.[1]?.description, "only choose it as fallback when mpv is not available");
 assert.equal(englishPlayerConfirm.choices?.[2]?.label, "🚫 Cancel");

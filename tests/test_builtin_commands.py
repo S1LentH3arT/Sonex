@@ -188,6 +188,21 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertEqual(commands["playlist"].usage, "/playlist [name]|save [name]")
         self.assertEqual(commands["queue"].usage, "/queue")
 
+    def test_spotify_mode_is_visible_local_command(self) -> None:
+        parsed = parse_builtin_command("/spotify off")
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertTrue(parsed.known)
+        self.assertEqual(parsed.name, "spotify")
+        self.assertEqual(parsed.args, "off")
+        self.assertEqual(parsed.command.mode, "local")
+        self.assertTrue(parsed.command.visible)
+        self.assertIsNone(parsed.command_intent())
+
+        commands = {command.name: command for command in command_suggestions()}
+        self.assertEqual(commands["spotify"].usage, "/spotify [off]")
+        self.assertEqual(commands["spotify"].description, "Enter or exit session-only Spotify mode.")
+
     def test_random_includes_online_playback_fallback(self) -> None:
         """Verifies that random includes online playback fallback behaves as expected.
 

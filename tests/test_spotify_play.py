@@ -128,6 +128,10 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertFalse(capabilities["current_playback"])
         self.assertFalse(capabilities["playback_control"])
 
+    def test_default_spotify_scopes_include_playlist_reads(self) -> None:
+        self.assertIn("playlist-read-private", spotify_auth.DEFAULT_SPOTIFY_SCOPES)
+        self.assertIn("playlist-read-collaborative", spotify_auth.DEFAULT_SPOTIFY_SCOPES)
+
     def test_current_playback_skips_player_endpoint_for_free_account(self) -> None:
         """Verifies that current playback skips player endpoint for free account behaves as expected.
 
@@ -452,6 +456,78 @@ class SpotifyToolTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["error_code"], "SPOTIFY_SCOPE_MISSING")
+
+    def test_spotify_playlists_normalizes_current_user_playlists(self) -> None:
+        class Client:
+            def current_user_playlists(self, limit: int, offset: int) -> dict:
+                self.limit = limit
+                self.offset = offset
+                return {
+                    "items": [
+                        {
+                            "id": "playlist-1",
+                            "name": "Road",
+                            "description": "Driving",
+                            "owner": {"display_name": "Me"},
+                            "tracks": {"total": 2},
+                            "external_urls": {"spotify": "https://open.spotify.com/playlist/playlist-1"},
+                            "uri": "spotify:playlist:playlist-1",
+                            "public": False,
+                            "collaborative": True,
+                        }
+                    ]
+                }
+
+        with patch.object(spotify, "spotify_user_client", return_value=Client()) as user_client:
+            result = spotify.spotify_playlists(limit=20)
+
+        user_client.assert_called_once_with(spotify.SPOTIFY_PLAYLIST_READ_SCOPES)
+        self.assertEqual(result["status"], "success")
+        playlist = result["data"]["playlists"][0]
+        self.assertEqual(playlist["id"], "playlist-1")
+        self.assertEqual(playlist["name"], "Road")
+        self.assertEqual(playlist["track_count"], 2)
+        self.assertTrue(playlist["collaborative"])
+
+    def test_spotify_playlist_tracks_normalizes_compact_tracks(self) -> None:
+        class Client:
+            def playlist_items(self, playlist_id: str, fields: str, limit: int, offset: int, additional_types: tuple[str]) -> dict:
+                self.playlist_id = playlist_id
+                self.fields = fields
+                self.limit = limit
+                self.offset = offset
+                self.additional_types = additional_types
+                return {
+                    "items": [
+                        {
+                            "track": {
+                                "id": "track-1",
+                                "name": "Song",
+                                "duration_ms": 123000,
+                                "artists": [{"name": "Artist"}],
+                                "album": {
+                                    "name": "Album",
+                                    "images": [{"url": "cover", "width": 640, "height": 640}],
+                                },
+                                "external_urls": {"spotify": "https://open.spotify.com/track/track-1"},
+                                "uri": "spotify:track:track-1",
+                                "type": "track",
+                            }
+                        },
+                        {"track": {"type": "episode", "name": "Podcast"}},
+                    ]
+                }
+
+        with patch.object(spotify, "spotify_user_client", return_value=Client()) as user_client:
+            result = spotify.spotify_playlist_tracks(playlist_id="playlist-1", limit=50)
+
+        user_client.assert_called_once_with(spotify.SPOTIFY_PLAYLIST_READ_SCOPES)
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(len(result["data"]["tracks"]), 1)
+        track = result["data"]["tracks"][0]
+        self.assertEqual(track["name"], "Song")
+        self.assertEqual(track["artist"], "Artist")
+        self.assertEqual(track["uri"], "spotify:track:track-1")
 
     def test_spotify_recommend_uses_only_candidate_tracks(self) -> None:
         """Verifies that spotify recommend uses only candidate tracks behaves as expected.

@@ -248,6 +248,14 @@ Spotify app credentials can come from `SPOTIFY_CLIENT_ID` and
 requires a Spotify account and an available Spotify Connect device; Premium is
 required for playback control.
 
+Use `/spotify` to enter session-only Spotify mode after setup. Entry requires a
+logged-in Premium account, playback and playlist-read scopes, and at least one
+usable Spotify Connect device. While the mode is active, play/search,
+recommendations, playlists, and current playback use Spotify tools only; use
+`/spotify off` to return to the normal Sonex routing. If the saved token is
+missing newly required Spotify scopes, Sonex starts the Spotify authorization
+guide in the current chat so you can grant the updated permissions.
+
 ### 🍎 Apple Music
 
 Apple Music setup uses developer credentials plus a Music User Token:
@@ -354,8 +362,9 @@ stored in that cache.
   `./scripts/install.sh`.
 - 🌐 The TUI says the API is not running: launch with `sonex`, or run `sonex api`
   before `sonex tui` when debugging.
-- 🟩 Spotify cannot play: run `sonex auth login spotify` again, check scopes and
-  account product, and make sure Spotify is open on a device.
+- 🟩 Spotify cannot play: follow the TUI reauthorization guide when scopes are
+  missing, or run `sonex auth login spotify` again. Check account product and
+  make sure Spotify is open on a device.
 - 🎬 Local or online playback cannot start: install `mpv`, open `/player`, keep
   the auto/mpv backend, and choose VLC only when manually testing VLC behavior.
 - 🧩 Cover bead art does not appear: check `beads.brand`, rerun playback with an

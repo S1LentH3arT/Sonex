@@ -123,6 +123,7 @@ const commandDescriptions: Record<string, Record<UiLanguage, string>> = {
     recommend: { en: "recommend songs of preferred music taste", "zh-CN": "按偏好的音乐口味推荐歌曲" },
     resume: { en: "resume current playback", "zh-CN": "继续当前播放" },
     setup: { en: "configure a music provider", "zh-CN": "配置音乐服务" },
+    spotify: { en: "enter or exit session-only Spotify mode", "zh-CN": "进入或退出本次会话的 Spotify 模式" },
 };
 
 const knownText: Record<string, Record<UiLanguage, string>> = {
@@ -180,31 +181,31 @@ const playbackMethodChoices: Record<string, Record<UiLanguage, Partial<ConfirmCh
     spotify_play: {
         en: {
             label: "🎧 Spotify Play",
-            description: "Spotify Premium subscription and desktop/mobile Spotify apps required.",
+            description: "require Spotify Premium subscription and desktop/mobile Spotify apps",
         },
         "zh-CN": {
             label: "🎧 Spotify 播放",
-            description: "需要 Spotify Premium 订阅，以及桌面或移动端 Spotify app。",
+            description: "需要 Spotify Premium 订阅，以及桌面或移动端 Spotify app",
         },
     },
     apple_music_play: {
         en: {
             label: "🍎 Apple Music Play",
-            description: "Apple Music Subscription required. Play through Sonex internal player.",
+            description: "require Apple Music Subscription, play through Sonex internal player",
         },
         "zh-CN": {
             label: "🍎 Apple Music 播放",
-            description: "需要 Apple Music 订阅。通过 Sonex 内置播放器播放。",
+            description: "需要 Apple Music 订阅并通过 Sonex 内置播放器播放",
         },
     },
     online_play: {
         en: {
             label: "🌐 Sonex online Play",
-            description: "No subscription required. Play through Sonex internal player.",
+            description: "setup Jamendo/Audius before your journey",
         },
         "zh-CN": {
             label: "🌐 Sonex 在线播放",
-            description: "无需订阅。通过 Sonex 内置播放器播放。",
+            description: "需要先配置 Jamendo/Audius API Key",
         },
     },
     cancel: {
@@ -215,12 +216,12 @@ const playbackMethodChoices: Record<string, Record<UiLanguage, Partial<ConfirmCh
 
 const playerConfirmChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {
     mpv: {
-        en: { label: "🎧 mpv", description: "default controllable backend for smoother background playback" },
-        "zh-CN": { label: "🎧 mpv", description: "默认可控后端用于更流畅的后台播放" },
+        en: { label: "🎧 mpv", description: "default playback backend with smooth experience" },
+        "zh-CN": { label: "🎧 mpv", description: "默认播放后端，提供更丝滑的播放体验" },
     },
     cvlc: {
-        en: { label: "📻 VLC", description: "manual diagnostic backend use only when you explicitly want VLC" },
-        "zh-CN": { label: "📻 VLC", description: "手动诊断后端仅在你明确想使用 VLC 时选择" },
+        en: { label: "📻 VLC", description: "only choose it as fallback when mpv is not available" },
+        "zh-CN": { label: "📻 VLC", description: "备用播放后台，适配性较差，通常不建议选择" },
     },
     deny: {
         en: { label: "🚫 Cancel" },

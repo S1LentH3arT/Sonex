@@ -237,6 +237,13 @@ Spotify app credentials 可以来自 `SPOTIFY_CLIENT_ID` 和
 `SPOTIFY_CLIENT_SECRET`，也可以通过 TUI 引导设置保存。Spotify 播放控制需要
 Spotify 账号和可用的 Spotify Connect 设备；播放控制需要 Premium。
 
+设置完成后，可用 `/spotify` 进入本次会话的 Spotify 模式。进入前会检查已登录
+Premium 账号、播放控制和 playlist read scopes，以及至少一个可用的 Spotify
+Connect 设备。模式开启后，播放/搜索、推荐、歌单和当前播放都会只使用 Spotify
+工具；使用 `/spotify off` 返回 Sonex 默认路由。如果已保存 token 缺少新增的
+Spotify scopes，Sonex 会在当前聊天区启动 Spotify 授权引导，帮助你授予更新后的
+权限。
+
 ### 🍎 Apple Music
 
 Apple Music 需要 developer credentials 和 Music User Token：
@@ -335,8 +342,8 @@ Mard 的品牌/色号身份来自打包的官方品牌参考，RGB 近似值继�
   依赖和已构建的 TUI；也可以重新运行 `./scripts/install.sh`。
 - 🌐 TUI 提示 API 未运行：日常使用运行 `sonex`；调试时先运行 `sonex api`，再运行
   `sonex tui`。
-- 🟩 Spotify 无法播放：重新运行 `sonex auth login spotify`，检查 scope 和账号
-  product，并确认 Spotify 已在某个设备上打开。
+- 🟩 Spotify 无法播放：scope 缺失时按 TUI 中的重授权引导操作，或重新运行
+  `sonex auth login spotify`；检查账号 product，并确认 Spotify 已在某个设备上打开。
 - 🎬 本地或在线播放无法启动：安装 `mpv`，打开 `/player`，保持 auto/mpv 后端；
   只有在手动测试 VLC 行为时选择 VLC。
 - 🧩 封面珠子图没有出现：检查 `beads.brand`，用带官方封面的曲目重新播放，并查看

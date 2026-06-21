@@ -28,6 +28,8 @@ DEFAULT_SPOTIFY_SCOPES = [
     "user-read-recently-played",
     "user-top-read",
     "user-modify-playback-state",
+    "playlist-read-private",
+    "playlist-read-collaborative",
 ]
 DEFAULT_SPOTIFY_REDIRECT_URI = "http://127.0.0.1:9957/callback"
 _ENV_LOADED = False
