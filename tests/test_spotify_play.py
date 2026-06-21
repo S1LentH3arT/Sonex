@@ -131,6 +131,7 @@ class SpotifyToolTests(unittest.TestCase):
     def test_default_spotify_scopes_include_playlist_reads(self) -> None:
         self.assertIn("playlist-read-private", spotify_auth.DEFAULT_SPOTIFY_SCOPES)
         self.assertIn("playlist-read-collaborative", spotify_auth.DEFAULT_SPOTIFY_SCOPES)
+        self.assertIn("user-library-read", spotify_auth.DEFAULT_SPOTIFY_SCOPES)
 
     def test_current_playback_skips_player_endpoint_for_free_account(self) -> None:
         """Verifies that current playback skips player endpoint for free account behaves as expected.
@@ -487,6 +488,43 @@ class SpotifyToolTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["error_code"], "SPOTIFY_SCOPE_MISSING")
+
+    def test_spotify_saved_tracks_normalizes_current_user_library(self) -> None:
+        class Client:
+            def current_user_saved_tracks(self, limit: int, offset: int) -> dict:
+                self.limit = limit
+                self.offset = offset
+                return {
+                    "items": [
+                        {
+                            "added_at": "2026-06-21T00:00:00Z",
+                            "track": {
+                                "id": "saved-track",
+                                "name": "Saved Song",
+                                "duration_ms": 123000,
+                                "artists": [{"name": "Saved Artist"}],
+                                "album": {
+                                    "name": "Saved Album",
+                                    "images": [{"url": "cover", "width": 640, "height": 640}],
+                                },
+                                "external_urls": {"spotify": "https://open.spotify.com/track/saved-track"},
+                                "uri": "spotify:track:saved-track",
+                                "type": "track",
+                            },
+                        }
+                    ]
+                }
+
+        with patch.object(spotify, "spotify_user_client", return_value=Client()) as user_client:
+            result = spotify.spotify_saved_tracks(limit=20)
+
+        user_client.assert_called_once_with(spotify.SPOTIFY_LIBRARY_READ_SCOPES)
+        self.assertEqual(result["status"], "success")
+        track = result["data"]["tracks"][0]
+        self.assertEqual(track["name"], "Saved Song")
+        self.assertEqual(track["artist"], "Saved Artist")
+        self.assertEqual(track["added_at"], "2026-06-21T00:00:00Z")
+        self.assertEqual(track["provider"], "spotify")
 
     def test_spotify_playlists_normalizes_current_user_playlists(self) -> None:
         class Client:

@@ -518,6 +518,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("重新授权 Spotify" in message for message in messages))
         self.assertTrue(any("playlist-read-private" in message for message in messages))
         self.assertTrue(any("playlist-read-collaborative" in message for message in messages))
+        self.assertTrue(any("user-library-read" in message for message in messages))
 
     async def test_spotify_command_asks_for_inactive_device_choice(self) -> None:
         runner = WebSocketRunner()
@@ -534,8 +535,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                     "user-modify-playback-state",
                     "playlist-read-private",
                     "playlist-read-collaborative",
+                    "user-library-read",
                 ],
-                "capabilities": {"playback_control": True, "current_playback": True, "playlist_read": True},
+                "capabilities": {"playback_control": True, "current_playback": True, "playlist_read": True, "library_read": True},
             },
         }), patch("src.api.ws_runner.spotify_devices", return_value={
             "status": "success",
@@ -969,34 +971,66 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("apple_music_play", intent.allowed_tools)
         self.assertNotIn("play_youtube_song", intent.allowed_tools)
 
-    async def test_spotify_mode_playlist_command_lists_spotify_playlist_tracks(self) -> None:
+    async def test_spotify_mode_playlist_command_imports_once_then_browses_local_mirrors(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
         setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
         playlists = [{"id": "playlist-1", "name": "Road", "owner": "Me", "track_count": 1}]
         tracks = [{"name": "Song", "artist": "Artist", "duration_ms": 123000, "uri": "spotify:track:1"}]
+        saved_tracks = [{"name": "Saved Song", "artist": "Artist", "duration_ms": 123000, "uri": "spotify:track:saved"}]
+        choices = [
+            {"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "1 saved track"},
+            {"value": "playlist_ref:Spotify:playlist-1", "label": "[Spotify] Road", "description": "1 saved track"},
+        ]
 
-        with patch("src.api.ws_runner.spotify_playlists", return_value={
+        with patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "success",
+            "data": {"tracks": saved_tracks},
+        }) as saved, patch("src.api.ws_runner.spotify_playlists", return_value={
             "status": "success",
             "data": {"playlists": playlists},
-        }) as list_playlists, patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await runner._handle_user_input(ui, "/playlist")
-
-        list_playlists.assert_called_once_with(50)
-        confirm = [event for event in ui.events if event.get("tool_name") == "spotify_playlist"][-1]
-        self.assertEqual(confirm["choices"][0]["value"], "spotify_playlist:0")
-        session = getattr(ui, "_spotify_playlist_selection")
-
-        with patch("src.api.ws_runner.spotify_playlist_tracks", return_value={
+        }) as list_playlists, patch("src.api.ws_runner.spotify_playlist_tracks", return_value={
             "status": "success",
             "data": {"tracks": tracks},
-        }) as playlist_tracks, patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await session.handle_choice("spotify_playlist:0")
+        }) as playlist_tracks, patch("src.api.ws_runner.upsert_mirror_playlist") as upsert, patch(
+            "src.api.ws_runner.playlist_choices",
+            return_value=choices,
+        ) as local_choices, patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/playlist")
+            await runner._handle_user_input(ui, "/playlist")
 
+        saved.assert_called_once_with(50)
+        list_playlists.assert_called_once_with(50)
         playlist_tracks.assert_called_once_with("playlist-1", 50)
-        panel = [event for event in ui.events if event.get("type") == "track_panel"][-1]
-        self.assertEqual(panel["title"], "Spotify Playlist: Road")
-        self.assertEqual(panel["tracks"][0]["title"], "Song")
+        self.assertEqual(upsert.call_count, 2)
+        local_choices.assert_called_with(writable_only=False)
+        confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
+        self.assertEqual(len(confirms), 2)
+        self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
+        self.assertTrue(getattr(ui, "_spotify_library_synced"))
+
+    async def test_spotify_mode_playlist_command_keeps_liked_songs_when_no_playlists(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        saved_tracks = [{"name": "Saved Song", "artist": "Artist", "duration_ms": 123000, "uri": "spotify:track:saved"}]
+
+        with patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "success",
+            "data": {"tracks": saved_tracks},
+        }), patch("src.api.ws_runner.spotify_playlists", return_value={
+            "status": "success",
+            "data": {"playlists": []},
+        }), patch("src.api.ws_runner.upsert_mirror_playlist"), patch(
+            "src.api.ws_runner.playlist_choices",
+            return_value=[{"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "1 saved track"}],
+        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/playlist")
+
+        details = [str(event.get("detail") or "") for event in ui.events]
+        self.assertFalse(any("No Spotify playlists found" in detail for detail in details))
+        confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
+        self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
 
     async def test_spotify_mode_queue_command_shows_spotify_queue(self) -> None:
         runner = WebSocketRunner()
@@ -1459,6 +1493,21 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(panels[-1]["panel"], "playlist")
         self.assertEqual(panels[-1]["title"], "Playlist: likes")
         self.assertEqual(panels[-1]["tracks"], tracks)
+
+    async def test_playlist_command_without_name_browses_imported_mirrors(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.playlist_choices", return_value=[
+            {"value": "playlist:likes", "label": "likes", "description": "0 saved tracks"},
+            {"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "1 saved track"},
+        ]):
+            await runner._handle_user_input(ui, "/playlist")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
+        self.assertEqual(confirms[-1]["choices"][1]["label"], "[Spotify] Spotify Library")
 
     async def test_playlist_save_opens_target_picker_defaulting_to_likes(self) -> None:
         runner = WebSocketRunner()

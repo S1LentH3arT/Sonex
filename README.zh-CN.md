@@ -238,12 +238,15 @@ Spotify app credentials 可以来自 `SPOTIFY_CLIENT_ID` 和
 Spotify 账号和可用的 Spotify Connect 设备；播放控制需要 Premium。
 
 设置完成后，可用 `/spotify` 进入本次会话的 Spotify 模式。进入前会检查已登录
-Premium 账号、播放控制和 playlist read scopes，以及至少一个可用的 Spotify
-Connect 设备。模式开启后，播放/搜索、推荐、歌单和当前播放都会只使用 Spotify
-工具。在 Spotify 模式下，`/playlist` 会打开 Spotify 歌单及其歌曲，`/queue`
-会打开 Spotify 实时播放队列。使用 `/spotify off` 返回 Sonex 默认路由。如果已保存
-token 缺少新增的 Spotify scopes，Sonex 会在当前聊天区启动 Spotify 授权引导，帮助
-你授予更新后的权限。
+Premium 账号、播放控制、playlist read scopes 和 `user-library-read` scope，以及
+至少一个可用的 Spotify Connect 设备。模式开启后，播放/搜索、推荐、歌单和当前播放
+都会只使用 Spotify 工具。在 Spotify 模式下，第一次执行 `/playlist` 会把已点赞歌曲
+导入为只读镜像 `[Spotify] Spotify Library`，并把 Spotify 歌单导入为只读本地镜像；
+本次 Spotify mode 后续 `/playlist` 只打开本地歌单浏览器，不再调用 Spotify API，直到
+退出后重新进入 Spotify mode 或重启 Sonex。普通 Sonex 模式仍可浏览已导入的 Spotify
+镜像，但 `/playlist save` 只会写入可编辑的 Sonex 歌单。`/queue` 会打开 Spotify 实时
+播放队列。使用 `/spotify off` 返回 Sonex 默认路由。如果已保存 token 缺少新增的
+Spotify scopes，Sonex 会在当前聊天区启动 Spotify 授权引导，帮助你授予更新后的权限。
 
 ### 🍎 Apple Music
 

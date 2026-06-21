@@ -74,10 +74,13 @@ from src.tools.online_play import (
 )
 from src.tools.playlists import (
     LIKES_PLAYLIST,
+    SPOTIFY_LIBRARY_EXTERNAL_ID,
+    SPOTIFY_LIBRARY_PLAYLIST,
     list_playlist_tracks,
     playlist_choices,
     save_track_to_playlist,
     track_in_playlist,
+    upsert_mirror_playlist,
 )
 from src.tools.playback_queue import playback_queue_snapshot, remember_playback_track
 from src.tools.track_search import search_track_metadata_candidates
@@ -142,6 +145,7 @@ from src.tools.spotify_play import (
     spotify_playlist_tracks,
     spotify_playlists,
     spotify_queue,
+    spotify_saved_tracks,
 )
 from src.tools.song_cache import find_best_cached_song, recent_cached_songs, resolve_cached_song, upsert_cached_song
 from src.ws.constants import (
@@ -540,10 +544,15 @@ def _track_panel_payload(panel: str, title: str, tracks: list[dict[str, str]]) -
     }
 
 
-def playlist_panel_tracks(playlist_name: str = LIKES_PLAYLIST) -> list[dict[str, str]]:
+def playlist_panel_tracks(
+    playlist_name: str = LIKES_PLAYLIST,
+    *,
+    source_app: str = "Sonex",
+    external_id: str | None = None,
+) -> list[dict[str, str]]:
     """Formats persisted playlist tracks for the CLI track panel."""
     try:
-        tracks = list_playlist_tracks(playlist_name)
+        tracks = list_playlist_tracks(playlist_name, source_app=source_app, external_id=external_id)
     except Exception:
         tracks = []
     return [
@@ -2861,18 +2870,74 @@ class PlaylistSaveSession:
         setattr(self.ui, "_playlist_save", None)
 
 
+class PlaylistBrowseSession:
+    """Owns the local playlist browser for Sonex and imported read-only mirrors."""
+
+    def __init__(self, ui: WebSocketUIAdapter, choices: list[dict[str, Any]]) -> None:
+        self.ui = ui
+        self.choices = choices
+        self.confirm_id = _new_event_id("playlist_browse")
+
+    async def start(self) -> None:
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Playlists",
+            detail="Choose a playlist.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "playlist_browse",
+                "tool_args": {"stage": "playlist_choice"},
+                "message": "Choose playlist",
+                "choices": self.choices,
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        setattr(self.ui, "_playlist_browse", None)
+        value = str(decision or "cancel")
+        if value in {"cancel", "deny", "false"}:
+            await self.ui.append_activity(kind="status", title="Playlists", detail="Playlist browsing cancelled.", status="success")
+            return
+        choice = next((item for item in self.choices if str(item.get("value") or "") == value), None)
+        if not choice:
+            await self.ui.append_activity(kind="error", title="Playlists", detail="Selected playlist is no longer available.", status="error")
+            return
+        name = str(choice.get("name") or choice.get("label") or LIKES_PLAYLIST)
+        source = str(choice.get("source_app") or "Sonex")
+        external_id = str(choice.get("external_id") or "") or None
+        label = str(choice.get("label") or name)
+        title = f"Playlist: {label}"
+        await self.ui._send(
+            _track_panel_payload(
+                "playlist",
+                title,
+                playlist_panel_tracks(name, source_app=source, external_id=external_id),
+            )
+        )
+        await self.ui.append_activity(kind="status", title="Playlist", detail=f"Showing playlist: {label}.", status="success")
+
+
 SPOTIFY_MODE_REQUIRED_SCOPES = {
     "user-read-private",
     "user-read-playback-state",
     "user-modify-playback-state",
     "playlist-read-private",
     "playlist-read-collaborative",
+    "user-library-read",
 }
 
 SPOTIFY_MODE_AGENT_TOOLS = (
     "spotify_account",
     "spotify_current_playback",
     "spotify_recent_tracks",
+    "spotify_saved_tracks",
     "spotify_devices",
     "spotify_playlists",
     "spotify_playlist_tracks",
@@ -3278,6 +3343,10 @@ class WebSocketRunner:
                     playlist_save = getattr(ui, "_playlist_save", None)
                     if playlist_save and playlist_save.owns_confirm(confirm_id):
                         await playlist_save.handle_choice(decision)
+                        continue
+                    playlist_browse = getattr(ui, "_playlist_browse", None)
+                    if playlist_browse and playlist_browse.owns_confirm(confirm_id):
+                        await playlist_browse.handle_choice(decision)
                         continue
                     spotify_device = getattr(ui, "_spotify_device_selection", None)
                     if spotify_device and spotify_device.owns_confirm(confirm_id):
@@ -3800,6 +3869,9 @@ class WebSocketRunner:
         if action == "save":
             await self._start_playlist_save(ui, rest)
             return
+        if not args.strip():
+            await self._show_playlist_browse(ui)
+            return
         playlist_name = args.strip() or LIKES_PLAYLIST
         await ui._send(_track_panel_payload("playlist", f"Playlist: {playlist_name}", playlist_panel_tracks(playlist_name)))
         await ui.append_activity(
@@ -3813,6 +3885,7 @@ class WebSocketRunner:
         action = args.strip().casefold()
         if action == "off":
             setattr(ui, "_spotify_mode", None)
+            setattr(ui, "_spotify_library_synced", False)
             setattr(ui, "_spotify_device_selection", None)
             setattr(ui, "_spotify_play_selection", None)
             message = "Spotify mode off."
@@ -3825,6 +3898,17 @@ class WebSocketRunner:
             await ui.append_agent_message(message)
             return
         await self._enter_spotify_mode(ui)
+
+    async def _show_playlist_browse(self, ui: WebSocketUIAdapter) -> None:
+        try:
+            choices = playlist_choices(writable_only=False)
+        except Exception:
+            choices = []
+        if not choices:
+            choices = [{"value": f"playlist:{LIKES_PLAYLIST}", "label": LIKES_PLAYLIST, "description": "0 saved tracks"}]
+        session = PlaylistBrowseSession(ui, choices)
+        setattr(ui, "_playlist_browse", session)
+        await session.start()
 
     async def _enter_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
         account = await asyncio.to_thread(spotify_account)
@@ -3876,23 +3960,52 @@ class WebSocketRunner:
         await setup.start_reauthorization(missing_scopes)
 
     async def _show_spotify_playlists(self, ui: WebSocketUIAdapter) -> None:
-        await ui.append_activity(kind="tool", title="Spotify playlists", detail="Loading Spotify playlists.", status="pending")
+        if not bool(getattr(ui, "_spotify_library_synced", False)):
+            await ui.append_activity(kind="tool", title="Spotify playlists", detail="Syncing Spotify Library and playlists.", status="pending")
+            synced, message = await self._sync_spotify_library_to_playlists()
+            if not synced:
+                await ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
+                await ui.append_agent_message(message)
+                return
+            setattr(ui, "_spotify_library_synced", True)
+        await self._show_playlist_browse(ui)
+
+    async def _sync_spotify_library_to_playlists(self) -> tuple[bool, str]:
+        saved_result = await asyncio.to_thread(spotify_saved_tracks, 50)
+        if not isinstance(saved_result, dict) or saved_result.get("status") != "success":
+            return False, _friendly_runtime_error_message(saved_result, fallback="Spotify Library sync failed.")
+        saved_data = saved_result.get("data") if isinstance(saved_result.get("data"), dict) else {}
+        saved_tracks = [item for item in saved_data.get("tracks") or [] if isinstance(item, dict)]
+        await asyncio.to_thread(
+            upsert_mirror_playlist,
+            source_app="Spotify",
+            name=SPOTIFY_LIBRARY_PLAYLIST,
+            external_id=SPOTIFY_LIBRARY_EXTERNAL_ID,
+            tracks=saved_tracks,
+        )
+
         result = await asyncio.to_thread(spotify_playlists, 50)
         if not isinstance(result, dict) or result.get("status") != "success":
-            message = _friendly_runtime_error_message(result, fallback="Spotify playlists failed.")
-            await ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
-            await ui.append_agent_message(message)
-            return
+            return False, _friendly_runtime_error_message(result, fallback="Spotify playlists failed.")
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
         playlists = [item for item in data.get("playlists") or [] if isinstance(item, dict)]
-        if not playlists:
-            message = "No Spotify playlists found."
-            await ui.append_activity(kind="status", title="Spotify playlists", detail=message, status="success")
-            await ui.append_agent_message(message)
-            return
-        session = SpotifyPlaylistSelectionSession(ui, playlists)
-        setattr(ui, "_spotify_playlist_selection", session)
-        await session.start()
+        for playlist in playlists:
+            playlist_id = str(playlist.get("id") or "").strip()
+            if not playlist_id:
+                continue
+            tracks_result = await asyncio.to_thread(spotify_playlist_tracks, playlist_id, 50)
+            if not isinstance(tracks_result, dict) or tracks_result.get("status") != "success":
+                return False, _friendly_runtime_error_message(tracks_result, fallback="Spotify playlist tracks failed.")
+            tracks_data = tracks_result.get("data") if isinstance(tracks_result.get("data"), dict) else {}
+            tracks = [item for item in tracks_data.get("tracks") or [] if isinstance(item, dict)]
+            await asyncio.to_thread(
+                upsert_mirror_playlist,
+                source_app="Spotify",
+                name=str(playlist.get("name") or "Untitled playlist"),
+                external_id=playlist_id,
+                tracks=tracks,
+            )
+        return True, "Spotify playlists synced."
 
     async def _show_spotify_queue(self, ui: WebSocketUIAdapter) -> None:
         await ui.append_activity(kind="tool", title="Spotify queue", detail="Loading Spotify playback queue.", status="pending")

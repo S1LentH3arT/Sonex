@@ -249,14 +249,19 @@ requires a Spotify account and an available Spotify Connect device; Premium is
 required for playback control.
 
 Use `/spotify` to enter session-only Spotify mode after setup. Entry requires a
-logged-in Premium account, playback and playlist-read scopes, and at least one
-usable Spotify Connect device. While the mode is active, play/search,
-recommendations, playlists, and current playback use Spotify tools only. In
-Spotify mode, `/playlist` opens your Spotify playlists and their tracks, and
-`/queue` opens your live Spotify playback queue. Use `/spotify off` to return to
-the normal Sonex routing. If the saved token is missing newly required Spotify
-scopes, Sonex starts the Spotify authorization guide in the current chat so you
-can grant the updated permissions.
+logged-in Premium account, playback, playlist-read, and `user-library-read`
+scopes, and at least one usable Spotify Connect device. While the mode is
+active, play/search, recommendations, playlists, and current playback use
+Spotify tools only. The first `/playlist` in a Spotify-mode session imports
+your saved tracks as the read-only `[Spotify] Spotify Library` mirror and
+imports your Spotify playlists as read-only local mirrors. Later `/playlist`
+opens the local playlist browser without calling Spotify again until you leave
+and re-enter Spotify mode or restart Sonex. Normal Sonex mode can still browse
+the imported Spotify mirrors, but `/playlist save` only writes to editable Sonex
+playlists. `/queue` opens your live Spotify playback queue. Use `/spotify off`
+to return to the normal Sonex routing. If the saved token is missing newly
+required Spotify scopes, Sonex starts the Spotify authorization guide in the
+current chat so you can grant the updated permissions.
 
 ### 🍎 Apple Music
 

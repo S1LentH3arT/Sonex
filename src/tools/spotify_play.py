@@ -36,6 +36,7 @@ SPOTIFY_PRIVATE_SCOPES = {"user-read-private"}
 SPOTIFY_RECENTLY_PLAYED_SCOPES = {"user-read-recently-played"}
 SPOTIFY_TOP_READ_SCOPES = {"user-top-read"}
 SPOTIFY_PLAYLIST_READ_SCOPES = {"playlist-read-private", "playlist-read-collaborative"}
+SPOTIFY_LIBRARY_READ_SCOPES = {"user-library-read"}
 MAX_RECENT_TRACKS = 10
 
 _RECENT_TRACKS: list[dict[str, Any]] = []
@@ -722,6 +723,7 @@ def _account_capabilities(product: str, scopes: set[str], logged_in: bool) -> di
         and _product_allows_premium_capability(product)
         and SPOTIFY_MODIFY_PLAYBACK_SCOPES <= scopes,
         "playlist_read": logged_in and SPOTIFY_PLAYLIST_READ_SCOPES <= scopes,
+        "library_read": logged_in and SPOTIFY_LIBRARY_READ_SCOPES <= scopes,
     }
 
 
@@ -825,6 +827,38 @@ def spotify_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
         tool="spotify_recent_tracks",
         message=f"Loaded {len(tracks)} recently played Spotify track(s).",
         data={"tracks": tracks[:bounded_limit]},
+    ).to_dict()
+
+
+def spotify_saved_tracks(limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    """List the current user's saved Spotify tracks in Sonex's compact track shape."""
+    bounded_limit = min(50, max(1, int(limit or 50)))
+    bounded_offset = max(0, int(offset or 0))
+    try:
+        client = spotify_user_client(SPOTIFY_LIBRARY_READ_SCOPES)
+        payload = client.current_user_saved_tracks(limit=bounded_limit, offset=bounded_offset)
+    except Exception as exc:
+        return _spotify_error("spotify_saved_tracks", exc, "SPOTIFY_API_ERROR")
+
+    tracks: list[dict[str, Any]] = []
+    for item in payload.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        track_payload = item.get("track")
+        if not isinstance(track_payload, dict) or track_payload.get("type") not in {None, "track"}:
+            continue
+        track = _normalize_track(track_payload)
+        if not track.get("uri"):
+            continue
+        track["provider"] = "spotify"
+        if item.get("added_at"):
+            track["added_at"] = item.get("added_at")
+        tracks.append(track)
+
+    return ToolResult.success(
+        tool="spotify_saved_tracks",
+        message=f"Loaded {len(tracks)} saved Spotify track(s).",
+        data={"tracks": tracks, "limit": bounded_limit, "offset": bounded_offset},
     ).to_dict()
 
 
@@ -1501,6 +1535,7 @@ _register_tool("spotify_account", "Show Spotify login status and account capabil
 _register_tool("spotify_current_playback", "Read the user's current Spotify playback state.", {}, [], spotify_current_playback)
 _register_tool("spotify_recent_tracks", "Read the user's recently played Spotify tracks.", {}, [], spotify_recent_tracks)
 _register_tool("spotify_playlists", "List current user's Spotify playlists.", {}, [], spotify_playlists)
+_register_tool("spotify_saved_tracks", "List current user's saved Spotify tracks.", {}, [], spotify_saved_tracks)
 _register_tool(
     "spotify_playlist_tracks",
     "List tracks from one Spotify playlist.",
