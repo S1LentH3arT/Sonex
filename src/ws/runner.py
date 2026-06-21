@@ -2831,7 +2831,7 @@ class PlayerBackendSelectionSession:
         await self.ui.append_activity(
             kind="confirm",
             title="Player backend",
-            detail="Choose playback backend.",
+            detail="选择播放后端",
             status="pending",
             activity_id=self.confirm_id,
         )
@@ -2841,26 +2841,26 @@ class PlayerBackendSelectionSession:
                 "id": self.confirm_id,
                 "tool_name": "local_playback_player",
                 "tool_args": {"stage": "player_backend_selection"},
-                "message": "Choose playback backend.",
+                "message": "选择播放后端",
                 "choices": [
                     {
                         "value": "auto",
-                        "label": "auto ",
-                        "description": "default stable mpv backend",
+                        "label": "🎧 auto",
+                        "description": "默认稳定的 mpv 后端",
                     },
                     {
                         "value": "mpv",
-                        "label": "mpv  ",
-                        "description": "use mpv explicitly",
+                        "label": "🎧 mpv",
+                        "description": "明确使用 mpv",
                     },
                     {
                         "value": "cvlc",
-                        "label": "VLC  ",
-                        "description": "use VLC as the manual diagnostic backend",
+                        "label": "📻 VLC",
+                        "description": "手动诊断后端仅在你明确想使用 VLC 时选择",
                     },
                     {
                         "value": "deny",
-                        "label": "Cancel",
+                        "label": "🚫 取消",
                     },
                 ],
             }

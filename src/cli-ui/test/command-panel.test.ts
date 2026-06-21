@@ -9,6 +9,18 @@ import {
 } from '../src/command-panel.js';
 
 const allHelpCommands = helpPanelCommands(SLASH_COMMANDS);
+const localizedHelpCommands = helpPanelCommands([
+    {
+        name: "player",
+        usage: "/player",
+        description: "选择播放后端",
+    },
+    {
+        name: "help",
+        usage: "/help",
+        description: "显示命令列表",
+    },
+]);
 
 assert.equal(HELP_PANEL_VISIBLE_COMMANDS, 8);
 assert.deepEqual(
@@ -46,6 +58,8 @@ const slashPlayer = SLASH_COMMANDS.find((command) => command.name === "player");
 assert.equal(helpPlayer?.usage, "/player");
 assert.equal(helpPlayer?.description, "choose playback backend from a panel");
 assert.equal(slashPlayer?.needsArgument, false);
+assert.equal(localizedHelpCommands.find((command) => command.name === "help")?.description, "显示命令列表");
+assert.equal(localizedHelpCommands.find((command) => command.name === "player")?.description, "选择播放后端");
 
 const helpKeymap = allHelpCommands.find((command) => command.name === "keymap");
 assert.equal(helpKeymap?.usage, "/keymap [on|off|toggle|status]");

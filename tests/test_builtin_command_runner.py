@@ -1479,13 +1479,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             [choice["value"] for choice in confirm_events[-1]["choices"]],
             ["auto", "mpv", "cvlc", "deny"],
         )
-        self.assertEqual([choice["label"] for choice in confirm_events[-1]["choices"]], ["auto ", "mpv  ", "VLC  ", "Cancel"])
+        self.assertEqual([choice["label"] for choice in confirm_events[-1]["choices"]], ["🎧 auto", "🎧 mpv", "📻 VLC", "🚫 取消"])
         self.assertEqual(
             [choice.get("description") for choice in confirm_events[-1]["choices"]],
             [
-                "default stable mpv backend",
-                "use mpv explicitly",
-                "use VLC as the manual diagnostic backend",
+                "默认稳定的 mpv 后端",
+                "明确使用 mpv",
+                "手动诊断后端仅在你明确想使用 VLC 时选择",
                 None,
             ],
         )

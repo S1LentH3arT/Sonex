@@ -1,4 +1,3 @@
-import { SLASH_COMMANDS } from './constants.js';
 import type { HelpCommand, SlashCommandSuggestion } from './types.js';
 
 export const HELP_PANEL_VISIBLE_COMMANDS = 8;
@@ -45,15 +44,11 @@ export function selectedHelpPanelCommand<T>(commands: T[], selectedIndex: number
  * @returns The computed result for the surrounding CLI UI flow.
  */
 export function helpPanelCommands(commands: HelpCommand[]): CommandPanelCommand[] {
-    const conciseByName = new Map(SLASH_COMMANDS.map((command) => [command.name, command.description]));
     return [...commands]
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map((command) => {
-            const description = conciseByName.get(command.name) ?? command.description;
-            return {
-                name: command.name,
-                usage: command.usage,
-                description,
-            };
-        });
+        .map((command) => ({
+            name: command.name,
+            usage: command.usage,
+            description: command.description,
+        }));
 }
