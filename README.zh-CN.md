@@ -240,9 +240,10 @@ Spotify 账号和可用的 Spotify Connect 设备；播放控制需要 Premium�
 设置完成后，可用 `/spotify` 进入本次会话的 Spotify 模式。进入前会检查已登录
 Premium 账号、播放控制和 playlist read scopes，以及至少一个可用的 Spotify
 Connect 设备。模式开启后，播放/搜索、推荐、歌单和当前播放都会只使用 Spotify
-工具；使用 `/spotify off` 返回 Sonex 默认路由。如果已保存 token 缺少新增的
-Spotify scopes，Sonex 会在当前聊天区启动 Spotify 授权引导，帮助你授予更新后的
-权限。
+工具。在 Spotify 模式下，`/playlist` 会打开 Spotify 歌单及其歌曲，`/queue`
+会打开 Spotify 实时播放队列。使用 `/spotify off` 返回 Sonex 默认路由。如果已保存
+token 缺少新增的 Spotify scopes，Sonex 会在当前聊天区启动 Spotify 授权引导，帮助
+你授予更新后的权限。
 
 ### 🍎 Apple Music
 

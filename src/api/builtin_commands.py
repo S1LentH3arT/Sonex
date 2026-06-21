@@ -85,7 +85,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("model", "/model", "Switch the active model for this session."),
     BuiltinCommand("logout", "/logout", "Log out current LLM provider and exit."),
     BuiltinCommand("playlist", "/playlist [name]|save [name]", "Browse playlists or save the current song."),
-    BuiltinCommand("queue", "/queue", "Show recent songs."),
+    BuiltinCommand("queue", "/queue", "Show the playback queue."),
     BuiltinCommand("spotify", "/spotify [off]", "Enter or exit session-only Spotify mode."),
     BuiltinCommand("pause", "/pause", "Pause current local playback.", visible=False),
     BuiltinCommand("resume", "/resume", "Resume current local playback."),

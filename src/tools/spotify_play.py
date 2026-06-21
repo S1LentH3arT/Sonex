@@ -715,12 +715,22 @@ def _account_capabilities(product: str, scopes: set[str], logged_in: bool) -> di
         "account": logged_in,
         "current_playback": (
             logged_in
-            and product == "premium"
+            and _product_allows_premium_capability(product)
             and bool(scopes & (SPOTIFY_READ_PLAYBACK_SCOPES | SPOTIFY_NOW_PLAYING_SCOPES))
         ),
-        "playback_control": logged_in and product == "premium" and SPOTIFY_MODIFY_PLAYBACK_SCOPES <= scopes,
+        "playback_control": logged_in
+        and _product_allows_premium_capability(product)
+        and SPOTIFY_MODIFY_PLAYBACK_SCOPES <= scopes,
         "playlist_read": logged_in and SPOTIFY_PLAYLIST_READ_SCOPES <= scopes,
     }
+
+
+def _product_allows_premium_capability(product: str) -> bool:
+    return product in {"premium", "unknown"}
+
+
+def _product_is_known_non_premium(product: Any) -> bool:
+    return str(product or "").lower() in {"free", "open"}
 
 
 def spotify_account(requests_timeout: float | None = None) -> dict[str, Any]:
@@ -760,17 +770,19 @@ def spotify_current_playback() -> dict[str, Any]:
     data = account.get("data") if isinstance(account, dict) else {}
     capabilities = data.get("capabilities") if isinstance(data, dict) else {}
     if data.get("logged_in") and not capabilities.get("current_playback"):
-        if data.get("product") != "premium":
+        scopes = set(data.get("scopes") or [])
+        if _product_is_known_non_premium(data.get("product")):
             return ToolResult.fail(
                 tool="spotify_current_playback",
                 message="Spotify playback state requires a Premium account.",
                 error_code="SPOTIFY_PREMIUM_REQUIRED",
             ).to_dict()
-        return ToolResult.fail(
-            tool="spotify_current_playback",
-            message="Spotify playback state scope is missing. Run `sonex auth login spotify` again.",
-            error_code="SPOTIFY_SCOPE_MISSING",
-        ).to_dict()
+        if not scopes & (SPOTIFY_READ_PLAYBACK_SCOPES | SPOTIFY_NOW_PLAYING_SCOPES):
+            return ToolResult.fail(
+                tool="spotify_current_playback",
+                message="Spotify playback state scope is missing. Run `sonex auth login spotify` again.",
+                error_code="SPOTIFY_SCOPE_MISSING",
+            ).to_dict()
 
     try:
         client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES)
@@ -878,6 +890,47 @@ def spotify_playlist_tracks(playlist_id: str, limit: int = 50, offset: int = 0) 
     ).to_dict()
 
 
+def _queue_track(item: Any) -> dict[str, Any] | None:
+    if not isinstance(item, dict) or item.get("type") not in {None, "track"}:
+        return None
+    track = _normalize_track(item)
+    uri = str(track.get("uri") or "")
+    if not uri.startswith("spotify:track:"):
+        return None
+    return track
+
+
+def spotify_queue(limit: int = 50) -> dict[str, Any]:
+    """Read the user's Spotify queue in the same compact track shape as spotify_play."""
+    bounded_limit = min(50, max(1, int(limit or 50)))
+    try:
+        client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES)
+        payload = client.queue()
+    except Exception as exc:
+        return _spotify_error("spotify_queue", exc, "SPOTIFY_API_ERROR")
+
+    current = _queue_track(payload.get("currently_playing")) if isinstance(payload, dict) else None
+    queued: list[dict[str, Any]] = []
+    for item in (payload.get("queue") if isinstance(payload, dict) else None) or []:
+        track = _queue_track(item)
+        if track:
+            queued.append(track)
+
+    tracks = ([current] if current else []) + queued
+    tracks = tracks[:bounded_limit]
+    queue_tracks = queued[: max(0, bounded_limit - (1 if current else 0))]
+    return ToolResult.success(
+        tool="spotify_queue",
+        message=f"Loaded {len(tracks)} Spotify queue track(s).",
+        data={
+            "tracks": tracks,
+            "currently_playing": current,
+            "queue": queue_tracks,
+            "limit": bounded_limit,
+        },
+    ).to_dict()
+
+
 def _require_premium_control(tool: str) -> dict[str, Any] | None:
     """Prepares require premium control for an internal Sonex flow.
 
@@ -893,7 +946,7 @@ def _require_premium_control(tool: str) -> dict[str, Any] | None:
             message="Run `sonex auth login spotify` before controlling Spotify playback.",
             error_code="SPOTIFY_LOGIN_REQUIRED",
         ).to_dict()
-    if data.get("product") != "premium":
+    if _product_is_known_non_premium(data.get("product")):
         return ToolResult.fail(
             tool=tool,
             message="Spotify playback control requires a Premium account.",
@@ -1458,6 +1511,7 @@ _register_tool(
     ["playlist_id"],
     spotify_playlist_tracks,
 )
+_register_tool("spotify_queue", "Read the user's current Spotify playback queue.", {}, [], spotify_queue)
 _register_tool("spotify_devices", "List the user's available Spotify Connect devices.", {}, [], spotify_devices)
 _register_tool(
     "spotify_recommend",

@@ -998,6 +998,49 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(panel["title"], "Spotify Playlist: Road")
         self.assertEqual(panel["tracks"][0]["title"], "Song")
 
+    async def test_spotify_mode_queue_command_shows_spotify_queue(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        tracks = [{"name": "Queued Song", "artist": "Artist", "duration_ms": 123000, "uri": "spotify:track:1"}]
+
+        with (
+            patch("src.api.ws_runner.spotify_queue", return_value={
+                "status": "success",
+                "data": {"tracks": tracks},
+            }) as spotify_queue,
+            patch("src.api.ws_runner.playback_queue_snapshot", side_effect=AssertionError("local queue should not be read")),
+            patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline),
+        ):
+            await runner._handle_user_input(ui, "/queue")
+
+        spotify_queue.assert_called_once_with(50)
+        self.assertFalse(runner._run_agent_turn.called)
+        panel = [event for event in ui.events if event.get("type") == "track_panel"][-1]
+        self.assertEqual(panel["panel"], "queue")
+        self.assertEqual(panel["title"], "Spotify Queue")
+        self.assertEqual(panel["tracks"][0]["title"], "Queued Song")
+
+    async def test_spotify_mode_queue_command_reports_spotify_queue_failure(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        with (
+            patch("src.api.ws_runner.spotify_queue", return_value={
+                "status": "fail",
+                "message": "Spotify playback state requires a Premium account.",
+                "error_code": "SPOTIFY_PREMIUM_REQUIRED",
+            }),
+            patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline),
+        ):
+            await runner._handle_user_input(ui, "/queue")
+
+        panels = [event for event in ui.events if event.get("type") == "track_panel"]
+        self.assertFalse(panels)
+        self.assertTrue(any("Premium" in str(event.get("text")) for event in ui.events))
+
     async def test_llm_track_play_intent_starts_play_selection(self) -> None:
         """Verifies that llm track play intent starts play selection behaves as expected.
 

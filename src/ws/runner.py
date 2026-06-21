@@ -141,6 +141,7 @@ from src.tools.spotify_play import (
     spotify_devices,
     spotify_playlist_tracks,
     spotify_playlists,
+    spotify_queue,
 )
 from src.tools.song_cache import find_best_cached_song, recent_cached_songs, resolve_cached_song, upsert_cached_song
 from src.ws.constants import (
@@ -2875,6 +2876,7 @@ SPOTIFY_MODE_AGENT_TOOLS = (
     "spotify_devices",
     "spotify_playlists",
     "spotify_playlist_tracks",
+    "spotify_queue",
     "spotify_recommend",
     "spotify_search",
     "search_track",
@@ -3740,6 +3742,9 @@ class WebSocketRunner:
             return
 
         if command_name == "queue":
+            if self._spotify_mode_enabled(ui):
+                await self._show_spotify_queue(ui)
+                return
             await ui._send(_track_panel_payload("queue", "Queue", _queue_payload()))
             await ui.append_activity(kind="status", title="Queue", detail="Showing playback queue.", status="success")
             return
@@ -3888,6 +3893,20 @@ class WebSocketRunner:
         session = SpotifyPlaylistSelectionSession(ui, playlists)
         setattr(ui, "_spotify_playlist_selection", session)
         await session.start()
+
+    async def _show_spotify_queue(self, ui: WebSocketUIAdapter) -> None:
+        await ui.append_activity(kind="tool", title="Spotify queue", detail="Loading Spotify playback queue.", status="pending")
+        result = await asyncio.to_thread(spotify_queue, 50)
+        if not isinstance(result, dict) or result.get("status") != "success":
+            message = _friendly_runtime_error_message(result, fallback="Spotify queue failed.")
+            await ui.append_activity(kind="error", title="Spotify queue", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        tracks = [item for item in data.get("tracks") or [] if isinstance(item, dict)]
+        await ui._send(_track_panel_payload("queue", "Spotify Queue", _spotify_track_panel_tracks(tracks)))
+        detail = "Showing Spotify playback queue." if tracks else "Spotify playback queue is empty."
+        await ui.append_activity(kind="status", title="Spotify queue", detail=detail, status="success")
 
     async def _start_playlist_save(self, ui: WebSocketUIAdapter, requested_playlist: str) -> None:
         track = getattr(ui, "_last_player_state", None)

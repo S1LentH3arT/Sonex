@@ -159,6 +159,37 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["error_code"], "SPOTIFY_PREMIUM_REQUIRED")
 
+    def test_current_playback_does_not_preblock_unknown_product_with_playback_scope(self) -> None:
+        class Client:
+            def current_playback(self) -> dict:
+                return {
+                    "progress_ms": 1000,
+                    "timestamp": 2000,
+                    "is_playing": True,
+                    "item": {"name": "Song", "duration_ms": 120000, "artists": [{"name": "Artist"}]},
+                }
+
+        with (
+            patch.object(
+                spotify,
+                "spotify_account",
+                return_value={
+                    "status": "success",
+                    "data": {
+                        "logged_in": True,
+                        "product": "unknown",
+                        "scopes": ["user-read-playback-state"],
+                        "capabilities": {"current_playback": False},
+                    },
+                },
+            ),
+            patch.object(spotify, "spotify_user_client", return_value=Client()),
+        ):
+            result = spotify.spotify_current_playback()
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["data"]["name"], "Song")
+
     def test_find_device_matches_partial_name(self) -> None:
         """Verifies that find device matches partial name behaves as expected.
 
@@ -528,6 +559,57 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(track["name"], "Song")
         self.assertEqual(track["artist"], "Artist")
         self.assertEqual(track["uri"], "spotify:track:track-1")
+
+    def test_spotify_queue_normalizes_current_and_queued_tracks(self) -> None:
+        class Client:
+            def queue(self) -> dict:
+                return {
+                    "currently_playing": {
+                        "id": "current",
+                        "name": "Current Song",
+                        "duration_ms": 180000,
+                        "artists": [{"name": "Current Artist"}],
+                        "album": {"name": "Now", "images": [{"url": "current-cover", "width": 300, "height": 300}]},
+                        "external_urls": {"spotify": "https://open.spotify.com/track/current"},
+                        "uri": "spotify:track:current",
+                        "type": "track",
+                    },
+                    "queue": [
+                        {
+                            "id": "queued-1",
+                            "name": "Queued Song",
+                            "duration_ms": 123000,
+                            "artists": [{"name": "Queued Artist"}],
+                            "album": {"name": "Next", "images": [{"url": "queued-cover", "width": 640, "height": 640}]},
+                            "external_urls": {"spotify": "https://open.spotify.com/track/queued-1"},
+                            "uri": "spotify:track:queued-1",
+                            "type": "track",
+                        },
+                        {"type": "episode", "name": "Podcast", "uri": "spotify:episode:1"},
+                        {"type": "track", "name": "Missing URI"},
+                    ],
+                }
+
+        with patch.object(spotify, "spotify_user_client", return_value=Client()) as user_client:
+            result = spotify.spotify_queue(limit=10)
+
+        user_client.assert_called_once_with(spotify.SPOTIFY_READ_PLAYBACK_SCOPES)
+        self.assertEqual(result["status"], "success")
+        tracks = result["data"]["tracks"]
+        self.assertEqual([track["name"] for track in tracks], ["Current Song", "Queued Song"])
+        self.assertEqual(result["data"]["currently_playing"]["uri"], "spotify:track:current")
+        self.assertEqual(result["data"]["queue"][0]["uri"], "spotify:track:queued-1")
+
+    def test_spotify_queue_scope_missing_uses_stable_error_code(self) -> None:
+        with patch.object(
+            spotify,
+            "spotify_user_client",
+            side_effect=spotify.SpotifyScopeMissingError({"user-read-playback-state"}),
+        ):
+            result = spotify.spotify_queue(limit=10)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_SCOPE_MISSING")
 
     def test_spotify_recommend_uses_only_candidate_tracks(self) -> None:
         """Verifies that spotify recommend uses only candidate tracks behaves as expected.
