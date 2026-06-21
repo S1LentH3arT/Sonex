@@ -38,6 +38,16 @@ assert.doesNotMatch(languagePanelBody, /description: choice === panel\.selected 
 assert.match(inputDockBody, /modelPanel/);
 assert.match(inputDockBody, /formatModelPanelLabel\(model\)/);
 assert.match(inputDockBody, /<ChoicePanel[\s\S]*rows=\{modelPanel\.rows\}/);
+assert.match(inputDockBody, /const setupPanel = spotifySetup \?\? \(authSetup && authSetup\.step !== "model" \? authSetup : null\);/);
+assert.match(inputDockBody, /const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
+assert.match(inputDockBody, /<CompactSetup[\s\S]*input=\{input\}[\s\S]*onSubmit=\{onSubmit\}/);
+assert.match(inputDockBody, /setupPanel \? <CompactSetup/);
+assert.match(source, /setupDoneHint\(setupPanel, language\)/);
+assert.match(source, /setupMessageColor\(setupPanel\)/);
+assert.match(source, /language === "zh-CN" \? "按Esc键隐藏" : "press Esc to hide"/);
+assert.match(source, /text\.includes\("failed"\) \|\| text\.includes\("失败"\)/);
+assert.match(source, /text\.includes\("connected"\) \|\| text\.includes\("success"\) \|\| text\.includes\("成功"\)/);
+assert.match(source, /PromptInput[\s\S]*placeholder=\{setupPanel\.prompt \?\? inputPlaceholder\}/);
 
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
 assert.match(appSource, /const visibleConfirmChoices = React\.useMemo\(\(\) => confirm \? getVisibleConfirmChoices\(confirm\.choices\) : \[\], \[confirm\]\);/);
@@ -49,3 +59,4 @@ assert.match(appSource, /\[language,[\s\S]*filter\(\(choice\) => choice !== lang
 assert.match(appSource, /setLanguagePanelIndex\(0\);/);
 assert.match(appSource, /completeSlashCommand\(selectedHelpCommand\)/);
 assert.match(appSource, /send\(\{ type: "auth_setup_input", value: "__cancel__" \}\)/);
+assert.match(appSource, /if \(spotifySetup && spotifySetup\.active === false && key\.escape\) \{\s*setSpotifySetup\(null\);/);

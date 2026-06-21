@@ -735,6 +735,15 @@ export const App = () => {
     }, { isActive: Boolean(languagePanel?.active) && rawModeAvailable });
 
     useInput((inputKey, key) => {
+        if (spotifySetup && spotifySetup.active === false && key.escape) {
+            setSpotifySetup(null);
+        }
+        if (authSetup && authSetup.active === false && key.escape) {
+            setAuthSetup(null);
+        }
+    }, { isActive: rawModeAvailable && (Boolean(spotifySetup && spotifySetup.active === false) || Boolean(authSetup && authSetup.active === false)) });
+
+    useInput((inputKey, key) => {
         if (key.pageUp) {
             scrollChat(5);
         } else if (key.pageDown) {

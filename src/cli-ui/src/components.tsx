@@ -830,37 +830,71 @@ const LanguagePanel = ({ panel, selectedIndex, language = "en" }: {
     );
 };
 
-const CompactSetup = ({ spotifySetup, authSetup, language = "en" }: { spotifySetup: SpotifySetupState; authSetup: AuthSetupState; language?: UiLanguage }) => {
-    if (authSetup && authSetup.provider === "apple_music") {
-        return (
-            <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={BORDER_BLUE}>
-                <Text color="#fff4f6">{authSetup.title}</Text>
-                <Text color="#bf98a7">{authSetup.message}</Text>
-                {authSetup.providers && authSetup.providers.length > 0 ? (
-                    <Text color="#9d7787">
-                        {t(language, "providers.label")}: {authSetup.providers.map((provider) => provider.value).join(" / ")}
-                    </Text>
-                ) : null}
-                {authSetup.methods && authSetup.methods.length > 0 ? (
-                    <Text color="#9d7787">
-                        {t(language, "methods.label")}: {authSetup.methods.map((method) => method.value).join(" / ")}
-                    </Text>
-                ) : null}
-                {authSetup.active && authSetup.prompt ? (
-                    <Text color="#9d7787">{t(language, "input.label")}: {authSetup.prompt}</Text>
-                ) : null}
-            </Box>
-        );
-    }
+type CompactSetupPanel = NonNullable<SpotifySetupState | AuthSetupState>;
 
-    if (!spotifySetup) return null;
+const setupDoneHint = (setupPanel: CompactSetupPanel, language: UiLanguage): string | null => {
+    if (setupPanel.active) return null;
+    return language === "zh-CN" ? "按Esc键隐藏" : "press Esc to hide";
+};
+
+const setupMessageColor = (setupPanel: CompactSetupPanel): string => {
+    const text = `${setupPanel.title} ${setupPanel.message}`.toLowerCase();
+    if (text.includes("failed") || text.includes("失败")) return "#ff6b6b";
+    if (text.includes("connected") || text.includes("success") || text.includes("成功")) return BORDER_BLUE_SOFT;
+    return "#bf98a7";
+};
+
+const CompactSetup = ({
+    setupPanel,
+    input,
+    setInput,
+    onSubmit,
+    inputPlaceholder,
+    inputMask,
+    inputFocus,
+    inputRevision,
+    language = "en",
+}: {
+    setupPanel: CompactSetupPanel | null;
+    input: string;
+    setInput: (value: string) => void;
+    onSubmit: (value: string) => void;
+    inputPlaceholder: string;
+    inputMask?: string;
+    inputFocus: boolean;
+    inputRevision: number;
+    language?: UiLanguage;
+}) => {
+    if (!setupPanel) return null;
 
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={BORDER_BLUE}>
-            <Text color="#fff4f6">{spotifySetup.title}</Text>
-            <Text color="#bf98a7">{spotifySetup.message}</Text>
-            {spotifySetup.active && spotifySetup.prompt ? (
-                <Text color="#9d7787">{t(language, "input.label")}: {spotifySetup.prompt}</Text>
+        <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={BORDER_BLUE} flexShrink={0}>
+            <Text color="#fff4f6">{setupPanel.title}</Text>
+            <Text color={setupMessageColor(setupPanel)}>{setupPanel.message}</Text>
+            {setupDoneHint(setupPanel, language) ? <Text color="#7f5d6b">{setupDoneHint(setupPanel, language)}</Text> : null}
+            {"provider" in setupPanel && setupPanel.providers && setupPanel.providers.length > 0 ? (
+                <Text color="#9d7787">
+                    {t(language, "providers.label")}: {setupPanel.providers.map((provider) => provider.value).join(" / ")}
+                </Text>
+            ) : null}
+            {"provider" in setupPanel && setupPanel.methods && setupPanel.methods.length > 0 ? (
+                <Text color="#9d7787">
+                    {t(language, "methods.label")}: {setupPanel.methods.map((method) => method.value).join(" / ")}
+                </Text>
+            ) : null}
+            {setupPanel.active && setupPanel.prompt ? (
+                <Box flexDirection="row" marginTop={1}>
+                    <Text color="#7f5d6b">{"> "}</Text>
+                    <PromptInput
+                        input={input}
+                        setInput={setInput}
+                        onSubmit={onSubmit}
+                        focus={inputFocus}
+                        placeholder={setupPanel.prompt ?? inputPlaceholder}
+                        mask={setupPanel.mask ? "*" : inputMask}
+                        inputRevision={inputRevision}
+                    />
+                </Box>
             ) : null}
         </Box>
     );
@@ -912,6 +946,7 @@ const InputDock = ({
     language?: UiLanguage;
 }) => {
     const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
+    const setupPanel = spotifySetup ?? (authSetup && authSetup.step !== "model" ? authSetup : null);
     const modelPanel = authSetup?.active && authSetup.step === "model"
         ? {
             title: authSetup.title,
@@ -923,7 +958,7 @@ const InputDock = ({
             })),
         }
         : null;
-    const showInput = !helpPanel && !languagePanel && !modelPanel && (!confirm || Boolean(selectedChoice?.input));
+    const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && (!confirm || Boolean(selectedChoice?.input));
 
     return (
         <Box flexDirection="column">
@@ -940,10 +975,20 @@ const InputDock = ({
                             <ChoicePanel rows={modelPanel.rows} selectedIndex={modelPanelIndex} visibleLimit={MAX_VISIBLE_MODEL_CHOICES} />
                         </Box>
                     ) : null}
-                    {!modelPanel ? <CompactSetup spotifySetup={spotifySetup} authSetup={authSetup} language={language} /> : null}
                 </Box>
             ) : null}
             {minimal ? <CompactConfirm confirm={confirm} confirmIndex={confirmIndex} /> : null}
+            {setupPanel ? <CompactSetup
+                setupPanel={setupPanel}
+                input={input}
+                setInput={setInput}
+                onSubmit={onSubmit}
+                inputPlaceholder={inputPlaceholder}
+                inputMask={inputMask}
+                inputFocus={inputFocus}
+                inputRevision={inputRevision}
+                language={language}
+            /> : null}
             {showInput ? (
                 <Box borderTop={true} borderStyle="single" borderColor={BORDER_BLUE} paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="row"
                     minHeight={minimal ? 3 : 4} flexShrink={0}>
@@ -1016,7 +1061,7 @@ const ConversationColumn = ({
 }) => {
     const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
     const hasModelPanel = authSetup?.active && authSetup.step === "model";
-    const hasSetupPanel = spotifySetup?.active || (authSetup?.active && authSetup.step !== "model");
+    const hasSetupPanel = Boolean(spotifySetup) || Boolean(authSetup && authSetup.step !== "model");
     const hasSlashPanel = slashSuggestions.length > 0;
     const showInput = !helpPanel && !languagePanel && !hasModelPanel && (!confirm || Boolean(selectedChoice?.input));
     const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;

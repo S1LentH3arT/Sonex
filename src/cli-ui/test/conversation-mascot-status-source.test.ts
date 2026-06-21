@@ -26,7 +26,7 @@ assert.equal(SONEX_MASCOT_MICRO.length, 1);
 
 const conversationBody = source.slice(conversationStart, regionStart);
 assert.match(conversationBody, /const hasModelPanel = authSetup\?\.active && authSetup\.step === "model";/);
-assert.match(conversationBody, /const hasSetupPanel = spotifySetup\?\.active \|\| \(authSetup\?\.active && authSetup\.step !== "model"\);/);
+assert.match(conversationBody, /const hasSetupPanel = Boolean\(spotifySetup\) \|\| Boolean\(authSetup && authSetup\.step !== "model"\);/);
 assert.match(conversationBody, /const hasSlashPanel = slashSuggestions\.length > 0;/);
 assert.match(conversationBody, /const showInput = !helpPanel && !languagePanel && !hasModelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
 assert.match(conversationBody, /const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;/);
