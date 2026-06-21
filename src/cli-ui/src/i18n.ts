@@ -109,20 +109,20 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
 };
 
 const commandDescriptions: Record<string, Record<UiLanguage, string>> = {
-    bye: { en: "Save session and exit", "zh-CN": "保存会话并退出" },
-    help: { en: "Show available commands", "zh-CN": "显示可用的 Sonex 命令。" },
-    keymap: { en: "Toggle mini-player playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
-    lang: { en: "Choose the TUI display language.", "zh-CN": "选择 TUI 显示语言。" },
-    logout: { en: "Log out current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
-    model: { en: "Switch active model", "zh-CN": "切换当前模型" },
-    player: { en: "Choose playback backend from a panel", "zh-CN": "打开播放后端选择面板" },
-    playlist: { en: "Browse or save playlists", "zh-CN": "浏览或保存播放列表" },
-    queue: { en: "Show playback queue", "zh-CN": "显示播放队列" },
-    quit: { en: "Save session and exit", "zh-CN": "保存会话并退出" },
-    random: { en: "Play from recent songs", "zh-CN": "从最近歌曲中播放" },
-    recommend: { en: "Recommend songs of preferred music taste.", "zh-CN": "按偏好的音乐口味推荐歌曲。" },
-    resume: { en: "Resume current playback", "zh-CN": "继续当前播放" },
-    setup: { en: "Configure a music provider.", "zh-CN": "配置音乐服务。" },
+    bye: { en: "save session and exit", "zh-CN": "保存会话并退出" },
+    help: { en: "show available commands", "zh-CN": "显示可用的 Sonex 命令" },
+    keymap: { en: "toggle mini-player playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
+    lang: { en: "choose the TUI display language", "zh-CN": "选择 TUI 显示语言" },
+    logout: { en: "log out current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
+    model: { en: "switch active model", "zh-CN": "切换当前模型" },
+    player: { en: "choose playback backend from a panel", "zh-CN": "打开播放后端选择面板" },
+    playlist: { en: "browse or save playlists", "zh-CN": "浏览或保存播放列表" },
+    queue: { en: "show playback queue", "zh-CN": "显示播放队列" },
+    quit: { en: "save session and exit", "zh-CN": "保存会话并退出" },
+    random: { en: "play from recent songs", "zh-CN": "从最近歌曲中播放" },
+    recommend: { en: "recommend songs of preferred music taste", "zh-CN": "按偏好的音乐口味推荐歌曲" },
+    resume: { en: "resume current playback", "zh-CN": "继续当前播放" },
+    setup: { en: "configure a music provider", "zh-CN": "配置音乐服务" },
 };
 
 const knownText: Record<string, Record<UiLanguage, string>> = {
@@ -215,16 +215,16 @@ const playbackMethodChoices: Record<string, Record<UiLanguage, Partial<ConfirmCh
 
 const playerConfirmChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {
     mpv: {
-        en: { description: "default controllable backend for smoother background playback." },
-        "zh-CN": { description: "默认可控后端，用于更流畅的后台播放。" },
+        en: { label: "🎧 mpv", description: "default controllable backend for smoother background playback" },
+        "zh-CN": { label: "🎧 mpv", description: "默认可控后端用于更流畅的后台播放" },
     },
     cvlc: {
-        en: { description: "manual diagnostic backend; use only when you explicitly want VLC." },
-        "zh-CN": { description: "手动诊断后端；仅在你明确想使用 VLC 时选择。" },
+        en: { label: "📻 VLC", description: "manual diagnostic backend use only when you explicitly want VLC" },
+        "zh-CN": { label: "📻 VLC", description: "手动诊断后端仅在你明确想使用 VLC 时选择" },
     },
     deny: {
-        en: { label: "Cancel" },
-        "zh-CN": { label: "取消" },
+        en: { label: "🚫 Cancel" },
+        "zh-CN": { label: "🚫 取消" },
     },
 };
 
@@ -276,7 +276,6 @@ function localizeConfirmChoice(choice: ConfirmChoice, stage: unknown, language: 
 }
 
 export function applyLanguageToServerEvent<T extends ServerEvent>(event: T, language: UiLanguage): T {
-    if (language === "en") return event;
     switch (event.type) {
         case "status":
             return { ...event, message: translateKnown(event.message, language) ?? event.message } as T;

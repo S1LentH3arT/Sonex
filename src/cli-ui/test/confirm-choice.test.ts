@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 
-import { resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from '../src/confirm-choice.js';
+import {
+    getVisibleConfirmChoices,
+    isCancelConfirmChoice,
+    resolveConfirmDecisionFromInput,
+    resolveConfirmInputDecision,
+} from '../src/confirm-choice.js';
 import type { ConfirmChoice } from '../src/types.js';
 
 const choices: ConfirmChoice[] = [
@@ -13,8 +18,17 @@ const choices: ConfirmChoice[] = [
 assert.equal(resolveConfirmDecisionFromInput('online_play', choices), 'online_play');
 assert.equal(resolveConfirmDecisionFromInput('在线播放', choices), 'online_play');
 assert.equal(resolveConfirmDecisionFromInput('3', choices), 'online_play');
-assert.equal(resolveConfirmDecisionFromInput('取消', choices), 'cancel');
+assert.equal(resolveConfirmDecisionFromInput('取消', choices), null);
 assert.equal(resolveConfirmDecisionFromInput('unknown', choices), null);
+
+assert.equal(isCancelConfirmChoice({ value: 'deny', label: 'Cancel' }), true);
+assert.equal(isCancelConfirmChoice({ value: 'cancel', label: '取消' }), true);
+assert.equal(isCancelConfirmChoice({ value: 'online_play', label: '🌐 在线播放' }), false);
+assert.deepEqual(getVisibleConfirmChoices(choices).map((choice) => choice.value), [
+    'spotify_play',
+    'apple_music_play',
+    'online_play',
+]);
 
 assert.equal(
     resolveConfirmInputDecision(' live:acoustic ', { value: 'refine_query', label: '没有想听的歌曲', input: { placeholder: '试试补充更多信息' } }),

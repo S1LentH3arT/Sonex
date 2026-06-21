@@ -6,7 +6,11 @@ const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8
 
 assert.match(source, /type ChoicePanelRow =/);
 assert.match(source, /const ChoicePanel = \(/);
-assert.match(source, /<Text color=\{rowColor\}>\{row\.label\}<\/Text>/);
+assert.match(source, /const CONFIRM_CHOICE_LABEL_WIDTH = 18/);
+assert.match(source, /const formatChoicePanelLabel = \(row: ChoicePanelRow\): string =>/);
+assert.match(source, /stringWidth\(row\.label\)/);
+assert.match(source, /row\.label \+ " "\.repeat\(Math\.max\(0, row\.labelWidth - stringWidth\(row\.label\)\)\)/);
+assert.match(source, /<Text color=\{rowColor\}>\{formatChoicePanelLabel\(row\)\}<\/Text>/);
 assert.doesNotMatch(source, /<Text color=\{rowColor\}> - <\/Text>/);
 assert.match(source, /<Text color=\{rowColor\}>\{row\.description\}<\/Text>/);
 assert.match(source, /const MODEL_PANEL_LABEL_WIDTH = 20/);
@@ -24,6 +28,9 @@ const languagePanelBody = source.slice(languagePanelStart, inputDockStart);
 const inputDockBody = source.slice(inputDockStart, source.indexOf('const ConversationColumn =', inputDockStart));
 
 assert.match(compactConfirmBody, /<ChoicePanel/);
+assert.match(compactConfirmBody, /const visibleChoices = getVisibleConfirmChoices\(confirm\.choices\);/);
+assert.match(compactConfirmBody, /<Text color="#7f5d6b">\{confirmCancelHint\(confirm\.choices\)\}<\/Text>/);
+assert.match(compactConfirmBody, /labelWidth: CONFIRM_CHOICE_LABEL_WIDTH,/);
 assert.match(languagePanelBody, /<ChoicePanel/);
 assert.match(languagePanelBody, /orderedLanguageChoices\(panel\.selected\)/);
 assert.match(languagePanelBody, /label: choice === panel\.selected \? `\* \$\{languageLabel\(choice\)\}` : languageLabel\(choice\)/);
@@ -33,6 +40,10 @@ assert.match(inputDockBody, /formatModelPanelLabel\(model\)/);
 assert.match(inputDockBody, /<ChoicePanel[\s\S]*rows=\{modelPanel\.rows\}/);
 
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
+assert.match(appSource, /const visibleConfirmChoices = React\.useMemo\(\(\) => confirm \? getVisibleConfirmChoices\(confirm\.choices\) : \[\], \[confirm\]\);/);
+assert.match(appSource, /const selectedConfirmChoice = visibleConfirmChoices\[Math\.min\(confirmIndex, Math\.max\(0, visibleConfirmChoices\.length - 1\)\)\] \?\? null;/);
+assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, visibleConfirmChoices\);/);
+assert.match(appSource, /setConfirmIndex\(\(prev\) => visibleConfirmChoices\.length > 0 \? Math\.min\(visibleConfirmChoices\.length - 1, prev \+ 1\) : 0\);/);
 assert.match(appSource, /const isLoginScreenActive = isGenericAuthSetup\(authSetup\) && !isModelPanelActive/);
 assert.match(appSource, /\[language,[\s\S]*filter\(\(choice\) => choice !== language\)/);
 assert.match(appSource, /setLanguagePanelIndex\(0\);/);

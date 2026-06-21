@@ -1,8 +1,10 @@
 import React from 'react';
 import { Box, Text, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
+import stringWidth from 'string-width';
 import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
+import { getVisibleConfirmChoices } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle } from './format.js';
 import { getVisibleChatWindow } from './chat-window.js';
 import { isHttpCoverSource, useCoverArt } from './hooks.js';
@@ -11,7 +13,7 @@ import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js'
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion } from './layout.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -204,9 +206,11 @@ type ChoicePanelRow = {
     key: string;
     label: string;
     description?: string | null;
+    labelWidth?: number;
 };
 
 const COMMAND_LIST_LABEL_WIDTH = 12;
+const CONFIRM_CHOICE_LABEL_WIDTH = 18;
 const MODEL_PANEL_LABEL_WIDTH = 20;
 
 const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): string => (
@@ -220,6 +224,12 @@ const modelIdFromChoice = (model: AuthMethodChoice): string => {
 
 const formatModelPanelLabel = (model: AuthMethodChoice): string => (
     modelIdFromChoice(model).padEnd(MODEL_PANEL_LABEL_WIDTH, " ")
+);
+
+const formatChoicePanelLabel = (row: ChoicePanelRow): string => (
+    row.labelWidth
+        ? row.label + " ".repeat(Math.max(0, row.labelWidth - stringWidth(row.label)))
+        : row.label
 );
 
 const ChoicePanel = ({ rows, selectedIndex, visibleLimit }: {
@@ -242,7 +252,7 @@ const ChoicePanel = ({ rows, selectedIndex, visibleLimit }: {
                 return (
                     <Text key={row.key}>
                         <Text color={rowColor}>{absoluteIndex === boundedIndex ? "> " : "  "}</Text>
-                        <Text color={rowColor}>{row.label}</Text>
+                        <Text color={rowColor}>{formatChoicePanelLabel(row)}</Text>
                         {row.description ? (
                             <>
                                 <Text color={rowColor}>{row.description}</Text>
@@ -769,17 +779,26 @@ const orderedLanguageChoices = (current: UiLanguage): UiLanguage[] => [
     ...LANGUAGE_CHOICES.filter((choice) => choice !== current),
 ];
 
+const confirmCancelHint = (choices: ConfirmChoice[]): string => (
+    choices.some((choice) => choice.label.includes("取消"))
+        ? "按Esc退出"
+        : "press Esc to cancel"
+);
+
 const CompactConfirm = ({ confirm, confirmIndex }: { confirm: ConfirmState; confirmIndex: number }) => {
     if (!confirm) return null;
+    const visibleChoices = getVisibleConfirmChoices(confirm.choices);
 
     return (
         <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={BORDER_BLUE}>
             <Text color="#fff4f6">{confirm.message}</Text>
+            <Text color="#7f5d6b">{confirmCancelHint(confirm.choices)}</Text>
             <ChoicePanel
-                rows={confirm.choices.map((choice) => ({
+                rows={visibleChoices.map((choice) => ({
                     key: choice.value,
                     label: choice.label,
                     description: choice.description,
+                    labelWidth: CONFIRM_CHOICE_LABEL_WIDTH,
                 }))}
                 selectedIndex={confirmIndex}
             />
@@ -994,33 +1013,42 @@ const ConversationColumn = ({
     onMaxChatScrollOffsetChange: (value: number) => void;
     language?: UiLanguage;
     fill?: boolean;
-}) => (
-    <Box flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} height={fill ? "100%" : undefined}>
-        <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange} fill={fill} language={language} />
-        <MiniMascotStatus />
-        <InputDock
-            input={input}
-            setInput={setInput}
-            onSubmit={onSubmit}
-            inputPlaceholder={inputPlaceholder}
-            inputMask={inputMask}
-            inputFocus={inputFocus}
-            inputRevision={inputRevision}
-            confirm={confirm}
-            confirmIndex={confirmIndex}
-            spotifySetup={spotifySetup}
-            authSetup={authSetup}
-            slashSuggestions={slashSuggestions}
-            slashIndex={slashIndex}
-            helpPanel={helpPanel}
-            helpPanelIndex={helpPanelIndex}
-            languagePanel={languagePanel}
-            languagePanelIndex={languagePanelIndex}
-            modelPanelIndex={modelPanelIndex}
-            language={language}
-        />
-    </Box>
-);
+}) => {
+    const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
+    const hasModelPanel = authSetup?.active && authSetup.step === "model";
+    const hasSetupPanel = spotifySetup?.active || (authSetup?.active && authSetup.step !== "model");
+    const hasSlashPanel = slashSuggestions.length > 0;
+    const showInput = !helpPanel && !languagePanel && !hasModelPanel && (!confirm || Boolean(selectedChoice?.input));
+    const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;
+
+    return (
+        <Box flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} height={fill ? "100%" : undefined}>
+            <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange} fill={fill} language={language} />
+            {showMiniMascotStatus ? <MiniMascotStatus /> : null}
+            <InputDock
+                input={input}
+                setInput={setInput}
+                onSubmit={onSubmit}
+                inputPlaceholder={inputPlaceholder}
+                inputMask={inputMask}
+                inputFocus={inputFocus}
+                inputRevision={inputRevision}
+                confirm={confirm}
+                confirmIndex={confirmIndex}
+                spotifySetup={spotifySetup}
+                authSetup={authSetup}
+                slashSuggestions={slashSuggestions}
+                slashIndex={slashIndex}
+                helpPanel={helpPanel}
+                helpPanelIndex={helpPanelIndex}
+                languagePanel={languagePanel}
+                languagePanelIndex={languagePanelIndex}
+                modelPanelIndex={modelPanelIndex}
+                language={language}
+            />
+        </Box>
+    );
+};
 
 /**
  * Coordinates the use visible snapshot on revision operation for the CLI UI runtime.

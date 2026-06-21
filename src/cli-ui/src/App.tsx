@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, useApp, useInput, useStdin, useStdout } from 'ink';
 import { upsertActivity } from './activity.js';
 import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions } from './commands.js';
-import { resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
+import { getVisibleConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl } from './constants.js';
 import { DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
@@ -82,7 +82,8 @@ export const App = () => {
     const isSlashInput = slashInput.startsWith("/");
     const isSlashMenuActive = rawModeAvailable && !confirm && isSlashInput && slashMenuDismissedFor !== input && slashSuggestions.length > 0;
     const selectedSlashCommand = slashSuggestions[Math.min(slashIndex, Math.max(0, slashSuggestions.length - 1))];
-    const selectedConfirmChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
+    const visibleConfirmChoices = React.useMemo(() => confirm ? getVisibleConfirmChoices(confirm.choices) : [], [confirm]);
+    const selectedConfirmChoice = visibleConfirmChoices[Math.min(confirmIndex, Math.max(0, visibleConfirmChoices.length - 1))] ?? null;
     const selectedConfirmInput = selectedConfirmChoice?.input ?? null;
     const miniVisible = activeRegion === "miniPlayer";
     const miniLayout = React.useMemo(() => resolveMiniPlayerLayout(terminalSize), [terminalSize.columns, terminalSize.rows]);
@@ -593,7 +594,7 @@ export const App = () => {
                 setConfirm(null);
                 return;
             }
-            const decision = resolveConfirmDecisionFromInput(text, confirm.choices);
+            const decision = resolveConfirmDecisionFromInput(text, visibleConfirmChoices);
             if (!decision) return;
             setInput("");
             send({ type: "confirm_result", id: confirm.id, decision });
@@ -657,7 +658,7 @@ export const App = () => {
         } else {
             send({ type: "user_input", text });
         }
-    }, [applySlashCompletion, authSetup?.active, confirm, handleKeymapCommand, openLanguagePanel, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active]);
+    }, [applySlashCompletion, authSetup?.active, confirm, handleKeymapCommand, openLanguagePanel, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active, visibleConfirmChoices]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -753,13 +754,14 @@ export const App = () => {
             setConfirmIndex((prev) => Math.max(0, prev - 1));
         } else if (key.downArrow) {
             setInput("");
-            setConfirmIndex((prev) => Math.min(confirm.choices.length - 1, prev + 1));
+            setConfirmIndex((prev) => visibleConfirmChoices.length > 0 ? Math.min(visibleConfirmChoices.length - 1, prev + 1) : 0);
         } else if (key.return) {
-            if (confirm.choices[confirmIndex]?.input) return;
+            if (visibleConfirmChoices.length === 0) return;
+            if (selectedConfirmChoice?.input) return;
             send({
                 type: "confirm_result",
                 id: confirm.id,
-                decision: confirm.choices[confirmIndex]?.value ?? "allow_once",
+                decision: selectedConfirmChoice?.value ?? "allow_once",
             });
             setConfirm(null);
         } else if (key.escape) {

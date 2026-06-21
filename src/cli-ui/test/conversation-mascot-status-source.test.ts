@@ -25,7 +25,13 @@ assert.equal(mascotBody.includes('marginTop'), false);
 assert.equal(SONEX_MASCOT_MICRO.length, 1);
 
 const conversationBody = source.slice(conversationStart, regionStart);
-assert.match(conversationBody, /<ChatPane[\s\S]*\/>\s*<MiniMascotStatus \/>\s*<InputDock/);
+assert.match(conversationBody, /const hasModelPanel = authSetup\?\.active && authSetup\.step === "model";/);
+assert.match(conversationBody, /const hasSetupPanel = spotifySetup\?\.active \|\| \(authSetup\?\.active && authSetup\.step !== "model"\);/);
+assert.match(conversationBody, /const hasSlashPanel = slashSuggestions\.length > 0;/);
+assert.match(conversationBody, /const showInput = !helpPanel && !languagePanel && !hasModelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
+assert.match(conversationBody, /const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;/);
+assert.match(conversationBody, /\{showMiniMascotStatus \? <MiniMascotStatus \/> : null\}/);
+assert.equal(conversationBody.includes('<MiniMascotStatus />\n        <InputDock'), false);
 assert.equal(conversationBody.includes('{statusText}'), false);
 assert.equal(conversationBody.includes('showRunMetrics'), false);
 assert.equal(conversationBody.includes('{elapsed}'), false);

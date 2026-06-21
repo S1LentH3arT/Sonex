@@ -18,7 +18,7 @@ assert.equal(languageLabel("zh-CN"), "简体中文");
 const zhSlashCommands = localizeSlashCommands(SLASH_COMMANDS, "zh-CN");
 const langCommand = zhSlashCommands.find((command) => command.name === "lang");
 assert.equal(langCommand?.usage, "/lang");
-assert.equal(langCommand?.description, "选择 TUI 显示语言。");
+assert.equal(langCommand?.description, "选择 TUI 显示语言");
 
 assert.equal(zhSlashCommands.find((command) => command.name === "play"), undefined);
 assert.equal(zhSlashCommands.find((command) => command.name === "search"), undefined);
@@ -28,9 +28,9 @@ const helpCommands = helpCommandsForLanguage([
     { name: "setup", usage: "/setup [provider]", description: "Configure a music provider." },
 ], "zh-CN");
 assert.equal(helpCommands[0]?.usage, "/help");
-assert.equal(helpCommands[0]?.description, "显示可用的 Sonex 命令。");
+assert.equal(helpCommands[0]?.description, "显示可用的 Sonex 命令");
 assert.equal(helpCommands[1]?.usage, "/setup [provider]");
-assert.equal(helpCommands[1]?.description, "配置音乐服务。");
+assert.equal(helpCommands[1]?.description, "配置音乐服务");
 
 const statusEvent = applyLanguageToServerEvent({
     type: "status",
@@ -62,7 +62,7 @@ const helpEvent = applyLanguageToServerEvent({
 }, "zh-CN");
 assert.equal(helpEvent.title, "Sonex 命令");
 assert.equal(helpEvent.hint, "使用上下键选择，Esc 关闭。");
-assert.equal(helpEvent.commands[0]?.description, "选择 TUI 显示语言。");
+assert.equal(helpEvent.commands[0]?.description, "选择 TUI 显示语言");
 
 const arbitraryChat = applyLanguageToServerEvent({
     type: "chat",
@@ -131,6 +131,30 @@ const playerConfirm = applyLanguageToServerEvent({
 }, "zh-CN");
 assert.equal(playerConfirm.message, "Sonex 想打开 auto 本地播放器（mpv 默认），是否确认？");
 assert.equal(playerConfirm.choices?.[0]?.label, "🎧 mpv");
-assert.equal(playerConfirm.choices?.[0]?.description, "默认可控后端，用于更流畅的后台播放。");
+assert.equal(playerConfirm.choices?.[0]?.description, "默认可控后端用于更流畅的后台播放");
 assert.equal(playerConfirm.choices?.[1]?.label, "📻 VLC");
-assert.equal(playerConfirm.choices?.[1]?.description, "手动诊断后端；仅在你明确想使用 VLC 时选择。");
+assert.equal(playerConfirm.choices?.[1]?.description, "手动诊断后端仅在你明确想使用 VLC 时选择");
+assert.equal(playerConfirm.choices?.[2]?.label, "🚫 取消");
+
+const englishPlayerConfirm = applyLanguageToServerEvent({
+    type: "confirm",
+    id: "confirm_3",
+    tool_name: "play_youtube_song",
+    tool_args: {
+        query: "song",
+        stage: "player_confirm",
+        player: "auto",
+        player_label: "auto local player (mpv default)",
+    },
+    message: "Sonex wanna open auto local player (mpv default), confirm?",
+    choices: [
+        { value: "mpv", label: "mpv", description: "Default controllable backend for smoother background playback." },
+        { value: "cvlc", label: "VLC", description: "Manual diagnostic backend; use only when you explicitly want VLC." },
+        { value: "deny", label: "Cancel" },
+    ],
+}, "en");
+assert.equal(englishPlayerConfirm.choices?.[0]?.label, "🎧 mpv");
+assert.equal(englishPlayerConfirm.choices?.[0]?.description, "default controllable backend for smoother background playback");
+assert.equal(englishPlayerConfirm.choices?.[1]?.label, "📻 VLC");
+assert.equal(englishPlayerConfirm.choices?.[1]?.description, "manual diagnostic backend use only when you explicitly want VLC");
+assert.equal(englishPlayerConfirm.choices?.[2]?.label, "🚫 Cancel");
