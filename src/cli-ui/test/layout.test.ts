@@ -46,6 +46,46 @@ assert.deepEqual(
 
 assert.deepEqual(
     resolveRegionAfterPlayerEvent({
+        currentRegion: 'chat',
+        wasSessionActive: false,
+        player: { ...playing, provider: 'spotify', source: 'spotify' },
+        spotifyModeEnabled: true,
+    }),
+    { region: 'spotifyImmersive', sessionActive: true },
+);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'chat',
+        wasSessionActive: false,
+        player: playing,
+        spotifyModeEnabled: true,
+    }),
+    { region: 'spotifyImmersive', sessionActive: true },
+);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'chat',
+        wasSessionActive: false,
+        player: { ...playing, source: 'local' },
+        spotifyModeEnabled: true,
+    }),
+    { region: 'miniPlayer', sessionActive: true },
+);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'spotifyImmersive',
+        wasSessionActive: true,
+        player: { ...playing, is_playing: false, provider: 'spotify', source: 'spotify' },
+        spotifyModeEnabled: true,
+    }),
+    { region: 'spotifyImmersive', sessionActive: true },
+);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
         currentRegion: 'miniPlayer',
         wasSessionActive: true,
         player: { ...playing, is_playing: false },
@@ -82,8 +122,10 @@ assert.deepEqual(
 
 assert.equal(toggleShellRegion('chat', true), 'miniPlayer');
 assert.equal(toggleShellRegion('miniPlayer', true), 'chat');
+assert.equal(toggleShellRegion('spotifyImmersive', true), 'chat');
 assert.equal(toggleShellRegion('chat', false), 'chat');
 assert.equal(toggleShellRegion('miniPlayer', false), 'chat');
+assert.equal(toggleShellRegion('spotifyImmersive', false), 'chat');
 
 assert.equal(resolveChatHeaderVariant(71), 'compact');
 assert.equal(resolveChatHeaderVariant(72), 'full');

@@ -1224,15 +1224,85 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "/playlist")
             await runner._handle_user_input(ui, "/playlist")
 
-        saved.assert_called_once_with(50)
+        saved.assert_called_once_with(50, 0)
         list_playlists.assert_called_once_with(50)
-        playlist_tracks.assert_called_once_with("playlist-1", 50)
+        playlist_tracks.assert_called_once_with("playlist-1", 100, 0)
         self.assertEqual(upsert.call_count, 2)
         local_choices.assert_called_with(writable_only=False)
         confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
         self.assertEqual(len(confirms), 2)
         self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
         self.assertTrue(getattr(ui, "_spotify_library_synced"))
+
+    async def test_spotify_mode_playlist_sync_fetches_all_playlist_tracks(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        playlist = {"id": "playlist-1", "name": "Road", "owner": "Me", "track_count": 101}
+        fetched_limits_offsets: list[tuple[int, int]] = []
+
+        def playlist_tracks(playlist_id: str, limit: int = 50, offset: int = 0) -> dict:
+            fetched_limits_offsets.append((limit, offset))
+            count = 100 if offset == 0 else 1
+            return {
+                "status": "success",
+                "data": {
+                    "tracks": [
+                        {"name": f"Song {offset + idx}", "artist": "Artist", "duration_ms": 123000, "uri": f"spotify:track:{offset + idx}"}
+                        for idx in range(count)
+                    ],
+                },
+            }
+
+        with patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "success",
+            "data": {"tracks": []},
+        }), patch("src.api.ws_runner.spotify_playlists", return_value={
+            "status": "success",
+            "data": {"playlists": [playlist]},
+        }), patch("src.api.ws_runner.spotify_playlist_tracks", side_effect=playlist_tracks), patch(
+            "src.api.ws_runner.upsert_mirror_playlist",
+        ) as upsert, patch("src.api.ws_runner.playlist_choices", return_value=[]), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await runner._handle_user_input(ui, "/playlist")
+
+        self.assertEqual(fetched_limits_offsets, [(100, 0), (100, 100)])
+        playlist_upsert = [call for call in upsert.call_args_list if call.kwargs.get("external_id") == "playlist-1"][-1]
+        self.assertEqual(len(playlist_upsert.kwargs["tracks"]), 101)
+
+    async def test_spotify_mode_playlist_sync_fetches_all_saved_tracks(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        fetched_limits_offsets: list[tuple[int, int]] = []
+
+        def saved_tracks(limit: int = 50, offset: int = 0) -> dict:
+            fetched_limits_offsets.append((limit, offset))
+            count = 50 if offset == 0 else 48
+            return {
+                "status": "success",
+                "data": {
+                    "tracks": [
+                        {"name": f"Saved {offset + idx}", "artist": "Artist", "duration_ms": 123000, "uri": f"spotify:track:saved-{offset + idx}"}
+                        for idx in range(count)
+                    ],
+                },
+            }
+
+        with patch("src.api.ws_runner.spotify_saved_tracks", side_effect=saved_tracks), patch(
+            "src.api.ws_runner.spotify_playlists",
+            return_value={"status": "success", "data": {"playlists": []}},
+        ), patch("src.api.ws_runner.upsert_mirror_playlist") as upsert, patch(
+            "src.api.ws_runner.playlist_choices",
+            return_value=[],
+        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/playlist")
+
+        self.assertEqual(fetched_limits_offsets, [(50, 0), (50, 50)])
+        library_upsert = [call for call in upsert.call_args_list if call.kwargs.get("external_id") == "spotify-library"][-1]
+        self.assertEqual(len(library_upsert.kwargs["tracks"]), 98)
 
     async def test_spotify_mode_playlist_command_keeps_liked_songs_when_no_playlists(self) -> None:
         runner = WebSocketRunner()
@@ -1280,6 +1350,64 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(panel["panel"], "queue")
         self.assertEqual(panel["title"], "Spotify Queue")
         self.assertEqual(panel["tracks"][0]["title"], "Queued Song")
+
+    async def test_track_panel_queue_add_remembers_selected_track(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        track = {
+            "index": "01",
+            "title": "Queued Song",
+            "name": "Queued Song",
+            "artist": "Artist",
+            "duration": "02:03",
+            "duration_ms": 123000,
+            "uri": "spotify:track:queued",
+            "provider": "spotify",
+        }
+
+        with patch("src.api.ws_runner.remember_playback_track", return_value=[track]) as remember, patch(
+            "src.api.ws_runner._queue_payload",
+            return_value=[track],
+        ):
+            await runner._handle_track_panel_action(ui, {"action": "queue_add", "track": track, "panel": "playlist", "title": "Spotify Playlist: Road"})
+
+        remember.assert_called_once()
+        self.assertEqual(remember.call_args.args[0]["uri"], "spotify:track:queued")
+        queue_events = [event for event in ui.events if event.get("type") == "queue"]
+        self.assertEqual(queue_events[-1]["tracks"], [track])
+        details = [str(event.get("detail") or "") for event in ui.events]
+        self.assertTrue(any("Added to playback queue" in detail for detail in details))
+
+    async def test_track_panel_enter_plays_spotify_uri_on_selected_device(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        track = {
+            "index": "01",
+            "title": "Spotify Song",
+            "name": "Spotify Song",
+            "artist": "Artist",
+            "duration": "02:03",
+            "duration_ms": 123000,
+            "uri": "spotify:track:selected",
+            "provider": "spotify",
+        }
+        result = {
+            "status": "success",
+            "tool": "spotify_play",
+            "message": "Spotify playback started.",
+            "data": {**track, "is_playing": True, "progress_ms": 0},
+        }
+
+        with patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke, patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await runner._handle_track_panel_action(ui, {"action": "play", "track": track, "panel": "playlist", "title": "Spotify Playlist: Road"})
+
+        invoke.assert_called_once_with("spotify_play", {"uri": "spotify:track:selected", "device_id": "desktop"})
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertTrue(player_events)
 
     async def test_spotify_mode_queue_command_reports_spotify_queue_failure(self) -> None:
         runner = WebSocketRunner()
@@ -2913,6 +3041,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             return None
 
         with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
+             patch.object(runner, "_restore_persistent_spotify_mode", new=AsyncMock()), \
              patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
              patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
              patch("src.api.ws_runner.find_best_cached_song", return_value=None), \

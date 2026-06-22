@@ -138,6 +138,7 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 from src.tools.player_permission import complete_player_confirm
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
+from src.tools.playback_controller import start_local_playback
 from src.tools.spotify_play import (
     _product_is_known_non_premium,
     remember_recent_track,
@@ -536,7 +537,7 @@ def _queue_payload() -> list[dict[str, str]]:
     ]
 
 
-def _track_panel_payload(panel: str, title: str, tracks: list[dict[str, str]]) -> dict[str, Any]:
+def _track_panel_payload(panel: str, title: str, tracks: list[dict[str, Any]]) -> dict[str, Any]:
     """Prepares a track panel event payload."""
     return {
         "type": "track_panel",
@@ -557,15 +558,39 @@ def playlist_panel_tracks(
         tracks = list_playlist_tracks(playlist_name, source_app=source_app, external_id=external_id)
     except Exception:
         tracks = []
-    return [
-        {
+    rows: list[dict[str, Any]] = []
+    for index, track in enumerate(tracks, start=1):
+        name = str(track.get("name") or track.get("title") or "-")
+        row: dict[str, Any] = {
             "index": f"{index:02d}",
-            "title": str(track.get("name") or track.get("title") or "-"),
+            "title": name,
+            "name": name,
             "artist": str(track.get("artist") or "-"),
             "duration": _duration_text(track.get("duration_ms")),
+            "duration_ms": int(track.get("duration_ms") or 0),
         }
-        for index, track in enumerate(tracks, start=1)
-    ]
+        for key in (
+            "album",
+            "provider",
+            "source",
+            "source_app",
+            "cache_id",
+            "uri",
+            "url",
+            "stream_url",
+            "youtube_url",
+            "spotify_url",
+            "apple_music_url",
+            "audio_path",
+            "file_path",
+            "path",
+            "album_cover_url",
+            "id",
+        ):
+            if track.get(key):
+                row[key] = track.get(key)
+        rows.append(row)
+    return rows
 
 
 def _search_results_payload(result: Any) -> list[dict[str, Any]]:
@@ -3088,16 +3113,59 @@ async def _run_spotify_mode_call(
         return None
 
 
-def _spotify_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, str]]:
-    return [
-        {
+def _spotify_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, track in enumerate(tracks, start=1):
+        name = str(track.get("name") or track.get("title") or "-")
+        row: dict[str, Any] = {
             "index": f"{index:02d}",
-            "title": str(track.get("name") or track.get("title") or "-"),
+            "title": name,
+            "name": name,
             "artist": str(track.get("artist") or "-"),
             "duration": _duration_text(track.get("duration_ms")),
+            "duration_ms": int(track.get("duration_ms") or 0),
+            "provider": "spotify",
+            "source_app": "Spotify",
         }
-        for index, track in enumerate(tracks, start=1)
-    ]
+        for key in ("album", "uri", "spotify_url", "album_cover_url", "id"):
+            if track.get(key):
+                row[key] = track.get(key)
+        rows.append(row)
+    return rows
+
+
+async def _fetch_all_spotify_saved_tracks(limit: int = 50) -> tuple[bool, list[dict[str, Any]], Any]:
+    """Loads every available saved Spotify track using paged API calls."""
+    bounded_limit = min(50, max(1, int(limit or 50)))
+    offset = 0
+    tracks: list[dict[str, Any]] = []
+    while True:
+        result = await asyncio.to_thread(spotify_saved_tracks, bounded_limit, offset)
+        if not isinstance(result, dict) or result.get("status") != "success":
+            return False, tracks, result
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        page = [item for item in data.get("tracks") or [] if isinstance(item, dict)]
+        tracks.extend(page)
+        if len(page) < bounded_limit:
+            return True, tracks, result
+        offset += bounded_limit
+
+
+async def _fetch_all_spotify_playlist_tracks(playlist_id: str, limit: int = 100) -> tuple[bool, list[dict[str, Any]], Any]:
+    """Loads every available Spotify playlist track using paged API calls."""
+    bounded_limit = min(100, max(1, int(limit or 100)))
+    offset = 0
+    tracks: list[dict[str, Any]] = []
+    while True:
+        result = await asyncio.to_thread(spotify_playlist_tracks, playlist_id, bounded_limit, offset)
+        if not isinstance(result, dict) or result.get("status") != "success":
+            return False, tracks, result
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        page = [item for item in data.get("tracks") or [] if isinstance(item, dict)]
+        tracks.extend(page)
+        if len(page) < bounded_limit:
+            return True, tracks, result
+        offset += bounded_limit
 
 
 def _spotify_playlist_choice(index: int, playlist: dict[str, Any]) -> dict[str, Any]:
@@ -3292,14 +3360,12 @@ class SpotifyPlaylistSelectionSession:
             await self.ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
             await self.ui.append_agent_message(message)
             return
-        result = await asyncio.to_thread(spotify_playlist_tracks, str(playlist["id"]), 50)
-        if not isinstance(result, dict) or result.get("status") != "success":
+        ok, tracks, result = await _fetch_all_spotify_playlist_tracks(str(playlist["id"]))
+        if not ok:
             message = _friendly_runtime_error_message(result, fallback="Spotify playlist tracks failed.")
             await self.ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
             await self.ui.append_agent_message(message)
             return
-        data = result.get("data") if isinstance(result.get("data"), dict) else {}
-        tracks = [item for item in data.get("tracks") or [] if isinstance(item, dict)]
         title = f"Spotify Playlist: {playlist.get('name') or 'Playlist'}"
         await self.ui._send(_track_panel_payload("playlist", title, _spotify_track_panel_tracks(tracks)))
         await self.ui.append_activity(kind="status", title="Spotify playlists", detail=f"Showing {title}.", status="success")
@@ -3435,6 +3501,9 @@ class WebSocketRunner:
                 elif data.get("type") == "internal_command":
                     command_text = data.get("text") or data.get("content") or ""
                     await self._handle_internal_command(ui, str(command_text))
+
+                elif data.get("type") == "track_panel_action":
+                    await self._handle_track_panel_action(ui, data)
 
                 elif data.get("type") == "setup_input":
                     spotify_setup = getattr(ui, "_spotify_setup", None)
@@ -4024,6 +4093,70 @@ class WebSocketRunner:
             status="success",
         )
 
+    async def _handle_track_panel_action(self, ui: WebSocketUIAdapter, payload: dict[str, Any]) -> None:
+        action = str(payload.get("action") or "").strip()
+        track = payload.get("track") if isinstance(payload.get("track"), dict) else {}
+        if not track:
+            message = "Selected track is no longer available."
+            await ui.append_activity(kind="error", title="Track panel", detail=message, status="error")
+            await ui.send_error(message)
+            return
+        if action == "queue_add":
+            remember_playback_track(track)
+            await ui._send({"type": "queue", "tracks": _queue_payload()})
+            title = str(track.get("name") or track.get("title") or "selected track")
+            await ui.append_activity(kind="status", title="Playback queue", detail=f"Added to playback queue: {title}.", status="success")
+            return
+        if action == "play":
+            await self._play_track_panel_track(ui, track)
+            return
+        message = f"Unsupported track panel action: {action or '-'}."
+        await ui.append_activity(kind="error", title="Track panel", detail=message, status="error")
+        await ui.send_error(message)
+
+    async def _play_track_panel_track(self, ui: WebSocketUIAdapter, track: dict[str, Any]) -> None:
+        uri = str(track.get("uri") or "")
+        if uri.startswith("spotify:track:"):
+            mode = getattr(ui, "_spotify_mode", {}) or {}
+            args: dict[str, Any] = {"uri": uri}
+            if mode.get("device_id"):
+                args["device_id"] = mode["device_id"]
+            result = await asyncio.to_thread(registry.invoke, "spotify_play", args)
+            await self._sync_tool_result_ui(ui, "spotify_play", result)
+            if _is_failed_tool_result(result):
+                message = _friendly_runtime_error_message(result, fallback="Spotify playback failed.")
+                await ui.append_agent_message(message)
+                await ui.send_error(message)
+            else:
+                await ui.append_activity(kind="status", title="Spotify playback", detail="Playing selected playlist track.", status="success")
+            return
+
+        source_url = str(
+            track.get("audio_path")
+            or track.get("file_path")
+            or track.get("path")
+            or track.get("stream_url")
+            or track.get("url")
+            or track.get("youtube_url")
+            or ""
+        )
+        if source_url:
+            metadata = {**track, "name": str(track.get("name") or track.get("title") or "-")}
+            result = await asyncio.to_thread(
+                start_local_playback,
+                tool="track_panel_play",
+                source_url=source_url,
+                source=str(track.get("provider") or track.get("source") or "playlist"),
+                metadata=metadata,
+                success_message="Playing selected playlist track.",
+            )
+            await self._sync_tool_result_ui(ui, "track_panel_play", result)
+            return
+
+        message = "Selected track has no playable source."
+        await ui.append_activity(kind="error", title="Track panel", detail=message, status="error")
+        await ui.send_error(message)
+
     async def _handle_spotify_mode_command(self, ui: WebSocketUIAdapter, args: str) -> None:
         action = args.strip().casefold()
         if action == "off" or (not action and self._spotify_mode_enabled(ui)):
@@ -4147,11 +4280,9 @@ class WebSocketRunner:
         await self._show_playlist_browse(ui)
 
     async def _sync_spotify_library_to_playlists(self) -> tuple[bool, str]:
-        saved_result = await asyncio.to_thread(spotify_saved_tracks, 50)
-        if not isinstance(saved_result, dict) or saved_result.get("status") != "success":
+        saved_ok, saved_tracks, saved_result = await _fetch_all_spotify_saved_tracks()
+        if not saved_ok:
             return False, _friendly_runtime_error_message(saved_result, fallback="Spotify Library sync failed.")
-        saved_data = saved_result.get("data") if isinstance(saved_result.get("data"), dict) else {}
-        saved_tracks = [item for item in saved_data.get("tracks") or [] if isinstance(item, dict)]
         await asyncio.to_thread(
             upsert_mirror_playlist,
             source_app="Spotify",
@@ -4169,11 +4300,9 @@ class WebSocketRunner:
             playlist_id = str(playlist.get("id") or "").strip()
             if not playlist_id:
                 continue
-            tracks_result = await asyncio.to_thread(spotify_playlist_tracks, playlist_id, 50)
-            if not isinstance(tracks_result, dict) or tracks_result.get("status") != "success":
+            ok, tracks, tracks_result = await _fetch_all_spotify_playlist_tracks(playlist_id)
+            if not ok:
                 return False, _friendly_runtime_error_message(tracks_result, fallback="Spotify playlist tracks failed.")
-            tracks_data = tracks_result.get("data") if isinstance(tracks_result.get("data"), dict) else {}
-            tracks = [item for item in tracks_data.get("tracks") or [] if isinstance(item, dict)]
             await asyncio.to_thread(
                 upsert_mirror_playlist,
                 source_app="Spotify",

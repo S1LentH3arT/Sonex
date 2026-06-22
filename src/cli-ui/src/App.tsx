@@ -64,6 +64,7 @@ export const App = () => {
     const [helpPanelIndex, setHelpPanelIndex] = useState(0);
     const [languagePanel, setLanguagePanel] = useState<LanguagePanelState>(null);
     const [languagePanelIndex, setLanguagePanelIndex] = useState(0);
+    const [trackPanelIndex, setTrackPanelIndex] = useState(0);
     const [chatScrollOffset, setChatScrollOffset] = useState(0);
     const [maxChatScrollOffset, setMaxChatScrollOffset] = useState(0);
     const [loginSelectionIndex, setLoginSelectionIndex] = useState(0);
@@ -73,6 +74,7 @@ export const App = () => {
     const playbackKeymapEnabledRef = React.useRef(true);
     const playerRef = React.useRef<PlayerState>(player);
     const confirmRef = React.useRef<ConfirmState>(null);
+    const spotifyModeRef = React.useRef<SpotifyModeState>(spotifyMode);
     const spotifySetupActiveRef = React.useRef(false);
     const authSetupActiveRef = React.useRef(false);
     const slashMenuActiveRef = React.useRef(false);
@@ -106,6 +108,10 @@ export const App = () => {
     React.useEffect(() => {
         confirmRef.current = confirm;
     }, [confirm]);
+
+    React.useEffect(() => {
+        spotifyModeRef.current = spotifyMode;
+    }, [spotifyMode]);
 
     React.useEffect(() => {
         spotifySetupActiveRef.current = Boolean(spotifySetup?.active);
@@ -212,6 +218,7 @@ export const App = () => {
         if (sanitized) {
             setHelpPanel(null);
             setTrackPanel(null);
+            setTrackPanelIndex(0);
             setLanguagePanel(null);
         }
         if (sanitized !== slashMenuDismissedFor) {
@@ -264,6 +271,7 @@ export const App = () => {
             case "track_panel":
                 setLaunchPreparing(false);
                 switchRegion("chat");
+                setTrackPanelIndex(0);
                 setTrackPanel({
                     panel: evt.panel,
                     title: evt.title,
@@ -297,13 +305,18 @@ export const App = () => {
                     currentRegion: activeRegionRef.current,
                     wasSessionActive: playbackSessionActiveRef.current,
                     player: evt.state,
+                    spotifyModeEnabled: spotifyModeRef.current.enabled,
                 });
                 playbackSessionActiveRef.current = transition.sessionActive;
                 setPlaybackSessionActive(transition.sessionActive);
                 switchRegion(transition.region);
                 break;
             case "spotify_mode":
+                spotifyModeRef.current = { enabled: evt.enabled, device_id: evt.device_id, device_name: evt.device_name };
                 setSpotifyMode({ enabled: evt.enabled, device_id: evt.device_id, device_name: evt.device_name });
+                if (!evt.enabled && activeRegionRef.current === "spotifyImmersive") {
+                    switchRegion("chat");
+                }
                 break;
             case "cover":
                 coverUrlRef.current = evt.url;
@@ -459,6 +472,7 @@ export const App = () => {
         setSlashMenuDismissedFor(null);
         setHelpPanel(null);
         setTrackPanel(null);
+        setTrackPanelIndex(0);
         setLanguagePanel(null);
         setHelpPanelIndex(0);
         setStatusText(t(language, "status.saving"));
@@ -534,6 +548,7 @@ export const App = () => {
         setSlashMenuDismissedFor(null);
         setHelpPanel(null);
         setTrackPanel(null);
+        setTrackPanelIndex(0);
         setLanguagePanel({ active: true, selected: language });
         setLanguagePanelIndex(0);
         setStatusText(t(language, "language.title"));
@@ -623,6 +638,7 @@ export const App = () => {
             setSlashMenuDismissedFor(null);
             setHelpPanel(null);
             setTrackPanel(null);
+            setTrackPanelIndex(0);
             setLanguagePanel(null);
             setHelpPanelIndex(0);
             handleKeymapCommand(text.slice(text.trimStart().split(/\s+/, 1)[0]?.length ?? 0));
@@ -757,7 +773,7 @@ export const App = () => {
         } else if (input.trim().length === 0 && key.downArrow) {
             scrollChat(-1);
         }
-    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && !confirm && !helpPanel && !isSlashMenuActive && !isLoginScreenActive && !languagePanel?.active && !isModelPanelActive });
+    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && activeRegion !== "spotifyImmersive" && !confirm && !helpPanel && !isSlashMenuActive && !isLoginScreenActive && !languagePanel?.active && !isModelPanelActive });
 
     useInput((inputKey, key) => {
         if (!confirm) return;
@@ -807,8 +823,18 @@ export const App = () => {
 
     useInput((inputKey, key) => {
         if (!trackPanel || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
+        const selectedTrackPanelTrack = trackPanel.tracks[Math.min(trackPanelIndex, Math.max(0, trackPanel.tracks.length - 1))] ?? null;
         if (key.escape) {
             setTrackPanel(null);
+            setTrackPanelIndex(0);
+        } else if (key.ctrl && inputKey === "\x01" && selectedTrackPanelTrack) {
+            send({ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
+        } else if (key.return && selectedTrackPanelTrack) {
+            send({ type: "track_panel_action", action: "play", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
+        } else if (key.upArrow) {
+            setTrackPanelIndex((prev) => Math.max(0, prev - 1));
+        } else if (key.downArrow) {
+            setTrackPanelIndex((prev) => Math.min(trackPanel.tracks.length - 1, prev + 1));
         }
     }, { isActive: Boolean(trackPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
 
@@ -865,6 +891,7 @@ export const App = () => {
                         languagePanelIndex={languagePanelIndex}
                         modelPanelIndex={loginSelectionIndex}
                         trackPanel={trackPanel}
+                        trackPanelIndex={trackPanelIndex}
                         activeRegion={activeRegion}
                         miniSnapshotRevision={miniSnapshotRevision}
                         miniLayout={miniLayout}

@@ -54,6 +54,7 @@ export type LanguagePanelState = {
 export type ClientEvent =
     | { type: "user_input"; text: string }
     | { type: "internal_command"; text: string }
+    | { type: "track_panel_action"; action: "queue_add" | "play"; track: TrackPanelTrack; panel: "queue" | "playlist"; title: string }
     | { type: "confirm_result"; id: string; decision: string }
     | { type: "setup_input"; value: string }
     | { type: "auth_setup_input"; value: string }
@@ -193,6 +194,24 @@ export type TrackPanelTrack = {
     title: string;
     artist: string;
     duration: string;
+    name?: string;
+    album?: string;
+    duration_ms?: number;
+    provider?: string;
+    source?: string;
+    source_app?: string;
+    cache_id?: string;
+    uri?: string;
+    url?: string;
+    stream_url?: string;
+    youtube_url?: string;
+    spotify_url?: string;
+    apple_music_url?: string;
+    audio_path?: string;
+    file_path?: string;
+    path?: string;
+    album_cover_url?: string;
+    id?: string;
 };
 
 export type TrackPanelState = {
