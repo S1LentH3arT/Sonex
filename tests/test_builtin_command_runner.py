@@ -1252,6 +1252,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         runner = WebSocketRunner()
         ui = FakeUI()
         setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        choices = [{"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "20 saved tracks"}]
 
         async def never_returns(*_args, **_kwargs):
             await asyncio.sleep(10)
@@ -1259,12 +1260,59 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.asyncio.to_thread", side_effect=never_returns), patch(
             "src.api.ws_runner.SPOTIFY_MODE_CALL_TIMEOUT_SECONDS",
             0.001,
-        ):
+        ), patch("src.api.ws_runner.playlist_choices", return_value=choices):
             await runner._handle_user_input(ui, "/playlist")
 
         self.assertTrue(any("Spotify Library sync timed out" in str(event.get("text")) for event in ui.events))
         self.assertTrue(any(event.get("theme") == "spotify" for event in ui.events if event.get("role") == "agent"))
-        self.assertFalse(any(event.get("tool_name") == "playlist_browse" for event in ui.events))
+        self.assertTrue(any("Showing existing local playlists" in str(event.get("detail")) for event in ui.events))
+        confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
+        self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
+
+    async def test_spotify_mode_playlist_rate_limit_reports_retry_after(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        with patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "fail",
+            "message": "Spotify says Too Many Requests. Requests are too frequent; try again later.",
+            "error_code": "SPOTIFY_RATE_LIMITED",
+            "data": {"retry_after": "62861 seconds"},
+        }), patch("src.api.ws_runner.playlist_choices", return_value=[]), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await runner._handle_user_input(ui, "/playlist")
+
+        texts = [str(event.get("text") or event.get("detail") or "") for event in ui.events]
+        self.assertTrue(any("Spotify is rate limited" in text for text in texts))
+        self.assertTrue(any("62861 seconds" in text for text in texts))
+
+    async def test_spotify_mode_playlist_sync_failure_opens_existing_local_mirrors(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        choices = [
+            {"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "20 saved tracks"},
+        ]
+
+        with patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "fail",
+            "message": "Spotify says Too Many Requests. Requests are too frequent; try again later.",
+            "error_code": "SPOTIFY_RATE_LIMITED",
+            "data": {"retry_after": "62861 seconds"},
+        }), patch("src.api.ws_runner.playlist_choices", return_value=choices) as local_choices, patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await runner._handle_user_input(ui, "/playlist")
+
+        local_choices.assert_called_with(writable_only=False)
+        self.assertFalse(getattr(ui, "_spotify_library_synced", False))
+        self.assertTrue(any("Showing existing local playlists" in str(event.get("detail")) for event in ui.events))
+        confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
+        self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
 
     async def test_spotify_mode_playlist_sync_fetches_all_playlist_tracks(self) -> None:
         runner = WebSocketRunner()

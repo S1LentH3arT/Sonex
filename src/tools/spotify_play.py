@@ -39,6 +39,7 @@ SPOTIFY_RECENTLY_PLAYED_SCOPES = {"user-read-recently-played"}
 SPOTIFY_TOP_READ_SCOPES = {"user-top-read"}
 SPOTIFY_PLAYLIST_READ_SCOPES = {"playlist-read-private", "playlist-read-collaborative"}
 SPOTIFY_LIBRARY_READ_SCOPES = {"user-library-read"}
+SPOTIFY_LIBRARY_REQUEST_TIMEOUT_SECONDS = 5
 MAX_RECENT_TRACKS = 10
 
 _RECENT_TRACKS: list[dict[str, Any]] = []
@@ -854,7 +855,11 @@ def spotify_saved_tracks(limit: int = 50, offset: int = 0) -> dict[str, Any]:
     bounded_limit = min(50, max(1, int(limit or 50)))
     bounded_offset = max(0, int(offset or 0))
     try:
-        client = spotify_user_client(SPOTIFY_LIBRARY_READ_SCOPES)
+        client = spotify_user_client(
+            SPOTIFY_LIBRARY_READ_SCOPES,
+            requests_timeout=SPOTIFY_LIBRARY_REQUEST_TIMEOUT_SECONDS,
+            retries=0,
+        )
         payload = client.current_user_saved_tracks(limit=bounded_limit, offset=bounded_offset)
     except Exception as exc:
         return _spotify_error("spotify_saved_tracks", exc, "SPOTIFY_API_ERROR")
@@ -886,7 +891,11 @@ def spotify_playlists(limit: int = 50, offset: int = 0) -> dict[str, Any]:
     bounded_limit = min(50, max(1, int(limit or 50)))
     bounded_offset = max(0, int(offset or 0))
     try:
-        client = spotify_user_client(SPOTIFY_PLAYLIST_READ_SCOPES)
+        client = spotify_user_client(
+            SPOTIFY_PLAYLIST_READ_SCOPES,
+            requests_timeout=SPOTIFY_LIBRARY_REQUEST_TIMEOUT_SECONDS,
+            retries=0,
+        )
         payload = client.current_user_playlists(limit=bounded_limit, offset=bounded_offset)
     except Exception as exc:
         return _spotify_error("spotify_playlists", exc, "SPOTIFY_API_ERROR")
@@ -915,7 +924,11 @@ def spotify_playlist_tracks(playlist_id: str, limit: int = 50, offset: int = 0) 
     bounded_limit = min(100, max(1, int(limit or 50)))
     bounded_offset = max(0, int(offset or 0))
     try:
-        client = spotify_user_client(SPOTIFY_PLAYLIST_READ_SCOPES)
+        client = spotify_user_client(
+            SPOTIFY_PLAYLIST_READ_SCOPES,
+            requests_timeout=SPOTIFY_LIBRARY_REQUEST_TIMEOUT_SECONDS,
+            retries=0,
+        )
         payload = client.playlist_items(
             playlist_id,
             fields="items(track(id,name,duration_ms,artists(name),album(name,images),external_urls,uri,type,is_playable))",

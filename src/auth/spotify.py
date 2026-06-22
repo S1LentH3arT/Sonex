@@ -319,7 +319,12 @@ def ensure_spotify_token(required_scopes: set[str] | None = None) -> OAuthToken:
     return token
 
 
-def spotify_user_client(required_scopes: set[str] | None = None) -> spotipy.Spotify:
+def spotify_user_client(
+    required_scopes: set[str] | None = None,
+    *,
+    requests_timeout: float | None = None,
+    retries: int | None = None,
+) -> spotipy.Spotify:
     """Coordinates spotify user client for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs spotify user client as part of a Sonex command, playback, auth, llm, or ui path.
@@ -327,7 +332,12 @@ def spotify_user_client(required_scopes: set[str] | None = None) -> spotipy.Spot
     Example: spotify_user_client(required_scopes=...) -> returns the value used by the surrounding Sonex flow.
     """
     token = ensure_spotify_token(required_scopes)
-    return spotipy.Spotify(auth=token.access_token)
+    kwargs: dict[str, object] = {"auth": token.access_token}
+    if requests_timeout is not None:
+        kwargs["requests_timeout"] = requests_timeout
+    if retries is not None:
+        kwargs["retries"] = retries
+    return spotipy.Spotify(**kwargs)
 
 
 def spotify_authorize_url() -> tuple[str, str]:

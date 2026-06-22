@@ -339,11 +339,16 @@ def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something w
     if isinstance(result, dict):
         code = str(result.get("error_code") or "")
         message = str(result.get("message") or "").strip()
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
         if code == "SPOTIFY_PREMIUM_REQUIRED":
             return (
                 "Spotify playback state requires a Premium account. "
                 "I will stop polling Spotify playback for this session; search and local playback can still work."
             )
+        if code == "SPOTIFY_RATE_LIMITED":
+            retry_after = str(data.get("retry_after") or "").strip()
+            if retry_after and retry_after not in message:
+                message = f"{message} Spotify is rate limited; try again after {retry_after}."
         if message:
             return sanitize_error_message(message)
     return sanitize_error_message(fallback)
@@ -4319,6 +4324,13 @@ class WebSocketRunner:
             if not synced:
                 await ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
                 await ui.append_agent_message(message)
+                await ui.append_activity(
+                    kind="status",
+                    title="Spotify playlists",
+                    detail="Showing existing local playlists because Spotify sync failed.",
+                    status="warning",
+                )
+                await self._show_playlist_browse(ui)
                 return
             setattr(ui, "_spotify_library_synced", True)
         await self._show_playlist_browse(ui)

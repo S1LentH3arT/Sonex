@@ -518,7 +518,7 @@ class SpotifyToolTests(unittest.TestCase):
         with patch.object(spotify, "spotify_user_client", return_value=Client()) as user_client:
             result = spotify.spotify_saved_tracks(limit=20)
 
-        user_client.assert_called_once_with(spotify.SPOTIFY_LIBRARY_READ_SCOPES)
+        user_client.assert_called_once_with(spotify.SPOTIFY_LIBRARY_READ_SCOPES, requests_timeout=5, retries=0)
         self.assertEqual(result["status"], "success")
         track = result["data"]["tracks"][0]
         self.assertEqual(track["name"], "Saved Song")
@@ -550,7 +550,7 @@ class SpotifyToolTests(unittest.TestCase):
         with patch.object(spotify, "spotify_user_client", return_value=Client()) as user_client:
             result = spotify.spotify_playlists(limit=20)
 
-        user_client.assert_called_once_with(spotify.SPOTIFY_PLAYLIST_READ_SCOPES)
+        user_client.assert_called_once_with(spotify.SPOTIFY_PLAYLIST_READ_SCOPES, requests_timeout=5, retries=0)
         self.assertEqual(result["status"], "success")
         playlist = result["data"]["playlists"][0]
         self.assertEqual(playlist["id"], "playlist-1")
@@ -590,7 +590,7 @@ class SpotifyToolTests(unittest.TestCase):
         with patch.object(spotify, "spotify_user_client", return_value=Client()) as user_client:
             result = spotify.spotify_playlist_tracks(playlist_id="playlist-1", limit=50)
 
-        user_client.assert_called_once_with(spotify.SPOTIFY_PLAYLIST_READ_SCOPES)
+        user_client.assert_called_once_with(spotify.SPOTIFY_PLAYLIST_READ_SCOPES, requests_timeout=5, retries=0)
         self.assertEqual(result["status"], "success")
         self.assertEqual(len(result["data"]["tracks"]), 1)
         track = result["data"]["tracks"][0]
