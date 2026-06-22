@@ -734,6 +734,24 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertNotIn("api.spotify.com/v1/search", result["message"])
         self.assertNotIn("secret", result["message"])
 
+    def test_spotify_429_maps_to_rate_limited_message(self) -> None:
+        error = SpotifyException(
+            429,
+            -1,
+            "https://api.spotify.com/v1/me/player: Too Many Requests",
+            headers={"Retry-After": "30"},
+        )
+
+        with patch.object(spotify, "spotify_user_client", side_effect=error):
+            result = spotify.spotify_devices()
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_RATE_LIMITED")
+        self.assertIn("Spotify says Too Many Requests", result["message"])
+        self.assertIn("Requests are too frequent", result["message"])
+        self.assertIn("try again later", result["message"])
+        self.assertIn("30", result.get("data", {}).get("retry_after", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

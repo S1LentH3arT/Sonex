@@ -12,6 +12,7 @@ import os
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -21,6 +22,7 @@ from src.agent.core import AgentState
 from src.api import ws_runner
 from src.api.music_intent import MusicIntentDecision, MusicIntentRoute
 from src.api.ws_runner import WebSocketRunner, _decorate_player_state, _queue_payload, _track_panel_payload
+from src.auth.models import OAuthToken
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
 from src.thinking.config import ThinkingConfig
@@ -483,6 +485,51 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(getattr(ui, "_spotify_mode", None))
         self.assertTrue(any("Premium" in str(event.get("detail")) for event in ui.events if event.get("type") == "activity"))
 
+    async def test_spotify_command_allows_unknown_product_with_required_scopes(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.spotify_account", return_value={
+            "status": "success",
+            "data": {
+                "logged_in": True,
+                "product": "unknown",
+                "scopes": sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES),
+                "capabilities": {"playback_control": True, "current_playback": True, "playlist_read": True, "library_read": True},
+            },
+        }), patch("src.api.ws_runner.spotify_devices", return_value={
+            "status": "success",
+            "data": {"devices": [{"id": "desktop", "name": "Studio Desktop", "type": "Computer", "is_active": True}]},
+        }), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/spotify")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(getattr(ui, "_spotify_mode")["enabled"])
+        self.assertEqual(getattr(ui, "_spotify_mode")["device_name"], "Studio Desktop")
+        self.assertFalse(any("requires Spotify Premium" in str(event.get("detail")) for event in ui.events if event.get("type") == "activity"))
+
+    async def test_spotify_command_reports_rate_limited_account_check(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        message = "Spotify says Too Many Requests. Requests are too frequent; try again later."
+
+        with patch("src.api.ws_runner.spotify_account", return_value={
+            "status": "fail",
+            "message": message,
+            "error_code": "SPOTIFY_RATE_LIMITED",
+            "data": {"retry_after": "30 seconds"},
+        }), patch("src.api.ws_runner.spotify_devices") as devices, \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/spotify")
+
+        devices.assert_not_called()
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertIsNone(getattr(ui, "_spotify_mode", None))
+        self.assertTrue(any(message in str(event.get("detail")) for event in ui.events if event.get("type") == "activity"))
+        self.assertTrue(any(message in str(event.get("text")) for event in ui.events if event.get("type") == "chat"))
+
     async def test_spotify_command_reports_pending_before_account_check_returns(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -616,13 +663,114 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(mode_events[-1]["enabled"])
         self.assertEqual(mode_events[-1]["device_name"], "Studio Desktop")
 
+    async def test_spotify_command_persists_active_device_mode(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env(), \
+             patch("src.api.ws_runner.spotify_account", return_value={
+                 "status": "success",
+                 "data": {
+                     "logged_in": True,
+                     "product": "premium",
+                     "scopes": sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES),
+                     "capabilities": {"playback_control": True, "current_playback": True, "playlist_read": True, "library_read": True},
+                 },
+             }), patch("src.api.ws_runner.spotify_devices", return_value={
+                 "status": "success",
+                 "data": {"devices": [{"id": "desktop", "name": "Studio Desktop", "type": "Computer", "is_active": True}]},
+             }), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/spotify")
+            saved = json.loads((Path(os.environ["SONEX_HOME"]) / "spotify-mode.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(saved["enabled"])
+        self.assertEqual(saved["device_id"], "desktop")
+        self.assertEqual(saved["device_name"], "Studio Desktop")
+        self.assertEqual(saved["scopes"], sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES))
+        self.assertIn("updated_at", saved)
+
+    async def test_spotify_device_choice_persists_selected_mode(self) -> None:
+        ui = FakeUI()
+        session = ws_runner.SpotifyDeviceSelectionSession(
+            ui,
+            [{"id": "desktop", "name": "Studio Desktop", "type": "Computer", "is_active": False}],
+        )
+
+        with self._isolated_auth_env():
+            await session.handle_choice("spotify_device:desktop")
+            saved = json.loads((Path(os.environ["SONEX_HOME"]) / "spotify-mode.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(saved["enabled"])
+        self.assertEqual(saved["device_id"], "desktop")
+        self.assertEqual(saved["device_name"], "Studio Desktop")
+
+    async def test_startup_restores_spotify_mode_from_local_token_without_api_preflight(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        token = OAuthToken(access_token="access", expires_at=expires_at, scopes=sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES))
+
+        with self._isolated_auth_env():
+            path = Path(os.environ["SONEX_HOME"]) / "spotify-mode.json"
+            path.write_text(json.dumps({
+                "version": 1,
+                "enabled": True,
+                "device_id": "desktop",
+                "device_name": "Studio Desktop",
+                "entered_at": 1,
+                "updated_at": 2,
+                "token_expires_at": expires_at,
+                "scopes": sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES),
+            }), encoding="utf-8")
+            with patch("src.api.ws_runner.load_spotify_token", return_value=token), \
+                 patch("src.api.ws_runner.spotify_account") as account, \
+                 patch("src.api.ws_runner.spotify_devices") as devices:
+                await runner._restore_persistent_spotify_mode(ui)
+
+        account.assert_not_called()
+        devices.assert_not_called()
+        self.assertTrue(getattr(ui, "_spotify_mode")["enabled"])
+        self.assertEqual(getattr(ui, "_spotify_mode")["device_name"], "Studio Desktop")
+        self.assertTrue([event for event in ui.events if event.get("type") == "spotify_mode" and event.get("enabled")])
+
+    async def test_startup_clears_expired_spotify_mode(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        expired_at = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        token = OAuthToken(access_token="access", expires_at=expired_at, scopes=sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES))
+
+        with self._isolated_auth_env():
+            path = Path(os.environ["SONEX_HOME"]) / "spotify-mode.json"
+            path.write_text(json.dumps({"version": 1, "enabled": True, "device_id": "desktop"}), encoding="utf-8")
+            with patch("src.api.ws_runner.load_spotify_token", return_value=token):
+                await runner._restore_persistent_spotify_mode(ui)
+            self.assertFalse(path.exists())
+
+        self.assertIsNone(getattr(ui, "_spotify_mode", None))
+
+    async def test_startup_clears_corrupt_spotify_mode(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env():
+            path = Path(os.environ["SONEX_HOME"]) / "spotify-mode.json"
+            path.write_text("{", encoding="utf-8")
+            await runner._restore_persistent_spotify_mode(ui)
+            self.assertFalse(path.exists())
+
+        self.assertIsNone(getattr(ui, "_spotify_mode", None))
+
     async def test_spotify_command_toggles_off_in_spotify_mode(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
         setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
 
-        await runner._handle_user_input(ui, "/spotify")
+        with self._isolated_auth_env():
+            path = Path(os.environ["SONEX_HOME"]) / "spotify-mode.json"
+            path.write_text(json.dumps({"version": 1, "enabled": True}), encoding="utf-8")
+            await runner._handle_user_input(ui, "/spotify")
+            self.assertFalse(path.exists())
 
         self.assertFalse(runner._run_agent_turn.called)
         self.assertIsNone(getattr(ui, "_spotify_mode", None))
@@ -635,7 +783,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ui = FakeUI()
         setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
 
-        await runner._handle_user_input(ui, "/spotify off")
+        with self._isolated_auth_env():
+            path = Path(os.environ["SONEX_HOME"]) / "spotify-mode.json"
+            path.write_text(json.dumps({"version": 1, "enabled": True}), encoding="utf-8")
+            await runner._handle_user_input(ui, "/spotify off")
+            self.assertFalse(path.exists())
 
         self.assertIsNone(getattr(ui, "_spotify_mode", None))
         self.assertTrue(any("Spotify mode off" in str(event.get("detail")) for event in ui.events if event.get("type") == "activity"))

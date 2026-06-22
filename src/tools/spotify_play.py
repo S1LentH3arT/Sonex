@@ -13,12 +13,14 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+import spotipy
 from spotipy import SpotifyException
 
 from src.auth.spotify import (
     SpotifyConfigMissingError,
     SpotifyLoginRequiredError,
     SpotifyScopeMissingError,
+    ensure_spotify_token,
     load_spotify_token,
     spotify_app_client,
     spotify_user_client,
@@ -563,6 +565,17 @@ def _is_app_owner_premium_error(message: str) -> bool:
     return "premium" in lowered and "owner of the app" in lowered
 
 
+def _spotify_retry_after(exc: Exception) -> str | None:
+    headers = getattr(exc, "headers", None)
+    value = None
+    if isinstance(headers, dict):
+        value = headers.get("Retry-After") or headers.get("retry-after")
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR") -> dict[str, Any]:
     """Prepares spotify error for an internal Sonex flow.
 
@@ -574,6 +587,7 @@ def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR
     message = _error_message(exc)
     lowered = message.lower()
     code = default_code
+    data: dict[str, Any] = {}
 
     if isinstance(exc, SpotifyConfigMissingError):
         code = "SPOTIFY_CONFIG_MISSING"
@@ -597,8 +611,13 @@ def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR
         code = "SPOTIFY_NO_ACTIVE_DEVICE"
     elif status == 429:
         code = "SPOTIFY_RATE_LIMITED"
+        retry_after = _spotify_retry_after(exc)
+        message = "Spotify says Too Many Requests. Requests are too frequent; try again later."
+        if retry_after:
+            data["retry_after"] = f"{retry_after} seconds"
+            message = f"{message} Try again after {retry_after} seconds."
 
-    return ToolResult.fail(tool=tool, message=message, error_code=code).to_dict()
+    return ToolResult.fail(tool=tool, message=message, error_code=code, data=data).to_dict()
 
 
 def _search_with_client(query: str, limit: int, types: str, *, use_user: bool = False) -> dict[str, Any]:

@@ -201,7 +201,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
 
         commands = {command.name: command for command in command_suggestions()}
         self.assertEqual(commands["spotify"].usage, "/spotify [off]")
-        self.assertEqual(commands["spotify"].description, "Enter or exit session-only Spotify mode.")
+        self.assertEqual(commands["spotify"].description, "Enter or exit persistent Spotify mode.")
 
     def test_random_includes_online_playback_fallback(self) -> None:
         """Verifies that random includes online playback fallback behaves as expected.

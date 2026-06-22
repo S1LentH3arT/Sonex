@@ -16,6 +16,7 @@ import threading
 import time
 import webbrowser
 from contextlib import suppress
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
@@ -138,6 +139,7 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
 from src.tools.player_permission import complete_player_confirm
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
 from src.tools.spotify_play import (
+    _product_is_known_non_premium,
     remember_recent_track,
     spotify_account,
     spotify_current_playback,
@@ -2948,15 +2950,109 @@ SPOTIFY_MODE_AGENT_TOOLS = (
     "spotify_play",
 )
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
+SPOTIFY_MODE_STATE_VERSION = 1
 
 
-def _spotify_mode_state(device: dict[str, Any]) -> dict[str, Any]:
+def _spotify_mode_path() -> Path:
+    return sonex_home() / "spotify-mode.json"
+
+
+def _spotify_token_expired(token: Any) -> bool:
+    expires_at = getattr(token, "expires_at", None)
+    if not expires_at:
+        return False
+    try:
+        expires = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return expires.timestamp() <= time.time() + 60
+
+
+def _clear_persistent_spotify_mode() -> None:
+    try:
+        _spotify_mode_path().unlink()
+    except FileNotFoundError:
+        return
+    except OSError:
+        return
+
+
+def _spotify_mode_state(device: dict[str, Any], scopes: set[str] | list[str] | None = None) -> dict[str, Any]:
+    token = load_spotify_token()
+    token_scopes = set(getattr(token, "scopes", []) or []) if token else set()
+    mode_scopes = sorted(set(scopes or token_scopes))
+    now = _timestamp_ms()
     return {
+        "version": SPOTIFY_MODE_STATE_VERSION,
         "enabled": True,
         "device_id": device.get("id"),
         "device_name": device.get("name"),
-        "entered_at": _timestamp_ms(),
+        "entered_at": now,
+        "updated_at": now,
+        "token_expires_at": getattr(token, "expires_at", None) if token else None,
+        "scopes": mode_scopes,
     }
+
+
+def _persist_spotify_mode(mode: dict[str, Any]) -> None:
+    if not mode.get("enabled"):
+        _clear_persistent_spotify_mode()
+        return
+    payload = {
+        "version": SPOTIFY_MODE_STATE_VERSION,
+        "enabled": True,
+        "device_id": mode.get("device_id"),
+        "device_name": mode.get("device_name"),
+        "entered_at": mode.get("entered_at"),
+        "updated_at": _timestamp_ms(),
+        "token_expires_at": mode.get("token_expires_at"),
+        "scopes": sorted(str(scope) for scope in (mode.get("scopes") or []) if str(scope).strip()),
+    }
+    try:
+        path = _spotify_mode_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        return
+
+
+def _load_persistent_spotify_mode() -> dict[str, Any] | None:
+    path = _spotify_mode_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError):
+        _clear_persistent_spotify_mode()
+        return None
+    if not isinstance(payload, dict) or not payload.get("enabled"):
+        _clear_persistent_spotify_mode()
+        return None
+
+    token = load_spotify_token()
+    if not token or not getattr(token, "access_token", None) or _spotify_token_expired(token):
+        _clear_persistent_spotify_mode()
+        return None
+    token_scopes = set(getattr(token, "scopes", []) or [])
+    if not SPOTIFY_MODE_REQUIRED_SCOPES <= token_scopes:
+        _clear_persistent_spotify_mode()
+        return None
+
+    mode = {
+        "version": SPOTIFY_MODE_STATE_VERSION,
+        "enabled": True,
+        "device_id": payload.get("device_id"),
+        "device_name": payload.get("device_name"),
+        "entered_at": payload.get("entered_at") or _timestamp_ms(),
+        "updated_at": _timestamp_ms(),
+        "token_expires_at": getattr(token, "expires_at", None),
+        "scopes": sorted(token_scopes),
+    }
+    return mode
 
 
 async def _send_spotify_mode(ui: WebSocketUIAdapter, mode: dict[str, Any] | None) -> None:
@@ -3068,6 +3164,7 @@ class SpotifyDeviceSelectionSession:
             return
         mode = _spotify_mode_state(device)
         setattr(self.ui, "_spotify_mode", mode)
+        _persist_spotify_mode(mode)
         await _send_spotify_mode(self.ui, mode)
         message = f"Spotify mode on: {device.get('name') or 'selected device'}."
         await self.ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
@@ -3312,6 +3409,7 @@ class WebSocketRunner:
         ui = WebSocketUIAdapter(ws)
         await ui._send({"type": "queue", "tracks": _queue_payload()})
         await self._handle_startup_auth(ui)
+        await self._restore_persistent_spotify_mode(ui)
         playback_sync_task = asyncio.create_task(self._sync_spotify_playback(ui))
 
         try:
@@ -3610,6 +3708,15 @@ class WebSocketRunner:
     def _spotify_mode_enabled(self, ui: WebSocketUIAdapter) -> bool:
         mode = getattr(ui, "_spotify_mode", None)
         return isinstance(mode, dict) and bool(mode.get("enabled"))
+
+    async def _restore_persistent_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
+        mode = _load_persistent_spotify_mode()
+        if not mode:
+            setattr(ui, "_spotify_mode", None)
+            return
+        setattr(ui, "_spotify_mode", mode)
+        setattr(ui, "_spotify_library_synced", False)
+        await _send_spotify_mode(ui, mode)
 
     async def _handle_spotify_mode_input(self, ui: WebSocketUIAdapter, user_input: str) -> None:
         if self._running_task and not self._running_task.done():
@@ -3924,6 +4031,7 @@ class WebSocketRunner:
             setattr(ui, "_spotify_library_synced", False)
             setattr(ui, "_spotify_device_selection", None)
             setattr(ui, "_spotify_play_selection", None)
+            _clear_persistent_spotify_mode()
             await _send_spotify_mode(ui, None)
             message = "Spotify mode off."
             await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
@@ -3950,7 +4058,7 @@ class WebSocketRunner:
     async def _enter_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
         account = await _run_spotify_mode_call(
             ui,
-            func=spotify_account,
+            func=lambda: spotify_account(requests_timeout=1.5),
             pending_detail="Checking Spotify account.",
             timeout_message=(
                 "Spotify did not respond while checking your account. "
@@ -3959,13 +4067,20 @@ class WebSocketRunner:
         )
         if account is None:
             return
+        if _is_failed_tool_result(account):
+            message = _friendly_runtime_error_message(account, fallback="Could not check Spotify account.")
+            await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
         data = account.get("data") if isinstance(account, dict) else {}
         if not isinstance(data, dict) or not data.get("logged_in"):
+            _clear_persistent_spotify_mode()
             message = "Spotify login required. Run /setup spotify or `sonex auth login spotify` first."
             await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
             await ui.append_agent_message(message)
             return
-        if str(data.get("product") or "").lower() != "premium":
+        if _product_is_known_non_premium(data.get("product")):
+            _clear_persistent_spotify_mode()
             message = "Spotify mode requires Spotify Premium."
             await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
             await ui.append_agent_message(message)
@@ -3973,6 +4088,7 @@ class WebSocketRunner:
         scopes = set(data.get("scopes") or [])
         missing_scopes = sorted(SPOTIFY_MODE_REQUIRED_SCOPES - scopes)
         if missing_scopes:
+            _clear_persistent_spotify_mode()
             await self._start_spotify_reauthorization(ui, missing_scopes)
             return
 
@@ -4002,8 +4118,9 @@ class WebSocketRunner:
             return
         active_device = next((device for device in usable_devices if device.get("is_active")), None)
         if active_device:
-            mode = _spotify_mode_state(active_device)
+            mode = _spotify_mode_state(active_device, scopes)
             setattr(ui, "_spotify_mode", mode)
+            _persist_spotify_mode(mode)
             await _send_spotify_mode(ui, mode)
             message = f"Spotify mode on: {active_device.get('name') or 'active device'}."
             await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")

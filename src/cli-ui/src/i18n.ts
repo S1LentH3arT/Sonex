@@ -123,7 +123,7 @@ const commandDescriptions: Record<string, Record<UiLanguage, string>> = {
     recommend: { en: "recommend songs of preferred music taste", "zh-CN": "按偏好的音乐口味推荐歌曲" },
     resume: { en: "resume current playback", "zh-CN": "继续当前播放" },
     setup: { en: "configure a music provider", "zh-CN": "配置音乐服务" },
-    spotify: { en: "enter or exit session-only Spotify mode", "zh-CN": "进入或退出本次会话的 Spotify 模式" },
+    spotify: { en: "enter or exit persistent Spotify mode", "zh-CN": "进入或退出持久化 Spotify 模式" },
 };
 
 const knownText: Record<string, Record<UiLanguage, string>> = {

@@ -248,20 +248,25 @@ Spotify app credentials can come from `SPOTIFY_CLIENT_ID` and
 requires a Spotify account and an available Spotify Connect device; Premium is
 required for playback control.
 
-Use `/spotify` to enter session-only Spotify mode after setup. Entry requires a
+Use `/spotify` to enter persistent Spotify mode after setup. Entry requires a
 logged-in Premium account, playback, playlist-read, and `user-library-read`
-scopes, and at least one usable Spotify Connect device. While the mode is
+scopes, and at least one usable Spotify Connect device. After a successful
+entry, Sonex restores Spotify mode in later chats until the local Spotify token
+expires, loses required scopes, or you leave the mode with `/spotify` or
+`/spotify off`. Startup restore only checks the local token and saved device
+metadata; it does not call Spotify account or device APIs. While the mode is
 active, play/search, recommendations, playlists, and current playback use
 Spotify tools only. The first `/playlist` in a Spotify-mode session imports
 your saved tracks as the read-only `[Spotify] Spotify Library` mirror and
 imports your Spotify playlists as read-only local mirrors. Later `/playlist`
 opens the local playlist browser without calling Spotify again until you leave
-and re-enter Spotify mode or restart Sonex. Normal Sonex mode can still browse
-the imported Spotify mirrors, but `/playlist save` only writes to editable Sonex
-playlists. `/queue` opens your live Spotify playback queue. Use `/spotify off`
-to return to the normal Sonex routing. If the saved token is missing newly
-required Spotify scopes, Sonex starts the Spotify authorization guide in the
-current chat so you can grant the updated permissions.
+and re-enter Spotify mode. Normal Sonex mode can still browse the imported
+Spotify mirrors, but `/playlist save` only writes to editable Sonex playlists.
+`/queue` opens your live Spotify playback queue. If Spotify returns `429 Too
+Many Requests`, Sonex shows a Too Many Requests message and asks you to try
+again later. If the saved token is missing newly required Spotify scopes, Sonex
+starts the Spotify authorization guide in the current chat so you can grant the
+updated permissions.
 
 ### 🍎 Apple Music
 
