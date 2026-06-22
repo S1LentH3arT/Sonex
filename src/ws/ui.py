@@ -66,7 +66,11 @@ class WebSocketUIAdapter:
         Example: await append_agent_message(text=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.transcript.append({"role": "agent", "content": text})
-        await self._send({"type": "chat", "role": "agent", "text": text})
+        payload: dict[str, Any] = {"type": "chat", "role": "agent", "text": text}
+        mode = getattr(self, "_spotify_mode", None)
+        if isinstance(mode, dict) and mode.get("enabled"):
+            payload["theme"] = "spotify"
+        await self._send(payload)
 
     async def send_error(self, message: str) -> None:
         """Sends error to the active runtime client.

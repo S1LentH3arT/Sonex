@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, useApp, useInput, useStdin, useStdout } from 'ink';
 import { upsertActivity } from './activity.js';
-import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions } from './commands.js';
+import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands } from './commands.js';
 import { getVisibleConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl } from './constants.js';
@@ -16,6 +16,14 @@ import { isLocalPlaybackShortcutSource, playbackCommandForShortcut, playbackShor
 import { clearTerminalForLayoutSwitch } from './terminal-clear.js';
 import { loadUiLanguage, saveUiLanguage } from './ui-settings.js';
 import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+
+type InkInputKey = {
+    ctrl?: boolean;
+};
+
+const isTrackPanelQueueShortcut = (inputKey: string, key: InkInputKey): boolean => {
+    return Boolean(key.ctrl && (inputKey === "\x01" || inputKey.toLowerCase() === "a"));
+};
 
 export const App = () => {
     const { exit } = useApp();
@@ -80,7 +88,11 @@ export const App = () => {
     const slashMenuActiveRef = React.useRef(false);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
-    const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active ? [] : slashCommandSuggestions(input, language);
+    const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active
+        ? []
+        : spotifyMode.enabled
+            ? spotifyModeSlashCommands(input, language)
+            : slashCommandSuggestions(input, language);
     const slashInput = input.trimStart();
     const isSlashInput = slashInput.startsWith("/");
     const isSlashMenuActive = rawModeAvailable && !confirm && isSlashInput && slashMenuDismissedFor !== input && slashSuggestions.length > 0;
@@ -228,7 +240,7 @@ export const App = () => {
 
     const showError = React.useCallback((message: string, detail?: string | null) => {
         const content = detail ? `${message}\n${detail}` : message;
-        setChatItems((prev) => trimList([...prev, { role: "agent", content }], MAX_CHAT_ITEMS));
+        setChatItems((prev) => trimList([...prev, { role: "agent", content, theme: spotifyModeRef.current.enabled ? "spotify" : undefined }], MAX_CHAT_ITEMS));
         setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
     }, []);
 
@@ -248,7 +260,7 @@ export const App = () => {
         const evt = applyLanguageToServerEvent(rawEvent, language);
         switch (evt.type) {
             case "chat":
-                setChatItems((prev) => trimList([...prev, { role: evt.role, content: evt.text }], MAX_CHAT_ITEMS));
+                setChatItems((prev) => trimList([...prev, { role: evt.role, content: evt.text, theme: evt.theme }], MAX_CHAT_ITEMS));
                 setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
                 break;
             case "activity":
@@ -827,7 +839,7 @@ export const App = () => {
         if (key.escape) {
             setTrackPanel(null);
             setTrackPanelIndex(0);
-        } else if (key.ctrl && inputKey === "\x01" && selectedTrackPanelTrack) {
+        } else if (isTrackPanelQueueShortcut(inputKey, key) && selectedTrackPanelTrack) {
             send({ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
         } else if (key.return && selectedTrackPanelTrack) {
             send({ type: "track_panel_action", action: "play", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });

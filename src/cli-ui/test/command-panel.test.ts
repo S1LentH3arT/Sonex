@@ -7,6 +7,7 @@ import {
     selectedHelpPanelCommand,
     visibleCommandWindow,
 } from '../src/command-panel.js';
+import { SPOTIFY_MODE_COMMAND_NAMES, spotifyModeSlashCommands } from '../src/commands.js';
 
 const allHelpCommands = helpPanelCommands(SLASH_COMMANDS);
 const localizedHelpCommands = helpPanelCommands([
@@ -76,3 +77,9 @@ assert.equal(helpPlaylist?.description, "browse or save playlists");
 const helpQueue = allHelpCommands.find((command) => command.name === "queue");
 assert.equal(helpQueue?.usage, "/queue");
 assert.equal(helpQueue?.description, "show playback queue");
+
+assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["bye", "lang", "logout", "model", "playlist", "quit", "queue", "random", "recommend"]);
+assert.deepEqual(spotifyModeSlashCommands().map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES);
+assert.deepEqual(spotifyModeSlashCommands("/").map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES);
+assert.deepEqual(spotifyModeSlashCommands("/p").map((command) => command.name), ["playlist"]);
+assert.deepEqual(spotifyModeSlashCommands("/sp").map((command) => command.name), []);

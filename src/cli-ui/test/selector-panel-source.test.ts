@@ -16,6 +16,7 @@ assert.match(source, /selectedBackgroundColor/);
 assert.match(source, /backgroundColor=\{rowBackgroundColor\}/);
 assert.doesNotMatch(source, /<Text color=\{rowColor\}> - <\/Text>/);
 assert.match(source, /<Text color=\{rowColor\} backgroundColor=\{rowBackgroundColor\}>\{row\.description\}<\/Text>/);
+assert.match(source, /const SPOTIFY_SELECTED_TEXT = "#06140c"/);
 assert.match(source, /const MODEL_PANEL_LABEL_WIDTH = 20/);
 assert.match(source, /modelIdFromChoice\(model\)\.padEnd\(MODEL_PANEL_LABEL_WIDTH, " "\)/);
 
@@ -54,12 +55,15 @@ assert.match(inputDockBody, /formatModelPanelLabel\(model\)/);
 assert.match(inputDockBody, /<ChoicePanel[\s\S]*rows=\{modelPanel\.rows\}/);
 assert.match(inputDockBody, /const setupPanel = spotifySetup \?\? \(authSetup && authSetup\.step !== "model" \? authSetup : null\);/);
 assert.match(inputDockBody, /const spotifyTheme = Boolean\(spotifyMode\?\.enabled \|\| spotifySetup\);/);
+assert.match(inputDockBody, /<SlashCommandList suggestions=\{slashSuggestions\} selectedIndex=\{slashIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
 assert.match(inputDockBody, /const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
 assert.match(inputDockBody, /<CompactConfirm confirm=\{confirm\} confirmIndex=\{confirmIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
 assert.match(inputDockBody, /spotifyTheme=\{Boolean\(spotifySetup\)\}/);
-assert.match(inputDockBody, /borderTop=\{!spotifyMode\?\.enabled\}/);
+assert.doesNotMatch(inputDockBody, /borderTop=\{!spotifyMode\?\.enabled\}/);
+assert.match(inputDockBody, /const spotifyModeBorderLabel = "────Spotify Mode ────";/);
+assert.match(inputDockBody, /borderTop=\{true\}/);
 assert.match(inputDockBody, /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN : BORDER_BLUE\}/);
-assert.match(inputDockBody, /Spotify Mode/);
+assert.match(inputDockBody, /<Text color=\{SPOTIFY_GREEN\}>\{spotifyModeBorderLabel\}<\/Text>/);
 assert.doesNotMatch(inputDockBody, /----Spotify Mode----/);
 assert.match(inputDockBody, /<CompactSetup[\s\S]*input=\{input\}[\s\S]*onSubmit=\{onSubmit\}/);
 assert.match(inputDockBody, /setupPanel \? <CompactSetup/);
@@ -72,6 +76,7 @@ assert.match(source, /PromptInput[\s\S]*placeholder=\{setupPanel\.prompt \?\? in
 
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
 assert.match(appSource, /const \[spotifyMode, setSpotifyMode\] = useState<SpotifyModeState>/);
+assert.match(appSource, /spotifyMode\.enabled\s*\?\s*spotifyModeSlashCommands\(input, language\)\s*:\s*slashCommandSuggestions\(input, language\)/);
 assert.match(appSource, /const visibleConfirmChoices = React\.useMemo\(\(\) => confirm \? getVisibleConfirmChoices\(confirm\.choices\) : \[\], \[confirm\]\);/);
 assert.match(appSource, /const selectedConfirmChoice = visibleConfirmChoices\[Math\.min\(confirmIndex, Math\.max\(0, visibleConfirmChoices\.length - 1\)\)\] \?\? null;/);
 assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, visibleConfirmChoices\);/);

@@ -18,7 +18,9 @@ assert.match(appSource, /send\(\{ type: "internal_command", text: command \}\)/)
 assert.match(appSource, /case "track_panel":/);
 assert.match(appSource, /setTrackPanel\(\{/);
 assert.match(appSource, /const selectedTrackPanelTrack = trackPanel\.tracks\[Math\.min\(trackPanelIndex, Math\.max\(0, trackPanel\.tracks\.length - 1\)\)\] \?\? null;/);
-assert.match(appSource, /inputKey === "\\x01"/);
+assert.match(appSource, /const isTrackPanelQueueShortcut = \(inputKey: string, key: .*?\): boolean =>/);
+assert.match(appSource, /return Boolean\(key\.ctrl && \(inputKey === "\\x01" \|\| inputKey\.toLowerCase\(\) === "a"\)\);/);
+assert.match(appSource, /isTrackPanelQueueShortcut\(inputKey, key\) && selectedTrackPanelTrack/);
 assert.match(appSource, /send\(\{ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel\.panel, title: trackPanel\.title \}\)/);
 assert.match(appSource, /send\(\{ type: "track_panel_action", action: "play", track: selectedTrackPanelTrack, panel: trackPanel\.panel, title: trackPanel\.title \}\)/);
 assert.match(typesSource, /type: "track_panel"/);

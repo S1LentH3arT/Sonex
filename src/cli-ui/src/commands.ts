@@ -2,6 +2,19 @@ import { SLASH_COMMANDS } from './constants.js';
 import { localizeSlashCommands } from './i18n.js';
 import type { SlashCommandSuggestion, UiLanguage } from './types.js';
 
+export const SPOTIFY_MODE_COMMAND_NAMES = ["bye", "lang", "logout", "model", "playlist", "quit", "queue", "random", "recommend"] as const;
+
+const SPOTIFY_MODE_COMMANDS = SPOTIFY_MODE_COMMAND_NAMES.map((name) => (
+    SLASH_COMMANDS.find((command) => command.name === name)
+)).filter((command): command is SlashCommandSuggestion => Boolean(command));
+
+function commandSuggestionsFrom(commands: SlashCommandSuggestion[], input: string, language: UiLanguage): SlashCommandSuggestion[] {
+    const trimmed = input.trimStart();
+    if (!trimmed.startsWith("/")) return [];
+    const token = trimmed.slice(1).split(/\s+/, 1)[0]?.toLowerCase() ?? "";
+    return localizeSlashCommands(commands.filter((command) => command.name.startsWith(token)), language);
+}
+
 /**
  * Coordinates the slash command suggestions operation for the CLI UI runtime.
  *
@@ -9,10 +22,11 @@ import type { SlashCommandSuggestion, UiLanguage } from './types.js';
  * @returns The computed result for the surrounding CLI UI flow.
  */
 export function slashCommandSuggestions(input: string, language: UiLanguage = "en"): SlashCommandSuggestion[] {
-    const trimmed = input.trimStart();
-    if (!trimmed.startsWith("/")) return [];
-    const token = trimmed.slice(1).split(/\s+/, 1)[0]?.toLowerCase() ?? "";
-    return localizeSlashCommands(SLASH_COMMANDS.filter((command) => command.name.startsWith(token)), language);
+    return commandSuggestionsFrom(SLASH_COMMANDS, input, language);
+}
+
+export function spotifyModeSlashCommands(input: string = "/", language: UiLanguage = "en"): SlashCommandSuggestion[] {
+    return commandSuggestionsFrom(SPOTIFY_MODE_COMMANDS, input, language);
 }
 
 /**

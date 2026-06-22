@@ -2974,6 +2974,7 @@ SPOTIFY_MODE_AGENT_TOOLS = (
     "search_track",
     "spotify_play",
 )
+SPOTIFY_MODE_COMMANDS = {"bye", "lang", "logout", "model", "playlist", "quit", "queue", "random", "recommend"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 SPOTIFY_MODE_STATE_VERSION = 1
 
@@ -3113,6 +3114,25 @@ async def _run_spotify_mode_call(
         return None
 
 
+async def _run_spotify_library_call(
+    ui: WebSocketUIAdapter,
+    *,
+    func: Any,
+    timeout_message: str,
+) -> Any | None:
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(func), timeout=SPOTIFY_MODE_CALL_TIMEOUT_SECONDS)
+    except TimeoutError:
+        await ui.append_activity(kind="error", title="Spotify playlists", detail=timeout_message, status="error")
+        await ui.append_agent_message(timeout_message)
+        return None
+    except Exception as exc:
+        message = sanitize_error_message(exc)
+        await ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
+        await ui.append_agent_message(message)
+        return None
+
+
 def _spotify_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for index, track in enumerate(tracks, start=1):
@@ -3134,13 +3154,22 @@ def _spotify_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, 
     return rows
 
 
-async def _fetch_all_spotify_saved_tracks(limit: int = 50) -> tuple[bool, list[dict[str, Any]], Any]:
+async def _fetch_all_spotify_saved_tracks(ui: WebSocketUIAdapter | None = None, limit: int = 50) -> tuple[bool, list[dict[str, Any]], Any]:
     """Loads every available saved Spotify track using paged API calls."""
     bounded_limit = min(50, max(1, int(limit or 50)))
     offset = 0
     tracks: list[dict[str, Any]] = []
     while True:
-        result = await asyncio.to_thread(spotify_saved_tracks, bounded_limit, offset)
+        if ui is None:
+            result = await asyncio.to_thread(spotify_saved_tracks, bounded_limit, offset)
+        else:
+            result = await _run_spotify_library_call(
+                ui,
+                func=lambda: spotify_saved_tracks(bounded_limit, offset),
+                timeout_message="Spotify Library sync timed out while loading saved tracks. Try /playlist again later.",
+            )
+            if result is None:
+                return False, tracks, {"status": "fail", "message": "Spotify Library sync timed out while loading saved tracks."}
         if not isinstance(result, dict) or result.get("status") != "success":
             return False, tracks, result
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
@@ -3151,13 +3180,22 @@ async def _fetch_all_spotify_saved_tracks(limit: int = 50) -> tuple[bool, list[d
         offset += bounded_limit
 
 
-async def _fetch_all_spotify_playlist_tracks(playlist_id: str, limit: int = 100) -> tuple[bool, list[dict[str, Any]], Any]:
+async def _fetch_all_spotify_playlist_tracks(playlist_id: str, ui: WebSocketUIAdapter | None = None, limit: int = 100) -> tuple[bool, list[dict[str, Any]], Any]:
     """Loads every available Spotify playlist track using paged API calls."""
     bounded_limit = min(100, max(1, int(limit or 100)))
     offset = 0
     tracks: list[dict[str, Any]] = []
     while True:
-        result = await asyncio.to_thread(spotify_playlist_tracks, playlist_id, bounded_limit, offset)
+        if ui is None:
+            result = await asyncio.to_thread(spotify_playlist_tracks, playlist_id, bounded_limit, offset)
+        else:
+            result = await _run_spotify_library_call(
+                ui,
+                func=lambda: spotify_playlist_tracks(playlist_id, bounded_limit, offset),
+                timeout_message="Spotify Library sync timed out while loading playlist tracks. Try /playlist again later.",
+            )
+            if result is None:
+                return False, tracks, {"status": "fail", "message": "Spotify Library sync timed out while loading playlist tracks."}
         if not isinstance(result, dict) or result.get("status") != "success":
             return False, tracks, result
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
@@ -3677,6 +3715,12 @@ class WebSocketRunner:
         if parsed_command is not None:
             if parsed_command.known and parsed_command.command and not parsed_command.command.visible:
                 await self._reject_internal_chat_command(ui, parsed_command.command.name)
+                return
+
+            if self._spotify_mode_enabled(ui) and parsed_command.command and parsed_command.command.name not in SPOTIFY_MODE_COMMANDS:
+                message = f"Command '/{parsed_command.command.name}' is not available in Spotify mode."
+                await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
+                await ui.append_agent_message(message)
                 return
 
             if self._spotify_mode_enabled(ui) and parsed_command.command and parsed_command.command.mode == "agent":
@@ -4271,7 +4315,7 @@ class WebSocketRunner:
     async def _show_spotify_playlists(self, ui: WebSocketUIAdapter) -> None:
         if not bool(getattr(ui, "_spotify_library_synced", False)):
             await ui.append_activity(kind="tool", title="Spotify playlists", detail="Syncing Spotify Library and playlists.", status="pending")
-            synced, message = await self._sync_spotify_library_to_playlists()
+            synced, message = await self._sync_spotify_library_to_playlists(ui)
             if not synced:
                 await ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
                 await ui.append_agent_message(message)
@@ -4279,8 +4323,8 @@ class WebSocketRunner:
             setattr(ui, "_spotify_library_synced", True)
         await self._show_playlist_browse(ui)
 
-    async def _sync_spotify_library_to_playlists(self) -> tuple[bool, str]:
-        saved_ok, saved_tracks, saved_result = await _fetch_all_spotify_saved_tracks()
+    async def _sync_spotify_library_to_playlists(self, ui: WebSocketUIAdapter) -> tuple[bool, str]:
+        saved_ok, saved_tracks, saved_result = await _fetch_all_spotify_saved_tracks(ui)
         if not saved_ok:
             return False, _friendly_runtime_error_message(saved_result, fallback="Spotify Library sync failed.")
         await asyncio.to_thread(
@@ -4291,7 +4335,11 @@ class WebSocketRunner:
             tracks=saved_tracks,
         )
 
-        result = await asyncio.to_thread(spotify_playlists, 50)
+        result = await _run_spotify_library_call(
+            ui,
+            func=lambda: spotify_playlists(50),
+            timeout_message="Spotify Library sync timed out while loading playlists. Try /playlist again later.",
+        )
         if not isinstance(result, dict) or result.get("status") != "success":
             return False, _friendly_runtime_error_message(result, fallback="Spotify playlists failed.")
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
@@ -4300,7 +4348,7 @@ class WebSocketRunner:
             playlist_id = str(playlist.get("id") or "").strip()
             if not playlist_id:
                 continue
-            ok, tracks, tracks_result = await _fetch_all_spotify_playlist_tracks(playlist_id)
+            ok, tracks, tracks_result = await _fetch_all_spotify_playlist_tracks(playlist_id, ui)
             if not ok:
                 return False, _friendly_runtime_error_message(tracks_result, fallback="Spotify playlist tracks failed.")
             await asyncio.to_thread(

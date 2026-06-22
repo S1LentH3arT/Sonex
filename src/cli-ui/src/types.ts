@@ -1,5 +1,5 @@
 export type ServerEvent =
-    | { type: "chat"; role: ChatRole; text: string }
+    | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null }
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
     | { type: "status"; phase: string; message: string; active?: boolean | null; step?: number; max_steps?: number }
     | { type: "queue"; tracks: Array<{ index: string; title: string; artist: string; duration: string }> }
@@ -167,14 +167,18 @@ export type TrackSummary = {
     recommendation_reason?: string | null;
 };
 
+export type ChatTheme = "spotify";
+
 export type ChatBubbleProps = {
     role: ChatRole;
     content: string;
+    theme?: ChatTheme | null;
 };
 
 export type ChatItem = {
     role: ChatRole;
     content: string;
+    theme?: ChatTheme | null;
 };
 
 export type HelpCommand = {

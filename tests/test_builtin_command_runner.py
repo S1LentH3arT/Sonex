@@ -62,7 +62,11 @@ class FakeUI:
         Example: append_agent_message() -> passes without assertion failures when the behavior remains correct.
         """
         self.transcript.append({"role": "agent", "content": text})
-        self.events.append({"type": "chat", "role": "agent", "text": text})
+        event = {"type": "chat", "role": "agent", "text": text}
+        mode = getattr(self, "_spotify_mode", None)
+        if isinstance(mode, dict) and mode.get("enabled"):
+            event["theme"] = "spotify"
+        self.events.append(event)
 
     async def append_activity(self, **kwargs: object) -> str:
         """Verifies that append activity behaves as expected.
@@ -760,7 +764,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(getattr(ui, "_spotify_mode", None))
 
-    async def test_spotify_command_toggles_off_in_spotify_mode(self) -> None:
+    async def test_spotify_command_is_not_available_inside_spotify_mode(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
@@ -770,15 +774,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             path = Path(os.environ["SONEX_HOME"]) / "spotify-mode.json"
             path.write_text(json.dumps({"version": 1, "enabled": True}), encoding="utf-8")
             await runner._handle_user_input(ui, "/spotify")
-            self.assertFalse(path.exists())
+            self.assertTrue(path.exists())
 
         self.assertFalse(runner._run_agent_turn.called)
-        self.assertIsNone(getattr(ui, "_spotify_mode", None))
-        mode_events = [event for event in ui.events if event.get("type") == "spotify_mode"]
-        self.assertTrue(mode_events)
-        self.assertFalse(mode_events[-1]["enabled"])
+        self.assertTrue(getattr(ui, "_spotify_mode")["enabled"])
+        self.assertTrue(any("not available in Spotify mode" in str(event.get("text")) for event in ui.events))
 
-    async def test_spotify_off_exits_session_mode(self) -> None:
+    async def test_spotify_off_is_not_available_inside_spotify_mode(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
         setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
@@ -787,10 +789,10 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             path = Path(os.environ["SONEX_HOME"]) / "spotify-mode.json"
             path.write_text(json.dumps({"version": 1, "enabled": True}), encoding="utf-8")
             await runner._handle_user_input(ui, "/spotify off")
-            self.assertFalse(path.exists())
+            self.assertTrue(path.exists())
 
-        self.assertIsNone(getattr(ui, "_spotify_mode", None))
-        self.assertTrue(any("Spotify mode off" in str(event.get("detail")) for event in ui.events if event.get("type") == "activity"))
+        self.assertTrue(getattr(ui, "_spotify_mode")["enabled"])
+        self.assertTrue(any("not available in Spotify mode" in str(event.get("text")) for event in ui.events))
 
     async def test_keymap_command_is_reported_as_tui_handled(self) -> None:
         runner = WebSocketRunner()
@@ -1196,6 +1198,18 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("apple_music_play", intent.allowed_tools)
         self.assertNotIn("play_youtube_song", intent.allowed_tools)
 
+    async def test_spotify_mode_rejects_non_spotify_mode_command_in_chat(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        await runner._handle_user_input(ui, "/help")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any("not available in Spotify mode" in str(event.get("text")) for event in ui.events))
+        self.assertFalse(any(event.get("type") == "help_panel" for event in ui.events))
+
     async def test_spotify_mode_playlist_command_imports_once_then_browses_local_mirrors(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1233,6 +1247,24 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(confirms), 2)
         self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
         self.assertTrue(getattr(ui, "_spotify_library_synced"))
+
+    async def test_spotify_mode_playlist_sync_times_out_with_chat_error(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        async def never_returns(*_args, **_kwargs):
+            await asyncio.sleep(10)
+
+        with patch("src.api.ws_runner.asyncio.to_thread", side_effect=never_returns), patch(
+            "src.api.ws_runner.SPOTIFY_MODE_CALL_TIMEOUT_SECONDS",
+            0.001,
+        ):
+            await runner._handle_user_input(ui, "/playlist")
+
+        self.assertTrue(any("Spotify Library sync timed out" in str(event.get("text")) for event in ui.events))
+        self.assertTrue(any(event.get("theme") == "spotify" for event in ui.events if event.get("role") == "agent"))
+        self.assertFalse(any(event.get("tool_name") == "playlist_browse" for event in ui.events))
 
     async def test_spotify_mode_playlist_sync_fetches_all_playlist_tracks(self) -> None:
         runner = WebSocketRunner()
@@ -2201,6 +2233,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(60)
 
         with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
+                patch.object(runner, "_restore_persistent_spotify_mode", new=AsyncMock()), \
                 patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
                 patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke:
             await runner.handle_ws(ws)  # type: ignore[arg-type]
