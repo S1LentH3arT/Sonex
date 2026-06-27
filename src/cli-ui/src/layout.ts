@@ -33,6 +33,11 @@ export type MiniPlayerLayout = {
     statusIconSlot: TerminalLinePosition;
 };
 
+export type SpotifyImmersiveLayout = {
+    topPadding: number;
+    progressSlot: TerminalLinePosition;
+};
+
 const CHAT_HEADER_FULL_MIN_COLUMNS = 72;
 const MINI_COLUMN_GAP = 1;
 const MINI_INFO_RATIO = 0.32;
@@ -45,6 +50,9 @@ const MINI_COVER_TARGET_COLUMNS = 80;
 const MINI_CONTENT_START_ROW = 1;
 const MINI_CONTENT_START_COLUMN = 1;
 const MINI_INFO_ROWS = 4;
+const SPOTIFY_IMMERSIVE_ROWS = 10;
+const SPOTIFY_PROGRESS_MIN_COLUMNS = 18;
+const SPOTIFY_PROGRESS_MAX_COLUMNS = 48;
 
 export function resolveChatHeaderVariant(columns: number | null): ChatHeaderVariant {
     return (columns ?? 0) >= CHAT_HEADER_FULL_MIN_COLUMNS ? 'full' : 'compact';
@@ -104,6 +112,28 @@ export function resolveMiniPlayerLayout(size: TerminalSize): MiniPlayerLayout {
     };
 }
 
+export function resolveSpotifyImmersiveLayout(size: TerminalSize): SpotifyImmersiveLayout {
+    const columns = Math.max(0, size.columns ?? 0);
+    const rows = Math.max(0, size.rows ?? 0);
+    const topPadding = Math.max(1, Math.floor((Math.max(rows, 1) - SPOTIFY_IMMERSIVE_ROWS) / 2));
+    const preferredWidth = Math.min(
+        SPOTIFY_PROGRESS_MAX_COLUMNS,
+        Math.max(SPOTIFY_PROGRESS_MIN_COLUMNS, Math.max(columns - 16, 0)),
+    );
+    const width = Math.max(0, Math.min(Math.max(columns - 4, 0), preferredWidth));
+    const row = Math.max(1, Math.min(Math.max(1, rows - 1), topPadding + 6));
+    const column = Math.max(1, Math.floor((Math.max(columns, width) - width) / 2) + 1);
+
+    return {
+        topPadding,
+        progressSlot: {
+            row,
+            column,
+            width,
+        },
+    };
+}
+
 function hasTrackIdentity(player: PlayerState): boolean {
     return Boolean(
         player.session_id
@@ -136,7 +166,7 @@ export function resolveRegionAfterPlayerEvent({
     if (!sessionActive) {
         return { region: 'chat', sessionActive: false };
     }
-    if (spotifyModeEnabled && player.source !== 'local' && player.source !== 'youtube' && player.source !== 'apple_music') {
+    if (spotifyModeEnabled) {
         return { region: 'spotifyImmersive', sessionActive: true };
     }
     if (!wasSessionActive) {
@@ -145,8 +175,9 @@ export function resolveRegionAfterPlayerEvent({
     return { region: currentRegion, sessionActive: true };
 }
 
-export function toggleShellRegion(currentRegion: ShellRegion, sessionActive: boolean): ShellRegion {
+export function toggleShellRegion(currentRegion: ShellRegion, sessionActive: boolean, spotifyModeEnabled = false): ShellRegion {
     if (!sessionActive) return 'chat';
     if (currentRegion === 'spotifyImmersive') return 'chat';
+    if (spotifyModeEnabled && currentRegion === 'chat') return 'spotifyImmersive';
     return currentRegion === 'chat' ? 'miniPlayer' : 'chat';
 }

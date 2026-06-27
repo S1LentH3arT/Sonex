@@ -1218,8 +1218,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         tracks = [{"name": "Song", "artist": "Artist", "duration_ms": 123000, "uri": "spotify:track:1"}]
         saved_tracks = [{"name": "Saved Song", "artist": "Artist", "duration_ms": 123000, "uri": "spotify:track:saved"}]
         choices = [
-            {"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "1 saved track"},
-            {"value": "playlist_ref:Spotify:playlist-1", "label": "[Spotify] Road", "description": "1 saved track"},
+            {"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "1 saved track", "track_count": 1},
+            {"value": "playlist_ref:Spotify:playlist-1", "label": "[Spotify] Road", "description": "1 saved track", "track_count": 1},
         ]
 
         with patch("src.api.ws_runner.spotify_saved_tracks", return_value={
@@ -1252,7 +1252,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         runner = WebSocketRunner()
         ui = FakeUI()
         setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
-        choices = [{"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "20 saved tracks"}]
+        choices = [{"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "20 saved tracks", "track_count": 20}]
 
         async def never_returns(*_args, **_kwargs):
             await asyncio.sleep(10)
@@ -1294,7 +1294,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ui = FakeUI()
         setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
         choices = [
-            {"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "20 saved tracks"},
+            {"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "20 saved tracks", "track_count": 20},
         ]
 
         with patch("src.api.ws_runner.spotify_saved_tracks", return_value={
@@ -1313,6 +1313,33 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("Showing existing local playlists" in str(event.get("detail")) for event in ui.events))
         confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
         self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
+
+    async def test_spotify_mode_playlist_network_failure_uses_stable_message(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        raw_error = (
+            "HTTPSConnectionPool(host='api.spotify.com', port=443): Max retries exceeded with url: "
+            "/v1/me/tracks?limit=50&offset=0 (Caused by SSLError(SSLEOFError(8, "
+            "'[SSL:UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1000)')))"
+        )
+
+        with patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "fail",
+            "message": raw_error,
+            "error_code": "SPOTIFY_API_ERROR",
+        }), patch(
+            "src.api.ws_runner.playlist_choices",
+            return_value=[{"value": "playlist:likes", "label": "likes", "description": "0 saved tracks", "track_count": 0}],
+        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/playlist")
+
+        texts = [str(event.get("text") or event.get("detail") or "") for event in ui.events]
+        self.assertTrue(any("Spotify connection failed while syncing playlists" in text for text in texts))
+        self.assertFalse(any("HTTPSConnectionPool" in text for text in texts))
+        self.assertTrue(any("Showing existing local playlists" in text for text in texts))
+        confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
+        self.assertEqual(confirms[-1]["choices"][0]["label"], "likes")
 
     async def test_spotify_mode_playlist_sync_fetches_all_playlist_tracks(self) -> None:
         runner = WebSocketRunner()
@@ -1398,7 +1425,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "data": {"playlists": []},
         }), patch("src.api.ws_runner.upsert_mirror_playlist"), patch(
             "src.api.ws_runner.playlist_choices",
-            return_value=[{"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "1 saved track"}],
+            return_value=[{"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "1 saved track", "track_count": 1}],
         ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "/playlist")
 
@@ -1933,14 +1960,15 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ui = FakeUI()
 
         with patch("src.api.ws_runner.playlist_choices", return_value=[
-            {"value": "playlist:likes", "label": "likes", "description": "0 saved tracks"},
-            {"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "1 saved track"},
+            {"value": "playlist:likes", "label": "likes", "description": "0 saved tracks", "track_count": 0},
+            {"value": "playlist_ref:Spotify:spotify-library", "label": "[Spotify] Spotify Library", "description": "1 saved track", "track_count": 1},
         ]):
             await runner._handle_user_input(ui, "/playlist")
 
         self.assertFalse(runner._run_agent_turn.called)
         confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
         self.assertEqual(confirms[-1]["choices"][1]["label"], "[Spotify] Spotify Library")
+        self.assertEqual(confirms[-1]["choices"][1]["track_count"], 1)
 
     async def test_playlist_save_opens_target_picker_defaulting_to_likes(self) -> None:
         runner = WebSocketRunner()
@@ -1955,8 +1983,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         })
 
         with patch("src.api.ws_runner.playlist_choices", return_value=[
-            {"value": "playlist:likes", "label": "likes", "description": "1 saved track"},
-            {"value": "playlist:road", "label": "road", "description": "0 saved tracks"},
+            {"value": "playlist:likes", "label": "likes", "description": "1 saved track", "track_count": 1},
+            {"value": "playlist:road", "label": "road", "description": "0 saved tracks", "track_count": 0},
         ]):
             await runner._handle_user_input(ui, "/playlist save")
 

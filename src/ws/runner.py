@@ -73,6 +73,7 @@ from src.tools.online_play import (
     search_spotify_track_candidates,
     search_online_audio_candidates,
 )
+from src.tools.playback_queue import playback_queue_snapshot, remember_playback_track
 from src.tools.playlists import (
     LIKES_PLAYLIST,
     SPOTIFY_LIBRARY_EXTERNAL_ID,
@@ -83,7 +84,6 @@ from src.tools.playlists import (
     track_in_playlist,
     upsert_mirror_playlist,
 )
-from src.tools.playback_queue import playback_queue_snapshot, remember_playback_track
 from src.tools.track_search import search_track_metadata_candidates
 
 
@@ -150,19 +150,17 @@ from src.tools.spotify_play import (
     spotify_queue,
     spotify_saved_tracks,
 )
-from src.tools.song_cache import find_best_cached_song, recent_cached_songs, resolve_cached_song, upsert_cached_song
+from src.tools.song_cache import find_best_cached_song, resolve_cached_song, upsert_cached_song
 from src.ws.constants import (
     APPLE_MUSIC_SETUP_TRIGGERS,
     LLM_AUTH_PROVIDER_CHOICES,
     LLM_AUTH_PROVIDER_VALUES,
     LLM_MODEL_CHOICES,
-    LLM_MODEL_CHOICE_VALUES,
     LOCAL_PLAYBACK_BACKENDS,
     LOCAL_PLAYBACK_CHOICES,
     LOCAL_PLAYBACK_CONTROL_TOOLS,
     PLAYBACK_AGENT_TOOLS,
     PLAYBACK_METHOD_CHOICES,
-    PLAYBACK_ROUTER_TOOLS,
     RECOMMEND_AGENT_TOOLS,
     RECOMMENDATION_TOOLS,
     SEARCH_RESULT_TOOLS,
@@ -340,6 +338,7 @@ def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something w
         code = str(result.get("error_code") or "")
         message = str(result.get("message") or "").strip()
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        lowered = message.lower()
         if code == "SPOTIFY_PREMIUM_REQUIRED":
             return (
                 "Spotify playback state requires a Premium account. "
@@ -349,6 +348,12 @@ def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something w
             retry_after = str(data.get("retry_after") or "").strip()
             if retry_after and retry_after not in message:
                 message = f"{message} Spotify is rate limited; try again after {retry_after}."
+        if code == "SPOTIFY_API_ERROR" and (
+            "httpsconnectionpool" in lowered
+            or "ssleoferror" in lowered
+            or "max retries exceeded" in lowered
+        ):
+            return "Spotify connection failed while syncing playlists. Showing existing local playlists when available."
         if message:
             return sanitize_error_message(message)
     return sanitize_error_message(fallback)
@@ -567,7 +572,7 @@ def playlist_panel_tracks(
     for index, track in enumerate(tracks, start=1):
         name = str(track.get("name") or track.get("title") or "-")
         row: dict[str, Any] = {
-            "index": f"{index:02d}",
+            "index": str(index),
             "title": name,
             "name": name,
             "artist": str(track.get("artist") or "-"),
@@ -3143,7 +3148,7 @@ def _spotify_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, 
     for index, track in enumerate(tracks, start=1):
         name = str(track.get("name") or track.get("title") or "-")
         row: dict[str, Any] = {
-            "index": f"{index:02d}",
+            "index": str(index),
             "title": name,
             "name": name,
             "artist": str(track.get("artist") or "-"),

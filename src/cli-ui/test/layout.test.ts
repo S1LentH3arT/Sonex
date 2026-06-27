@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     resolveChatHeaderVariant,
     resolveMiniPlayerLayout,
+    resolveSpotifyImmersiveLayout,
     hasActivePlaybackSession,
     resolveRegionAfterPlayerEvent,
     toggleShellRegion,
@@ -71,7 +72,7 @@ assert.deepEqual(
         player: { ...playing, source: 'local' },
         spotifyModeEnabled: true,
     }),
-    { region: 'miniPlayer', sessionActive: true },
+    { region: 'spotifyImmersive', sessionActive: true },
 );
 
 assert.deepEqual(
@@ -121,9 +122,11 @@ assert.deepEqual(
 );
 
 assert.equal(toggleShellRegion('chat', true), 'miniPlayer');
+assert.equal(toggleShellRegion('chat', true, true), 'spotifyImmersive');
 assert.equal(toggleShellRegion('miniPlayer', true), 'chat');
 assert.equal(toggleShellRegion('spotifyImmersive', true), 'chat');
 assert.equal(toggleShellRegion('chat', false), 'chat');
+assert.equal(toggleShellRegion('chat', false, true), 'chat');
 assert.equal(toggleShellRegion('miniPlayer', false), 'chat');
 assert.equal(toggleShellRegion('spotifyImmersive', false), 'chat');
 
@@ -158,6 +161,14 @@ const targetArtwork = resolveMiniPlayerLayout({ columns: 105, rows: 40 });
 assert.equal(targetArtwork.mode, 'artwork');
 assert.equal(targetArtwork.infoWidth, 24);
 assert.equal(targetArtwork.coverWidth, 80);
+
+const spotifyImmersive = resolveSpotifyImmersiveLayout({ columns: 100, rows: 30 });
+assert.equal(spotifyImmersive.topPadding, 10);
+assert.deepEqual(spotifyImmersive.progressSlot, {
+    row: 16,
+    column: 27,
+    width: 48,
+});
 
 const narrowArtwork = resolveMiniPlayerLayout({ columns: 100, rows: 40 });
 assert.equal(narrowArtwork.mode, 'artwork');

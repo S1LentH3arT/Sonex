@@ -11,8 +11,8 @@ import { isHttpCoverSource, useCoverArt } from './hooks.js';
 import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
-import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion } from './layout.js';
-import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
+import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
+import { buildPlaybackProgressLine, buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
@@ -212,10 +212,26 @@ type ChoicePanelRow = {
 const COMMAND_LIST_LABEL_WIDTH = 12;
 const CONFIRM_CHOICE_LABEL_WIDTH = 18;
 const MODEL_PANEL_LABEL_WIDTH = 20;
+const PLAYLIST_BROWSE_NAME_WIDTH = 32;
 const SPOTIFY_GREEN = "#1db954";
 const SPOTIFY_SELECTED_TEXT = "#06140c";
 const SPOTIFY_TRACK_INDEX_WIDTH = 3;
 const SPOTIFY_TRACK_ARTIST_WIDTH = 16;
+
+const truncateDisplayWidth = (value: string, width: number): string => {
+    const normalized = value.trim() || "-";
+    let rendered = "";
+    for (const char of normalized) {
+        if (stringWidth(rendered + char) > width) break;
+        rendered += char;
+    }
+    return rendered || "-";
+};
+
+const fitDisplayWidth = (value: string, width: number): string => {
+    const rendered = truncateDisplayWidth(value, width);
+    return rendered + " ".repeat(Math.max(0, width - stringWidth(rendered)));
+};
 
 const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): string => (
     `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
@@ -229,6 +245,18 @@ const modelIdFromChoice = (model: AuthMethodChoice): string => {
 const formatModelPanelLabel = (model: AuthMethodChoice): string => (
     modelIdFromChoice(model).padEnd(MODEL_PANEL_LABEL_WIDTH, " ")
 );
+
+const formatPlaylistBrowseName = (label: string): string => (
+    fitDisplayWidth(label, PLAYLIST_BROWSE_NAME_WIDTH)
+);
+
+const playlistBrowseTrackCount = (choice: ConfirmChoice): string => {
+    const numericCount = typeof choice.track_count === "number"
+        ? choice.track_count
+        : Number.parseInt(choice.description ?? "", 10);
+    const count = Number.isFinite(numericCount) && numericCount > 0 ? Math.trunc(numericCount) : 0;
+    return `${count} track${count === 1 ? "" : "s"}`;
+};
 
 const formatChoicePanelLabel = (row: ChoicePanelRow): string => (
     row.labelWidth
@@ -292,9 +320,10 @@ const SlashCommandList = ({ suggestions, selectedIndex, spotifyTheme = false }: 
                 const selected = absoluteIndex === boundedIndex;
                 const rowBackgroundColor = spotifyTheme && selected ? SPOTIFY_GREEN : undefined;
                 const commandColor = rowBackgroundColor ? SPOTIFY_SELECTED_TEXT : selected ? BORDER_BLUE : "#fff4f6";
-                const rowFill = rowBackgroundColor ? " ".repeat(512) : "";
+                const rowText = `${selected ? "> " : "  "}${formatCommandListLabel(command)}${command.description}`;
+                const rowFill = rowBackgroundColor ? " ".repeat(Math.max(0, 96 - stringWidth(rowText))) : " "
                 return (
-                    <Text key={command.name} backgroundColor={rowBackgroundColor}>
+                    <Text key={command.name} backgroundColor={rowBackgroundColor} wrap="truncate-end">
                         <Text color={commandColor} backgroundColor={rowBackgroundColor}>
                             {selected ? "> " : "  "}
                         </Text>
@@ -418,8 +447,8 @@ const trackPanelEmptyText = (panel: NonNullable<TrackPanelState>, language: UiLa
     panel.panel === "queue" ? t(language, "trackPanel.queueEmpty") : t(language, "trackPanel.playlistEmpty")
 );
 
-const isSpotifyTrackPanel = (panel: NonNullable<TrackPanelState>): boolean => (
-    panel.title.startsWith("Spotify ")
+const isPlaylistTrackPanel = (panel: NonNullable<TrackPanelState>): boolean => (
+    panel.panel === "playlist"
 );
 
 const padDisplayWidth = (value: string, width: number): string => {
@@ -435,19 +464,23 @@ const padDisplayWidth = (value: string, width: number): string => {
     return rendered + " ".repeat(Math.max(0, width - renderedWidth));
 };
 
+const padStartDisplayWidth = (value: string, width: number): string => {
+    const normalized = value.trim() || "-";
+    const renderedWidth = stringWidth(normalized);
+    return " ".repeat(Math.max(0, width - renderedWidth)) + normalized;
+};
+
 const formatTrackPanelTitle = (panel: NonNullable<TrackPanelState>, track: TrackPanelTrack): string => (
-    panel.panel === "playlist" && isSpotifyTrackPanel(panel)
+    isPlaylistTrackPanel(panel)
         ? `${padDisplayWidth(track.artist, SPOTIFY_TRACK_ARTIST_WIDTH)} ${track.title}`
         : track.title
 );
 
 const formatSpotifyTrackPanelIndex = (track: TrackPanelTrack): string => (
-    padDisplayWidth(track.index, SPOTIFY_TRACK_INDEX_WIDTH)
+    padStartDisplayWidth(track.index, SPOTIFY_TRACK_INDEX_WIDTH)
 );
 
-const fillTrackPanelLine = (value: string): string => (
-    `${value}${" ".repeat(512)}`
-);
+const TRACK_PANEL_MIN_VISIBLE_ROWS = 4;
 
 const TrackPanel = ({ panel, expanded = false, selectedIndex = 0, language = "en" }: {
     panel: TrackPanelState;
@@ -456,53 +489,94 @@ const TrackPanel = ({ panel, expanded = false, selectedIndex = 0, language = "en
     language?: UiLanguage;
 }) => {
     if (!panel) return null;
+
+    const panelRef = React.useRef<any>(null);
+    const [panelHeight, setPanelHeight] = React.useState<number>(0);
+
+    React.useEffect(() => {
+        if (!panelRef.current) return;
+        const { height } = measureElement(panelRef.current);
+        if (height > 0 && height !== panelHeight) {
+            setPanelHeight(height);
+        }
+    });
+
+    const panelTitle = localizeTrackPanelTitle(panel, language);
+    const isSpotifyThemePanel = panel.panel === "playlist" || panel.panel === "queue";
+
+    const titleRows = 1;
+    const hintRows = panel.hint ? 1 : 0;
+    const paddingRows = 1;
+    const availableRows = Math.max(
+        TRACK_PANEL_MIN_VISIBLE_ROWS,
+        panelHeight > 0 ? panelHeight - titleRows - hintRows - paddingRows - 2 : TRACK_PANEL_MIN_VISIBLE_ROWS,
+    );
+
     const { items: rows, boundedIndex, startIndex } = visibleCommandWindow(
         panel.tracks,
         selectedIndex,
-        10,
+        availableRows,
     );
-    const panelTitle = localizeTrackPanelTitle(panel, language);
-    const spotifyPanel = isSpotifyTrackPanel(panel);
+
     return (
         <Box
+            ref={panelRef}
             flexDirection="column"
             flexGrow={expanded ? 1 : 0}
-            flexShrink={1}
-            minHeight={expanded ? 0 : 9}
+            flexShrink={0}
+            minHeight={0}
             height={expanded ? "100%" : undefined}
-            padding={1}
             paddingX={2}
             borderStyle="single"
-            borderColor={spotifyPanel ? SPOTIFY_GREEN : BORDER_BLUE}
+            borderColor={isSpotifyThemePanel ? SPOTIFY_GREEN : BORDER_BLUE}
         >
-            <Box marginBottom={1}>
-                <Text bold color={spotifyPanel ? SPOTIFY_GREEN : "#f3b2c6"}>{panelTitle}</Text>
+            <Box>
+                <Text bold color={isSpotifyThemePanel ? SPOTIFY_GREEN : "#f3b2c6"}>
+                    {panelTitle}
+                </Text>
                 {panel.hint ? <Text color="#7f5d6b"> - {panel.hint}; Esc to hide</Text> : null}
             </Box>
-            <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingTop={1}>
+
+            <Box flexDirection="column" paddingTop={2} flexGrow={0} flexShrink={0} minHeight={0}>
                 {rows.length === 0 ? (
-                    <Text color={spotifyPanel ? SPOTIFY_GREEN : "#7f5d6b"}>{trackPanelEmptyText(panel, language)}</Text>
+                    <Text color={isSpotifyThemePanel ? SPOTIFY_GREEN : "#7f5d6b"}>
+                        {trackPanelEmptyText(panel, language)}
+                    </Text>
                 ) : rows.map((track, idx) => {
                     const absoluteIndex = startIndex + idx;
                     const selected = absoluteIndex === boundedIndex;
-                    const selectedBackground = spotifyPanel && selected ? SPOTIFY_GREEN : undefined;
-                    const selectedColor = selectedBackground ? SPOTIFY_SELECTED_TEXT : undefined;
-                    const marker = selected ? <Text color={selectedColor ?? (spotifyPanel ? SPOTIFY_GREEN : "#f3b2c6")} backgroundColor={selectedBackground}>{">>"}</Text> :
-                        <Text color={spotifyPanel ? SPOTIFY_GREEN : "#7f5d6b"}>{".."}</Text>;
+                    const selectedBackground = isSpotifyThemePanel && selected ? SPOTIFY_GREEN : undefined;
+                    const rowColor = selectedBackground
+                        ? SPOTIFY_SELECTED_TEXT
+                        : isSpotifyThemePanel
+                            ? "#ffffff"
+                            : selected
+                                ? "#f3b2c6"
+                                : "#fff4f6";
+                    const marker = selected ? "> " : "  ";
                     const meta = panel.panel === "queue" ? track.duration : null;
                     const title = formatTrackPanelTitle(panel, track);
                     const spotifyIndex = formatSpotifyTrackPanelIndex(track);
-                    const selectedSpotifyLine = selectedBackground ? fillTrackPanelLine(`>> ${spotifyIndex} ${title}`) : null;
+                    const spotifyLine = `${spotifyIndex} ${title}`;
+                    const rowBackgroundColor = selected ? (isSpotifyThemePanel ? SPOTIFY_GREEN : "#4b2f3a") : undefined;
+                    const rowFill = rowBackgroundColor ? " ".repeat(Math.max(0, 96 - stringWidth(
+                            isSpotifyThemePanel ? `${spotifyLine}` : `${marker}${track.index}${title}`
+                    ))) : "";
+
                     return (
-                        <Box key={`${track.index}_${idx}`} width="100%" flexDirection="column" marginBottom={1}>
-                            {selectedSpotifyLine ? (
-                                <Text color={SPOTIFY_SELECTED_TEXT} backgroundColor={SPOTIFY_GREEN} wrap="truncate-end">{selectedSpotifyLine}</Text>
+                        <Text backgroundColor={rowBackgroundColor} wrap="truncate-end">
+                            {isSpotifyThemePanel ? (
+                                <Text color={rowColor} backgroundColor={rowBackgroundColor}>
+                                    {spotifyLine}{rowFill}
+                                </Text>
                             ) : (
-                                <Text>{marker} <Text color={spotifyPanel ? SPOTIFY_GREEN : "#bf98a7"}>{spotifyPanel ? spotifyIndex : track.index}</Text> <Text
-                                    color={spotifyPanel ? SPOTIFY_GREEN : "#fff4f6"}>{title}</Text></Text>
+                                <>
+                                    <Text color={rowColor} backgroundColor={rowBackgroundColor}>{marker}</Text>
+                                    <Text color="#bf98a7" backgroundColor={rowBackgroundColor}>{track.index}</Text>
+                                    <Text color={rowColor} backgroundColor={rowBackgroundColor}>{title}{rowFill}</Text>
+                                </>
                             )}
-                            {meta ? <Text> <Text color="#bf98a7">{meta}</Text></Text> : null}
-                        </Box>
+                        </Text>
                     );
                 })}
             </Box>
@@ -821,24 +895,6 @@ const PlayerPane = ({ player, coverUrl, coverPattern, terminalSpace, miniLayout,
     );
 };
 
-const CompactConversation = ({ items, statusText }: { items: ChatItem[]; statusText: string }) => {
-    const visibleItems = items.slice(-2);
-
-    return (
-        <Box flexDirection="column" paddingX={1} paddingY={1} minHeight={4}>
-            {visibleItems.length === 0 ? (
-                <Text color={BORDER_BLUE}>{statusText}</Text>
-            ) : (
-                visibleItems.map((item, idx) => (
-                    <Text key={idx} color={item.role === "user" ? "#fff4f6" : "#bf98a7"}>
-                        <Text color="#7f5d6b">{item.role === "user" ? ">" : "<"}</Text> {item.content}
-                    </Text>
-                ))
-            )}
-        </Box>
-    );
-};
-
 const LANGUAGE_CHOICES: UiLanguage[] = ["en", "zh-CN"];
 
 const orderedLanguageChoices = (current: UiLanguage): UiLanguage[] => [
@@ -852,6 +908,37 @@ const confirmCancelHint = (choices: ConfirmChoice[]): string => (
         : "press Esc to cancel"
 );
 
+const PlaylistBrowsePanel = ({ choices, selectedIndex, spotifyTheme = false }: {
+    choices: ConfirmChoice[];
+    selectedIndex: number;
+    spotifyTheme?: boolean;
+}) => {
+    if (choices.length === 0) return null;
+    const { items: visibleChoices, boundedIndex, startIndex } = visibleCommandWindow(
+        choices,
+        selectedIndex,
+        choices.length,
+    );
+
+    return (
+        <Box flexDirection="column" marginTop={1}>
+            {visibleChoices.map((choice, index) => {
+                const absoluteIndex = startIndex + index;
+                const selected = absoluteIndex === boundedIndex;
+                const rowBackgroundColor = spotifyTheme && selected ? SPOTIFY_GREEN : undefined;
+                const rowColor = rowBackgroundColor ? SPOTIFY_SELECTED_TEXT : selected ? BORDER_BLUE : "#fff4f6";
+                const rowText = `${formatPlaylistBrowseName(choice.label)} ${playlistBrowseTrackCount(choice)}`;
+                return (
+                    <Text key={choice.value} backgroundColor={rowBackgroundColor} wrap="truncate-end">
+                        <Text color={rowColor} backgroundColor={rowBackgroundColor}>{selected ? "> " : "  "}</Text>
+                        <Text color={rowColor} backgroundColor={rowBackgroundColor}>{rowText}</Text>
+                    </Text>
+                );
+            })}
+        </Box>
+    );
+};
+
 const CompactConfirm = ({ confirm, confirmIndex, spotifyTheme = false }: {
     confirm: ConfirmState;
     confirmIndex: number;
@@ -860,6 +947,16 @@ const CompactConfirm = ({ confirm, confirmIndex, spotifyTheme = false }: {
     if (!confirm) return null;
     const visibleChoices = getVisibleConfirmChoices(confirm.choices);
     const isSpotifyConfirm = spotifyTheme || confirm.tool_name === "spotify_device";
+
+    if (confirm.tool_name === "playlist_browse") {
+        return (
+            <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={isSpotifyConfirm ? SPOTIFY_GREEN : BORDER_BLUE}>
+                <Text color="#fff4f6">{confirm.message}</Text>
+                <Text color="#7f5d6b">{confirmCancelHint(confirm.choices)}</Text>
+                <PlaylistBrowsePanel choices={visibleChoices} selectedIndex={confirmIndex} spotifyTheme={isSpotifyConfirm} />
+            </Box>
+        );
+    }
 
     return (
         <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={isSpotifyConfirm ? SPOTIFY_GREEN : BORDER_BLUE}>
@@ -1037,7 +1134,7 @@ const InputDock = ({
         }
         : null;
     const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && (!confirm || Boolean(selectedChoice?.input));
-    const spotifyModeBorderLabel = "────Spotify Mode ────";
+    const spotifyModeBorderLabel = " Spotify Mode ";
 
     return (
         <Box flexDirection="column">
@@ -1074,7 +1171,12 @@ const InputDock = ({
                     minHeight={minimal ? 3 : 4} flexShrink={0}>
                     {spotifyMode?.enabled ? (
                         <Box justifyContent="flex-end">
-                            <Text color={SPOTIFY_GREEN}>{spotifyModeBorderLabel}</Text>
+                            <Text
+                                color={SPOTIFY_SELECTED_TEXT}
+                                backgroundColor={SPOTIFY_GREEN}
+                            >
+                                {spotifyModeBorderLabel}
+                            </Text>
                         </Box>
                     ) : null}
                     <Box flexDirection="row">
@@ -1249,16 +1351,17 @@ const SpotifyImmersiveRegion = ({
     player,
     spotifyMode,
     terminalSpace,
+    spotifyImmersiveLayout,
 }: {
     player: PlayerState;
     spotifyMode: SpotifyModeState;
     terminalSpace: TerminalSpace;
+    spotifyImmersiveLayout: SpotifyImmersiveLayout;
 }) => {
     const deviceName = spotifyMode.device_name ?? "Spotify Connect";
     const progressMs = player.progress_ms ?? 0;
-    const progressWidth = Math.max(18, Math.min(48, Math.floor(((terminalSpace.columns ?? 80) - 16) / 2)));
-    const progress = buildProgressBar(progressMs, player.duration_ms, progressWidth);
-    const topPadding = Math.max(1, Math.floor(((terminalSpace.rows ?? 24) - 10) / 2));
+    const progress = buildPlaybackProgressLine(player, player.timestamp ?? Date.now(), spotifyImmersiveLayout.progressSlot.width);
+    const topPadding = spotifyImmersiveLayout.topPadding;
 
     return (
         <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingX={2} paddingTop={topPadding}>
@@ -1405,6 +1508,7 @@ export const DynamicShell = ({
     activeRegion,
     miniSnapshotRevision,
     miniLayout,
+    spotifyImmersiveLayout,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
     terminalSpace,
@@ -1439,6 +1543,7 @@ export const DynamicShell = ({
     activeRegion: ShellRegion;
     miniSnapshotRevision: number;
     miniLayout: MiniPlayerLayout;
+    spotifyImmersiveLayout: SpotifyImmersiveLayout;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
     terminalSpace: TerminalSpace;
@@ -1463,6 +1568,7 @@ export const DynamicShell = ({
                 player={player}
                 spotifyMode={spotifyMode}
                 terminalSpace={terminalSpace}
+                spotifyImmersiveLayout={spotifyImmersiveLayout}
             />
         );
     }

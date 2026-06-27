@@ -250,7 +250,7 @@ def list_playlists(*, playlists_root: Path | None = None) -> list[dict[str, Any]
     return sorted(rows, key=_playlist_sort_key)
 
 
-def playlist_choices(*, playlists_root: Path | None = None, writable_only: bool = True) -> list[dict[str, str]]:
+def playlist_choices(*, playlists_root: Path | None = None, writable_only: bool = True) -> list[dict[str, Any]]:
     choices = []
     for playlist in list_playlists(playlists_root=playlists_root):
         if writable_only and playlist.get("readonly"):
@@ -261,6 +261,7 @@ def playlist_choices(*, playlists_root: Path | None = None, writable_only: bool 
                 "value": str(playlist.get("value") or f"playlist:{playlist['name']}"),
                 "label": str(playlist.get("label") or playlist["name"]),
                 "description": f"{count} saved track" + ("" if count == 1 else "s"),
+                "track_count": count,
                 "name": str(playlist.get("name") or LIKES_PLAYLIST),
                 "source_app": str(playlist.get("source_app") or SOURCE_SONEX),
                 "external_id": str(playlist.get("external_id") or ""),

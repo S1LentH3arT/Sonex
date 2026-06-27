@@ -23,6 +23,10 @@ assert.match(appSource, /return Boolean\(key\.ctrl && \(inputKey === "\\x01" \|\
 assert.match(appSource, /isTrackPanelQueueShortcut\(inputKey, key\) && selectedTrackPanelTrack/);
 assert.match(appSource, /send\(\{ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel\.panel, title: trackPanel\.title \}\)/);
 assert.match(appSource, /send\(\{ type: "track_panel_action", action: "play", track: selectedTrackPanelTrack, panel: trackPanel\.panel, title: trackPanel\.title \}\)/);
+assert.match(
+    appSource,
+    /key\.return && selectedTrackPanelTrack\) \{\s*setTrackPanel\(null\);\s*setTrackPanelIndex\(0\);\s*switchRegion\("chat"\);\s*send\(\{ type: "track_panel_action", action: "play", track: selectedTrackPanelTrack, panel: trackPanel\.panel, title: trackPanel\.title \}\);/,
+);
 assert.match(typesSource, /type: "track_panel"/);
 assert.match(typesSource, /panel: "queue" \| "playlist"/);
 assert.match(typesSource, /type: "track_panel_action"; action: "queue_add" \| "play"; track: TrackPanelTrack; panel: "queue" \| "playlist"; title: string/);

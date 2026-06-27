@@ -10,7 +10,7 @@ import { clamp, trimList } from './chat-window.js';
 import { useSonexSocket } from './hooks.js';
 import { applyLanguageToServerEvent, helpCommandsForLanguage, languageLabel, localizeSlashCommands, t } from './i18n.js';
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
-import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
+import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, resolveSpotifyImmersiveLayout, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { isLocalPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import { clearTerminalForLayoutSwitch } from './terminal-clear.js';
@@ -101,7 +101,9 @@ export const App = () => {
     const selectedConfirmChoice = visibleConfirmChoices[Math.min(confirmIndex, Math.max(0, visibleConfirmChoices.length - 1))] ?? null;
     const selectedConfirmInput = selectedConfirmChoice?.input ?? null;
     const miniVisible = activeRegion === "miniPlayer";
+    const spotifyImmersiveVisible = activeRegion === "spotifyImmersive";
     const miniLayout = React.useMemo(() => resolveMiniPlayerLayout(terminalSize), [terminalSize.columns, terminalSize.rows]);
+    const spotifyImmersiveLayout = React.useMemo(() => resolveSpotifyImmersiveLayout(terminalSize), [terminalSize.columns, terminalSize.rows]);
     const headerVariant = resolveChatHeaderVariant(terminalSize.columns);
     const baseLanguageChoices = React.useMemo<UiLanguage[]>(() => ["en", "zh-CN"], []);
     const languageChoices = React.useMemo<UiLanguage[]>(
@@ -188,9 +190,9 @@ export const App = () => {
     }, [stdout]);
 
     usePlaybackProgressWriter({
-        enabled: miniVisible,
+        enabled: miniVisible || spotifyImmersiveVisible,
         player,
-        position: miniLayout.progressSlot,
+        position: spotifyImmersiveVisible ? spotifyImmersiveLayout.progressSlot : miniLayout.progressSlot,
         stdout,
     });
     usePlaybackStatusIconWriter({
@@ -842,6 +844,9 @@ export const App = () => {
         } else if (isTrackPanelQueueShortcut(inputKey, key) && selectedTrackPanelTrack) {
             send({ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
         } else if (key.return && selectedTrackPanelTrack) {
+            setTrackPanel(null);
+            setTrackPanelIndex(0);
+            switchRegion("chat");
             send({ type: "track_panel_action", action: "play", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
         } else if (key.upArrow) {
             setTrackPanelIndex((prev) => Math.max(0, prev - 1));
@@ -853,8 +858,14 @@ export const App = () => {
     useInput((inputKey, key) => {
         if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
 
+        if (activeRegionRef.current === "spotifyImmersive") {
+            if (key.ctrl && inputKey === "c") return;
+            switchRegion("chat");
+            return;
+        }
+
         if (key.tab || inputKey === "\t") {
-            switchRegion(toggleShellRegion(activeRegionRef.current, playbackSessionActiveRef.current));
+            switchRegion(toggleShellRegion(activeRegionRef.current, playbackSessionActiveRef.current, spotifyModeRef.current.enabled));
         }
     }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
 
@@ -907,6 +918,7 @@ export const App = () => {
                         activeRegion={activeRegion}
                         miniSnapshotRevision={miniSnapshotRevision}
                         miniLayout={miniLayout}
+                        spotifyImmersiveLayout={spotifyImmersiveLayout}
                         chatScrollOffset={chatScrollOffset}
                         onMaxChatScrollOffsetChange={setMaxChatScrollOffset}
                         terminalSpace={terminalSize}

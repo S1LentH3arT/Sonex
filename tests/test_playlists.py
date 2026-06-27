@@ -56,7 +56,9 @@ class PlaylistStoreTests(unittest.TestCase):
             choices = playlist_choices(playlists_root=root)
             self.assertEqual(choices[0]["value"], "playlist:likes")
             self.assertEqual(choices[0]["label"], "likes")
+            self.assertEqual(choices[0]["track_count"], 0)
             self.assertEqual(choices[1]["value"], "playlist:road trip")
+            self.assertEqual(choices[1]["track_count"], 1)
 
     def test_source_namespaces_allow_same_playlist_name(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -151,6 +153,8 @@ class PlaylistStoreTests(unittest.TestCase):
 
             self.assertEqual([choice["label"] for choice in save_choices], ["likes", "road"])
             self.assertIn("[Spotify] Spotify Library", [choice["label"] for choice in browse_choices])
+            library_choice = next(choice for choice in browse_choices if choice["label"] == "[Spotify] Spotify Library")
+            self.assertEqual(library_choice["track_count"], 1)
 
     def test_track_in_playlist_matches_saved_likes_track_without_writes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

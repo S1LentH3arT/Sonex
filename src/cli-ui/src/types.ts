@@ -64,6 +64,7 @@ export type ConfirmChoice = {
     value: string;
     label: string;
     description?: string;
+    track_count?: number;
     input?: {
         placeholder: string;
     };
