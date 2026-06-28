@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import queue
+import random
 import re
 import sys
 import threading
@@ -148,6 +149,7 @@ from src.tools.spotify_play import (
     spotify_playlist_tracks,
     spotify_playlists,
     spotify_queue,
+    spotify_recent_tracks,
     spotify_saved_tracks,
 )
 from src.tools.song_cache import find_best_cached_song, resolve_cached_song, upsert_cached_song
@@ -409,6 +411,8 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
             "timestamp": timestamp,
             "started_at": timestamp - progress_ms,
             "is_playing": is_playing,
+            "playback_status": item.get("playback_status") or ("playing" if is_playing else "paused"),
+            "progress_source": item.get("progress_source"),
             "uri": item.get("uri"),
             "provider": item.get("provider"),
             "player": item.get("player"),
@@ -426,6 +430,16 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
         return state, cover_url
 
     return None, None
+
+
+def _spotify_starting_player_state(player_state: dict[str, Any]) -> dict[str, Any]:
+    """Returns a non-authoritative Spotify player state while Web API playback catches up."""
+    pending_state = dict(player_state)
+    pending_state["progress_ms"] = 0
+    pending_state["is_playing"] = False
+    pending_state["playback_status"] = "starting"
+    pending_state["progress_source"] = "spotify_pending"
+    return pending_state
 
 
 def _is_youtube_thumbnail(value: Any) -> bool:
@@ -641,13 +655,16 @@ def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
 
     Example: _player_sync_signature(state=...) -> returns the value used by the surrounding Sonex flow.
     """
-    progress_bucket = int((state.get("progress_ms") or 0) / 5000)
+    source = state.get("source") or state.get("provider")
+    progress_bucket_ms = 1000 if source == "spotify" else 5000
+    progress_bucket = int((state.get("progress_ms") or 0) / progress_bucket_ms)
     return (
         state.get("name"),
         state.get("artist"),
         state.get("album"),
         state.get("duration_ms"),
         bool(state.get("is_playing")),
+        state.get("playback_status"),
         progress_bucket,
         state.get("volume_percent"),
         state.get("is_liked"),
@@ -3815,6 +3832,13 @@ class WebSocketRunner:
                 await ui.append_agent_message(message)
                 return
 
+            if self._spotify_mode_enabled(ui) and parsed_command.command and parsed_command.command.name == "random":
+                if self._running_task and not self._running_task.done():
+                    ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
+                    return
+                self._running_task = asyncio.create_task(self._handle_spotify_random_command(ui))
+                return
+
             if self._spotify_mode_enabled(ui) and parsed_command.command and parsed_command.command.mode == "agent":
                 if self._running_task and not self._running_task.done():
                     ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
@@ -3955,6 +3979,72 @@ class WebSocketRunner:
         self._running_task = asyncio.create_task(
             self._run_agent_turn(ui, user_input, command_intent=command_intent)
         )
+
+    async def _handle_spotify_random_command(self, ui: WebSocketUIAdapter) -> None:
+        try:
+            result = await _run_spotify_mode_call(
+                ui,
+                func=lambda: spotify_recent_tracks(50),
+                pending_detail="Choosing from recently played Spotify tracks.",
+                timeout_message=(
+                    "Spotify recent tracks timed out. "
+                    "Check your Spotify connection, then try /random again."
+                ),
+                failure_title="Spotify random",
+            )
+            if result is None:
+                return
+            if _is_failed_tool_result(result):
+                await self._sync_tool_result_ui(ui, "spotify_recent_tracks", result)
+                message = _friendly_runtime_error_message(result, fallback="Spotify recent tracks failed.")
+                await ui.append_agent_message(message)
+                return
+
+            tracks_payload = result.get("data", {}).get("tracks", []) if isinstance(result, dict) else []
+            seen_uris: set[str] = set()
+            playable_tracks: list[dict[str, Any]] = []
+            for track in tracks_payload if isinstance(tracks_payload, list) else []:
+                if not isinstance(track, dict):
+                    continue
+                uri = str(track.get("uri") or "")
+                if not uri.startswith("spotify:track:") or uri in seen_uris:
+                    continue
+                seen_uris.add(uri)
+                playable_tracks.append(track)
+
+            if not playable_tracks:
+                message = "No recently played Spotify tracks are available to play."
+                await ui.append_activity(kind="error", title="Spotify random", detail=message, status="error")
+                await ui.append_agent_message(message)
+                return
+
+            selected_track = random.choice(playable_tracks)
+            uri = str(selected_track.get("uri") or "")
+            mode = getattr(ui, "_spotify_mode", {}) or {}
+            args: dict[str, Any] = {"uri": uri}
+            if mode.get("device_id"):
+                args["device_id"] = mode["device_id"]
+            play_result = await _run_spotify_mode_call(
+                ui,
+                func=lambda: registry.invoke("spotify_play", args),
+                pending_detail="Starting random Spotify playback.",
+                timeout_message=(
+                    "Spotify playback timed out. "
+                    "Open Spotify on the selected device, then try /random again."
+                ),
+                failure_title="Spotify random",
+            )
+            if play_result is None:
+                return
+            await self._sync_tool_result_ui(ui, "spotify_play", play_result)
+            if _is_failed_tool_result(play_result):
+                message = _friendly_runtime_error_message(play_result, fallback="Spotify playback failed.")
+                await ui.append_agent_message(message)
+                await ui.send_error(message)
+        finally:
+            if self._running_task is asyncio.current_task():
+                self._running_task = None
+                await ui.send_status(UiStatus(phase="Idle", message="Snoozing..."), active=False)
 
     def _looks_like_spotify_playlist_request(self, user_input: str) -> bool:
         text = user_input.strip().lower()
@@ -4676,14 +4766,17 @@ class WebSocketRunner:
         result_status = str(tool_result.get("status") or "").lower() if isinstance(tool_result, dict) else ""
         player_state, cover_url = _extract_music_state(tool_result)
         is_control_tool = tool_name in set(LOCAL_PLAYBACK_CONTROL_TOOLS.values())
+        is_spotify_play_tool = tool_name == "spotify_play"
+        if result_status == "success" and is_spotify_play_tool and player_state:
+            player_state = _spotify_starting_player_state(player_state)
         should_sync_player = result_status == "success" and bool(
-            player_state and (player_state.get("is_playing") or is_control_tool)
+            player_state and (player_state.get("is_playing") or is_control_tool or is_spotify_play_tool)
         )
         if should_sync_player and player_state:
             player_state = _decorate_player_state(player_state)
             setattr(ui, "_last_player_state", player_state)
             await ui._send({"type": "player", "state": player_state})
-            if tool_name not in SEARCH_RESULT_TOOLS:
+            if tool_name not in SEARCH_RESULT_TOOLS and player_state.get("playback_status") != "starting":
                 _remember_actual_playback(player_state)
                 await ui._send({"type": "queue", "tracks": _queue_payload()})
         if should_sync_player and cover_url:

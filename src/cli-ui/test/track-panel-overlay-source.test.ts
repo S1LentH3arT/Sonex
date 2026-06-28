@@ -14,6 +14,7 @@ assert.match(componentsSource, /const TRACK_PANEL_MIN_VISIBLE_ROWS = 4/);
 assert.match(componentsSource, /const isPlaylistTrackPanel = \(panel: NonNullable<TrackPanelState>\): boolean =>/);
 assert.match(componentsSource, /const formatSpotifyTrackPanelIndex = \(track: TrackPanelTrack\): string =>/);
 assert.match(componentsSource, /padStartDisplayWidth\(track\.index, SPOTIFY_TRACK_INDEX_WIDTH\)/);
+assert.match(componentsSource, /track\.queued \? `✓\$\{index\}` : ` \$\{index\}`/);
 assert.match(componentsSource, /padDisplayWidth\(track\.artist, SPOTIFY_TRACK_ARTIST_WIDTH\)/);
 assert.match(componentsSource, /borderColor=\{isSpotifyThemePanel \? SPOTIFY_GREEN : BORDER_BLUE\}/);
 assert.match(componentsSource, /const spotifyIndex = formatSpotifyTrackPanelIndex\(track\);/);
@@ -42,8 +43,9 @@ assert.match(appSource, /setTrackPanelIndex\(0\);/);
 assert.match(appSource, /case "queue":[\s\S]*setQueueItems\(evt\.tracks\);/);
 assert.match(
     appSource,
-    /case "queue":[\s\S]*setTrackPanel\(\(current\) => current && current\.panel === "queue" \? \{ \.\.\.current, tracks: evt\.tracks \} : current\);/,
+    /case "queue":[\s\S]*setTrackPanel\(\(current\) => current \? \{ \.\.\.current, tracks: markQueuedTracks\(current\.panel === "queue" \? evt\.tracks : current\.tracks, evt\.tracks\) \} : current\);/,
 );
+assert.match(appSource, /case "track_panel":[\s\S]*tracks: markQueuedTracks\(evt\.tracks, queueItems\),/);
 assert.match(appSource, /key\.upArrow[\s\S]*setTrackPanelIndex\(\(prev\) => Math\.max\(0, prev - 1\)\);/);
 assert.match(appSource, /key\.downArrow[\s\S]*setTrackPanelIndex\(\(prev\) => Math\.min\(trackPanel\.tracks\.length - 1, prev \+ 1\)\);/);
 assert.match(appSource, /if \(key\.escape\) \{\s*setTrackPanel\(null\);/);

@@ -1,6 +1,6 @@
 import React from 'react';
 import { buildProgressBar, formatDuration } from './format.js';
-import { playbackProgressAt, PLAYBACK_PROGRESS_INTERVAL_MS } from './hooks.js';
+import { isPlaybackStarting, playbackProgressAt, PLAYBACK_PROGRESS_INTERVAL_MS } from './hooks.js';
 import type { TerminalLinePosition } from './layout.js';
 import type { PlayerState } from './types.js';
 
@@ -30,6 +30,7 @@ export type TerminalLine = {
 
 export function resolvePlaybackProgressUpdateMode(enabled: boolean, player: PlayerState): PlaybackProgressUpdateMode {
     if (!enabled || player.ended === true) return 'off';
+    if (isPlaybackStarting(player)) return 'once';
     return player.is_playing === true ? 'interval' : 'once';
 }
 
@@ -39,7 +40,7 @@ export function shouldRefreshMiniSnapshot(reason: MiniSnapshotRefreshReason): bo
 
 export function buildPlaybackProgressLine(player: PlayerState, now: number, width: number): string {
     const progressMs = playbackProgressAt(player, now);
-    const progress = formatDuration(progressMs);
+    const progress = isPlaybackStarting(player) ? 'starting' : formatDuration(progressMs);
     const duration = formatDuration(player.duration_ms);
     const barWidth = Math.max(6, width - progress.length - duration.length - 2);
     const progressBar = buildProgressBar(progressMs, player.duration_ms, barWidth);

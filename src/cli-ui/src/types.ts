@@ -145,6 +145,8 @@ export type PlayerState = {
     timestamp?: number;
     started_at?: number;
     is_playing?: boolean;
+    playback_status?: "starting" | "playing" | "paused" | "ended" | string | null;
+    progress_source?: "spotify_pending" | "spotify_live" | "local_player" | string | null;
     provider?: string | null;
     player?: "mpv" | "cvlc" | string | null;
     session_id?: string | null;
@@ -217,6 +219,7 @@ export type TrackPanelTrack = {
     path?: string;
     album_cover_url?: string;
     id?: string;
+    queued?: boolean;
 };
 
 export type TrackPanelState = {

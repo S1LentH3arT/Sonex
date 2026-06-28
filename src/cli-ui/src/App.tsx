@@ -14,6 +14,7 @@ import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPl
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { isLocalPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import { clearTerminalForLayoutSwitch } from './terminal-clear.js';
+import { markQueuedTracks } from './track-panel.js';
 import { loadUiLanguage, saveUiLanguage } from './ui-settings.js';
 import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 
@@ -280,7 +281,7 @@ export const App = () => {
                 break;
             case "queue":
                 setQueueItems(evt.tracks);
-                setTrackPanel((current) => current && current.panel === "queue" ? { ...current, tracks: evt.tracks } : current);
+                setTrackPanel((current) => current ? { ...current, tracks: markQueuedTracks(current.panel === "queue" ? evt.tracks : current.tracks, evt.tracks) } : current);
                 break;
             case "track_panel":
                 setLaunchPreparing(false);
@@ -290,7 +291,7 @@ export const App = () => {
                     panel: evt.panel,
                     title: evt.title,
                     hint: evt.hint,
-                    tracks: evt.tracks,
+                    tracks: markQueuedTracks(evt.tracks, queueItems),
                 });
                 setStatusText(evt.title);
                 break;
@@ -440,7 +441,7 @@ export const App = () => {
                 setTimeout(() => exit(), 80);
                 break;
         }
-    }, [exit, language, showError, switchRegion]);
+    }, [exit, language, queueItems, showError, switchRegion]);
 
     const { send } = useSonexSocket({
         url: wsUrl,

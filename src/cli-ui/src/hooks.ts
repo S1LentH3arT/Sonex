@@ -6,6 +6,10 @@ import type { ClientEvent, PlayerState, ServerEvent } from './types.js';
 
 export const PLAYBACK_PROGRESS_INTERVAL_MS = 1000;
 
+export function isPlaybackStarting(player: PlayerState): boolean {
+    return player.playback_status === "starting";
+}
+
 /**
  * Coordinates the should use playback progress timer operation for the CLI UI runtime.
  *
@@ -14,7 +18,7 @@ export const PLAYBACK_PROGRESS_INTERVAL_MS = 1000;
  * @returns The computed result for the surrounding CLI UI flow.
  */
 export function shouldUsePlaybackProgressTimer(player: PlayerState, active = true): boolean {
-    return active && player.is_playing === true;
+    return active && player.is_playing === true && !isPlaybackStarting(player);
 }
 
 /**
@@ -26,6 +30,7 @@ export function shouldUsePlaybackProgressTimer(player: PlayerState, active = tru
  */
 export function playbackProgressAt(player: PlayerState, now: number): number {
     const base = player.progress_ms ?? 0;
+    if (isPlaybackStarting(player)) return base;
     const reference = player.timestamp ?? player.started_at;
     const liveOffset = player.is_playing && reference ? Math.max(0, now - reference) : 0;
     const progress = base + liveOffset;

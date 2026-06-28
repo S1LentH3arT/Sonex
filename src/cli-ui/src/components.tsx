@@ -476,9 +476,10 @@ const formatTrackPanelTitle = (panel: NonNullable<TrackPanelState>, track: Track
         : track.title
 );
 
-const formatSpotifyTrackPanelIndex = (track: TrackPanelTrack): string => (
-    padStartDisplayWidth(track.index, SPOTIFY_TRACK_INDEX_WIDTH)
-);
+const formatSpotifyTrackPanelIndex = (track: TrackPanelTrack): string => {
+    const index = padStartDisplayWidth(track.index, SPOTIFY_TRACK_INDEX_WIDTH);
+    return track.queued ? `✓${index}` : ` ${index}`;
+};
 
 const TRACK_PANEL_MIN_VISIBLE_ROWS = 4;
 

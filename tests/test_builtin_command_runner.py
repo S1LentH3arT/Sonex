@@ -21,7 +21,7 @@ from fastapi import WebSocketDisconnect
 from src.agent.core import AgentState
 from src.api import ws_runner
 from src.api.music_intent import MusicIntentDecision, MusicIntentRoute
-from src.api.ws_runner import WebSocketRunner, _decorate_player_state, _queue_payload, _track_panel_payload
+from src.api.ws_runner import WebSocketRunner, _decorate_player_state, _player_sync_signature, _queue_payload, _track_panel_payload
 from src.auth.models import OAuthToken
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
@@ -1198,6 +1198,178 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("apple_music_play", intent.allowed_tools)
         self.assertNotIn("play_youtube_song", intent.allowed_tools)
 
+    async def test_spotify_mode_random_plays_random_recent_track_without_agent_turn(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        recent_tracks = [
+            {"name": "Missing URI", "artist": "Artist"},
+            {"name": "Recent One", "artist": "Artist", "uri": "spotify:track:one"},
+            {"name": "Duplicate", "artist": "Artist", "uri": "spotify:track:one"},
+            {"name": "Recent Two", "artist": "Artist", "uri": "spotify:track:two"},
+            {"name": "Episode", "artist": "Host", "uri": "spotify:episode:one"},
+        ]
+        play_result = {
+            "status": "success",
+            "tool": "spotify_play",
+            "message": "Spotify playback started.",
+            "data": {
+                "provider": "spotify",
+                "source": "spotify",
+                "uri": "spotify:track:two",
+                "name": "Recent Two",
+                "artist": "Artist",
+                "duration_ms": 180000,
+                "progress_ms": 0,
+                "timestamp": 1000,
+                "is_playing": True,
+            },
+        }
+
+        with (
+            patch("src.api.ws_runner.spotify_recent_tracks", return_value={
+                "status": "success",
+                "data": {"tracks": recent_tracks},
+            }) as recent,
+            patch("src.api.ws_runner.random.choice", return_value=recent_tracks[3]) as choice,
+            patch("src.api.ws_runner.registry.invoke", return_value=play_result) as invoke,
+            patch("src.api.ws_runner._llm_auth_ready", return_value=(False, "openai", "missing")) as llm_auth,
+            patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline),
+        ):
+            await runner._handle_user_input(ui, "/random")
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
+
+        recent.assert_called_once_with(50)
+        choice.assert_called_once()
+        self.assertEqual([track["uri"] for track in choice.call_args.args[0]], ["spotify:track:one", "spotify:track:two"])
+        invoke.assert_called_once_with("spotify_play", {"uri": "spotify:track:two", "device_id": "desktop"})
+        llm_auth.assert_not_called()
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertTrue(player_events)
+
+    async def test_spotify_mode_random_returns_immediately_while_recent_tracks_load(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        async def never_returns(*_args, **_kwargs):
+            await asyncio.sleep(10)
+
+        with (
+            patch("src.api.ws_runner.asyncio.to_thread", side_effect=never_returns),
+            patch("src.api.ws_runner.SPOTIFY_MODE_CALL_TIMEOUT_SECONDS", 0.001),
+        ):
+            await asyncio.wait_for(runner._handle_user_input(ui, "/random"), timeout=0.05)
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
+
+        self.assertTrue(any("Choosing from recently played Spotify tracks" in str(event.get("detail")) for event in ui.events))
+        self.assertTrue(any("Spotify recent tracks timed out" in str(event.get("text")) for event in ui.events))
+
+    async def test_spotify_mode_random_reports_empty_recent_tracks_without_playing(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        with (
+            patch("src.api.ws_runner.spotify_recent_tracks", return_value={
+                "status": "success",
+                "data": {"tracks": [{"name": "Episode", "uri": "spotify:episode:one"}, {"name": "No URI"}]},
+            }) as recent,
+            patch("src.api.ws_runner.registry.invoke") as invoke,
+            patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline),
+        ):
+            await runner._handle_user_input(ui, "/random")
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
+
+        recent.assert_called_once_with(50)
+        invoke.assert_not_called()
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any("recently played Spotify tracks" in str(event.get("text")) for event in ui.events))
+
+    async def test_spotify_mode_random_reports_recent_tracks_failure_without_agent_turn(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        with (
+            patch("src.api.ws_runner.spotify_recent_tracks", return_value={
+                "status": "fail",
+                "message": "Spotify recently played scope is missing. Run `sonex auth login spotify` again.",
+                "error_code": "SPOTIFY_SCOPE_MISSING",
+            }),
+            patch("src.api.ws_runner.registry.invoke") as invoke,
+            patch("src.api.ws_runner._llm_auth_ready", return_value=(False, "openai", "missing")) as llm_auth,
+            patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline),
+        ):
+            await runner._handle_user_input(ui, "/random")
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
+
+        invoke.assert_not_called()
+        llm_auth.assert_not_called()
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any("scope is missing" in str(event.get("text")) for event in ui.events))
+
+    async def test_spotify_mode_random_reports_play_failure(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        with (
+            patch("src.api.ws_runner.spotify_recent_tracks", return_value={
+                "status": "success",
+                "data": {"tracks": [{"name": "Recent", "uri": "spotify:track:recent"}]},
+            }),
+            patch("src.api.ws_runner.random.choice", return_value={"name": "Recent", "uri": "spotify:track:recent"}),
+            patch("src.api.ws_runner.registry.invoke", return_value={
+                "status": "fail",
+                "message": "Spotify playback requires an active device.",
+                "error_code": "SPOTIFY_NO_ACTIVE_DEVICE",
+            }) as invoke,
+            patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline),
+        ):
+            await runner._handle_user_input(ui, "/random")
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
+
+        invoke.assert_called_once_with("spotify_play", {"uri": "spotify:track:recent", "device_id": "desktop"})
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any(event.get("type") == "error" and "active device" in str(event.get("message")) for event in ui.events))
+        self.assertTrue(any("active device" in str(event.get("text")) for event in ui.events))
+
+    async def test_random_outside_spotify_mode_still_routes_to_agent_intent(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        with (
+            patch("src.api.ws_runner.spotify_recent_tracks") as recent,
+            patch("src.api.ws_runner._llm_auth_ready", return_value=(True, "openai", None)),
+        ):
+            await runner._handle_user_input(ui, "/random")
+            await asyncio.sleep(0)
+
+        recent.assert_not_called()
+        intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
+        self.assertIn("spotify_recent_tracks", intent.allowed_tools)
+        self.assertIn("apple_music_recent_tracks", intent.allowed_tools)
+        self.assertIn("play_youtube_song", intent.allowed_tools)
+
     async def test_spotify_mode_rejects_non_spotify_mode_command_in_chat(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -2141,6 +2313,51 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(player_events)
         self.assertEqual(player_events[-1]["state"]["session_id"], "session-1")
         self.assertFalse(player_events[-1]["state"]["is_playing"])
+
+    async def test_spotify_play_result_enters_starting_state_until_live_sync_confirms_playback(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        result = {
+            "status": "success",
+            "tool": "spotify_play",
+            "message": "Started Spotify playback.",
+            "data": {
+                "provider": "spotify",
+                "source": "spotify",
+                "uri": "spotify:track:abc",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration_ms": 180000,
+                "progress_ms": 0,
+                "timestamp": 1000,
+                "is_playing": True,
+            },
+        }
+
+        await runner._sync_tool_result_ui(ui, "spotify_play", result)
+
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertTrue(player_events)
+        state = player_events[-1]["state"]
+        self.assertEqual(state["playback_status"], "starting")
+        self.assertEqual(state["progress_source"], "spotify_pending")
+        self.assertFalse(state["is_playing"])
+        self.assertEqual(state["progress_ms"], 0)
+
+    def test_spotify_player_sync_signature_tracks_one_second_progress_changes(self) -> None:
+        first = {
+            "name": "Song",
+            "artist": "Artist",
+            "album": "Album",
+            "duration_ms": 180000,
+            "progress_ms": 1000,
+            "is_playing": True,
+            "source": "spotify",
+        }
+        second = {**first, "progress_ms": 2000}
+
+        self.assertNotEqual(_player_sync_signature(first), _player_sync_signature(second))
 
     async def test_volume_command_is_not_user_accessible_from_chat(self) -> None:
         runner = WebSocketRunner()

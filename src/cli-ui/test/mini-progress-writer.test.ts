@@ -25,6 +25,7 @@ const playing: PlayerState = {
 assert.equal(PLAYBACK_PROGRESS_INTERVAL_MS, 1000);
 assert.equal(resolvePlaybackProgressUpdateMode(false, playing), 'off');
 assert.equal(resolvePlaybackProgressUpdateMode(true, playing), 'interval');
+assert.equal(resolvePlaybackProgressUpdateMode(true, { ...playing, playback_status: 'starting' }), 'once');
 assert.equal(resolvePlaybackProgressUpdateMode(true, { ...playing, is_playing: false }), 'once');
 assert.equal(resolvePlaybackProgressUpdateMode(true, { ...playing, ended: true }), 'off');
 
@@ -34,6 +35,7 @@ assert.equal(shouldRefreshMiniSnapshot('player'), false);
 assert.equal(shouldRefreshMiniSnapshot('cover'), false);
 
 assert.equal(buildPlaybackProgressLine(playing, 2_000, 22), '0:31 ━━━───────── 2:00');
+assert.equal(buildPlaybackProgressLine({ ...playing, progress_ms: 0, playback_status: 'starting' }, 2_000, 22), 'starting ──────── 2:00');
 assert.equal(buildPlaybackStatusIconLine(playing, 10).text.trim(), '▶  ⣠ ⣄');
 assert.equal(buildPlaybackStatusIconLine({ ...playing, is_playing: false, is_liked: true }, 10).text.trim(), '▌▌ ⣠⣶⣄');
 assert.equal(buildPlaybackStatusIconLine(playing, 1).text, '▶');

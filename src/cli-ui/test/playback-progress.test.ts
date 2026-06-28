@@ -30,6 +30,16 @@ assert.equal(playbackProgressAt({
     timestamp: 1000,
     is_playing: true,
 }, 2000), 1200);
+assert.equal(playbackProgressAt({
+    name: "Song",
+    artist: "Artist",
+    album: "-",
+    duration_ms: 10000,
+    progress_ms: 0,
+    timestamp: 1000,
+    is_playing: true,
+    playback_status: "starting",
+}, 2000), 0);
 assert.equal(shouldUsePlaybackProgressTimer({
     name: "Song",
     artist: "Artist",
@@ -46,3 +56,12 @@ assert.equal(shouldUsePlaybackProgressTimer({
     progress_ms: 1000,
     is_playing: true,
 }, true), true);
+assert.equal(shouldUsePlaybackProgressTimer({
+    name: "Song",
+    artist: "Artist",
+    album: "-",
+    duration_ms: 10000,
+    progress_ms: 0,
+    is_playing: true,
+    playback_status: "starting",
+}, true), false);
