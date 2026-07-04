@@ -1,3 +1,7 @@
+import stringWidth from 'string-width';
+
+import type { MusicCandidateDisplay } from './types.js';
+
 /**
  * Coordinates the format duration operation for the CLI UI runtime.
  *
@@ -16,6 +20,60 @@ export function formatMiniTrackSubtitle(artist: string, album: string): string {
         .map((value) => value.trim())
         .filter((value) => value && value !== '-')
         .join('-');
+}
+
+const MUSIC_CANDIDATE_ARTIST_WIDTH = 24;
+const MUSIC_CANDIDATE_ALBUM_WIDTH = 24;
+const ELLIPSIS = "...";
+
+export function fitDisplayWidthWithEllipsis(value: string, width: number): string {
+    const normalized = value.trim() || "-";
+    if (stringWidth(normalized) <= width) {
+        return normalized + " ".repeat(Math.max(0, width - stringWidth(normalized)));
+    }
+
+    const contentWidth = Math.max(0, width - stringWidth(ELLIPSIS));
+    let rendered = "";
+    let renderedWidth = 0;
+    for (const char of Array.from(normalized)) {
+        const charWidth = stringWidth(char);
+        if (renderedWidth + charWidth > contentWidth) break;
+        rendered += char;
+        renderedWidth += charWidth;
+    }
+
+    const result = `${rendered}${ELLIPSIS}`;
+    return result + " ".repeat(Math.max(0, width - stringWidth(result)));
+}
+
+function truncateDisplayWidthWithEllipsis(value: string, width: number): string {
+    const normalized = value.trim() || "-";
+    if (width <= 0) return "";
+    if (stringWidth(normalized) <= width) return normalized;
+
+    const contentWidth = Math.max(0, width - stringWidth(ELLIPSIS));
+    let rendered = "";
+    let renderedWidth = 0;
+    for (const char of Array.from(normalized)) {
+        const charWidth = stringWidth(char);
+        if (renderedWidth + charWidth > contentWidth) break;
+        rendered += char;
+        renderedWidth += charWidth;
+    }
+    return `${rendered}${ELLIPSIS}`;
+}
+
+export function formatMusicCandidateDisplayLabel(display: MusicCandidateDisplay, rowWidth?: number): string {
+    const prefix = [
+        fitDisplayWidthWithEllipsis(display.artist, MUSIC_CANDIDATE_ARTIST_WIDTH),
+        fitDisplayWidthWithEllipsis(display.album, MUSIC_CANDIDATE_ALBUM_WIDTH),
+    ].join(" ");
+    const title = display.title.trim() || "-";
+    if (typeof rowWidth !== "number") {
+        return `${prefix} ${title}`;
+    }
+    const titleWidth = Math.max(0, rowWidth - stringWidth(prefix) - 1);
+    return `${prefix} ${truncateDisplayWidthWithEllipsis(title, titleWidth)}`;
 }
 
 /**

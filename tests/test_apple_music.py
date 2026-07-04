@@ -204,6 +204,27 @@ class AppleMusicToolTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["error_code"], "APPLE_MUSIC_USER_TOKEN_REQUIRED")
 
+    def test_apple_music_recommend_uses_supplied_recent_tracks(self) -> None:
+        recent_tracks = [{"name": "Recent Song", "artist": "Recent Artist"}]
+        candidate = {
+            "id": "song-1",
+            "name": "Song 1",
+            "artist": "Artist 1",
+            "album": "Album 1",
+            "uri": "apple_music:song:song-1",
+            "url": "https://music.apple.com/song-1",
+        }
+        with (
+            patch.object(apple, "_user_preferences_text", return_value=""),
+            patch.object(apple, "recent_tracks_snapshot", side_effect=AssertionError("should use supplied context")),
+            patch.object(apple, "_candidate_tracks", return_value=[candidate]),
+            patch.object(apple, "_rank_candidates_with_llm", return_value=[]) as rank,
+        ):
+            result = apple.apple_music_recommend(query="", limit=1, recent_tracks=recent_tracks)
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(rank.call_args.kwargs["recent_tracks"], recent_tracks)
+
     def test_playback_requires_subscription_before_bridge(self) -> None:
         """Verifies that playback requires subscription before bridge behaves as expected.
 

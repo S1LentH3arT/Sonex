@@ -256,7 +256,9 @@ expires, loses required scopes, or you leave the mode with `/spotify` or
 `/spotify off`. Startup restore only checks the local token and saved device
 metadata; it does not call Spotify account or device APIs. While the mode is
 active, play/search, recommendations, playlists, and current playback use
-Spotify tools only. The first `/playlist` in a Spotify-mode session imports
+Spotify tools only. In Spotify mode, `/recommend [taste]` shows five numbered
+Spotify recommendations and adds them to your Spotify queue on the selected
+device without starting playback. The first `/playlist` in a Spotify-mode session imports
 your saved tracks as the read-only `[Spotify] Spotify Library` mirror and
 imports your Spotify playlists as read-only local mirrors. Later `/playlist`
 opens the local playlist browser without calling Spotify again until you leave
@@ -320,8 +322,10 @@ play Mitski Nobody
 
 Sonex shows up to five track choices. After you choose a track, it asks which
 playback path to use: local-first, Spotify, Apple Music, or online audio when
-available. For recommendation prompts, Sonex returns a numbered text list first;
-you can then ask to play an item such as `play number 2` or `播放第2首`.
+available. `/recommend [taste]` returns a numbered text list first, defaults to
+five tracks, uses the hint before recent playback and `USER.md` preferences, and
+adds the recommended tracks to the Sonex playback queue without starting
+playback. You can then ask to play an item such as `play number 2` or `播放第2首`.
 
 While a local or online track is playing, use:
 

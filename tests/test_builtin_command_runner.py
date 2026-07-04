@@ -194,6 +194,70 @@ class FakeUI:
         self.statuses.append(status)
 
 
+class MusicCandidateLabelTests(unittest.TestCase):
+    def test_music_candidate_display_preserves_raw_fields(self) -> None:
+        self.assertTrue(hasattr(ws_runner, "music_candidate_display"))
+
+        display = ws_runner.music_candidate_display(
+            "周杰伦 Jay Chou",
+            "我很忙 Still Fantasy",
+            "青花瓷 Blue and White Porcelain",
+        )
+
+        self.assertEqual(display, {
+            "kind": "music_candidate",
+            "artist": "周杰伦 Jay Chou",
+            "album": "我很忙 Still Fantasy",
+            "title": "青花瓷 Blue and White Porcelain",
+        })
+
+    def test_music_candidate_display_uses_dash_for_blank_fields(self) -> None:
+        self.assertTrue(hasattr(ws_runner, "music_candidate_display"))
+
+        display = ws_runner.music_candidate_display(" ", "", None)
+
+        self.assertEqual(display, {
+            "kind": "music_candidate",
+            "artist": "-",
+            "album": "-",
+            "title": "-",
+        })
+
+    def test_music_candidate_label_uses_fixed_character_columns(self) -> None:
+        self.assertTrue(hasattr(ws_runner, "format_music_candidate_label"))
+
+        label = ws_runner.format_music_candidate_label("周杰伦", "我很忙", "青花瓷")
+
+        self.assertEqual(label, f"{'周杰伦'.ljust(24)} {'我很忙'.ljust(24)} 青花瓷")
+
+    def test_music_candidate_label_aligns_title_after_album_column(self) -> None:
+        self.assertTrue(hasattr(ws_runner, "format_music_candidate_label"))
+
+        short_album = ws_runner.format_music_candidate_label("Artist", "EP", "Short title")
+        long_album = ws_runner.format_music_candidate_label("Artist", "abcdefghijklmnopq", "Long title")
+
+        self.assertEqual(short_album.index("Short title"), 50)
+        self.assertEqual(long_album.index("Long title"), 50)
+
+    def test_music_candidate_label_truncates_columns_by_python_character_count(self) -> None:
+        self.assertTrue(hasattr(ws_runner, "format_music_candidate_label"))
+
+        label = ws_runner.format_music_candidate_label(
+            "abcdefghijklmnopqrstuvwxy",
+            "abcdefghijklmnopqrstuvwxy",
+            "full title stays visible",
+        )
+
+        self.assertEqual(label, "abcdefghijklmnopqrstu... abcdefghijklmnopqrstu... full title stays visible")
+
+    def test_music_candidate_label_uses_dash_for_blank_fields(self) -> None:
+        self.assertTrue(hasattr(ws_runner, "format_music_candidate_label"))
+
+        label = ws_runner.format_music_candidate_label("  ", "", None)
+
+        self.assertEqual(label, f"{'-'.ljust(24)} {'-'.ljust(24)} -")
+
+
 class FakeWebSocket:
     """Groups related web socket cases.
 
@@ -946,28 +1010,89 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any(event.get("text") == "You are not logged in." for event in ui.events))
 
-    async def test_recommend_routes_to_agent_with_command_intent(self) -> None:
-        """Verifies that recommend routes to agent with command intent behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the recommend routes to agent with command intent behavior against regressions.
-
-        Example: test_recommend_routes_to_agent_with_command_intent() -> passes without assertion failures when the behavior remains correct.
-        """
+    async def test_recommend_queues_visible_recommendations_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
+        spotify_tracks = [
+            {"name": "七里香", "artist": "周杰伦", "uri": "spotify:track:1", "recommendation_reason": "recent match"},
+            {"name": "晴天", "artist": "周杰伦", "uri": "spotify:track:2", "recommendation_reason": "same mood"},
+            {"name": "重复", "artist": "A", "uri": "spotify:track:dup"},
+        ]
+        apple_tracks = [
+            {"name": "重复", "artist": "A", "url": "https://music.apple.com/dup"},
+            {"name": "倒带", "artist": "蔡依林", "url": "https://music.apple.com/1", "recommendation_reason": "pop fit"},
+            {"name": "红色高跟鞋", "artist": "蔡健雅", "url": "https://music.apple.com/2"},
+            {"name": "如果云知道", "artist": "许茹芸", "url": "https://music.apple.com/3"},
+        ]
 
-        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
+        with patch("src.api.ws_runner.spotify_recommend", return_value={
+            "status": "success",
+            "data": {"tracks": spotify_tracks},
+        }) as spotify_recommend, patch("src.api.ws_runner.apple_music_recommend", return_value={
+            "status": "success",
+            "data": {"tracks": apple_tracks},
+        }) as apple_recommend, patch("src.api.ws_runner.playback_queue_snapshot", return_value=[
+            {"name": "稻香", "artist": "周杰伦"}
+        ]), patch("src.api.ws_runner.remember_playback_track", side_effect=lambda track: [track]) as remember, patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
             await runner._handle_user_input(ui, "/recommend 华语女声")
             await asyncio.sleep(0)
 
-        runner._run_agent_turn.assert_awaited_once()
-        call = runner._run_agent_turn.await_args
-        self.assertEqual(call.args[:2], (ui, "/recommend 华语女声"))
-        intent = call.kwargs["command_intent"]
-        self.assertEqual(intent.command, "recommend")
-        self.assertEqual(intent.args, "华语女声")
-        self.assertIn("spotify_recommend", intent.allowed_tools)
+        self.assertFalse(runner._run_agent_turn.called)
+        spotify_recommend.assert_called_once_with(query="华语女声", limit=5, recent_tracks=[{"name": "稻香", "artist": "周杰伦"}])
+        apple_recommend.assert_called_once_with(query="华语女声", limit=5, recent_tracks=[{"name": "稻香", "artist": "周杰伦"}])
+        self.assertEqual(remember.call_count, 5)
+        saved = getattr(ui, "_last_recommendation_tracks")
+        self.assertEqual([track["name"] for track in saved], ["七里香", "晴天", "重复", "倒带", "红色高跟鞋"])
+        self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
+        self.assertTrue(any(event.get("type") == "queue" for event in ui.events))
+        chat = [event for event in ui.events if event.get("type") == "chat" and event.get("role") == "agent"][-1]
+        self.assertIn("根据“华语女声”推荐 5 首", str(chat.get("text")))
+        self.assertIn("1. 七里香 - 周杰伦：recent match", str(chat.get("text")))
+        self.assertFalse(any(event.get("type") == "player" for event in ui.events))
+
+    async def test_recommend_without_args_uses_empty_query_intro(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        track = {"name": "Song", "artist": "Artist", "uri": "spotify:track:1"}
+
+        with patch("src.api.ws_runner.spotify_recommend", return_value={"status": "success", "data": {"tracks": [track]}}) as spotify_recommend, patch(
+            "src.api.ws_runner.apple_music_recommend",
+            return_value={"status": "success", "data": {"tracks": []}},
+        ), patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]), patch(
+            "src.api.ws_runner.remember_playback_track",
+            return_value=[track],
+        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/recommend")
+
+        spotify_recommend.assert_called_once_with(query="", limit=5, recent_tracks=[])
+        chat = [event for event in ui.events if event.get("type") == "chat" and event.get("role") == "agent"][-1]
+        self.assertIn("根据最近播放和 USER.md 推荐 1 首", str(chat.get("text")))
+
+    async def test_recommend_uses_other_provider_when_one_provider_fails(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        track = {"name": "倒带", "artist": "蔡依林", "url": "https://music.apple.com/1"}
+
+        with patch("src.api.ws_runner.spotify_recommend", side_effect=RuntimeError("spotify unavailable")), patch(
+            "src.api.ws_runner.apple_music_recommend",
+            return_value={"status": "success", "data": {"tracks": [track]}},
+        ), patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]), patch(
+            "src.api.ws_runner.remember_playback_track",
+            return_value=[track],
+        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/recommend R&B")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        saved = getattr(ui, "_last_recommendation_tracks")
+        self.assertEqual([item["name"] for item in saved], ["倒带"])
+        self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
+        self.assertTrue(any("根据“R&B”推荐 1 首" in str(event.get("text")) for event in ui.events))
 
     async def test_search_slash_command_is_not_user_facing(self) -> None:
         """Verifies that search slash command is not user facing.
@@ -1150,7 +1275,14 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner._run_agent_turn.called)
         confirm = [event for event in ui.events if event.get("tool_name") == "spotify_track"][-1]
         self.assertEqual(confirm["choices"][0]["value"], "spotify_track:0")
-        self.assertEqual(confirm["choices"][0]["label"], "周杰伦-我很忙--青花瓷")
+        self.assertEqual(confirm["choices"][0]["display"], {
+            "kind": "music_candidate",
+            "artist": "周杰伦",
+            "album": "我很忙",
+            "title": "青花瓷",
+        })
+        self.assertEqual(confirm["choices"][0]["label"], f"{'周杰伦'.ljust(24)} {'我很忙'.ljust(24)} 青花瓷")
+        self.assertEqual(confirm["choices"][0]["description"], "")
 
     async def test_spotify_mode_track_choice_plays_selected_uri_on_device(self) -> None:
         runner = WebSocketRunner()
@@ -1183,23 +1315,64 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(getattr(ui, "_spotify_play_selection", None))
         self.assertTrue(any(event.get("type") == "player" for event in ui.events))
 
-    async def test_spotify_mode_recommend_command_uses_only_spotify_tools(self) -> None:
+    async def test_spotify_mode_recommend_queues_spotify_tracks_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
         setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        tracks = [
+            {"name": "Blinding Lights", "artist": "The Weeknd", "uri": "spotify:track:1"},
+            {"name": "Levitating", "artist": "Dua Lipa", "uri": "spotify:track:2"},
+        ]
 
-        with patch("src.api.ws_runner._llm_auth_ready", return_value=(True, "openai", None)):
+        with patch("src.api.ws_runner.spotify_recommend", return_value={
+            "status": "success",
+            "data": {"tracks": tracks},
+        }) as spotify_recommend, patch("src.api.ws_runner.spotify_queue_add", return_value={
+            "status": "success",
+            "message": "Added to Spotify queue.",
+        }) as queue_add, patch("src.api.ws_runner.spotify_queue", return_value={
+            "status": "success",
+            "data": {"tracks": tracks},
+        }) as spotify_queue, patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]), patch(
+            "src.api.ws_runner.remember_playback_track"
+        ) as remember, patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "/recommend 华语女声")
             await asyncio.sleep(0)
 
-        intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
-        self.assertIn("spotify_recommend", intent.allowed_tools)
-        self.assertIn("spotify_playlists", intent.allowed_tools)
-        self.assertIn("spotify_play", intent.allowed_tools)
-        self.assertNotIn("apple_music_recommend", intent.allowed_tools)
-        self.assertNotIn("apple_music_play", intent.allowed_tools)
-        self.assertNotIn("play_youtube_song", intent.allowed_tools)
+        self.assertFalse(runner._run_agent_turn.called)
+        spotify_recommend.assert_called_once_with(query="华语女声", limit=5, recent_tracks=[])
+        self.assertEqual(queue_add.call_args_list[0].args, ("spotify:track:1",))
+        self.assertEqual(queue_add.call_args_list[0].kwargs, {"device_id": "desktop"})
+        self.assertEqual(queue_add.call_args_list[1].args, ("spotify:track:2",))
+        spotify_queue.assert_called_once_with(50)
+        remember.assert_not_called()
+        self.assertTrue(any(event.get("type") == "track_panel" and event.get("title") == "Spotify Queue" for event in ui.events))
+        self.assertFalse(any(event.get("type") == "player" for event in ui.events))
+
+    async def test_spotify_mode_recommend_queue_failure_is_visible(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        track = {"name": "Blinding Lights", "artist": "The Weeknd", "uri": "spotify:track:1"}
+
+        with patch("src.api.ws_runner.spotify_recommend", return_value={
+            "status": "success",
+            "data": {"tracks": [track]},
+        }), patch("src.api.ws_runner.spotify_queue_add", return_value={
+            "status": "fail",
+            "message": "No active Spotify device found.",
+            "error_code": "SPOTIFY_DEVICE_REQUIRED",
+        }), patch("src.api.ws_runner.spotify_queue") as spotify_queue, patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await runner._handle_user_input(ui, "/recommend")
+
+        spotify_queue.assert_not_called()
+        self.assertTrue(any("No active Spotify device found." in str(event.get("text")) for event in ui.events))
+        self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
 
     async def test_spotify_mode_random_plays_random_recent_track_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
@@ -1971,7 +2144,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         youtube_search.assert_not_called()
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertEqual(confirm_events[-1]["tool_name"], "song_candidate")
-        self.assertEqual(confirm_events[-1]["choices"][0]["label"], "周杰伦-我很忙--青花瓷")
+        self.assertEqual(confirm_events[-1]["choices"][0]["label"], f"{'周杰伦'.ljust(24)} {'我很忙'.ljust(24)} 青花瓷")
+        self.assertNotIn("3:59", confirm_events[-1]["choices"][0]["description"])
         self.assertTrue(any(event.get("type") == "activity" and event.get("title") == "iTunes" for event in ui.events))
 
     async def test_online_choice_without_open_audio_provider_still_starts_song_metadata_candidates(self) -> None:
@@ -2900,8 +3074,14 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["tool_args"]["stage"], "song_metadata_candidates")
         self.assertEqual(len(confirm_events[-1]["choices"]), 6)
         self.assertEqual(confirm_events[-1]["choices"][0]["value"], "song_candidate:0")
-        self.assertEqual(confirm_events[-1]["choices"][0]["label"], "Artist 0-Album 0--Song 0")
-        self.assertIn("3:00", confirm_events[-1]["choices"][0]["description"])
+        self.assertEqual(confirm_events[-1]["choices"][0]["display"], {
+            "kind": "music_candidate",
+            "artist": "Artist 0",
+            "album": "Album 0",
+            "title": "Song 0",
+        })
+        self.assertEqual(confirm_events[-1]["choices"][0]["label"], f"{'Artist 0'.ljust(24)} {'Album 0'.ljust(24)} Song 0")
+        self.assertNotIn("3:00", confirm_events[-1]["choices"][0]["description"])
         self.assertEqual(confirm_events[-1]["choices"][-1]["value"], "refine_song_metadata_query")
         self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "试试补充更多歌曲信息")
         self.assertTrue(any(event.get("type") == "activity" and event.get("title") == "iTunes" for event in ui.events))
@@ -3075,7 +3255,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         youtube_search.assert_not_called()
         self.assertFalse(runner._run_agent_turn.called)
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
-        self.assertEqual(confirm_events[-1]["choices"][0]["label"], "Artist-Album--Refined")
+        self.assertEqual(confirm_events[-1]["choices"][0]["label"], f"{'Artist'.ljust(24)} {'Album'.ljust(24)} Refined")
+        self.assertNotIn("3:01", confirm_events[-1]["choices"][0]["description"])
 
     async def test_online_play_without_metadata_candidates_falls_back_to_audio_candidates(self) -> None:
         """Verifies that online play without metadata candidates falls back to audio candidates behaves as expected.

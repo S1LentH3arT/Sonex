@@ -60,10 +60,20 @@ export type ClientEvent =
     | { type: "auth_setup_input"; value: string }
     | { type: "bye"; messages: ChatItem[]; reason: string };
 
+export type MusicCandidateDisplay = {
+    kind: "music_candidate";
+    artist: string;
+    album: string;
+    title: string;
+};
+
+export type ConfirmChoiceDisplay = MusicCandidateDisplay;
+
 export type ConfirmChoice = {
     value: string;
     label: string;
     description?: string;
+    display?: ConfirmChoiceDisplay;
     track_count?: number;
     input?: {
         placeholder: string;

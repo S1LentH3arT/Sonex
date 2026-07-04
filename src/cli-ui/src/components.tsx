@@ -5,7 +5,7 @@ import stringWidth from 'string-width';
 import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices } from './confirm-choice.js';
-import { buildProgressBar, formatDuration, formatMiniTrackSubtitle } from './format.js';
+import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
 import { getVisibleChatWindow } from './chat-window.js';
 import { isHttpCoverSource, useCoverArt } from './hooks.js';
 import { languageLabel, t } from './i18n.js';
@@ -206,11 +206,13 @@ type ChoicePanelRow = {
     key: string;
     label: string;
     description?: string | null;
+    display?: ConfirmChoice["display"];
     labelWidth?: number;
 };
 
 const COMMAND_LIST_LABEL_WIDTH = 12;
 const CONFIRM_CHOICE_LABEL_WIDTH = 18;
+const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 94;
 const MODEL_PANEL_LABEL_WIDTH = 20;
 const PLAYLIST_BROWSE_NAME_WIDTH = 32;
 const SPOTIFY_GREEN = "#1db954";
@@ -259,7 +261,9 @@ const playlistBrowseTrackCount = (choice: ConfirmChoice): string => {
 };
 
 const formatChoicePanelLabel = (row: ChoicePanelRow): string => (
-    row.labelWidth
+    row.display?.kind === "music_candidate"
+        ? formatMusicCandidateDisplayLabel(row.display, CONFIRM_CHOICE_ROW_LABEL_WIDTH)
+        : row.labelWidth
         ? row.label + " ".repeat(Math.max(0, row.labelWidth - stringWidth(row.label)))
         : row.label
 );
@@ -287,7 +291,7 @@ const ChoicePanel = ({ rows, selectedIndex, visibleLimit, selectedBackgroundColo
                 return (
                     <Text key={row.key} backgroundColor={rowBackgroundColor}>
                         <Text color={rowColor} backgroundColor={rowBackgroundColor}>{selected ? "> " : "  "}</Text>
-                        <Text color={rowColor} backgroundColor={rowBackgroundColor}>{formatChoicePanelLabel(row)}</Text>
+                        <Text color={rowColor} backgroundColor={rowBackgroundColor} wrap="truncate-end">{formatChoicePanelLabel(row)}</Text>
                         {row.description ? (
                             <>
                                 <Text color={rowColor} backgroundColor={rowBackgroundColor}>{row.description}</Text>
@@ -968,6 +972,7 @@ const CompactConfirm = ({ confirm, confirmIndex, spotifyTheme = false }: {
                     key: choice.value,
                     label: choice.label,
                     description: choice.description,
+                    display: choice.display,
                     labelWidth: CONFIRM_CHOICE_LABEL_WIDTH,
                 }))}
                 selectedIndex={confirmIndex}

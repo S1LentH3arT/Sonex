@@ -243,7 +243,8 @@ Premium 账号、播放控制、playlist read scopes 和 `user-library-read` sco
 Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你用 `/spotify` 或
 `/spotify off` 退出。启动时的恢复只检查本地 token 和已保存设备信息，不调用 Spotify
 账号或设备 API。模式开启后，播放/搜索、推荐、歌单和当前播放都会只使用 Spotify 工具。
-在 Spotify 模式下，第一次执行 `/playlist` 会把已点赞歌曲导入为只读镜像
+在 Spotify mode 下，`/recommend [taste]` 会展示 5 首编号 Spotify 推荐，并把它们加入
+所选设备的 Spotify 队列，不会直接开始播放。在 Spotify 模式下，第一次执行 `/playlist` 会把已点赞歌曲导入为只读镜像
 `[Spotify] Spotify Library`，并把 Spotify 歌单导入为只读本地镜像；本次 Spotify mode
 后续 `/playlist` 只打开本地歌单浏览器，不再调用 Spotify API，直到退出后重新进入
 Spotify mode。普通 Sonex 模式仍可浏览已导入的 Spotify 镜像，但 `/playlist save`
@@ -300,8 +301,10 @@ play Mitski Nobody
 ```
 
 Sonex 会展示最多五个曲目候选。选择曲目后，它会继续询问播放路径：优先本地、
-Spotify、Apple Music，或在可用时使用在线音频。对于推荐类请求，Sonex 会先返回
-编号文本列表；之后可以继续要求播放某一项，例如 `play number 2` 或 `播放第2首`。
+Spotify、Apple Music，或在可用时使用在线音频。`/recommend [taste]` 会先返回编号
+文本列表，默认 5 首；有 taste 时优先按用户输入推荐，再参考最近播放和 `USER.md`
+偏好，并把推荐曲目加入 Sonex 播放队列但不直接播放。之后可以继续要求播放某一项，
+例如 `play number 2` 或 `播放第2首`。
 
 本地或在线曲目播放时，可以使用：
 

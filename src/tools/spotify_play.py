@@ -997,6 +997,42 @@ def spotify_queue(limit: int = 50) -> dict[str, Any]:
     ).to_dict()
 
 
+def spotify_queue_add(uri: str, device_id: str | None = None) -> dict[str, Any]:
+    """Add one Spotify track URI to the user's Spotify queue."""
+    track_uri = str(uri or "").strip()
+    if not track_uri.startswith("spotify:track:"):
+        return ToolResult.fail(
+            tool="spotify_queue_add",
+            message="Provide a Spotify track URI to add to queue.",
+            error_code="SPOTIFY_TRACK_URI_REQUIRED",
+        ).to_dict()
+
+    blocked = _require_premium_control("spotify_queue_add")
+    if blocked:
+        return blocked
+
+    try:
+        client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_READ_PLAYBACK_SCOPES)
+        if not device_id and not _has_active_device(client):
+            return ToolResult.fail(
+                tool="spotify_queue_add",
+                message="No active Spotify device found. Open Spotify on your phone or desktop first.",
+                error_code="SPOTIFY_DEVICE_REQUIRED",
+            ).to_dict()
+        client.add_to_queue(track_uri, device_id=device_id or None)
+    except Exception as exc:
+        return _spotify_error("spotify_queue_add", exc, "SPOTIFY_API_ERROR")
+
+    data: dict[str, Any] = {"uri": track_uri}
+    if device_id:
+        data["device_id"] = device_id
+    return ToolResult.success(
+        tool="spotify_queue_add",
+        message="Added track to Spotify queue.",
+        data=data,
+    ).to_dict()
+
+
 def _require_premium_control(tool: str) -> dict[str, Any] | None:
     """Prepares require premium control for an internal Sonex flow.
 
@@ -1329,6 +1365,7 @@ def _rank_candidates_with_llm(
     prompt = (
         "Rank Spotify candidate tracks for a music recommendation request.\n"
         "You must only recommend songs from candidate_tracks. Do not invent songs, artists, or URIs.\n"
+        "Ranking priority is user_query first, then recent_tracks, then user_preferences_from_USER_md.\n"
         "Return JSON only, as an array of objects with uri and reason.\n\n"
         f"user_query: {query}\n"
         f"user_preferences_from_USER_md: {preferences or '(empty)'}\n"
@@ -1362,7 +1399,7 @@ def _rank_candidates_with_llm(
     return ranked
 
 
-def spotify_recommend(query: str, limit: int = 10) -> dict[str, Any]:
+def spotify_recommend(query: str, limit: int = 10, recent_tracks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Coordinates spotify recommend for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs spotify recommend as part of a Sonex command, playback, auth, llm, or ui path.
@@ -1371,7 +1408,7 @@ def spotify_recommend(query: str, limit: int = 10) -> dict[str, Any]:
     """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     preferences = _user_preferences_text()
-    local_recent = recent_tracks_snapshot()
+    local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
     candidates = _spotify_candidate_tracks(query=query, limit=bounded_limit)
     if not candidates:
         return ToolResult.fail(

@@ -720,6 +720,7 @@ def _rank_candidates_with_llm(
     prompt = (
         "Rank Apple Music candidate tracks for a music recommendation request.\n"
         "You must only recommend songs from candidate_tracks. Do not invent songs, artists, or URIs.\n"
+        "Ranking priority is user_query first, then recent_tracks, then user_preferences_from_USER_md.\n"
         "Return JSON only, as an array of objects with uri and reason.\n\n"
         f"user_query: {query}\n"
         f"user_preferences_from_USER_md: {preferences or '(empty)'}\n"
@@ -752,7 +753,7 @@ def _rank_candidates_with_llm(
     return ranked
 
 
-def apple_music_recommend(query: str, limit: int = 10) -> dict[str, Any]:
+def apple_music_recommend(query: str, limit: int = 10, recent_tracks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     """Coordinates apple music recommend for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs apple music recommend as part of a Sonex command, playback, auth, llm, or ui path.
@@ -761,7 +762,7 @@ def apple_music_recommend(query: str, limit: int = 10) -> dict[str, Any]:
     """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     preferences = _user_preferences_text()
-    local_recent = recent_tracks_snapshot()
+    local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
     candidates = _candidate_tracks(query=query, limit=bounded_limit)
     if not candidates:
         return ToolResult.fail(

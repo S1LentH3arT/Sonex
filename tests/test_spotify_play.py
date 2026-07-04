@@ -649,6 +649,75 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["error_code"], "SPOTIFY_SCOPE_MISSING")
 
+    def test_spotify_queue_add_calls_client_with_device_id(self) -> None:
+        class Client:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str | None]] = []
+
+            def add_to_queue(self, uri: str, device_id: str | None = None) -> None:
+                self.calls.append((uri, device_id))
+
+        client = Client()
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=client,
+        ) as user_client:
+            result = spotify.spotify_queue_add("spotify:track:track-1", device_id="desktop")
+
+        user_client.assert_called_once_with(spotify.SPOTIFY_MODIFY_PLAYBACK_SCOPES | spotify.SPOTIFY_READ_PLAYBACK_SCOPES)
+        self.assertEqual(client.calls, [("spotify:track:track-1", "desktop")])
+        self.assertEqual(result["status"], "success")
+
+    def test_spotify_queue_add_rejects_invalid_uri(self) -> None:
+        with patch.object(spotify, "_require_premium_control") as require:
+            result = spotify.spotify_queue_add("spotify:episode:episode-1")
+
+        require.assert_not_called()
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_TRACK_URI_REQUIRED")
+
+    def test_spotify_queue_add_requires_active_device_without_device_id(self) -> None:
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "_has_active_device",
+            return_value=False,
+        ):
+            result = spotify.spotify_queue_add("spotify:track:track-1")
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_DEVICE_REQUIRED")
+
+    def test_spotify_queue_add_maps_scope_missing(self) -> None:
+        with patch.object(
+            spotify,
+            "_require_premium_control",
+            return_value={
+                "status": "fail",
+                "message": "Spotify playback control scope is missing. Run `sonex auth login spotify` again.",
+                "error_code": "SPOTIFY_SCOPE_MISSING",
+            },
+        ):
+            result = spotify.spotify_queue_add("spotify:track:track-1", device_id="desktop")
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_SCOPE_MISSING")
+
+    def test_spotify_queue_add_maps_spotify_api_errors(self) -> None:
+        class Client:
+            def add_to_queue(self, uri: str, device_id: str | None = None) -> None:
+                raise SpotifyException(http_status=500, code=-1, msg="server error")
+
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=Client(),
+        ):
+            result = spotify.spotify_queue_add("spotify:track:track-1", device_id="desktop")
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_API_ERROR")
+
     def test_spotify_recommend_uses_only_candidate_tracks(self) -> None:
         """Verifies that spotify recommend uses only candidate tracks behaves as expected.
 
@@ -675,6 +744,19 @@ class SpotifyToolTests(unittest.TestCase):
         tracks = result["data"]["tracks"]
         self.assertEqual([track["uri"] for track in tracks], ["spotify:track:2", "spotify:track:1"])
         self.assertEqual(tracks[0]["recommendation_reason"], "Closer to your recent plays.")
+
+    def test_spotify_recommend_uses_supplied_recent_tracks(self) -> None:
+        recent_tracks = [{"name": "Recent Song", "artist": "Recent Artist"}]
+        with (
+            patch.object(spotify, "_user_preferences_text", return_value=""),
+            patch.object(spotify, "recent_tracks_snapshot", side_effect=AssertionError("should use supplied context")),
+            patch.object(spotify, "_spotify_candidate_tracks", return_value=[self._track(1)]),
+            patch.object(spotify, "_rank_candidates_with_llm", return_value=[]) as rank,
+        ):
+            result = spotify.spotify_recommend(query="", limit=1, recent_tracks=recent_tracks)
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(rank.call_args.kwargs["recent_tracks"], recent_tracks)
 
     def test_spotify_recommend_handles_empty_user_memory(self) -> None:
         """Verifies that spotify recommend handles empty user memory behaves as expected.

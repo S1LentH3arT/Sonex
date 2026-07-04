@@ -114,6 +114,92 @@ _LEGACY_SEARCH_ALIAS = search_youtube_songs
 _LEGACY_PLAY_ALIAS = play_youtube_candidate
 
 
+def _fixed_music_candidate_column(value: Any, width: int, truncate_at: int) -> str:
+    text = str(value or "").strip() or "-"
+    if len(text) > width:
+        return f"{text[:truncate_at]}..."
+    return text.ljust(width)
+
+
+def _music_candidate_text(value: Any) -> str:
+    return str(value or "").strip() or "-"
+
+
+def music_candidate_display(artist: Any, album: Any, title: Any) -> dict[str, str]:
+    return {
+        "kind": "music_candidate",
+        "artist": _music_candidate_text(artist),
+        "album": _music_candidate_text(album),
+        "title": _music_candidate_text(title),
+    }
+
+
+def format_music_candidate_label(artist: Any, album: Any, title: Any) -> str:
+    artist_col = _fixed_music_candidate_column(artist, 24, 21)
+    album_col = _fixed_music_candidate_column(album, 24, 21)
+    title_text = str(title or "").strip() or "-"
+    return f"{artist_col} {album_col} {title_text}"
+
+
+def _recommendation_track_keys(track: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for key in ("uri", "url", "spotify_url", "apple_music_url"):
+        value = str(track.get(key) or "").strip().lower()
+        if value:
+            keys.add(f"{key}:{value}")
+    name = str(track.get("name") or track.get("title") or "").strip().casefold()
+    artist = str(track.get("artist") or "").strip().casefold()
+    if name or artist:
+        keys.add(f"name:{name}|artist:{artist}")
+    return keys or {"empty"}
+
+
+def _recommendation_tracks(result: Any) -> list[dict[str, Any]]:
+    if not isinstance(result, dict):
+        return []
+    data = result.get("data") if isinstance(result.get("data"), dict) else {}
+    tracks = data.get("tracks") if isinstance(data, dict) else []
+    return [dict(track) for track in tracks or [] if isinstance(track, dict)]
+
+
+def _recommendation_provider_failure(tool: str, exc: BaseException) -> dict[str, Any]:
+    return {
+        "status": "fail",
+        "tool": tool,
+        "message": sanitize_error_message(exc),
+        "error_code": "RECOMMEND_PROVIDER_ERROR",
+    }
+
+
+def _dedupe_recommendation_tracks(*track_groups: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    tracks: list[dict[str, Any]] = []
+    for group in track_groups:
+        for track in group:
+            keys = _recommendation_track_keys(track)
+            if keys & seen:
+                continue
+            seen.update(keys)
+            tracks.append(track)
+            if len(tracks) >= limit:
+                return tracks
+    return tracks
+
+
+def _recommendation_message(query: str, tracks: list[dict[str, Any]]) -> str:
+    hint = query.strip()
+    if hint:
+        lines = [f"根据“{hint}”推荐 {len(tracks)} 首："]
+    else:
+        lines = [f"根据最近播放和 USER.md 推荐 {len(tracks)} 首："]
+    for index, track in enumerate(tracks, start=1):
+        name = str(track.get("name") or track.get("title") or "-").strip() or "-"
+        artist = str(track.get("artist") or "-").strip() or "-"
+        reason = str(track.get("recommendation_reason") or "Matched your listening context.").strip()
+        lines.append(f"{index}. {name} - {artist}：{reason}")
+    return "\n".join(lines)
+
+
 def _search_online_audio_for_runner(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
     """Prepares search online audio for runner for an internal Sonex flow.
 
@@ -139,6 +225,7 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 
 from src.tools.player_permission import complete_player_confirm
+from src.tools.apple_music import apple_music_recommend
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
 from src.tools.playback_controller import start_local_playback
 from src.tools.spotify_play import (
@@ -150,7 +237,9 @@ from src.tools.spotify_play import (
     spotify_playlist_tracks,
     spotify_playlists,
     spotify_queue,
+    spotify_queue_add,
     spotify_recent_tracks,
+    spotify_recommend,
     spotify_saved_tracks,
 )
 from src.tools.song_cache import find_best_cached_song, resolve_cached_song, upsert_cached_song
@@ -2420,16 +2509,17 @@ class PlaySelectionSession:
 
         Example: _metadata_candidate_choice(index=..., candidate=...) -> returns the value used by the surrounding Sonex flow.
         """
-        artist = str(candidate.get("artist") or "-")
-        album = str(candidate.get("album") or "-")
-        name = str(candidate.get("name") or candidate.get("title") or "-")
-        parts = [_duration_text(candidate.get("duration_ms"))]
+        artist = candidate.get("artist")
+        album = candidate.get("album")
+        name = candidate.get("name") or candidate.get("title")
+        parts: list[str] = []
         provider = str(candidate.get("provider") or candidate.get("metadata_source") or "").strip()
         if provider:
             parts.append(_metadata_provider_label(provider))
         return {
             "value": f"song_candidate:{index}",
-            "label": f"{artist}-{album}--{name}",
+            "label": format_music_candidate_label(artist, album, name),
+            "display": music_candidate_display(artist, album, name),
             "description": " · ".join(part for part in parts if part),
         }
 
@@ -3347,13 +3437,14 @@ class SpotifyPlaySelectionSession:
         return confirm_id == self.confirm_id
 
     def _track_choice(self, index: int, track: dict[str, Any]) -> dict[str, Any]:
-        artist = str(track.get("artist") or "-")
-        album = str(track.get("album") or "-")
-        name = str(track.get("name") or track.get("title") or "-")
+        artist = track.get("artist")
+        album = track.get("album")
+        name = track.get("name") or track.get("title")
         return {
             "value": f"spotify_track:{index}",
-            "label": f"{artist}-{album}--{name}",
-            "description": _duration_text(track.get("duration_ms")),
+            "label": format_music_candidate_label(artist, album, name),
+            "display": music_candidate_display(artist, album, name),
+            "description": "",
         }
 
     async def handle_choice(self, decision: Any) -> None:
@@ -3849,6 +3940,13 @@ class WebSocketRunner:
                 self._running_task = asyncio.create_task(self._handle_spotify_random_command(ui))
                 return
 
+            if parsed_command.command and parsed_command.command.name == "recommend":
+                if self._running_task and not self._running_task.done():
+                    ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
+                    return
+                await self._handle_recommend_command(ui, parsed_command.args or "")
+                return
+
             if self._spotify_mode_enabled(ui) and parsed_command.command and parsed_command.command.mode == "agent":
                 if self._running_task and not self._running_task.done():
                     ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
@@ -3988,6 +4086,102 @@ class WebSocketRunner:
             setattr(ui, "_recommendation_turn_active", True)
         self._running_task = asyncio.create_task(
             self._run_agent_turn(ui, user_input, command_intent=command_intent)
+        )
+
+    async def _handle_recommend_command(self, ui: WebSocketUIAdapter, query: str) -> None:
+        query = query.strip()
+        limit = 5
+        try:
+            recent_tracks = playback_queue_snapshot()
+        except Exception:
+            recent_tracks = []
+
+        await ui.append_activity(
+            kind="tool",
+            title="Recommendations",
+            detail="Finding tracks to recommend.",
+            status="pending",
+        )
+        if self._spotify_mode_enabled(ui):
+            try:
+                result = await asyncio.to_thread(
+                    spotify_recommend,
+                    query=query,
+                    limit=limit,
+                    recent_tracks=recent_tracks,
+                )
+            except Exception as exc:
+                result = _recommendation_provider_failure("spotify_recommend", exc)
+            tracks = _dedupe_recommendation_tracks(_recommendation_tracks(result), limit=limit)
+        else:
+            spotify_result, apple_result = await asyncio.gather(
+                asyncio.to_thread(spotify_recommend, query=query, limit=limit, recent_tracks=recent_tracks),
+                asyncio.to_thread(apple_music_recommend, query=query, limit=limit, recent_tracks=recent_tracks),
+                return_exceptions=True,
+            )
+            if isinstance(spotify_result, BaseException):
+                spotify_result = _recommendation_provider_failure("spotify_recommend", spotify_result)
+            if isinstance(apple_result, BaseException):
+                apple_result = _recommendation_provider_failure("apple_music_recommend", apple_result)
+            tracks = _dedupe_recommendation_tracks(
+                _recommendation_tracks(spotify_result),
+                _recommendation_tracks(apple_result),
+                limit=limit,
+            )
+
+        if not tracks:
+            message = "No recommendations were available. Try adding a taste hint after /recommend."
+            await ui.append_activity(kind="error", title="Recommendations", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+
+        aggregate = {
+            "status": "success",
+            "tool": "spotify_recommend",
+            "message": f"Recommended {len(tracks)} track(s).",
+            "data": {"query": query, "tracks": tracks},
+        }
+        setattr(ui, "_recommendation_turn_active", True)
+        await self._sync_tool_result_ui(ui, "spotify_recommend", aggregate)
+        setattr(ui, "_recommendation_turn_active", False)
+        await ui.append_agent_message(_recommendation_message(query, tracks))
+
+        if self._spotify_mode_enabled(ui):
+            await self._queue_spotify_recommendations(ui, tracks)
+            return
+
+        for track in tracks:
+            remember_playback_track(track)
+        await ui._send({"type": "queue", "tracks": _queue_payload()})
+        await ui.append_activity(
+            kind="status",
+            title="Playback queue",
+            detail=f"Added {len(tracks)} recommended track(s) to the playback queue.",
+            status="success",
+        )
+
+    async def _queue_spotify_recommendations(self, ui: WebSocketUIAdapter, tracks: list[dict[str, Any]]) -> None:
+        mode = getattr(ui, "_spotify_mode", {}) or {}
+        device_id = str(mode.get("device_id") or "").strip() or None
+        for track in tracks:
+            uri = str(track.get("uri") or "").strip()
+            if not uri.startswith("spotify:track:"):
+                message = f"Cannot add recommendation to Spotify queue without a Spotify track URI: {track.get('name') or '-'}."
+                await ui.append_activity(kind="error", title="Spotify queue", detail=message, status="error")
+                await ui.append_agent_message(message)
+                return
+            result = await asyncio.to_thread(spotify_queue_add, uri, device_id=device_id)
+            if _is_failed_tool_result(result):
+                message = _friendly_runtime_error_message(result, fallback="Spotify queue failed.")
+                await ui.append_activity(kind="error", title="Spotify queue", detail=message, status="error")
+                await ui.append_agent_message(message)
+                return
+        await self._show_spotify_queue(ui)
+        await ui.append_activity(
+            kind="status",
+            title="Spotify queue",
+            detail=f"Added {len(tracks)} recommended track(s) to Spotify queue.",
+            status="success",
         )
 
     async def _handle_spotify_random_command(self, ui: WebSocketUIAdapter) -> None:

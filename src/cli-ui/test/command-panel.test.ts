@@ -7,7 +7,7 @@ import {
     selectedHelpPanelCommand,
     visibleCommandWindow,
 } from '../src/command-panel.js';
-import { SPOTIFY_MODE_COMMAND_NAMES, spotifyModeSlashCommands } from '../src/commands.js';
+import { completeSlashCommand, SPOTIFY_MODE_COMMAND_NAMES, spotifyModeSlashCommands } from '../src/commands.js';
 
 const allHelpCommands = helpPanelCommands(SLASH_COMMANDS);
 const localizedHelpCommands = helpPanelCommands([
@@ -48,6 +48,9 @@ assert.equal(helpPlay, undefined);
 
 const helpRecommend = allHelpCommands.find((command) => command.name === "recommend");
 assert.equal(helpRecommend?.description, "recommend songs of preferred music taste");
+const slashRecommend = SLASH_COMMANDS.find((command) => command.name === "recommend");
+assert.equal(slashRecommend?.needsArgument, false);
+assert.equal(slashRecommend ? completeSlashCommand(slashRecommend) : null, "/recommend");
 
 for (const hiddenName of ["pause", "volume", "progress", "stop"]) {
     assert.equal(SLASH_COMMANDS.find((command) => command.name === hiddenName), undefined);

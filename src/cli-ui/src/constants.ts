@@ -27,7 +27,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "queue", usage: "/queue", description: "show playback queue", needsArgument: false },
     { name: "quit", usage: "/quit", description: "save session and exit", needsArgument: false },
     { name: "random", usage: "/random", description: "play from recent songs", needsArgument: false },
-    { name: "recommend", usage: "/recommend", description: "recommend songs of preferred music taste", needsArgument: true },
+    { name: "recommend", usage: "/recommend", description: "recommend songs of preferred music taste", needsArgument: false },
     { name: "resume", usage: "/resume", description: "resume current playback", needsArgument: false },
     { name: "setup", usage: "/setup", description: "configure a music provider", needsArgument: true },
     { name: "spotify", usage: "/spotify [off]", description: "enter or exit persistent Spotify mode", needsArgument: false },
