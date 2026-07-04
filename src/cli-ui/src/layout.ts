@@ -36,6 +36,7 @@ export type MiniPlayerLayout = {
 export type SpotifyImmersiveLayout = {
     topPadding: number;
     progressSlot: TerminalLinePosition;
+    deviceSlot: TerminalLinePosition;
 };
 
 const CHAT_HEADER_FULL_MIN_COLUMNS = 72;
@@ -122,12 +123,18 @@ export function resolveSpotifyImmersiveLayout(size: TerminalSize): SpotifyImmers
     );
     const width = Math.max(0, Math.min(Math.max(columns - 4, 0), preferredWidth));
     const row = Math.max(1, Math.min(Math.max(1, rows - 1), topPadding + 6));
+    const deviceRow = Math.max(1, Math.min(Math.max(1, rows), row + 1));
     const column = Math.max(1, Math.floor((Math.max(columns, width) - width) / 2) + 1);
 
     return {
         topPadding,
         progressSlot: {
             row,
+            column,
+            width,
+        },
+        deviceSlot: {
+            row: deviceRow,
             column,
             width,
         },

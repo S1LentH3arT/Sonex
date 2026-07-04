@@ -280,7 +280,12 @@ def _spotify_track_metadata(query: str, track: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def search_spotify_track_candidates(query: str, limit: int = 5) -> list[dict[str, Any]]:
+def search_spotify_track_candidates(
+    query: str,
+    limit: int = 5,
+    *,
+    query_variants: tuple[str, ...] | list[str] | None = None,
+) -> list[dict[str, Any]]:
     """Coordinates search spotify track candidates for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs search spotify track candidates as part of a Sonex command, playback, auth, llm, or ui path.
@@ -291,17 +296,35 @@ def search_spotify_track_candidates(query: str, limit: int = 5) -> list[dict[str
     if not clean_query:
         return []
     bounded_limit = max(1, min(10, int(limit or 5)))
-    try:
-        result = spotify_play.spotify_search(query=clean_query, limit=bounded_limit, types="track")
-    except Exception:
-        return []
-    if not isinstance(result, dict):
-        return []
+    search_queries: list[str] = []
+    for candidate in query_variants or (clean_query,):
+        clean_candidate = str(candidate or "").strip()
+        if clean_candidate and clean_candidate not in search_queries:
+            search_queries.append(clean_candidate)
+        if len(search_queries) >= 5:
+            break
     candidates: list[dict[str, Any]] = []
-    for track in _spotify_tracks_from_result(result):
-        metadata = _spotify_track_metadata(clean_query, track)
-        if metadata:
+    seen_keys: set[str] = set()
+    for search_query in search_queries:
+        try:
+            result = spotify_play.spotify_search(query=search_query, limit=bounded_limit, types="track")
+        except Exception:
+            continue
+        if not isinstance(result, dict):
+            continue
+        for track in _spotify_tracks_from_result(result):
+            metadata = _spotify_track_metadata(clean_query, track)
+            if not metadata:
+                continue
+            dedupe_key = str(metadata.get("uri") or metadata.get("spotify_track_id") or "").strip()
+            if not dedupe_key:
+                dedupe_key = f"{metadata.get('artist', '')}\0{metadata.get('name', '')}"
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
             candidates.append(metadata)
+            if len(candidates) >= bounded_limit:
+                break
         if len(candidates) >= bounded_limit:
             break
     return candidates

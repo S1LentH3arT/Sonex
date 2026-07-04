@@ -31,7 +31,7 @@ export function shouldUsePlaybackProgressTimer(player: PlayerState, active = tru
 export function playbackProgressAt(player: PlayerState, now: number): number {
     const base = player.progress_ms ?? 0;
     if (isPlaybackStarting(player)) return base;
-    const reference = player.timestamp ?? player.started_at;
+    const reference = player.progress_anchor_ms ?? player.timestamp ?? player.started_at;
     const liveOffset = player.is_playing && reference ? Math.max(0, now - reference) : 0;
     const progress = base + liveOffset;
     return player.duration_ms > 0 ? Math.min(player.duration_ms, progress) : progress;
@@ -55,7 +55,7 @@ export function usePlaybackProgress(player: PlayerState, active = true): number 
 
         const timer = setInterval(() => setNow(Date.now()), PLAYBACK_PROGRESS_INTERVAL_MS);
         return () => clearInterval(timer);
-    }, [active, player.is_playing, player.timestamp, player.started_at, player.progress_ms]);
+    }, [active, player.is_playing, player.progress_anchor_ms, player.timestamp, player.started_at, player.progress_ms]);
 
     return playbackProgressAt(player, now);
 }

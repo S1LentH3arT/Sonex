@@ -19,6 +19,16 @@ assert.equal(playbackProgressAt({
     duration_ms: 10000,
     progress_ms: 1000,
     timestamp: 1000,
+    progress_anchor_ms: 10_000,
+    is_playing: true,
+}, 10_250), 1250);
+assert.equal(playbackProgressAt({
+    name: "Song",
+    artist: "Artist",
+    album: "-",
+    duration_ms: 10000,
+    progress_ms: 1000,
+    timestamp: 1000,
     is_playing: false,
 }, 2000), 1000);
 assert.equal(playbackProgressAt({

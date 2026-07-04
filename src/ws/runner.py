@@ -35,6 +35,7 @@ from src.api.music_intent import (
     classify_music_intent,
     classify_music_intent_fast,
 )
+from src.api.music_query import build_music_search_query_plan
 from src.auth.apple_music import (
     apple_music_setup_message,
     load_apple_music_user_token,
@@ -440,6 +441,14 @@ def _spotify_starting_player_state(player_state: dict[str, Any]) -> dict[str, An
     pending_state["playback_status"] = "starting"
     pending_state["progress_source"] = "spotify_pending"
     return pending_state
+
+
+def _spotify_live_player_state(player_state: dict[str, Any]) -> dict[str, Any]:
+    """Anchors an authoritative Spotify state to the local clock for UI projection."""
+    live_state = dict(player_state)
+    live_state["progress_source"] = "spotify_live"
+    live_state["progress_anchor_ms"] = _timestamp_ms()
+    return live_state
 
 
 def _is_youtube_thumbnail(value: Any) -> bool:
@@ -3774,6 +3783,7 @@ class WebSocketRunner:
                 if isinstance(result, dict) and result.get("status") == "success":
                     player_state, cover_url = _extract_music_state(result)
                     if player_state:
+                        player_state = _spotify_live_player_state(player_state)
                         player_state = _decorate_player_state(player_state)
                         _remember_actual_playback(player_state)
                         signature = _player_sync_signature(player_state)
@@ -4065,25 +4075,32 @@ class WebSocketRunner:
         )
 
     async def _start_spotify_track_selection(self, ui: WebSocketUIAdapter, query: str) -> None:
+        query_plan = build_music_search_query_plan(query)
+        search_query = query_plan.original_query or query.strip()
         await ui.append_activity(
             kind="tool",
             title="Searching Spotify",
-            detail=f"Finding Spotify tracks for {query}.",
+            detail=f"Finding Spotify tracks for {search_query}.",
             status="pending",
         )
         try:
-            tracks = await asyncio.to_thread(search_spotify_track_candidates, query, 5)
+            tracks = await asyncio.to_thread(
+                search_spotify_track_candidates,
+                search_query,
+                5,
+                query_variants=query_plan.variants,
+            )
         except Exception as exc:
             message = sanitize_error_message(exc)
             await ui.append_activity(kind="error", title="Spotify search failed", detail=message, status="error")
             await ui.append_agent_message(message)
             return
         if not tracks:
-            message = f"No Spotify tracks found for '{query}'."
+            message = f"No Spotify tracks found for '{search_query}'."
             await ui.append_activity(kind="error", title="Spotify search", detail=message, status="error")
             await ui.append_agent_message(message)
             return
-        session = SpotifyPlaySelectionSession(ui, self, query, tracks)
+        session = SpotifyPlaySelectionSession(ui, self, search_query, tracks)
         setattr(ui, "_spotify_play_selection", session)
         await session.start()
 

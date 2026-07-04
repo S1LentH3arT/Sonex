@@ -1140,9 +1140,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=tracks) as search, \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), \
              patch("src.api.ws_runner.search_local_file") as local_search:
-            await runner._handle_user_input(ui, "播放 青花瓷")
+            await runner._handle_user_input(ui, "想听方大同的因为你")
 
-        search.assert_called_once_with("青花瓷", 5)
+        search.assert_called_once()
+        self.assertEqual(search.call_args.args[:2], ("方大同的因为你", 5))
+        self.assertEqual(search.call_args.kwargs["query_variants"][0], "track:因为你 artist:方大同")
+        self.assertIn("因为你 方大同", search.call_args.kwargs["query_variants"])
         local_search.assert_not_called()
         self.assertFalse(runner._run_agent_turn.called)
         confirm = [event for event in ui.events if event.get("tool_name") == "spotify_track"][-1]
@@ -2358,6 +2361,45 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         second = {**first, "progress_ms": 2000}
 
         self.assertNotEqual(_player_sync_signature(first), _player_sync_signature(second))
+
+    async def test_spotify_live_sync_marks_progress_anchor(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        ui.closed = False
+        playback = {
+            "status": "success",
+            "data": {
+                "provider": "spotify",
+                "source": "spotify",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration_ms": 180000,
+                "progress_ms": 42000,
+                "timestamp": 123456,
+                "is_playing": True,
+            },
+        }
+
+        async def stop_after_first_sleep(_: float) -> None:
+            ui.closed = True
+
+        async def call_inline(func: object, *args: object, **kwargs: object) -> object:
+            return func(*args, **kwargs)  # type: ignore[operator]
+
+        with patch("src.api.ws_runner.spotify_current_playback", return_value=playback), \
+                patch("src.api.ws_runner._timestamp_ms", return_value=200000), \
+                patch("src.api.ws_runner._remember_actual_playback"), \
+                patch("src.api.ws_runner._queue_payload", return_value=[]), \
+                patch("src.api.ws_runner.asyncio.to_thread", side_effect=call_inline), \
+                patch("src.api.ws_runner.asyncio.sleep", side_effect=stop_after_first_sleep):
+            await runner._sync_spotify_playback(ui)
+
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertTrue(player_events)
+        state = player_events[-1]["state"]
+        self.assertEqual(state["progress_source"], "spotify_live")
+        self.assertEqual(state["progress_anchor_ms"], 200000)
 
     async def test_volume_command_is_not_user_accessible_from_chat(self) -> None:
         runner = WebSocketRunner()

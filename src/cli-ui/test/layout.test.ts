@@ -169,6 +169,11 @@ assert.deepEqual(spotifyImmersive.progressSlot, {
     column: 27,
     width: 48,
 });
+assert.deepEqual(spotifyImmersive.deviceSlot, {
+    row: 17,
+    column: 27,
+    width: 48,
+});
 
 const narrowArtwork = resolveMiniPlayerLayout({ columns: 100, rows: 40 });
 assert.equal(narrowArtwork.mode, 'artwork');

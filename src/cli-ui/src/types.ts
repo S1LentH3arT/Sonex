@@ -142,6 +142,7 @@ export type PlayerState = {
     album: string;
     duration_ms: number;
     progress_ms?: number;
+    progress_anchor_ms?: number;
     timestamp?: number;
     started_at?: number;
     is_playing?: boolean;

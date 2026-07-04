@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const componentSource = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
+const spotifyImmersiveSource = componentSource.slice(
+    componentSource.indexOf('const SpotifyImmersiveRegion ='),
+    componentSource.indexOf('const ConversationRegion ='),
+);
 
 assert.equal(appSource.includes('<Static items={bannerItems}>'), false);
 assert.match(appSource, /resolveChatHeaderVariant/);
@@ -29,7 +33,12 @@ assert.match(componentSource, /width[^\n]*height/);
 assert.match(componentSource, /const SpotifyImmersiveRegion =/);
 assert.match(componentSource, /spotifyMode\.device_name \?\? "Spotify Connect"/);
 assert.match(componentSource, /spotifyImmersiveLayout: SpotifyImmersiveLayout/);
-assert.match(componentSource, /buildPlaybackProgressLine\(player, player\.timestamp \?\? Date\.now\(\), spotifyImmersiveLayout\.progressSlot\.width\)/);
+assert.match(spotifyImmersiveSource, /spotifyImmersiveLayout\.deviceSlot\.width/);
+assert.match(spotifyImmersiveSource, /<Box height=\{1\} marginTop=\{1\} \/>/);
+assert.match(spotifyImmersiveSource, /<Box width=\{deviceWidth > 0 \? deviceWidth : undefined\} justifyContent="center">/);
+assert.equal(spotifyImmersiveSource.includes('const progress = buildPlaybackProgressLine(player'), false);
+assert.equal(spotifyImmersiveSource.includes('{progress}</Text>'), false);
+assert.equal(spotifyImmersiveSource.includes('{formatDuration(progressMs)} / {formatDuration(player.duration_ms)}'), false);
 assert.match(componentSource, /activeRegion === "spotifyImmersive"/);
 assert.match(componentSource, /<SpotifyImmersiveRegion[\s\S]*spotifyMode=\{spotifyMode\}[\s\S]*spotifyImmersiveLayout=\{spotifyImmersiveLayout\}/);
 assert.equal(componentSource.includes('<MiniPlaybackMeter'), false);

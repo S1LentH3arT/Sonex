@@ -12,7 +12,7 @@ import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
-import { buildPlaybackProgressLine, buildPlaybackStatusIconLine } from './mini-progress-writer.js';
+import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
@@ -1360,9 +1360,8 @@ const SpotifyImmersiveRegion = ({
     spotifyImmersiveLayout: SpotifyImmersiveLayout;
 }) => {
     const deviceName = spotifyMode.device_name ?? "Spotify Connect";
-    const progressMs = player.progress_ms ?? 0;
-    const progress = buildPlaybackProgressLine(player, player.timestamp ?? Date.now(), spotifyImmersiveLayout.progressSlot.width);
     const topPadding = spotifyImmersiveLayout.topPadding;
+    const deviceWidth = spotifyImmersiveLayout.deviceSlot.width;
 
     return (
         <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingX={2} paddingTop={topPadding}>
@@ -1375,14 +1374,11 @@ const SpotifyImmersiveRegion = ({
             <Box justifyContent="center">
                 <Text color="#bf98a7" wrap="truncate-end">{formatMiniTrackSubtitle(player.artist, player.album)}</Text>
             </Box>
-            <Box justifyContent="center" marginTop={1}>
-                <Text color={SPOTIFY_GREEN}>{progress}</Text>
-            </Box>
+            <Box height={1} marginTop={1} />
             <Box justifyContent="center">
-                <Text color="#bf98a7">{formatDuration(progressMs)} / {formatDuration(player.duration_ms)}</Text>
-            </Box>
-            <Box justifyContent="center" marginTop={1}>
-                <Text color={SPOTIFY_GREEN}>playing on {deviceName}</Text>
+                <Box width={deviceWidth > 0 ? deviceWidth : undefined} justifyContent="center">
+                    <Text color={SPOTIFY_GREEN} wrap="truncate-end">playing on {deviceName}</Text>
+                </Box>
             </Box>
         </Box>
     );

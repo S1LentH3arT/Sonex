@@ -156,6 +156,88 @@ class OnlinePlayTests(unittest.TestCase):
         with patch("src.tools.spotify_play.spotify_search", side_effect=RuntimeError("no token")):
             self.assertEqual(online.search_spotify_track_candidates("query", limit=5), [])
 
+    def test_search_spotify_track_candidates_uses_variants_until_enough_unique_tracks(self) -> None:
+        responses = [
+            {
+                "status": "success",
+                "data": {
+                    "tracks": [
+                        {
+                            "id": "wrong",
+                            "name": "Wrong Song",
+                            "artist": "Other Artist",
+                            "artists": ["Other Artist"],
+                            "album": "Other Album",
+                            "duration_ms": 180000,
+                            "uri": "spotify:track:wrong",
+                        }
+                    ]
+                },
+            },
+            {
+                "status": "success",
+                "data": {
+                    "tracks": [
+                        {
+                            "id": "right",
+                            "name": "因为你",
+                            "artist": "方大同",
+                            "artists": ["方大同"],
+                            "album": "未来",
+                            "duration_ms": 200000,
+                            "uri": "spotify:track:right",
+                        },
+                        {
+                            "id": "right-duplicate",
+                            "name": "因为你",
+                            "artist": "方大同",
+                            "artists": ["方大同"],
+                            "album": "未来",
+                            "duration_ms": 200000,
+                            "uri": "spotify:track:right",
+                        },
+                    ]
+                },
+            },
+            {
+                "status": "success",
+                "data": {
+                    "tracks": [
+                        {
+                            "id": "live",
+                            "name": "因为你 Live",
+                            "artist": "方大同",
+                            "artists": ["方大同"],
+                            "album": "Live",
+                            "duration_ms": 210000,
+                            "uri": "spotify:track:live",
+                        }
+                    ]
+                },
+            },
+        ]
+
+        with patch("src.tools.spotify_play.spotify_search", side_effect=responses) as spotify_search:
+            candidates = online.search_spotify_track_candidates(
+                "方大同的因为你",
+                limit=3,
+                query_variants=(
+                    "方大同的因为你",
+                    "track:因为你 artist:方大同",
+                    "因为你 方大同",
+                ),
+            )
+
+        self.assertEqual([candidate["uri"] for candidate in candidates], [
+            "spotify:track:wrong",
+            "spotify:track:right",
+            "spotify:track:live",
+        ])
+        self.assertEqual(
+            [call.kwargs["query"] for call in spotify_search.call_args_list],
+            ["方大同的因为你", "track:因为你 artist:方大同", "因为你 方大同"],
+        )
+
     def test_normalize_jamendo_track_keeps_stream_download_cover_and_metadata(self) -> None:
         """Verifies that normalize jamendo track keeps stream download cover and metadata behaves as expected.
 
