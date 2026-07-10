@@ -6,7 +6,6 @@ Contains pytest coverage for the test builtin command runner behavior.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
@@ -1118,11 +1117,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("src.api.ws_runner.asyncio.to_thread", side_effect=never_returns),
             patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]),
+            patch("src.api.ws_runner.RECOMMEND_COMMAND_TIMEOUT_SECONDS", 0.001),
         ):
             await asyncio.wait_for(runner._handle_user_input(ui, "/recommend"), timeout=0.05)
             self.assertIsNotNone(runner._running_task)
             assert runner._running_task is not None
-            await asyncio.sleep(0)
+            await runner._running_task
             self.assertTrue(
                 any(
                     event.get("type") == "input_state"
@@ -1131,14 +1131,52 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                     for event in ui.events
                 )
             )
-            await runner._handle_user_input(ui, "hello")
-            self.assertTrue(any(status.phase == "Busy" and status.message == "Remixing..." for status in ui.statuses))
-            runner._running_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await runner._running_task
 
         self.assertFalse(runner._run_agent_turn.called)
         self.assertTrue(any(event.get("type") == "activity" and event.get("title") == "Recommendations" for event in ui.events))
+        self.assertTrue(any("Recommendations timed out after 60 seconds" in str(event.get("detail")) for event in ui.events))
+        self.assertTrue(any("Recommendations timed out after 60 seconds" in str(event.get("text")) for event in ui.events))
+        self.assertIsNone(runner._running_task)
+        self.assertTrue(
+            any(
+                event.get("type") == "input_state"
+                and event.get("disabled") is False
+                and event.get("reason") == "recommendation"
+                for event in ui.events
+            )
+        )
+
+    async def test_spotify_mode_recommend_timeout_covers_queue_add(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        track = {"name": "Blinding Lights", "artist": "The Weeknd", "uri": "spotify:track:1"}
+
+        async def recommend_then_hang(func, *args, **kwargs):
+            if func is spotify_recommend:
+                return func(*args, **kwargs)
+            await asyncio.sleep(10)
+
+        with patch("src.api.ws_runner.spotify_recommend", return_value={
+            "status": "success",
+            "data": {"tracks": [track]},
+        }) as spotify_recommend, patch(
+            "src.api.ws_runner.spotify_queue_add",
+            return_value={"status": "success", "message": "Added to Spotify queue."},
+        ), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=recommend_then_hang,
+        ), patch(
+            "src.api.ws_runner.RECOMMEND_COMMAND_TIMEOUT_SECONDS",
+            0.001,
+        ):
+            await runner._handle_user_input(ui, "/recommend")
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
+
+        self.assertTrue(any("Recommendations timed out after 60 seconds" in str(event.get("detail")) for event in ui.events))
+        self.assertIsNone(runner._running_task)
         self.assertTrue(
             any(
                 event.get("type") == "input_state"
