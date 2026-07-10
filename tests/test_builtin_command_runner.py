@@ -6,6 +6,7 @@ Contains pytest coverage for the test builtin command runner behavior.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -165,6 +166,10 @@ class FakeUI:
         Example: send_status() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "status", "status": status, **kwargs})
+
+    async def send_input_state(self, disabled: bool, reason: str | None = None) -> None:
+        """Records input-state events for command-flow assertions."""
+        self.events.append({"type": "input_state", "disabled": disabled, "reason": reason})
 
     async def _send(self, payload: dict[str, object]) -> None:
         """Verifies that send behaves as expected.
@@ -1039,7 +1044,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             side_effect=_to_thread_inline,
         ):
             await runner._handle_user_input(ui, "/recommend 华语女声")
-            await asyncio.sleep(0)
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
 
         self.assertFalse(runner._run_agent_turn.called)
         spotify_recommend.assert_called_once_with(query="华语女声", limit=5, recent_tracks=[{"name": "稻香", "artist": "周杰伦"}])
@@ -1068,6 +1075,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             return_value=[track],
         ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "/recommend")
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
 
         spotify_recommend.assert_called_once_with(query="", limit=5, recent_tracks=[])
         chat = [event for event in ui.events if event.get("type") == "chat" and event.get("role") == "agent"][-1]
@@ -1087,12 +1097,56 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             return_value=[track],
         ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "/recommend R&B")
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
 
         self.assertFalse(runner._run_agent_turn.called)
         saved = getattr(ui, "_last_recommendation_tracks")
         self.assertEqual([item["name"] for item in saved], ["倒带"])
         self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
         self.assertTrue(any("根据“R&B”推荐 1 首" in str(event.get("text")) for event in ui.events))
+
+    async def test_recommend_returns_immediately_while_providers_load(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        async def never_returns(*_args, **_kwargs):
+            await asyncio.sleep(10)
+
+        with (
+            patch("src.api.ws_runner.asyncio.to_thread", side_effect=never_returns),
+            patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]),
+        ):
+            await asyncio.wait_for(runner._handle_user_input(ui, "/recommend"), timeout=0.05)
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await asyncio.sleep(0)
+            self.assertTrue(
+                any(
+                    event.get("type") == "input_state"
+                    and event.get("disabled") is True
+                    and event.get("reason") == "recommendation"
+                    for event in ui.events
+                )
+            )
+            await runner._handle_user_input(ui, "hello")
+            self.assertTrue(any(status.phase == "Busy" and status.message == "Remixing..." for status in ui.statuses))
+            runner._running_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await runner._running_task
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any(event.get("type") == "activity" and event.get("title") == "Recommendations" for event in ui.events))
+        self.assertTrue(
+            any(
+                event.get("type") == "input_state"
+                and event.get("disabled") is False
+                and event.get("reason") == "recommendation"
+                for event in ui.events
+            )
+        )
 
     async def test_search_slash_command_is_not_user_facing(self) -> None:
         """Verifies that search slash command is not user facing.
@@ -1338,7 +1392,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "src.api.ws_runner.remember_playback_track"
         ) as remember, patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "/recommend 华语女声")
-            await asyncio.sleep(0)
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
 
         self.assertFalse(runner._run_agent_turn.called)
         spotify_recommend.assert_called_once_with(query="华语女声", limit=5, recent_tracks=[])
@@ -1369,6 +1425,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             side_effect=_to_thread_inline,
         ):
             await runner._handle_user_input(ui, "/recommend")
+            self.assertIsNotNone(runner._running_task)
+            assert runner._running_task is not None
+            await runner._running_task
 
         spotify_queue.assert_not_called()
         self.assertTrue(any("No active Spotify device found." in str(event.get("text")) for event in ui.events))

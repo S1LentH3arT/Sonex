@@ -3944,7 +3944,8 @@ class WebSocketRunner:
                 if self._running_task and not self._running_task.done():
                     ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
                     return
-                await self._handle_recommend_command(ui, parsed_command.args or "")
+                await ui.send_input_state(True, reason="recommendation")
+                self._running_task = asyncio.create_task(self._handle_recommend_command(ui, parsed_command.args or ""))
                 return
 
             if self._spotify_mode_enabled(ui) and parsed_command.command and parsed_command.command.mode == "agent":
@@ -4089,76 +4090,83 @@ class WebSocketRunner:
         )
 
     async def _handle_recommend_command(self, ui: WebSocketUIAdapter, query: str) -> None:
-        query = query.strip()
-        limit = 5
         try:
-            recent_tracks = playback_queue_snapshot()
-        except Exception:
-            recent_tracks = []
-
-        await ui.append_activity(
-            kind="tool",
-            title="Recommendations",
-            detail="Finding tracks to recommend.",
-            status="pending",
-        )
-        if self._spotify_mode_enabled(ui):
+            query = query.strip()
+            limit = 5
             try:
-                result = await asyncio.to_thread(
-                    spotify_recommend,
-                    query=query,
-                    limit=limit,
-                    recent_tracks=recent_tracks,
+                recent_tracks = playback_queue_snapshot()
+            except Exception:
+                recent_tracks = []
+
+            await ui.append_activity(
+                kind="tool",
+                title="Recommendations",
+                detail="Finding tracks to recommend.",
+                status="pending",
+            )
+            if self._spotify_mode_enabled(ui):
+                try:
+                    result = await asyncio.to_thread(
+                        spotify_recommend,
+                        query=query,
+                        limit=limit,
+                        recent_tracks=recent_tracks,
+                    )
+                except Exception as exc:
+                    result = _recommendation_provider_failure("spotify_recommend", exc)
+                tracks = _dedupe_recommendation_tracks(_recommendation_tracks(result), limit=limit)
+            else:
+                spotify_result, apple_result = await asyncio.gather(
+                    asyncio.to_thread(spotify_recommend, query=query, limit=limit, recent_tracks=recent_tracks),
+                    asyncio.to_thread(apple_music_recommend, query=query, limit=limit, recent_tracks=recent_tracks),
+                    return_exceptions=True,
                 )
-            except Exception as exc:
-                result = _recommendation_provider_failure("spotify_recommend", exc)
-            tracks = _dedupe_recommendation_tracks(_recommendation_tracks(result), limit=limit)
-        else:
-            spotify_result, apple_result = await asyncio.gather(
-                asyncio.to_thread(spotify_recommend, query=query, limit=limit, recent_tracks=recent_tracks),
-                asyncio.to_thread(apple_music_recommend, query=query, limit=limit, recent_tracks=recent_tracks),
-                return_exceptions=True,
+                if isinstance(spotify_result, BaseException):
+                    spotify_result = _recommendation_provider_failure("spotify_recommend", spotify_result)
+                if isinstance(apple_result, BaseException):
+                    apple_result = _recommendation_provider_failure("apple_music_recommend", apple_result)
+                tracks = _dedupe_recommendation_tracks(
+                    _recommendation_tracks(spotify_result),
+                    _recommendation_tracks(apple_result),
+                    limit=limit,
+                )
+
+            if not tracks:
+                message = "No recommendations were available. Try adding a taste hint after /recommend."
+                await ui.append_activity(kind="error", title="Recommendations", detail=message, status="error")
+                await ui.append_agent_message(message)
+                return
+
+            aggregate = {
+                "status": "success",
+                "tool": "spotify_recommend",
+                "message": f"Recommended {len(tracks)} track(s).",
+                "data": {"query": query, "tracks": tracks},
+            }
+            setattr(ui, "_recommendation_turn_active", True)
+            await self._sync_tool_result_ui(ui, "spotify_recommend", aggregate)
+            setattr(ui, "_recommendation_turn_active", False)
+            await ui.append_agent_message(_recommendation_message(query, tracks))
+
+            if self._spotify_mode_enabled(ui):
+                await self._queue_spotify_recommendations(ui, tracks)
+                return
+
+            for track in tracks:
+                remember_playback_track(track)
+            await ui._send({"type": "queue", "tracks": _queue_payload()})
+            await ui.append_activity(
+                kind="status",
+                title="Playback queue",
+                detail=f"Added {len(tracks)} recommended track(s) to the playback queue.",
+                status="success",
             )
-            if isinstance(spotify_result, BaseException):
-                spotify_result = _recommendation_provider_failure("spotify_recommend", spotify_result)
-            if isinstance(apple_result, BaseException):
-                apple_result = _recommendation_provider_failure("apple_music_recommend", apple_result)
-            tracks = _dedupe_recommendation_tracks(
-                _recommendation_tracks(spotify_result),
-                _recommendation_tracks(apple_result),
-                limit=limit,
-            )
-
-        if not tracks:
-            message = "No recommendations were available. Try adding a taste hint after /recommend."
-            await ui.append_activity(kind="error", title="Recommendations", detail=message, status="error")
-            await ui.append_agent_message(message)
-            return
-
-        aggregate = {
-            "status": "success",
-            "tool": "spotify_recommend",
-            "message": f"Recommended {len(tracks)} track(s).",
-            "data": {"query": query, "tracks": tracks},
-        }
-        setattr(ui, "_recommendation_turn_active", True)
-        await self._sync_tool_result_ui(ui, "spotify_recommend", aggregate)
-        setattr(ui, "_recommendation_turn_active", False)
-        await ui.append_agent_message(_recommendation_message(query, tracks))
-
-        if self._spotify_mode_enabled(ui):
-            await self._queue_spotify_recommendations(ui, tracks)
-            return
-
-        for track in tracks:
-            remember_playback_track(track)
-        await ui._send({"type": "queue", "tracks": _queue_payload()})
-        await ui.append_activity(
-            kind="status",
-            title="Playback queue",
-            detail=f"Added {len(tracks)} recommended track(s) to the playback queue.",
-            status="success",
-        )
+        finally:
+            if self._running_task is asyncio.current_task():
+                self._running_task = None
+                setattr(ui, "_recommendation_turn_active", False)
+                await ui.send_input_state(False, reason="recommendation")
+                await ui.send_status(UiStatus(phase="Idle", message="Snoozing..."), active=False)
 
     async def _queue_spotify_recommendations(self, ui: WebSocketUIAdapter, tracks: list[dict[str, Any]]) -> None:
         mode = getattr(ui, "_spotify_mode", {}) or {}

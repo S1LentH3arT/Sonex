@@ -158,6 +158,16 @@ class WebSocketUIAdapter:
             payload["active"] = active
         await self._send(payload)
 
+    async def send_input_state(self, disabled: bool, reason: str | None = None) -> None:
+        """Sends input lock state to the active runtime client."""
+        payload: dict[str, Any] = {
+            "type": "input_state",
+            "disabled": disabled,
+        }
+        if reason is not None:
+            payload["reason"] = reason
+        await self._send(payload)
+
     async def send_auth_state(self, state: AuthRuntimeState) -> None:
         """Sends auth state to the active runtime client.
 

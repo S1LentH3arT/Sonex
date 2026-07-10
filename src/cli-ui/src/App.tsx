@@ -73,6 +73,7 @@ export const App = () => {
     const [helpPanelIndex, setHelpPanelIndex] = useState(0);
     const [languagePanel, setLanguagePanel] = useState<LanguagePanelState>(null);
     const [languagePanelIndex, setLanguagePanelIndex] = useState(0);
+    const [recommendInputLocked, setRecommendInputLocked] = useState(false);
     const [trackPanelIndex, setTrackPanelIndex] = useState(0);
     const [chatScrollOffset, setChatScrollOffset] = useState(0);
     const [maxChatScrollOffset, setMaxChatScrollOffset] = useState(0);
@@ -228,6 +229,7 @@ export const App = () => {
     }, [launchPreparing]);
 
     const updateInput = React.useCallback((value: string) => {
+        if (recommendInputLocked) return;
         const sanitized = value.replace(/\x1B/g, "");
         setInput(sanitized);
         if (sanitized) {
@@ -239,7 +241,7 @@ export const App = () => {
         if (sanitized !== slashMenuDismissedFor) {
             setSlashMenuDismissedFor(null);
         }
-    }, [slashMenuDismissedFor]);
+    }, [recommendInputLocked, slashMenuDismissedFor]);
 
     const showError = React.useCallback((message: string, detail?: string | null) => {
         const content = detail ? `${message}\n${detail}` : message;
@@ -253,7 +255,9 @@ export const App = () => {
             ? authSetup.prompt
             : spotifySetup?.active && spotifySetup.prompt
                 ? spotifySetup.prompt
-                : t(language, "input.placeholder");
+                : recommendInputLocked
+                    ? t(language, "input.recommendPending")
+                    : t(language, "input.placeholder");
     const inputMask = authSetup?.active && authSetup.mask
         ? "*"
         : spotifySetup?.active && spotifySetup.mask
@@ -278,6 +282,14 @@ export const App = () => {
             case "status":
                 setLaunchPreparing(rawEvent.type === "status" && rawEvent.active !== false && rawEvent.message === "Launch preparing...");
                 setStatusText(evt.message);
+                break;
+            case "input_state":
+                setRecommendInputLocked(evt.disabled && evt.reason === "recommendation");
+                if (evt.disabled && evt.reason === "recommendation") {
+                    setInput("");
+                    setInputRevision((prev) => prev + 1);
+                    setSlashMenuDismissedFor(null);
+                }
                 break;
             case "queue":
                 setQueueItems(evt.tracks);
@@ -613,6 +625,7 @@ export const App = () => {
     }, []);
 
     const submitInput = React.useCallback((value: string) => {
+        if (recommendInputLocked) return;
         const text = value.trim();
         if (!text) return;
 
@@ -693,7 +706,7 @@ export const App = () => {
         } else {
             send({ type: "user_input", text });
         }
-    }, [applySlashCompletion, authSetup?.active, confirm, handleKeymapCommand, openLanguagePanel, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active, visibleConfirmChoices]);
+    }, [applySlashCompletion, authSetup?.active, confirm, handleKeymapCommand, openLanguagePanel, recommendInputLocked, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active, visibleConfirmChoices]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -895,7 +908,7 @@ export const App = () => {
                         onSubmit={submitInput}
                         inputPlaceholder={inputPlaceholder}
                         inputMask={inputMask}
-                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !helpPanel && !languagePanel?.active && !isModelPanelActive}
+                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !helpPanel && !languagePanel?.active && !isModelPanelActive && !recommendInputLocked}
                         inputRevision={inputRevision}
                         chatItems={chatItems}
                         player={player}

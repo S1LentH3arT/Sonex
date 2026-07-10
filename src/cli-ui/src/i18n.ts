@@ -15,6 +15,7 @@ type MessageKey =
     | "help.title"
     | "input.label"
     | "input.placeholder"
+    | "input.recommendPending"
     | "keymap.usage"
     | "language.english"
     | "language.hint"
@@ -51,6 +52,7 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "help.title": "Sonex commands",
         "input.label": "Input",
         "input.placeholder": "Say something to awake Sonex.",
+        "input.recommendPending": "Waiting for recommendations...",
         "keymap.usage": "Usage: /keymap [on|off|toggle|status]",
         "language.english": "English",
         "language.hint": "Esc to close without changing.",
@@ -86,6 +88,7 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "help.title": "Sonex 命令",
         "input.label": "输入",
         "input.placeholder": "和 Sonex 说点什么。",
+        "input.recommendPending": "等待Sonex推荐中...",
         "keymap.usage": "用法：/keymap [on|off|toggle|status]",
         "language.english": "English",
         "language.hint": "Esc 关闭且不更改。",

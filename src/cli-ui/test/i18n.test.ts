@@ -13,6 +13,8 @@ assert.equal(t("en", "status.snoozing"), "Snoozing...");
 assert.equal(t("zh-CN", "status.snoozing"), "休眠中...");
 assert.equal(t("zh-CN", "tips.placeholder"), "提示：试试 /random 随机播放。");
 assert.equal(t("zh-CN", "input.placeholder"), "和 Sonex 说点什么。");
+assert.equal(t("en", "input.recommendPending"), "Waiting for recommendations...");
+assert.equal(t("zh-CN", "input.recommendPending"), "等待Sonex推荐中...");
 assert.equal(languageLabel("zh-CN"), "简体中文");
 
 const zhSlashCommands = localizeSlashCommands(SLASH_COMMANDS, "zh-CN");

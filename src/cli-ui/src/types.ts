@@ -2,6 +2,7 @@ export type ServerEvent =
     | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null }
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
     | { type: "status"; phase: string; message: string; active?: boolean | null; step?: number; max_steps?: number }
+    | { type: "input_state"; disabled: boolean; reason?: "recommendation" | null }
     | { type: "queue"; tracks: Array<{ index: string; title: string; artist: string; duration: string }> }
     | { type: "track_panel"; panel: "queue" | "playlist"; title: string; hint?: string | null; tracks: TrackPanelTrack[] }
     | { type: "search_results"; tracks: TrackSummary[] }
