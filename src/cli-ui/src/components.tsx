@@ -13,6 +13,7 @@ import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js'
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
+import { formatTrackPanelLine } from './track-panel.js';
 import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
@@ -217,8 +218,7 @@ const MODEL_PANEL_LABEL_WIDTH = 20;
 const PLAYLIST_BROWSE_NAME_WIDTH = 32;
 const SPOTIFY_GREEN = "#1db954";
 const SPOTIFY_SELECTED_TEXT = "#06140c";
-const SPOTIFY_TRACK_INDEX_WIDTH = 3;
-const SPOTIFY_TRACK_ARTIST_WIDTH = 16;
+const TRACK_PANEL_ROW_WIDTH = 96;
 
 const truncateDisplayWidth = (value: string, width: number): string => {
     const normalized = value.trim() || "-";
@@ -451,40 +451,6 @@ const trackPanelEmptyText = (panel: NonNullable<TrackPanelState>, language: UiLa
     panel.panel === "queue" ? t(language, "trackPanel.queueEmpty") : t(language, "trackPanel.playlistEmpty")
 );
 
-const isPlaylistTrackPanel = (panel: NonNullable<TrackPanelState>): boolean => (
-    panel.panel === "playlist"
-);
-
-const padDisplayWidth = (value: string, width: number): string => {
-    const normalized = value.trim() || "-";
-    let rendered = "";
-    let renderedWidth = 0;
-    for (const char of Array.from(normalized)) {
-        const charWidth = stringWidth(char);
-        if (renderedWidth + charWidth > width) break;
-        rendered += char;
-        renderedWidth += charWidth;
-    }
-    return rendered + " ".repeat(Math.max(0, width - renderedWidth));
-};
-
-const padStartDisplayWidth = (value: string, width: number): string => {
-    const normalized = value.trim() || "-";
-    const renderedWidth = stringWidth(normalized);
-    return " ".repeat(Math.max(0, width - renderedWidth)) + normalized;
-};
-
-const formatTrackPanelTitle = (panel: NonNullable<TrackPanelState>, track: TrackPanelTrack): string => (
-    isPlaylistTrackPanel(panel)
-        ? `${padDisplayWidth(track.artist, SPOTIFY_TRACK_ARTIST_WIDTH)} ${track.title}`
-        : track.title
-);
-
-const formatSpotifyTrackPanelIndex = (track: TrackPanelTrack): string => {
-    const index = padStartDisplayWidth(track.index, SPOTIFY_TRACK_INDEX_WIDTH);
-    return track.queued ? `✓${index}` : ` ${index}`;
-};
-
 const TRACK_PANEL_MIN_VISIBLE_ROWS = 4;
 
 const TrackPanel = ({ panel, expanded = false, selectedIndex = 0, language = "en" }: {
@@ -559,13 +525,10 @@ const TrackPanel = ({ panel, expanded = false, selectedIndex = 0, language = "en
                                 ? "#f3b2c6"
                                 : "#fff4f6";
                     const marker = selected ? "> " : "  ";
-                    const meta = panel.panel === "queue" ? track.duration : null;
-                    const title = formatTrackPanelTitle(panel, track);
-                    const spotifyIndex = formatSpotifyTrackPanelIndex(track);
-                    const spotifyLine = `${spotifyIndex} ${title}`;
+                    const spotifyLine = formatTrackPanelLine(track, TRACK_PANEL_ROW_WIDTH);
                     const rowBackgroundColor = selected ? (isSpotifyThemePanel ? SPOTIFY_GREEN : "#4b2f3a") : undefined;
-                    const rowFill = rowBackgroundColor ? " ".repeat(Math.max(0, 96 - stringWidth(
-                            isSpotifyThemePanel ? `${spotifyLine}` : `${marker}${track.index}${title}`
+                    const rowFill = rowBackgroundColor ? " ".repeat(Math.max(0, TRACK_PANEL_ROW_WIDTH - stringWidth(
+                            isSpotifyThemePanel ? `${spotifyLine}` : `${marker}${track.index}${spotifyLine}`
                     ))) : "";
 
                     return (
@@ -578,7 +541,7 @@ const TrackPanel = ({ panel, expanded = false, selectedIndex = 0, language = "en
                                 <>
                                     <Text color={rowColor} backgroundColor={rowBackgroundColor}>{marker}</Text>
                                     <Text color="#bf98a7" backgroundColor={rowBackgroundColor}>{track.index}</Text>
-                                    <Text color={rowColor} backgroundColor={rowBackgroundColor}>{title}{rowFill}</Text>
+                                    <Text color={rowColor} backgroundColor={rowBackgroundColor}>{spotifyLine}{rowFill}</Text>
                                 </>
                             )}
                         </Text>
