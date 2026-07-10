@@ -680,6 +680,10 @@ class SpotifyToolTests(unittest.TestCase):
     def test_spotify_queue_add_requires_active_device_without_device_id(self) -> None:
         with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
             spotify,
+            "spotify_user_client",
+            return_value=object(),
+        ), patch.object(
+            spotify,
             "_has_active_device",
             return_value=False,
         ):
