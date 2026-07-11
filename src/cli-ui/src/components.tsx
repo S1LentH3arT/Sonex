@@ -379,8 +379,8 @@ const HelpPanel = ({ panel, selectedIndex, language = "en" }: { panel: HelpPanel
 
 const ChatBubble = ({ role, content, theme = null }: ChatBubbleProps) => {
     const isUser = role === "user";
-    const color = theme === "spotify" && !isUser ? SPOTIFY_GREEN : isUser ? "#fff6f8" : "#f6e9ee";
-    const borderLeftColor = theme === "spotify" && !isUser ? SPOTIFY_GREEN : isUser ? BORDER_BLUE : BORDER_BLUE_SOFT;
+    const color = theme === "muted" && !isUser ? "#9ca3af" : theme === "spotify" && !isUser ? SPOTIFY_GREEN : isUser ? "#fff6f8" : "#f6e9ee";
+    const borderLeftColor = theme === "muted" && !isUser ? "#6b7280" : theme === "spotify" && !isUser ? SPOTIFY_GREEN : isUser ? BORDER_BLUE : BORDER_BLUE_SOFT;
 
     return (
         <Box paddingX={2} marginBottom={1} borderStyle="single" borderTop={false} borderRight={false}

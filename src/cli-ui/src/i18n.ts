@@ -32,8 +32,10 @@ type MessageKey =
     | "status.snoozing"
     | "tips.placeholder"
     | "trackPanel.playlist"
+    | "trackPanel.playlistHidden"
     | "trackPanel.playlistEmpty"
     | "trackPanel.queue"
+    | "trackPanel.queueHidden"
     | "trackPanel.queueEmpty";
 
 const messages: Record<UiLanguage, Record<MessageKey, string>> = {
@@ -69,8 +71,10 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "status.snoozing": "Snoozing...",
         "tips.placeholder": "Tips: try /random for a free play.",
         "trackPanel.playlist": "Playlist",
+        "trackPanel.playlistHidden": "Playlist dialog hided",
         "trackPanel.playlistEmpty": "Playlist is empty.",
         "trackPanel.queue": "Queue",
+        "trackPanel.queueHidden": "Queue dialog hided",
         "trackPanel.queueEmpty": "Queue is empty.",
     },
     "zh-CN": {
@@ -105,8 +109,10 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "status.snoozing": "休眠中...",
         "tips.placeholder": "提示：试试 /random 随机播放。",
         "trackPanel.playlist": "歌单",
+        "trackPanel.playlistHidden": "歌单面板已收起",
         "trackPanel.playlistEmpty": "歌单为空。",
         "trackPanel.queue": "播放队列",
+        "trackPanel.queueHidden": "播放队列已收起",
         "trackPanel.queueEmpty": "播放队列为空。",
     },
 };

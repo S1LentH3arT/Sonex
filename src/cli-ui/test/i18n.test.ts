@@ -15,6 +15,10 @@ assert.equal(t("zh-CN", "tips.placeholder"), "提示：试试 /random 随机播�
 assert.equal(t("zh-CN", "input.placeholder"), "和 Sonex 说点什么。");
 assert.equal(t("en", "input.recommendPending"), "Waiting for recommendations...");
 assert.equal(t("zh-CN", "input.recommendPending"), "等待Sonex推荐中...");
+assert.equal(t("en", "trackPanel.playlistHidden"), "Playlist dialog hided");
+assert.equal(t("en", "trackPanel.queueHidden"), "Queue dialog hided");
+assert.equal(t("zh-CN", "trackPanel.playlistHidden"), "歌单面板已收起");
+assert.equal(t("zh-CN", "trackPanel.queueHidden"), "播放队列已收起");
 assert.equal(languageLabel("zh-CN"), "简体中文");
 
 const zhSlashCommands = localizeSlashCommands(SLASH_COMMANDS, "zh-CN");

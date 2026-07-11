@@ -182,7 +182,7 @@ export type TrackSummary = {
     recommendation_reason?: string | null;
 };
 
-export type ChatTheme = "spotify";
+export type ChatTheme = "spotify" | "muted";
 
 export type ChatBubbleProps = {
     role: ChatRole;

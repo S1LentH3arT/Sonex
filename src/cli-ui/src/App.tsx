@@ -851,10 +851,15 @@ export const App = () => {
 
     useInput((inputKey, key) => {
         if (!trackPanel || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
+        const dismissedTrackPanel = trackPanel.panel;
         const selectedTrackPanelTrack = trackPanel.tracks[Math.min(trackPanelIndex, Math.max(0, trackPanel.tracks.length - 1))] ?? null;
         if (key.escape) {
             setTrackPanel(null);
             setTrackPanelIndex(0);
+            const hiddenMessage = dismissedTrackPanel === "playlist"
+                ? t(language, "trackPanel.playlistHidden")
+                : t(language, "trackPanel.queueHidden");
+            setChatItems((prev) => [...prev, { role: "agent", content: hiddenMessage, theme: "muted" }]);
         } else if (isTrackPanelQueueShortcut(inputKey, key) && selectedTrackPanelTrack) {
             send({ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
         } else if (key.return && selectedTrackPanelTrack) {
