@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
+import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -41,9 +44,85 @@ SPOTIFY_PLAYLIST_READ_SCOPES = {"playlist-read-private", "playlist-read-collabor
 SPOTIFY_LIBRARY_READ_SCOPES = {"user-library-read"}
 SPOTIFY_LIBRARY_REQUEST_TIMEOUT_SECONDS = 5
 MAX_RECENT_TRACKS = 10
+SPOTIFY_API_MIN_INTERVAL_SECONDS = 0.25
+SPOTIFY_API_FALLBACK_COOLDOWN_SECONDS = 30.0
 
 _RECENT_TRACKS: list[dict[str, Any]] = []
 _RECENT_TRACKS_LOADED = False
+
+
+class SpotifyRateLimitCooldownError(RuntimeError):
+    """Raised when the shared Spotify request gate is cooling down."""
+
+    http_status = 429
+
+    def __init__(self, retry_after_seconds: float) -> None:
+        self.retry_after_seconds = max(0.0, retry_after_seconds)
+        retry_after = max(1, int(self.retry_after_seconds + 0.999))
+        self.headers = {"Retry-After": str(retry_after)}
+        super().__init__(f"Spotify request cooldown is active for {retry_after} seconds.")
+
+
+class SpotifyApiRequestGate:
+    """Serializes Spotify Web API calls and honors server cooldowns."""
+
+    def __init__(
+        self,
+        *,
+        min_interval_seconds: float = SPOTIFY_API_MIN_INTERVAL_SECONDS,
+        fallback_cooldown_seconds: float = SPOTIFY_API_FALLBACK_COOLDOWN_SECONDS,
+    ) -> None:
+        self.min_interval_seconds = max(0.0, min_interval_seconds)
+        self.fallback_cooldown_seconds = max(1.0, fallback_cooldown_seconds)
+        self._request_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._next_request_at = 0.0
+        self._cooldown_until = 0.0
+
+    def cooldown_remaining(self) -> float:
+        """Return the remaining process-wide Spotify cooldown in seconds."""
+        with self._state_lock:
+            return max(0.0, self._cooldown_until - time.monotonic())
+
+    def reset(self) -> None:
+        """Clear pacing state for isolated tests."""
+        with self._state_lock:
+            self._next_request_at = 0.0
+            self._cooldown_until = 0.0
+
+    def run(self, func: Any) -> Any:
+        """Run one Spotify request under serialization, pacing, and cooldown."""
+        with self._request_lock:
+            with self._state_lock:
+                now = time.monotonic()
+                if now < self._cooldown_until:
+                    raise SpotifyRateLimitCooldownError(self._cooldown_until - now)
+                delay = self._next_request_at - now
+            if delay > 0:
+                time.sleep(delay)
+            try:
+                return func()
+            except Exception as exc:
+                if getattr(exc, "http_status", None) == 429:
+                    retry_after = _spotify_retry_after_seconds(
+                        exc,
+                        fallback_seconds=self.fallback_cooldown_seconds,
+                    )
+                    with self._state_lock:
+                        self._cooldown_until = max(
+                            self._cooldown_until,
+                            time.monotonic() + retry_after,
+                        )
+                raise
+            finally:
+                with self._state_lock:
+                    self._next_request_at = max(
+                        self._next_request_at,
+                        time.monotonic() + self.min_interval_seconds,
+                    )
+
+
+_SPOTIFY_API_REQUEST_GATE = SpotifyApiRequestGate()
 
 
 class SpotifyAppPremiumRequiredError(RuntimeError):
@@ -512,7 +591,7 @@ def _list_devices(client: Any) -> list[dict[str, Any]]:
 
     Example: _list_devices(client=...) -> returns the value used by the surrounding Sonex flow.
     """
-    payload = client.devices()
+    payload = _spotify_api_call(client.devices)
     return [_normalize_device(device) for device in (payload.get("devices") or [])]
 
 
@@ -577,6 +656,66 @@ def _spotify_retry_after(exc: Exception) -> str | None:
     return text or None
 
 
+def _spotify_retry_after_seconds(
+    exc: Exception,
+    *,
+    fallback_seconds: float = SPOTIFY_API_FALLBACK_COOLDOWN_SECONDS,
+) -> float:
+    value = _spotify_retry_after(exc)
+    if value is not None:
+        try:
+            return max(1.0, float(value))
+        except ValueError:
+            pass
+    return max(1.0, fallback_seconds)
+
+
+def _spotify_api_call(func: Any) -> Any:
+    """Run one outbound Spotify Web API request through the shared gate."""
+    return _SPOTIFY_API_REQUEST_GATE.run(func)
+
+
+def spotify_api_cooldown_remaining() -> float:
+    """Return remaining Spotify API cooldown seconds without making a request."""
+    return _SPOTIFY_API_REQUEST_GATE.cooldown_remaining()
+
+
+def reset_spotify_api_request_gate() -> None:
+    """Reset process request-gate state for isolated tests."""
+    _SPOTIFY_API_REQUEST_GATE.reset()
+
+
+def _is_connection_refused(exc: Exception) -> bool:
+    if isinstance(exc, ConnectionRefusedError):
+        return True
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, ConnectionRefusedError):
+        return True
+    return "Connection refused" in str(exc) or "Unable to connect to proxy" in str(exc)
+
+
+def _is_tls_eof(exc: Exception) -> bool:
+    if isinstance(exc, ssl.SSLError) and exc.errno == ssl.SSL_ERROR_EOF:
+        return True
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, ssl.SSLError) and reason.errno == ssl.SSL_ERROR_EOF:
+        return True
+    text = str(exc)
+    return "UNEXPECTED_EOF_WHILE_READING" in text or "EOF occurred in violation of protocol" in text
+
+
+def _loopback_proxy_url() -> str | None:
+    proxies = urllib.request.getproxies()
+    for key in ("https", "http", "all"):
+        value = proxies.get(key)
+        if not value:
+            continue
+        parsed = urllib.parse.urlparse(value)
+        if parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
+            return value
+    return None
+
+
 def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR") -> dict[str, Any]:
     """Prepares spotify error for an internal Sonex flow.
 
@@ -589,8 +728,22 @@ def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR
     lowered = message.lower()
     code = default_code
     data: dict[str, Any] = {}
+    proxy = _loopback_proxy_url()
 
-    if isinstance(exc, SpotifyConfigMissingError):
+    if proxy and _is_connection_refused(exc):
+        code = "SPOTIFY_PROXY_UNAVAILABLE"
+        message = (
+            f"{message} (local proxy {proxy} is not accepting connections; "
+            "start the proxy or update/unset HTTPS_PROXY/HTTP_PROXY/https_proxy/http_proxy/all_proxy/ALL_PROXY.)"
+        )
+    elif proxy and _is_tls_eof(exc):
+        code = "SPOTIFY_PROXY_UNAVAILABLE"
+        message = (
+            f"{message} (local proxy {proxy} TLS connection closed unexpectedly; "
+            "verify the proxy is running on the URL Python resolves, or update/unset "
+            "HTTPS_PROXY/HTTP_PROXY/https_proxy/http_proxy/all_proxy/ALL_PROXY.)"
+        )
+    elif isinstance(exc, SpotifyConfigMissingError):
         code = "SPOTIFY_CONFIG_MISSING"
     elif isinstance(exc, SpotifyLoginRequiredError):
         code = "SPOTIFY_LOGIN_REQUIRED"
@@ -628,8 +781,12 @@ def _search_with_client(query: str, limit: int, types: str, *, use_user: bool = 
 
     Example: _search_with_client(query=..., limit=..., types=..., use_user=...) -> returns the value used by the surrounding Sonex flow.
     """
-    client = spotify_user_client() if use_user else spotify_app_client()
-    return client.search(q=query, type=types, limit=limit)
+    client = (
+        spotify_user_client(requests_timeout=5, retries=0)
+        if use_user
+        else spotify_app_client(requests_timeout=5, retries=0)
+    )
+    return _spotify_api_call(lambda: client.search(q=query, type=types, limit=limit))
 
 
 def _search_payload(query: str, limit: int, types: str) -> tuple[dict[str, Any], str]:
@@ -712,11 +869,11 @@ def _spotify_product(*, requests_timeout: float | None = None) -> tuple[str, dic
     """
     try:
         if requests_timeout is None:
-            client = spotify_user_client(SPOTIFY_PRIVATE_SCOPES)
+            client = spotify_user_client(SPOTIFY_PRIVATE_SCOPES, requests_timeout=5, retries=0)
         else:
             token = ensure_spotify_token(SPOTIFY_PRIVATE_SCOPES)
             client = spotipy.Spotify(auth=token.access_token, requests_timeout=requests_timeout, retries=0)
-        profile = client.current_user()
+        profile = _spotify_api_call(client.current_user)
     except SpotifyLoginRequiredError:
         return "unknown", None
     except Exception:
@@ -788,27 +945,9 @@ def spotify_current_playback() -> dict[str, Any]:
 
     Example: spotify_current_playback() -> returns the value used by the surrounding Sonex flow.
     """
-    account = spotify_account()
-    data = account.get("data") if isinstance(account, dict) else {}
-    capabilities = data.get("capabilities") if isinstance(data, dict) else {}
-    if data.get("logged_in") and not capabilities.get("current_playback"):
-        scopes = set(data.get("scopes") or [])
-        if _product_is_known_non_premium(data.get("product")):
-            return ToolResult.fail(
-                tool="spotify_current_playback",
-                message="Spotify playback state requires a Premium account.",
-                error_code="SPOTIFY_PREMIUM_REQUIRED",
-            ).to_dict()
-        if not scopes & (SPOTIFY_READ_PLAYBACK_SCOPES | SPOTIFY_NOW_PLAYING_SCOPES):
-            return ToolResult.fail(
-                tool="spotify_current_playback",
-                message="Spotify playback state scope is missing. Run `sonex auth login spotify` again.",
-                error_code="SPOTIFY_SCOPE_MISSING",
-            ).to_dict()
-
     try:
-        client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES)
-        playback = client.current_playback()
+        client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
+        playback = _spotify_api_call(client.current_playback)
     except Exception as exc:
         return _spotify_error("spotify_current_playback", exc, "SPOTIFY_API_ERROR")
 
@@ -826,8 +965,8 @@ def spotify_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
     """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     try:
-        client = spotify_user_client(SPOTIFY_RECENTLY_PLAYED_SCOPES)
-        payload = client.current_user_recently_played(limit=bounded_limit)
+        client = spotify_user_client(SPOTIFY_RECENTLY_PLAYED_SCOPES, requests_timeout=5, retries=0)
+        payload = _spotify_api_call(lambda: client.current_user_recently_played(limit=bounded_limit))
     except Exception as exc:
         return _spotify_error("spotify_recent_tracks", exc, "SPOTIFY_API_ERROR")
 
@@ -860,7 +999,9 @@ def spotify_saved_tracks(limit: int = 50, offset: int = 0) -> dict[str, Any]:
             requests_timeout=SPOTIFY_LIBRARY_REQUEST_TIMEOUT_SECONDS,
             retries=0,
         )
-        payload = client.current_user_saved_tracks(limit=bounded_limit, offset=bounded_offset)
+        payload = _spotify_api_call(
+            lambda: client.current_user_saved_tracks(limit=bounded_limit, offset=bounded_offset)
+        )
     except Exception as exc:
         return _spotify_error("spotify_saved_tracks", exc, "SPOTIFY_API_ERROR")
 
@@ -896,7 +1037,9 @@ def spotify_playlists(limit: int = 50, offset: int = 0) -> dict[str, Any]:
             requests_timeout=SPOTIFY_LIBRARY_REQUEST_TIMEOUT_SECONDS,
             retries=0,
         )
-        payload = client.current_user_playlists(limit=bounded_limit, offset=bounded_offset)
+        payload = _spotify_api_call(
+            lambda: client.current_user_playlists(limit=bounded_limit, offset=bounded_offset)
+        )
     except Exception as exc:
         return _spotify_error("spotify_playlists", exc, "SPOTIFY_API_ERROR")
 
@@ -929,12 +1072,14 @@ def spotify_playlist_tracks(playlist_id: str, limit: int = 50, offset: int = 0) 
             requests_timeout=SPOTIFY_LIBRARY_REQUEST_TIMEOUT_SECONDS,
             retries=0,
         )
-        payload = client.playlist_items(
-            playlist_id,
-            fields="items(track(id,name,duration_ms,artists(name),album(name,images),external_urls,uri,type,is_playable))",
-            limit=bounded_limit,
-            offset=bounded_offset,
-            additional_types=("track",),
+        payload = _spotify_api_call(
+            lambda: client.playlist_items(
+                playlist_id,
+                fields="items(track(id,name,duration_ms,artists(name),album(name,images),external_urls,uri,type,is_playable))",
+                limit=bounded_limit,
+                offset=bounded_offset,
+                additional_types=("track",),
+            )
         )
     except Exception as exc:
         return _spotify_error("spotify_playlist_tracks", exc, "SPOTIFY_API_ERROR")
@@ -970,8 +1115,8 @@ def spotify_queue(limit: int = 50) -> dict[str, Any]:
     """Read the user's Spotify queue in the same compact track shape as spotify_play."""
     bounded_limit = min(50, max(1, int(limit or 50)))
     try:
-        client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES)
-        payload = client.queue()
+        client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
+        payload = _spotify_api_call(client.queue)
     except Exception as exc:
         return _spotify_error("spotify_queue", exc, "SPOTIFY_API_ERROR")
 
@@ -1012,14 +1157,18 @@ def spotify_queue_add(uri: str, device_id: str | None = None) -> dict[str, Any]:
         return blocked
 
     try:
-        client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_READ_PLAYBACK_SCOPES)
+        client = spotify_user_client(
+            SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_READ_PLAYBACK_SCOPES,
+            requests_timeout=5,
+            retries=0,
+        )
         if not device_id and not _has_active_device(client):
             return ToolResult.fail(
                 tool="spotify_queue_add",
                 message="No active Spotify device found. Open Spotify on your phone or desktop first.",
                 error_code="SPOTIFY_DEVICE_REQUIRED",
             ).to_dict()
-        client.add_to_queue(track_uri, device_id=device_id or None)
+        _spotify_api_call(lambda: client.add_to_queue(track_uri, device_id=device_id or None))
     except Exception as exc:
         return _spotify_error("spotify_queue_add", exc, "SPOTIFY_API_ERROR")
 
@@ -1040,29 +1189,8 @@ def _require_premium_control(tool: str) -> dict[str, Any] | None:
 
     Example: _require_premium_control(tool=...) -> returns the value used by the surrounding Sonex flow.
     """
-    account = spotify_account()
-    data = account.get("data") or {}
-    if not data.get("logged_in"):
-        return ToolResult.fail(
-            tool=tool,
-            message="Run `sonex auth login spotify` before controlling Spotify playback.",
-            error_code="SPOTIFY_LOGIN_REQUIRED",
-        ).to_dict()
-    if _product_is_known_non_premium(data.get("product")):
-        return ToolResult.fail(
-            tool=tool,
-            message="Spotify playback control requires a Premium account.",
-            error_code="SPOTIFY_PREMIUM_REQUIRED",
-            data={"spotify_url": "https://open.spotify.com/"},
-        ).to_dict()
-    if not (data.get("capabilities") or {}).get("playback_control"):
-        return ToolResult.fail(
-            tool=tool,
-            message="Spotify playback control scope is missing. Run `sonex auth login spotify` again.",
-            error_code="SPOTIFY_SCOPE_MISSING",
-        ).to_dict()
     try:
-        spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_PRIVATE_SCOPES)
+        ensure_spotify_token(SPOTIFY_MODIFY_PLAYBACK_SCOPES)
     except Exception as exc:
         return _spotify_error(tool, exc, "SPOTIFY_API_ERROR")
     return None
@@ -1076,7 +1204,7 @@ def _has_active_device(client: Any) -> bool:
     Example: _has_active_device(client=...) -> returns the value used by the surrounding Sonex flow.
     """
     try:
-        payload = client.devices()
+        payload = _spotify_api_call(client.devices)
     except SpotifyException:
         return True
     devices = payload.get("devices") or []
@@ -1091,7 +1219,7 @@ def spotify_devices() -> dict[str, Any]:
     Example: spotify_devices() -> returns the value used by the surrounding Sonex flow.
     """
     try:
-        client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES)
+        client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
         devices = _list_devices(client)
     except Exception as exc:
         return _spotify_error("spotify_devices", exc, "SPOTIFY_API_ERROR")
@@ -1125,7 +1253,11 @@ def spotify_transfer_playback(
         ).to_dict()
 
     try:
-        client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_READ_PLAYBACK_SCOPES)
+        client = spotify_user_client(
+            SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_READ_PLAYBACK_SCOPES,
+            requests_timeout=5,
+            retries=0,
+        )
         device = _find_device(client, device_id=device_id, device_name=device_name)
         if not device:
             return ToolResult.fail(
@@ -1141,7 +1273,9 @@ def spotify_transfer_playback(
                 error_code="SPOTIFY_DEVICE_RESTRICTED",
                 data={"device": device},
             ).to_dict()
-        client.transfer_playback(device_id=str(device.get("id")), force_play=play)
+        _spotify_api_call(
+            lambda: client.transfer_playback(device_id=str(device.get("id")), force_play=play)
+        )
     except Exception as exc:
         return _spotify_error("spotify_transfer_playback", exc, "SPOTIFY_API_ERROR")
 
@@ -1197,9 +1331,13 @@ def spotify_play(
             uri = track.get("uri")
 
     try:
-        client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_READ_PLAYBACK_SCOPES)
+        client = spotify_user_client(
+            SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_READ_PLAYBACK_SCOPES,
+            requests_timeout=5,
+            retries=0,
+        )
         device: dict[str, Any] | None = None
-        if device_id or device_name:
+        if device_name:
             device = _find_device(client, device_id=device_id, device_name=device_name)
             if not device:
                 return ToolResult.fail(
@@ -1222,7 +1360,7 @@ def spotify_play(
                 message="No active Spotify device found. Open Spotify on your phone or desktop first.",
                 error_code="SPOTIFY_NO_ACTIVE_DEVICE",
             ).to_dict()
-        client.start_playback(device_id=device_id, uris=[str(uri)])
+        _spotify_api_call(lambda: client.start_playback(device_id=device_id, uris=[str(uri)]))
     except Exception as exc:
         return _spotify_error("spotify_play", exc, "SPOTIFY_API_ERROR")
 
@@ -1279,7 +1417,11 @@ def _dedupe_tracks(tracks: list[dict[str, Any]], limit: int = 40) -> list[dict[s
     return deduped
 
 
-def _spotify_candidate_tracks(query: str, limit: int) -> list[dict[str, Any]]:
+def _spotify_candidate_tracks(
+    query: str,
+    limit: int,
+    recent_tracks: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Prepares spotify candidate tracks for an internal Sonex flow.
 
     Typical use: Use this helper when nearby code needs spotify candidate tracks without duplicating the local rules.
@@ -1288,34 +1430,37 @@ def _spotify_candidate_tracks(query: str, limit: int) -> list[dict[str, Any]]:
     """
     candidates: list[dict[str, Any]] = []
 
-    local_recent = recent_tracks_snapshot()
+    local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
     candidates.extend(local_recent)
-
-    recent_result = spotify_recent_tracks(limit=MAX_RECENT_TRACKS)
-    if recent_result.get("status") == "success":
-        candidates.extend((recent_result.get("data") or {}).get("tracks") or [])
 
     if query.strip():
         search_result = spotify_search(query=query, limit=max(limit, 10), types="track")
         if search_result.get("status") == "success":
             candidates.extend((search_result.get("data") or {}).get("tracks") or [])
 
-    artist_terms = []
-    for track in local_recent[:5]:
-        artist = str(track.get("artist") or "").strip()
-        if artist and artist not in artist_terms:
-            artist_terms.append(artist)
-    for artist in artist_terms[:3]:
-        search_result = spotify_search(query=f"artist:{artist}", limit=5, types="track")
-        if search_result.get("status") == "success":
-            candidates.extend((search_result.get("data") or {}).get("tracks") or [])
+    if len(_dedupe_tracks(candidates, limit=limit)) < limit:
+        artist = next(
+            (
+                str(track.get("artist") or "").strip()
+                for track in local_recent[:5]
+                if str(track.get("artist") or "").strip()
+            ),
+            "",
+        )
+        if artist:
+            search_result = spotify_search(query=f"artist:{artist}", limit=5, types="track")
+            if search_result.get("status") == "success":
+                candidates.extend((search_result.get("data") or {}).get("tracks") or [])
 
-    try:
-        client = spotify_user_client(SPOTIFY_TOP_READ_SCOPES)
-        payload = client.current_user_top_tracks(limit=10, time_range="medium_term")
-        candidates.extend([_normalize_track(item) for item in payload.get("items") or []])
-    except Exception:
-        pass
+    if len(_dedupe_tracks(candidates, limit=limit)) < limit:
+        try:
+            client = spotify_user_client(SPOTIFY_TOP_READ_SCOPES, requests_timeout=5, retries=0)
+            payload = _spotify_api_call(
+                lambda: client.current_user_top_tracks(limit=10, time_range="medium_term")
+            )
+            candidates.extend([_normalize_track(item) for item in payload.get("items") or []])
+        except Exception:
+            pass
 
     return _dedupe_tracks(candidates, limit=50)
 
@@ -1409,7 +1554,11 @@ def spotify_recommend(query: str, limit: int = 10, recent_tracks: list[dict[str,
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     preferences = _user_preferences_text()
     local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
-    candidates = _spotify_candidate_tracks(query=query, limit=bounded_limit)
+    candidates = _spotify_candidate_tracks(
+        query=query,
+        limit=bounded_limit,
+        recent_tracks=local_recent,
+    )
     if not candidates:
         return ToolResult.fail(
             tool="spotify_recommend",
@@ -1464,7 +1613,8 @@ def spotify_pause() -> dict[str, Any]:
     if blocked:
         return blocked
     try:
-        spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES).pause_playback()
+        client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
+        _spotify_api_call(client.pause_playback)
     except Exception as exc:
         return _spotify_error("spotify_pause", exc, "SPOTIFY_API_ERROR")
     return ToolResult.success(tool="spotify_pause", message="Spotify playback paused.", data={"is_playing": False}).to_dict()
@@ -1481,7 +1631,8 @@ def spotify_resume() -> dict[str, Any]:
     if blocked:
         return blocked
     try:
-        spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES).start_playback()
+        client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
+        _spotify_api_call(client.start_playback)
     except Exception as exc:
         return _spotify_error("spotify_resume", exc, "SPOTIFY_API_ERROR")
     return ToolResult.success(tool="spotify_resume", message="Spotify playback resumed.", data={"is_playing": True}).to_dict()
@@ -1498,7 +1649,8 @@ def spotify_next() -> dict[str, Any]:
     if blocked:
         return blocked
     try:
-        spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES).next_track()
+        client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
+        _spotify_api_call(client.next_track)
     except Exception as exc:
         return _spotify_error("spotify_next", exc, "SPOTIFY_API_ERROR")
     return ToolResult.success(tool="spotify_next", message="Skipped to next Spotify track.").to_dict()
@@ -1515,7 +1667,8 @@ def spotify_previous() -> dict[str, Any]:
     if blocked:
         return blocked
     try:
-        spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES).previous_track()
+        client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
+        _spotify_api_call(client.previous_track)
     except Exception as exc:
         return _spotify_error("spotify_previous", exc, "SPOTIFY_API_ERROR")
     return ToolResult.success(tool="spotify_previous", message="Skipped to previous Spotify track.").to_dict()

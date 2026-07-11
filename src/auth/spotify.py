@@ -199,7 +199,11 @@ def spotify_oauth_manager(*, state: str | None = None, scopes: list[str] | None 
     )
 
 
-def spotify_app_client() -> spotipy.Spotify:
+def spotify_app_client(
+    *,
+    requests_timeout: float | None = None,
+    retries: int | None = None,
+) -> spotipy.Spotify:
     """Coordinates spotify app client for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs spotify app client as part of a Sonex command, playback, auth, llm, or ui path.
@@ -207,12 +211,17 @@ def spotify_app_client() -> spotipy.Spotify:
     Example: spotify_app_client() -> returns the value used by the surrounding Sonex flow.
     """
     client_id, client_secret = spotify_app_credentials()
-    return spotipy.Spotify(
-        auth_manager=SpotifyClientCredentials(
+    kwargs: dict[str, Any] = {
+        "auth_manager": SpotifyClientCredentials(
             client_id=client_id,
             client_secret=client_secret,
         )
-    )
+    }
+    if requests_timeout is not None:
+        kwargs["requests_timeout"] = requests_timeout
+    if retries is not None:
+        kwargs["retries"] = retries
+    return spotipy.Spotify(**kwargs)
 
 
 def _iso_from_epoch(expires_at: int | float | None) -> str | None:

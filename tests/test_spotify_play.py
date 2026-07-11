@@ -8,8 +8,9 @@ from __future__ import annotations
 import unittest
 import importlib
 import os
+import ssl
 import tempfile
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from spotipy import SpotifyException
 
@@ -32,6 +33,47 @@ class SpotifyToolTests(unittest.TestCase):
         Example: setUp() -> passes without assertion failures when the behavior remains correct.
         """
         spotify.reset_recent_tracks()
+        spotify.reset_spotify_api_request_gate()
+
+    def test_request_gate_paces_calls_and_honors_retry_after(self) -> None:
+        clock = [100.0]
+        sleeps: list[float] = []
+        gate = spotify.SpotifyApiRequestGate(min_interval_seconds=0.25)
+
+        def advance(seconds: float) -> None:
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        rate_limit = SpotifyException(429, -1, "Too Many Requests", headers={"Retry-After": "7"})
+        with patch.object(spotify.time, "monotonic", side_effect=lambda: clock[0]), patch.object(
+            spotify.time,
+            "sleep",
+            side_effect=advance,
+        ):
+            self.assertEqual(gate.run(lambda: "first"), "first")
+            self.assertEqual(gate.run(lambda: "second"), "second")
+            with self.assertRaises(SpotifyException):
+                gate.run(lambda: (_ for _ in ()).throw(rate_limit))
+            with self.assertRaises(spotify.SpotifyRateLimitCooldownError) as cooldown:
+                gate.run(lambda: "blocked")
+
+        self.assertEqual(sleeps, [0.25, 0.25])
+        self.assertEqual(cooldown.exception.headers["Retry-After"], "7")
+
+    def test_request_gate_uses_fallback_for_invalid_retry_after(self) -> None:
+        clock = [50.0]
+        gate = spotify.SpotifyApiRequestGate(
+            min_interval_seconds=0,
+            fallback_cooldown_seconds=12,
+        )
+        rate_limit = SpotifyException(429, -1, "Too Many Requests", headers={"Retry-After": "invalid"})
+        with patch.object(spotify.time, "monotonic", side_effect=lambda: clock[0]):
+            with self.assertRaises(SpotifyException):
+                gate.run(lambda: (_ for _ in ()).throw(rate_limit))
+            with self.assertRaises(spotify.SpotifyRateLimitCooldownError) as cooldown:
+                gate.run(lambda: "blocked")
+
+        self.assertEqual(cooldown.exception.headers["Retry-After"], "12")
 
     def _track(self, idx: int) -> dict:
         """Verifies that track behaves as expected.
@@ -133,27 +175,19 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertIn("playlist-read-collaborative", spotify_auth.DEFAULT_SPOTIFY_SCOPES)
         self.assertIn("user-library-read", spotify_auth.DEFAULT_SPOTIFY_SCOPES)
 
-    def test_current_playback_skips_player_endpoint_for_free_account(self) -> None:
+    def test_current_playback_maps_premium_error_without_account_preflight(self) -> None:
         """Verifies that current playback skips player endpoint for free account behaves as expected.
 
         Typical use: Use this in automated tests when guarding the current playback skips player endpoint for free account behavior against regressions.
 
         Example: test_current_playback_skips_player_endpoint_for_free_account() -> passes without assertion failures when the behavior remains correct.
         """
-        with (
-            patch.object(
-                spotify,
-                "spotify_account",
-                return_value={
-                    "status": "success",
-                    "data": {
-                        "logged_in": True,
-                        "product": "free",
-                        "capabilities": {"current_playback": False},
-                    },
-                },
-            ),
-            patch.object(spotify, "spotify_user_client", side_effect=AssertionError("should not call /me/player")),
+        client = Mock()
+        client.current_playback.side_effect = SpotifyException(403, -1, "Premium account required")
+        with patch.object(spotify, "spotify_account", side_effect=AssertionError("should not call /me")), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=client,
         ):
             result = spotify.spotify_current_playback()
 
@@ -171,19 +205,7 @@ class SpotifyToolTests(unittest.TestCase):
                 }
 
         with (
-            patch.object(
-                spotify,
-                "spotify_account",
-                return_value={
-                    "status": "success",
-                    "data": {
-                        "logged_in": True,
-                        "product": "unknown",
-                        "scopes": ["user-read-playback-state"],
-                        "capabilities": {"current_playback": False},
-                    },
-                },
-            ),
+            patch.object(spotify, "spotify_account", side_effect=AssertionError("should not call /me")),
             patch.object(spotify, "spotify_user_client", return_value=Client()),
         ):
             result = spotify.spotify_current_playback()
@@ -371,6 +393,27 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(client.uris, ["spotify:track:8"])
         search.assert_called_once()
 
+    def test_spotify_play_uses_validated_device_id_without_listing_devices(self) -> None:
+        class Client:
+            def devices(self) -> dict:
+                raise AssertionError("validated device id must not trigger device discovery")
+
+            def start_playback(self, device_id: str | None = None, uris: list[str] | None = None) -> None:
+                self.device_id = device_id
+                self.uris = uris
+
+        client = Client()
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=client,
+        ):
+            result = spotify.spotify_play(uri="spotify:track:direct", device_id="desktop")
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(client.device_id, "desktop")
+        self.assertEqual(client.uris, ["spotify:track:direct"])
+
     def test_spotify_app_credentials_preserve_oauth_token(self) -> None:
         """Verifies that spotify app credentials preserve oauth token behaves as expected.
 
@@ -400,13 +443,24 @@ class SpotifyToolTests(unittest.TestCase):
         """
         with patch.object(
             spotify,
-            "spotify_account",
-            return_value={"status": "success", "data": {"logged_in": False, "product": "unknown"}},
+            "ensure_spotify_token",
+            side_effect=spotify.SpotifyLoginRequiredError("login required"),
         ):
             result = spotify.spotify_play(query="Song")
 
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["error_code"], "SPOTIFY_LOGIN_REQUIRED")
+
+    def test_playback_control_gate_uses_local_token_without_account_request(self) -> None:
+        with patch.object(spotify, "ensure_spotify_token", return_value=object()) as ensure, patch.object(
+            spotify,
+            "spotify_account",
+            side_effect=AssertionError("playback control must not request /me"),
+        ):
+            result = spotify._require_premium_control("spotify_play")
+
+        self.assertIsNone(result)
+        ensure.assert_called_once_with(spotify.SPOTIFY_MODIFY_PLAYBACK_SCOPES)
 
     def test_spotify_transfer_requires_device(self) -> None:
         """Verifies that spotify transfer requires device behaves as expected.
@@ -631,12 +685,43 @@ class SpotifyToolTests(unittest.TestCase):
         with patch.object(spotify, "spotify_user_client", return_value=Client()) as user_client:
             result = spotify.spotify_queue(limit=10)
 
-        user_client.assert_called_once_with(spotify.SPOTIFY_READ_PLAYBACK_SCOPES)
+        user_client.assert_called_once_with(spotify.SPOTIFY_READ_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
         self.assertEqual(result["status"], "success")
         tracks = result["data"]["tracks"]
         self.assertEqual([track["name"] for track in tracks], ["Current Song", "Queued Song"])
         self.assertEqual(result["data"]["currently_playing"]["uri"], "spotify:track:current")
         self.assertEqual(result["data"]["queue"][0]["uri"], "spotify:track:queued-1")
+
+    def test_spotify_queue_reports_unavailable_loopback_proxy(self) -> None:
+        with (
+            patch.object(
+                spotify,
+                "spotify_user_client",
+                side_effect=ConnectionRefusedError(111, "Connection refused"),
+            ),
+            patch.dict("os.environ", {"HTTPS_PROXY": "http://127.0.0.1:7897"}, clear=True),
+        ):
+            result = spotify.spotify_queue(limit=10)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_PROXY_UNAVAILABLE")
+        self.assertIn("local proxy http://127.0.0.1:7897", result["message"])
+        self.assertIn("start the proxy", result["message"])
+        self.assertIn("HTTPS_PROXY/HTTP_PROXY/https_proxy/http_proxy/all_proxy/ALL_PROXY", result["message"])
+
+    def test_spotify_queue_reports_loopback_proxy_tls_eof(self) -> None:
+        ssl_error = ssl.SSLError(ssl.SSL_ERROR_EOF, "EOF occurred in violation of protocol")
+
+        with (
+            patch.object(spotify, "spotify_user_client", side_effect=ssl_error),
+            patch.dict("os.environ", {"https_proxy": "http://127.0.0.1:7897"}, clear=True),
+        ):
+            result = spotify.spotify_queue(limit=10)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_PROXY_UNAVAILABLE")
+        self.assertIn("local proxy http://127.0.0.1:7897", result["message"])
+        self.assertIn("TLS connection closed unexpectedly", result["message"])
 
     def test_spotify_queue_scope_missing_uses_stable_error_code(self) -> None:
         with patch.object(
@@ -665,7 +750,11 @@ class SpotifyToolTests(unittest.TestCase):
         ) as user_client:
             result = spotify.spotify_queue_add("spotify:track:track-1", device_id="desktop")
 
-        user_client.assert_called_once_with(spotify.SPOTIFY_MODIFY_PLAYBACK_SCOPES | spotify.SPOTIFY_READ_PLAYBACK_SCOPES)
+        user_client.assert_called_once_with(
+            spotify.SPOTIFY_MODIFY_PLAYBACK_SCOPES | spotify.SPOTIFY_READ_PLAYBACK_SCOPES,
+            requests_timeout=5,
+            retries=0,
+        )
         self.assertEqual(client.calls, [("spotify:track:track-1", "desktop")])
         self.assertEqual(result["status"], "success")
 
@@ -761,6 +850,19 @@ class SpotifyToolTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(rank.call_args.kwargs["recent_tracks"], recent_tracks)
+
+    def test_spotify_candidate_tracks_use_supplied_recent_without_remote_history(self) -> None:
+        recent_tracks = [self._track(4)]
+        with patch.object(spotify, "spotify_recent_tracks") as remote_recent, patch.object(
+            spotify,
+            "spotify_search",
+        ) as search, patch.object(spotify, "spotify_user_client") as user_client:
+            candidates = spotify._spotify_candidate_tracks("", 1, recent_tracks=recent_tracks)
+
+        self.assertEqual([track["uri"] for track in candidates], ["spotify:track:4"])
+        remote_recent.assert_not_called()
+        search.assert_not_called()
+        user_client.assert_not_called()
 
     def test_spotify_recommend_handles_empty_user_memory(self) -> None:
         """Verifies that spotify recommend handles empty user memory behaves as expected.

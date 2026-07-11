@@ -16,7 +16,9 @@ import sys
 import threading
 import time
 import webbrowser
+from collections import OrderedDict
 from contextlib import suppress
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -231,7 +233,9 @@ from src.tools.playback_controller import start_local_playback
 from src.tools.spotify_play import (
     _product_is_known_non_premium,
     remember_recent_track,
+    recent_tracks_snapshot as spotify_recent_tracks_snapshot,
     spotify_account,
+    spotify_api_cooldown_remaining,
     spotify_current_playback,
     spotify_devices,
     spotify_playlist_tracks,
@@ -440,6 +444,8 @@ def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something w
             retry_after = str(data.get("retry_after") or "").strip()
             if retry_after and retry_after not in message:
                 message = f"{message} Spotify is rate limited; try again after {retry_after}."
+        if code == "SPOTIFY_PROXY_UNAVAILABLE" and message:
+            return sanitize_error_message(message)
         if code == "SPOTIFY_API_ERROR" and (
             "httpsconnectionpool" in lowered
             or "ssleoferror" in lowered
@@ -3102,8 +3108,126 @@ SPOTIFY_MODE_AGENT_TOOLS = (
 )
 SPOTIFY_MODE_COMMANDS = {"bye", "lang", "logout", "model", "playlist", "quit", "queue", "random", "recommend"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
+SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS = 5.0
+SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS = 15.0
+SPOTIFY_SEARCH_CACHE_TTL_SECONDS = 120.0
+SPOTIFY_QUEUE_CACHE_TTL_SECONDS = 5.0
+SPOTIFY_RECENT_CACHE_TTL_SECONDS = 300.0
 RECOMMEND_COMMAND_TIMEOUT_SECONDS = 60.0
 SPOTIFY_MODE_STATE_VERSION = 1
+
+
+@dataclass
+class _SpotifyCacheEntry:
+    """Stores one successful session response and its monotonic expiry."""
+
+    value: Any
+    expires_at: float
+
+
+@dataclass
+class SpotifySessionRequestCoordinator:
+    """Coordinates cached and single-flight Spotify reads for one UI session."""
+
+    cache: OrderedDict[str, _SpotifyCacheEntry] = field(default_factory=OrderedDict)
+    inflight: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
+    playlist_sync_attempted: bool = False
+    playlist_sync_succeeded: bool = False
+    playlist_sync_message: str = "Spotify playlists have not been synchronized in this session."
+    playlist_sync_task: asyncio.Task[tuple[bool, str]] | None = None
+
+    async def get_or_fetch(
+        self,
+        key: str,
+        *,
+        ttl_seconds: float,
+        fetch: Any,
+        cacheable: Any,
+    ) -> tuple[Any | None, str]:
+        """Return a fresh/stale cached value or coalesce one remote fetch."""
+        now = time.monotonic()
+        entry = self.cache.get(key)
+        if entry is not None and entry.expires_at > now:
+            self.cache.move_to_end(key)
+            return entry.value, "cache_hit"
+
+        if spotify_api_cooldown_remaining() > 0:
+            if entry is not None:
+                self.cache.move_to_end(key)
+                return entry.value, "stale_cache"
+            return None, "cooldown"
+
+        task = self.inflight.get(key)
+        source = "single_flight"
+        if task is None:
+            task = asyncio.create_task(fetch())
+            self.inflight[key] = task
+            source = "network"
+        try:
+            value = await asyncio.shield(task)
+        finally:
+            if task.done() and self.inflight.get(key) is task:
+                self.inflight.pop(key, None)
+
+        if cacheable(value):
+            self.cache[key] = _SpotifyCacheEntry(
+                value=value,
+                expires_at=time.monotonic() + max(0.0, ttl_seconds),
+            )
+            self.cache.move_to_end(key)
+            self._trim_search_cache()
+        return value, source
+
+    def invalidate(self, key: str) -> None:
+        """Invalidate a session read after a related Spotify write."""
+        self.cache.pop(key, None)
+
+    def _trim_search_cache(self) -> None:
+        search_keys = [key for key in self.cache if key.startswith("search:")]
+        while len(search_keys) > 32:
+            oldest = search_keys.pop(0)
+            self.cache.pop(oldest, None)
+
+
+def _spotify_session_requests(ui: WebSocketUIAdapter) -> SpotifySessionRequestCoordinator:
+    coordinator = getattr(ui, "_spotify_session_requests", None)
+    if not isinstance(coordinator, SpotifySessionRequestCoordinator):
+        coordinator = SpotifySessionRequestCoordinator()
+        setattr(ui, "_spotify_session_requests", coordinator)
+    return coordinator
+
+
+def _spotify_sync_event(ui: WebSocketUIAdapter) -> asyncio.Event:
+    event = getattr(ui, "_spotify_sync_event", None)
+    if not isinstance(event, asyncio.Event):
+        event = asyncio.Event()
+        setattr(ui, "_spotify_sync_event", event)
+    return event
+
+
+def _request_spotify_sync(ui: WebSocketUIAdapter) -> None:
+    """Wake the adaptive playback synchronizer after a Spotify state change."""
+    _spotify_sync_event(ui).set()
+
+
+async def _wait_for_spotify_sync(ui: WebSocketUIAdapter, timeout_seconds: float) -> None:
+    """Wait for a requested sync or the next adaptive polling deadline."""
+    event = _spotify_sync_event(ui)
+    try:
+        await asyncio.wait_for(event.wait(), timeout=max(0.0, timeout_seconds))
+    except TimeoutError:
+        pass
+    finally:
+        event.clear()
+
+
+def _spotify_search_cache_key(query: str) -> str:
+    normalized = " ".join(query.strip().casefold().split())
+    return f"search:{normalized}"
+
+
+def _spotify_success_result(value: Any) -> bool:
+    return isinstance(value, dict) and value.get("status") == "success"
 
 
 def _spotify_mode_path() -> Path:
@@ -3217,6 +3341,7 @@ async def _send_spotify_mode(ui: WebSocketUIAdapter, mode: dict[str, Any] | None
             "device_name": (mode or {}).get("device_name"),
         }
     )
+    _request_spotify_sync(ui)
 
 
 async def _run_spotify_mode_call(
@@ -3330,6 +3455,35 @@ async def _fetch_all_spotify_playlist_tracks(playlist_id: str, ui: WebSocketUIAd
         tracks.extend(page)
         if len(page) < bounded_limit:
             return True, tracks, result
+        offset += bounded_limit
+
+
+async def _fetch_all_spotify_playlists(
+    ui: WebSocketUIAdapter | None = None,
+    limit: int = 50,
+) -> tuple[bool, list[dict[str, Any]], Any]:
+    """Load every available Spotify playlist using maximum-size pages."""
+    bounded_limit = min(50, max(1, int(limit or 50)))
+    offset = 0
+    playlists: list[dict[str, Any]] = []
+    while True:
+        if ui is None:
+            result = await asyncio.to_thread(spotify_playlists, bounded_limit, offset)
+        else:
+            result = await _run_spotify_library_call(
+                ui,
+                func=lambda: spotify_playlists(bounded_limit, offset),
+                timeout_message="Spotify Library sync timed out while loading playlists. Try /playlist again later.",
+            )
+            if result is None:
+                return False, playlists, {"status": "fail", "message": "Spotify Library sync timed out while loading playlists."}
+        if not isinstance(result, dict) or result.get("status") != "success":
+            return False, playlists, result
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        page = [item for item in data.get("playlists") or [] if isinstance(item, dict)]
+        playlists.extend(page)
+        if len(page) < bounded_limit:
+            return True, playlists, result
         offset += bounded_limit
 
 
@@ -3870,7 +4024,12 @@ class WebSocketRunner:
         last_cover_url: str | None = None
         reported_failures: set[str] = set()
         while not ui.closed:
+            if not self._spotify_mode_enabled(ui):
+                await _wait_for_spotify_sync(ui, SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS)
+                continue
+            poll_seconds = SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS
             try:
+                _spotify_sync_event(ui).clear()
                 result = await asyncio.to_thread(spotify_current_playback)
                 if isinstance(result, dict) and result.get("status") == "success":
                     player_state, cover_url = _extract_music_state(result)
@@ -3884,6 +4043,8 @@ class WebSocketRunner:
                             await ui._send({"type": "player", "state": player_state})
                             await ui._send({"type": "queue", "tracks": _queue_payload()})
                             last_signature = signature
+                        if bool(player_state.get("is_playing")):
+                            poll_seconds = SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS
                         if cover_url and cover_url != last_cover_url:
                             await ui.send_cover(cover_url)
                             last_cover_url = cover_url
@@ -3892,11 +4053,17 @@ class WebSocketRunner:
                     if failure_key not in reported_failures:
                         reported_failures.add(failure_key)
                         await ui.append_agent_message(_friendly_runtime_error_message(result, fallback="Spotify playback sync failed."))
-                    if failure_key == "SPOTIFY_PREMIUM_REQUIRED":
+                    if failure_key in {
+                        "SPOTIFY_AUTH_EXPIRED",
+                        "SPOTIFY_LOGIN_REQUIRED",
+                        "SPOTIFY_PREMIUM_REQUIRED",
+                        "SPOTIFY_SCOPE_MISSING",
+                    }:
                         return
             except Exception:
                 pass
-            await asyncio.sleep(2)
+            cooldown = spotify_api_cooldown_remaining()
+            await _wait_for_spotify_sync(ui, max(poll_seconds, cooldown))
 
     async def _handle_user_input(
         self,
@@ -4195,6 +4362,7 @@ class WebSocketRunner:
                 await ui.append_activity(kind="error", title="Spotify queue", detail=message, status="error")
                 await ui.append_agent_message(message)
                 return
+        _spotify_session_requests(ui).invalidate("queue")
         await self._show_spotify_queue(ui)
         await ui.append_activity(
             kind="status",
@@ -4205,25 +4373,45 @@ class WebSocketRunner:
 
     async def _handle_spotify_random_command(self, ui: WebSocketUIAdapter) -> None:
         try:
-            result = await _run_spotify_mode_call(
-                ui,
-                func=lambda: spotify_recent_tracks(50),
-                pending_detail="Choosing from recently played Spotify tracks.",
-                timeout_message=(
-                    "Spotify recent tracks timed out. "
-                    "Check your Spotify connection, then try /random again."
-                ),
-                failure_title="Spotify random",
+            async def fetch_recent() -> Any:
+                return await _run_spotify_mode_call(
+                    ui,
+                    func=lambda: spotify_recent_tracks(50),
+                    pending_detail="Choosing from recently played Spotify tracks.",
+                    timeout_message=(
+                        "Spotify recent tracks timed out. "
+                        "Check your Spotify connection, then try /random again."
+                    ),
+                    failure_title="Spotify random",
+                )
+
+            result, source = await _spotify_session_requests(ui).get_or_fetch(
+                "recent_tracks",
+                ttl_seconds=SPOTIFY_RECENT_CACHE_TTL_SECONDS,
+                fetch=fetch_recent,
+                cacheable=_spotify_success_result,
             )
-            if result is None:
-                return
-            if _is_failed_tool_result(result):
+            tracks_payload = result.get("data", {}).get("tracks", []) if isinstance(result, dict) else []
+            error_code = str(result.get("error_code") or "") if isinstance(result, dict) else ""
+            fallback_allowed = source in {"cooldown", "stale_cache"} or result is None or error_code in {
+                "SPOTIFY_API_ERROR",
+                "SPOTIFY_PROXY_UNAVAILABLE",
+                "SPOTIFY_RATE_LIMITED",
+            }
+            if not tracks_payload and fallback_allowed:
+                tracks_payload = spotify_recent_tracks_snapshot()
+                if tracks_payload:
+                    await ui.append_activity(
+                        kind="status",
+                        title="Spotify random",
+                        detail="Choosing from cached recent Spotify tracks while live history is unavailable.",
+                        status="warning",
+                    )
+            if not tracks_payload and _is_failed_tool_result(result):
                 await self._sync_tool_result_ui(ui, "spotify_recent_tracks", result)
                 message = _friendly_runtime_error_message(result, fallback="Spotify recent tracks failed.")
                 await ui.append_agent_message(message)
                 return
-
-            tracks_payload = result.get("data", {}).get("tracks", []) if isinstance(result, dict) else []
             seen_uris: set[str] = set()
             playable_tracks: list[dict[str, Any]] = []
             for track in tracks_payload if isinstance(tracks_payload, list) else []:
@@ -4290,24 +4478,46 @@ class WebSocketRunner:
     async def _start_spotify_track_selection(self, ui: WebSocketUIAdapter, query: str) -> None:
         query_plan = build_music_search_query_plan(query)
         search_query = query_plan.original_query or query.strip()
-        await ui.append_activity(
-            kind="tool",
-            title="Searching Spotify",
-            detail=f"Finding Spotify tracks for {search_query}.",
-            status="pending",
-        )
-        try:
-            tracks = await asyncio.to_thread(
+
+        async def fetch_tracks() -> list[dict[str, Any]]:
+            await ui.append_activity(
+                kind="tool",
+                title="Searching Spotify",
+                detail=f"Finding Spotify tracks for {search_query}.",
+                status="pending",
+            )
+            return await asyncio.to_thread(
                 search_spotify_track_candidates,
                 search_query,
                 5,
                 query_variants=query_plan.variants,
+            )
+
+        try:
+            tracks, source = await _spotify_session_requests(ui).get_or_fetch(
+                _spotify_search_cache_key(search_query),
+                ttl_seconds=SPOTIFY_SEARCH_CACHE_TTL_SECONDS,
+                fetch=fetch_tracks,
+                cacheable=lambda value: isinstance(value, list) and spotify_api_cooldown_remaining() <= 0,
             )
         except Exception as exc:
             message = sanitize_error_message(exc)
             await ui.append_activity(kind="error", title="Spotify search failed", detail=message, status="error")
             await ui.append_agent_message(message)
             return
+        if source == "cooldown":
+            retry_after = max(1, int(spotify_api_cooldown_remaining() + 0.999))
+            message = f"Spotify is rate limited; try searching again after {retry_after} seconds."
+            await ui.append_activity(kind="error", title="Spotify search", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        if source == "stale_cache":
+            await ui.append_activity(
+                kind="status",
+                title="Spotify search",
+                detail="Showing cached Spotify search results during the rate-limit cooldown.",
+                status="warning",
+            )
         if not tracks:
             message = f"No Spotify tracks found for '{search_query}'."
             await ui.append_activity(kind="error", title="Spotify search", detail=message, status="error")
@@ -4725,21 +4935,33 @@ class WebSocketRunner:
         await setup.start_reauthorization(missing_scopes)
 
     async def _show_spotify_playlists(self, ui: WebSocketUIAdapter) -> None:
-        if not bool(getattr(ui, "_spotify_library_synced", False)):
+        coordinator = _spotify_session_requests(ui)
+        if not coordinator.playlist_sync_attempted:
+            coordinator.playlist_sync_attempted = True
             await ui.append_activity(kind="tool", title="Spotify playlists", detail="Syncing Spotify Library and playlists.", status="pending")
-            synced, message = await self._sync_spotify_library_to_playlists(ui)
-            if not synced:
-                await ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
-                await ui.append_agent_message(message)
-                await ui.append_activity(
-                    kind="status",
-                    title="Spotify playlists",
-                    detail="Showing existing local playlists because Spotify sync failed.",
-                    status="warning",
-                )
-                await self._show_playlist_browse(ui)
-                return
-            setattr(ui, "_spotify_library_synced", True)
+            coordinator.playlist_sync_task = asyncio.create_task(self._sync_spotify_library_to_playlists(ui))
+
+        task = coordinator.playlist_sync_task
+        if task is not None:
+            try:
+                synced, message = await asyncio.shield(task)
+            finally:
+                if task.done() and coordinator.playlist_sync_task is task:
+                    coordinator.playlist_sync_task = None
+            coordinator.playlist_sync_succeeded = synced
+            coordinator.playlist_sync_message = message
+            setattr(ui, "_spotify_library_synced", synced)
+
+        if not coordinator.playlist_sync_succeeded:
+            message = coordinator.playlist_sync_message
+            await ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
+            await ui.append_agent_message(message)
+            await ui.append_activity(
+                kind="status",
+                title="Spotify playlists",
+                detail="Showing existing local playlists because Spotify sync failed; this session will not repeat the full sync.",
+                status="warning",
+            )
         await self._show_playlist_browse(ui)
 
     async def _sync_spotify_library_to_playlists(self, ui: WebSocketUIAdapter) -> tuple[bool, str]:
@@ -4754,15 +4976,9 @@ class WebSocketRunner:
             tracks=saved_tracks,
         )
 
-        result = await _run_spotify_library_call(
-            ui,
-            func=lambda: spotify_playlists(50),
-            timeout_message="Spotify Library sync timed out while loading playlists. Try /playlist again later.",
-        )
-        if not isinstance(result, dict) or result.get("status") != "success":
+        playlists_ok, playlists, result = await _fetch_all_spotify_playlists(ui)
+        if not playlists_ok:
             return False, _friendly_runtime_error_message(result, fallback="Spotify playlists failed.")
-        data = result.get("data") if isinstance(result.get("data"), dict) else {}
-        playlists = [item for item in data.get("playlists") or [] if isinstance(item, dict)]
         for playlist in playlists:
             playlist_id = str(playlist.get("id") or "").strip()
             if not playlist_id:
@@ -4780,8 +4996,36 @@ class WebSocketRunner:
         return True, "Spotify playlists synced."
 
     async def _show_spotify_queue(self, ui: WebSocketUIAdapter) -> None:
-        await ui.append_activity(kind="tool", title="Spotify queue", detail="Loading Spotify playback queue.", status="pending")
-        result = await asyncio.to_thread(spotify_queue, 50)
+        async def fetch_queue() -> Any:
+            return await _run_spotify_mode_call(
+                ui,
+                func=lambda: spotify_queue(50),
+                pending_detail="Loading Spotify playback queue.",
+                timeout_message="Spotify queue timed out while loading playback state. Try /queue again later.",
+                failure_title="Spotify queue",
+            )
+
+        result, source = await _spotify_session_requests(ui).get_or_fetch(
+            "queue",
+            ttl_seconds=SPOTIFY_QUEUE_CACHE_TTL_SECONDS,
+            fetch=fetch_queue,
+            cacheable=_spotify_success_result,
+        )
+        if source == "cooldown":
+            retry_after = max(1, int(spotify_api_cooldown_remaining() + 0.999))
+            message = f"Spotify is rate limited; try /queue again after {retry_after} seconds."
+            await ui.append_activity(kind="error", title="Spotify queue", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        if result is None:
+            return
+        if source == "stale_cache":
+            await ui.append_activity(
+                kind="status",
+                title="Spotify queue",
+                detail="Showing the last known Spotify queue during the rate-limit cooldown.",
+                status="warning",
+            )
         if not isinstance(result, dict) or result.get("status") != "success":
             message = _friendly_runtime_error_message(result, fallback="Spotify queue failed.")
             await ui.append_activity(kind="error", title="Spotify queue", detail=message, status="error")
@@ -5011,6 +5255,8 @@ class WebSocketRunner:
                 await ui._send({"type": "queue", "tracks": _queue_payload()})
         if should_sync_player and cover_url:
             await ui.send_cover(cover_url)
+        if result_status == "success" and is_spotify_play_tool:
+            _request_spotify_sync(ui)
 
     async def _run_agent_turn(
         self,

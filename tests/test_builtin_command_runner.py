@@ -1357,7 +1357,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.search_spotify_track_candidates", return_value=tracks) as search, \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), \
              patch("src.api.ws_runner.search_local_file") as local_search:
-            await runner._handle_user_input(ui, "想听方大同的因为你")
+            await runner._start_spotify_track_selection(ui, "方大同的因为你")
+            await runner._start_spotify_track_selection(ui, "  方大同的因为你  ")
 
         search.assert_called_once()
         self.assertEqual(search.call_args.args[:2], ("方大同的因为你", 5))
@@ -1406,6 +1407,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         invoke.assert_called_once_with("spotify_play", {"uri": "spotify:track:qinghuaci", "device_id": "desktop"})
         self.assertIsNone(getattr(ui, "_spotify_play_selection", None))
         self.assertTrue(any(event.get("type") == "player" for event in ui.events))
+        self.assertTrue(getattr(ui, "_spotify_sync_event").is_set())
 
     async def test_spotify_mode_recommend_queues_spotify_tracks_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
@@ -1510,15 +1512,17 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             patch("src.api.ws_runner._llm_auth_ready", return_value=(False, "openai", "missing")) as llm_auth,
             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline),
         ):
-            await runner._handle_user_input(ui, "/random")
-            self.assertIsNotNone(runner._running_task)
-            assert runner._running_task is not None
-            await runner._running_task
+            for _ in range(2):
+                await runner._handle_user_input(ui, "/random")
+                self.assertIsNotNone(runner._running_task)
+                assert runner._running_task is not None
+                await runner._running_task
 
         recent.assert_called_once_with(50)
-        choice.assert_called_once()
+        self.assertEqual(choice.call_count, 2)
         self.assertEqual([track["uri"] for track in choice.call_args.args[0]], ["spotify:track:one", "spotify:track:two"])
-        invoke.assert_called_once_with("spotify_play", {"uri": "spotify:track:two", "device_id": "desktop"})
+        self.assertEqual(invoke.call_count, 2)
+        invoke.assert_called_with("spotify_play", {"uri": "spotify:track:two", "device_id": "desktop"})
         llm_auth.assert_not_called()
         self.assertFalse(runner._run_agent_turn.called)
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
@@ -1684,7 +1688,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "/playlist")
 
         saved.assert_called_once_with(50, 0)
-        list_playlists.assert_called_once_with(50)
+        list_playlists.assert_called_once_with(50, 0)
         playlist_tracks.assert_called_once_with("playlist-1", 100, 0)
         self.assertEqual(upsert.call_count, 2)
         local_choices.assert_called_with(writable_only=False)
@@ -1692,6 +1696,57 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(confirms), 2)
         self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
         self.assertTrue(getattr(ui, "_spotify_library_synced"))
+
+    async def test_spotify_mode_concurrent_playlist_commands_share_one_sync(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def sync_once(_ui: object) -> tuple[bool, str]:
+            started.set()
+            await release.wait()
+            return True, "Spotify playlists synced."
+
+        with patch.object(runner, "_sync_spotify_library_to_playlists", side_effect=sync_once) as sync, patch.object(
+            runner,
+            "_show_playlist_browse",
+            new=AsyncMock(),
+        ):
+            first = asyncio.create_task(runner._show_spotify_playlists(ui))
+            await started.wait()
+            second = asyncio.create_task(runner._show_spotify_playlists(ui))
+            await asyncio.sleep(0)
+            release.set()
+            await asyncio.gather(first, second)
+
+        sync.assert_awaited_once_with(ui)
+
+    async def test_spotify_session_cache_returns_stale_read_during_cooldown(self) -> None:
+        coordinator = ws_runner.SpotifySessionRequestCoordinator()
+        fetch = AsyncMock(return_value={"status": "success", "data": {"tracks": ["cached"]}})
+        with patch("src.api.ws_runner.spotify_api_cooldown_remaining", return_value=0):
+            value, source = await coordinator.get_or_fetch(
+                "queue",
+                ttl_seconds=0,
+                fetch=fetch,
+                cacheable=ws_runner._spotify_success_result,
+            )
+        self.assertEqual(source, "network")
+        self.assertEqual(value["data"]["tracks"], ["cached"])
+
+        with patch("src.api.ws_runner.spotify_api_cooldown_remaining", return_value=10):
+            stale, source = await coordinator.get_or_fetch(
+                "queue",
+                ttl_seconds=0,
+                fetch=fetch,
+                cacheable=ws_runner._spotify_success_result,
+            )
+
+        self.assertEqual(source, "stale_cache")
+        self.assertEqual(stale, value)
+        fetch.assert_awaited_once()
 
     async def test_spotify_mode_playlist_sync_times_out_with_chat_error(self) -> None:
         runner = WebSocketRunner()
@@ -1747,12 +1802,14 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "message": "Spotify says Too Many Requests. Requests are too frequent; try again later.",
             "error_code": "SPOTIFY_RATE_LIMITED",
             "data": {"retry_after": "62861 seconds"},
-        }), patch("src.api.ws_runner.playlist_choices", return_value=choices) as local_choices, patch(
+        }) as saved, patch("src.api.ws_runner.playlist_choices", return_value=choices) as local_choices, patch(
             "src.api.ws_runner.asyncio.to_thread",
             side_effect=_to_thread_inline,
         ):
             await runner._handle_user_input(ui, "/playlist")
+            await runner._handle_user_input(ui, "/playlist")
 
+        saved.assert_called_once()
         local_choices.assert_called_with(writable_only=False)
         self.assertFalse(getattr(ui, "_spotify_library_synced", False))
         self.assertTrue(any("Showing existing local playlists" in str(event.get("detail")) for event in ui.events))
@@ -1782,6 +1839,32 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         texts = [str(event.get("text") or event.get("detail") or "") for event in ui.events]
         self.assertTrue(any("Spotify connection failed while syncing playlists" in text for text in texts))
         self.assertFalse(any("HTTPSConnectionPool" in text for text in texts))
+        self.assertTrue(any("Showing existing local playlists" in text for text in texts))
+        confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
+        self.assertEqual(confirms[-1]["choices"][0]["label"], "likes")
+
+    async def test_spotify_mode_playlist_proxy_failure_uses_actionable_message(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        proxy_message = (
+            "Connection refused (local proxy http://127.0.0.1:7897 is not accepting connections; "
+            "start the proxy or update/unset HTTPS_PROXY/HTTP_PROXY/https_proxy/http_proxy/all_proxy/ALL_PROXY.)"
+        )
+
+        with patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "fail",
+            "message": proxy_message,
+            "error_code": "SPOTIFY_PROXY_UNAVAILABLE",
+        }), patch(
+            "src.api.ws_runner.playlist_choices",
+            return_value=[{"value": "playlist:likes", "label": "likes", "description": "0 saved tracks", "track_count": 0}],
+        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(ui, "/playlist")
+
+        texts = [str(event.get("text") or event.get("detail") or "") for event in ui.events]
+        self.assertTrue(any("local proxy http://127.0.0.1:7897" in text for text in texts))
+        self.assertTrue(any("start the proxy" in text for text in texts))
         self.assertTrue(any("Showing existing local playlists" in text for text in texts))
         confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
         self.assertEqual(confirms[-1]["choices"][0]["label"], "likes")
@@ -1856,6 +1939,32 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         library_upsert = [call for call in upsert.call_args_list if call.kwargs.get("external_id") == "spotify-library"][-1]
         self.assertEqual(len(library_upsert.kwargs["tracks"]), 98)
 
+    async def test_spotify_mode_playlist_sync_fetches_all_playlist_pages(self) -> None:
+        fetched_limits_offsets: list[tuple[int, int]] = []
+
+        def playlists(limit: int = 50, offset: int = 0) -> dict:
+            fetched_limits_offsets.append((limit, offset))
+            count = 50 if offset == 0 else 2
+            return {
+                "status": "success",
+                "data": {
+                    "playlists": [
+                        {"id": f"playlist-{offset + index}", "name": f"List {offset + index}"}
+                        for index in range(count)
+                    ]
+                },
+            }
+
+        with patch("src.api.ws_runner.spotify_playlists", side_effect=playlists), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            ok, items, _result = await ws_runner._fetch_all_spotify_playlists()
+
+        self.assertTrue(ok)
+        self.assertEqual(fetched_limits_offsets, [(50, 0), (50, 50)])
+        self.assertEqual(len(items), 52)
+
     async def test_spotify_mode_playlist_command_keeps_liked_songs_when_no_playlists(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -1895,6 +2004,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline),
         ):
             await runner._handle_user_input(ui, "/queue")
+            await runner._handle_user_input(ui, "/queue")
 
         spotify_queue.assert_called_once_with(50)
         self.assertFalse(runner._run_agent_turn.called)
@@ -1902,6 +2012,23 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(panel["panel"], "queue")
         self.assertEqual(panel["title"], "Spotify Queue")
         self.assertEqual(panel["tracks"][0]["title"], "Queued Song")
+
+    async def test_spotify_playback_sync_does_not_poll_outside_spotify_mode(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        ui.closed = False
+
+        async def stop_after_sleep(_ui: object, seconds: float) -> None:
+            self.assertEqual(seconds, ws_runner.SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS)
+            ui.closed = True
+
+        with patch("src.api.ws_runner.spotify_current_playback") as playback, patch(
+            "src.api.ws_runner._wait_for_spotify_sync",
+            side_effect=stop_after_sleep,
+        ):
+            await runner._sync_spotify_playback(ui)
+
+        playback.assert_not_called()
 
     async def test_track_panel_queue_add_remembers_selected_track(self) -> None:
         runner = WebSocketRunner()
@@ -1979,6 +2106,25 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         panels = [event for event in ui.events if event.get("type") == "track_panel"]
         self.assertFalse(panels)
         self.assertTrue(any("Premium" in str(event.get("text")) for event in ui.events))
+
+    async def test_spotify_mode_queue_command_times_out_with_chat_error(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+
+        async def never_returns(*_args, **_kwargs):
+            await asyncio.sleep(10)
+
+        with patch("src.api.ws_runner.asyncio.to_thread", side_effect=never_returns), patch(
+            "src.api.ws_runner.SPOTIFY_MODE_CALL_TIMEOUT_SECONDS",
+            0.001,
+        ):
+            await runner._handle_user_input(ui, "/queue")
+
+        panels = [event for event in ui.events if event.get("type") == "track_panel"]
+        self.assertFalse(panels)
+        self.assertTrue(any("Spotify queue timed out" in str(event.get("text")) for event in ui.events))
+        self.assertTrue(any("Spotify queue timed out" in str(event.get("detail")) for event in ui.events))
 
     async def test_llm_track_play_intent_starts_play_selection(self) -> None:
         """Verifies that llm track play intent starts play selection behaves as expected.
@@ -2637,6 +2783,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         runner = WebSocketRunner()
         ui = FakeUI()
         ui.closed = False
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
         playback = {
             "status": "success",
             "data": {
@@ -2652,7 +2799,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        async def stop_after_first_sleep(_: float) -> None:
+        async def stop_after_first_sleep(_ui: object, seconds: float) -> None:
+            self.assertEqual(seconds, ws_runner.SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS)
             ui.closed = True
 
         async def call_inline(func: object, *args: object, **kwargs: object) -> object:
@@ -2663,7 +2811,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 patch("src.api.ws_runner._remember_actual_playback"), \
                 patch("src.api.ws_runner._queue_payload", return_value=[]), \
                 patch("src.api.ws_runner.asyncio.to_thread", side_effect=call_inline), \
-                patch("src.api.ws_runner.asyncio.sleep", side_effect=stop_after_first_sleep):
+                patch("src.api.ws_runner._wait_for_spotify_sync", side_effect=stop_after_first_sleep):
             await runner._sync_spotify_playback(ui)
 
         player_events = [event for event in ui.events if event.get("type") == "player"]
@@ -3886,6 +4034,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         runner = WebSocketRunner()
         ui = FakeUI()
         ui.closed = False
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
         sleeps = 0
 
         async def stop_after_two_sleeps(_: float) -> None:

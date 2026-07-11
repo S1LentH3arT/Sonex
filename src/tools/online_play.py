@@ -301,7 +301,7 @@ def search_spotify_track_candidates(
         clean_candidate = str(candidate or "").strip()
         if clean_candidate and clean_candidate not in search_queries:
             search_queries.append(clean_candidate)
-        if len(search_queries) >= 5:
+        if len(search_queries) >= 2:
             break
     candidates: list[dict[str, Any]] = []
     seen_keys: set[str] = set()
@@ -309,9 +309,11 @@ def search_spotify_track_candidates(
         try:
             result = spotify_play.spotify_search(query=search_query, limit=bounded_limit, types="track")
         except Exception:
-            continue
+            break
         if not isinstance(result, dict):
-            continue
+            break
+        if result.get("status") != "success":
+            break
         for track in _spotify_tracks_from_result(result):
             metadata = _spotify_track_metadata(clean_query, track)
             if not metadata:
@@ -325,7 +327,7 @@ def search_spotify_track_candidates(
             candidates.append(metadata)
             if len(candidates) >= bounded_limit:
                 break
-        if len(candidates) >= bounded_limit:
+        if candidates:
             break
     return candidates
 
