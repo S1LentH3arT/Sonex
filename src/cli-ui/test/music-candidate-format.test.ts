@@ -56,3 +56,28 @@ const truncatedTitleLabel = formatMusicCandidateDisplayLabel({
 
 assert.equal(stringWidth(truncatedTitleLabel), 64);
 assert.match(truncatedTitleLabel, /\.\.\.$/);
+
+const providerAlignedLabel = formatMusicCandidateDisplayLabel(englishCandidate, 94, 'iTunes');
+
+assert.equal(stringWidth(providerAlignedLabel), 94);
+assert.match(providerAlignedLabel, /Willow\s{2,}iTunes$/);
+
+const providerAfterLongTitleLabel = formatMusicCandidateDisplayLabel({
+    kind: 'music_candidate',
+    artist: 'Taylor Swift',
+    album: 'The Tortured Poets Department',
+    title: 'This Song Title Is Too Long For The Current Candidate Row',
+}, 94, 'iTunes');
+
+assert.equal(stringWidth(providerAfterLongTitleLabel), 94);
+assert.match(providerAfterLongTitleLabel, /\.\.\. iTunes$/);
+
+const providerAfterChineseTitleLabel = formatMusicCandidateDisplayLabel({
+    kind: 'music_candidate',
+    artist: '周杰伦',
+    album: '我很忙',
+    title: '这是一首长度很长很长需要按照终端显示宽度截断的中文歌曲名称',
+}, 94, 'iTunes');
+
+assert.equal(stringWidth(providerAfterChineseTitleLabel), 94);
+assert.match(providerAfterChineseTitleLabel, /\.\.\. iTunes$/);

@@ -63,7 +63,11 @@ function truncateDisplayWidthWithEllipsis(value: string, width: number): string 
     return `${rendered}${ELLIPSIS}`;
 }
 
-export function formatMusicCandidateDisplayLabel(display: MusicCandidateDisplay, rowWidth?: number): string {
+export function formatMusicCandidateDisplayLabel(
+    display: MusicCandidateDisplay,
+    rowWidth?: number,
+    trailingText?: string | null,
+): string {
     const prefix = [
         fitDisplayWidthWithEllipsis(display.artist, MUSIC_CANDIDATE_ARTIST_WIDTH),
         fitDisplayWidthWithEllipsis(display.album, MUSIC_CANDIDATE_ALBUM_WIDTH),
@@ -72,6 +76,24 @@ export function formatMusicCandidateDisplayLabel(display: MusicCandidateDisplay,
     if (typeof rowWidth !== "number") {
         return `${prefix} ${title}`;
     }
+
+    const providerText = trailingText?.trim() ?? "";
+    if (providerText) {
+        const titlePrefix = `${prefix} `;
+        const providerMaxWidth = Math.max(0, rowWidth - stringWidth(titlePrefix) - 1);
+        const provider = truncateDisplayWidthWithEllipsis(providerText, providerMaxWidth);
+        const titleWidth = Math.max(
+            0,
+            rowWidth - stringWidth(titlePrefix) - stringWidth(provider) - 1,
+        );
+        const renderedTitle = truncateDisplayWidthWithEllipsis(title, titleWidth);
+        const gapWidth = Math.max(
+            1,
+            rowWidth - stringWidth(titlePrefix) - stringWidth(renderedTitle) - stringWidth(provider),
+        );
+        return `${titlePrefix}${renderedTitle}${" ".repeat(gapWidth)}${provider}`;
+    }
+
     const titleWidth = Math.max(0, rowWidth - stringWidth(prefix) - 1);
     return `${prefix} ${truncateDisplayWidthWithEllipsis(title, titleWidth)}`;
 }

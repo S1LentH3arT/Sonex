@@ -262,7 +262,7 @@ const playlistBrowseTrackCount = (choice: ConfirmChoice): string => {
 
 const formatChoicePanelLabel = (row: ChoicePanelRow): string => (
     row.display?.kind === "music_candidate"
-        ? formatMusicCandidateDisplayLabel(row.display, CONFIRM_CHOICE_ROW_LABEL_WIDTH)
+        ? formatMusicCandidateDisplayLabel(row.display, CONFIRM_CHOICE_ROW_LABEL_WIDTH, row.description)
         : row.labelWidth
         ? row.label + " ".repeat(Math.max(0, row.labelWidth - stringWidth(row.label)))
         : row.label
@@ -292,7 +292,7 @@ const ChoicePanel = ({ rows, selectedIndex, visibleLimit, selectedBackgroundColo
                     <Text key={row.key} backgroundColor={rowBackgroundColor}>
                         <Text color={rowColor} backgroundColor={rowBackgroundColor}>{selected ? "> " : "  "}</Text>
                         <Text color={rowColor} backgroundColor={rowBackgroundColor} wrap="truncate-end">{formatChoicePanelLabel(row)}</Text>
-                        {row.description ? (
+                        {row.description && row.display?.kind !== "music_candidate" ? (
                             <>
                                 <Text color={rowColor} backgroundColor={rowBackgroundColor}>{row.description}</Text>
                             </>
