@@ -258,17 +258,20 @@ metadata; it does not call Spotify account or device APIs. While the mode is
 active, play/search, recommendations, playlists, and current playback use
 Spotify tools only. In Spotify mode, `/recommend [taste]` shows five numbered
 Spotify recommendations and adds them to your Spotify queue on the selected
-device without starting playback. The first `/playlist` in a Spotify-mode session imports
-your saved tracks as the read-only `[Spotify] Spotify Library` mirror and
-imports your Spotify playlists as read-only local mirrors. Later `/playlist`
-opens the local playlist browser without calling Spotify again until you leave
-and re-enter Spotify mode. Normal Sonex mode can still browse the imported
-Spotify mirrors, but `/playlist save` only writes to editable Sonex playlists.
+device without starting playback. `/playlist` opens the local playlist browser
+immediately, then refreshes Spotify mirrors in the background only when the
+persisted mirror is stale. Saved tracks are incrementally merged between
+weekly full reconciliations, and unchanged playlists are skipped by Spotify
+snapshot ID. Successful mirrors remain fresh for six hours; connection failures
+back off for at least fifteen minutes, or for Spotify's longer `Retry-After`.
+Normal Sonex mode can still browse imported Spotify mirrors, but
+`/playlist save` only writes to editable Sonex playlists.
 `/queue` opens your live Spotify playback queue. If Spotify returns `429 Too
-Many Requests`, Sonex shows a Too Many Requests message and asks you to try
-again later. If the saved token is missing newly required Spotify scopes, Sonex
-starts the Spotify authorization guide in the current chat so you can grant the
-updated permissions.
+Many Requests`, Sonex preserves the reported retry timing and does not repeat
+the synchronization burst during that cooldown. Proxy, connection, TLS, and
+read-timeout failures are reported separately. If the saved token is missing
+newly required Spotify scopes, Sonex starts the Spotify authorization guide in
+the current chat so you can grant the updated permissions.
 
 ### 🍎 Apple Music
 
@@ -290,9 +293,10 @@ playback does not use these local players.
 
 ### 🌐 Online Audio Fallback
 
-Sonex can resolve selected songs through online audio sources when local,
-Spotify, or Apple Music playback is not available. Configure at least one online
-audio provider:
+In normal mode, Sonex uses local files first and then resolves selected songs
+through online audio sources. Spotify playback belongs to Spotify Mode; Apple
+Music playback will belong to its own mode. Configure at least one online audio
+provider:
 
 ```text
 /setup jamendo
@@ -320,9 +324,10 @@ play Mitski Nobody
 播放 方大同 忘了美丽
 ```
 
-Sonex shows up to five track choices. After you choose a track, it asks which
-playback path to use: local-first, Spotify, Apple Music, or online audio when
-available. `/recommend [taste]` returns a numbered text list first, defaults to
+Sonex checks for a matching local file first. Without a local match, or after you
+skip it, normal mode opens up to five metadata candidates and continues through
+Sonex online audio without asking for a playback provider. `/recommend [taste]`
+returns a numbered text list first, defaults to
 five tracks, uses the hint before recent playback and `USER.md` preferences, and
 adds the recommended tracks to the Sonex playback queue without starting
 playback. You can then ask to play an item such as `play number 2` or `播放第2首`.

@@ -244,12 +244,14 @@ Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你�
 `/spotify off` 退出。启动时的恢复只检查本地 token 和已保存设备信息，不调用 Spotify
 账号或设备 API。模式开启后，播放/搜索、推荐、歌单和当前播放都会只使用 Spotify 工具。
 在 Spotify mode 下，`/recommend [taste]` 会展示 5 首编号 Spotify 推荐，并把它们加入
-所选设备的 Spotify 队列，不会直接开始播放。在 Spotify 模式下，第一次执行 `/playlist` 会把已点赞歌曲导入为只读镜像
-`[Spotify] Spotify Library`，并把 Spotify 歌单导入为只读本地镜像；本次 Spotify mode
-后续 `/playlist` 只打开本地歌单浏览器，不再调用 Spotify API，直到退出后重新进入
-Spotify mode。普通 Sonex 模式仍可浏览已导入的 Spotify 镜像，但 `/playlist save`
+所选设备的 Spotify 队列，不会直接开始播放。在 Spotify 模式下，`/playlist` 会立即打开本地歌单浏览器，
+仅在持久化镜像过期时才在后台刷新 Spotify 数据。已点赞歌曲在每周全量校准之间采用增量合并，
+`snapshot_id` 未变化的 Spotify 歌单不会重复下载曲目。成功镜像的有效期为 6 小时；连接失败后
+至少退避 15 分钟，如果 Spotify 返回更长的 `Retry-After` 则按其执行。普通 Sonex 模式仍可浏览
+已导入的 Spotify 镜像，但 `/playlist save`
 只会写入可编辑的 Sonex 歌单。`/queue` 会打开 Spotify 实时播放队列。如果 Spotify 返回
-`429 Too Many Requests`，Sonex 会显示 Too Many Requests，并提示请求过于频繁、稍后重试。
+`429 Too Many Requests`，Sonex 会保留服务端返回的重试时间，并在冷却期内避免重复触发同步请求。
+代理不可用、连接超时、TLS 错误和读取超时会显示不同的诊断信息。
 如果已保存 token 缺少新增的 Spotify scopes，Sonex 会在当前聊天区启动 Spotify 授权引导，
 帮助你授予更新后的权限。
 
@@ -272,8 +274,8 @@ Connect 播放不使用这些本地播放器。
 
 ### 🌐 在线音频 fallback
 
-当本地、Spotify 或 Apple Music 不可用时，Sonex 可以通过在线音频源解析选中的
-歌曲。至少配置一个在线音频 provider：
+普通模式会优先使用本地文件，随后通过在线音频源解析选中的歌曲。Spotify 播放归属
+Spotify Mode；Apple Music 播放后续将归属独立模式。至少配置一个在线音频 provider：
 
 ```text
 /setup jamendo
@@ -300,8 +302,8 @@ play Mitski Nobody
 播放 方大同 忘了美丽
 ```
 
-Sonex 会展示最多五个曲目候选。选择曲目后，它会继续询问播放路径：优先本地、
-Spotify、Apple Music，或在可用时使用在线音频。`/recommend [taste]` 会先返回编号
+Sonex 会先检查匹配的本地文件；没有本地结果或跳过本地后，普通模式会直接展示最多
+五个元数据候选并进入 Sonex 在线音频流程，不再询问播放 provider。`/recommend [taste]` 会先返回编号
 文本列表，默认 5 首；有 taste 时优先按用户输入推荐，再参考最近播放和 `USER.md`
 偏好，并把推荐曲目加入 Sonex 播放队列但不直接播放。之后可以继续要求播放某一项，
 例如 `play number 2` 或 `播放第2首`。
