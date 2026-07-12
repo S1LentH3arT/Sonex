@@ -397,9 +397,27 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             return_value=Path(self._spotify_sync_home.name) / "library_sync.json",
         )
         self._spotify_sync_path_patch.start()
+        self._metadata_search_patch = patch(
+            "src.api.ws_runner.search_track_metadata_candidates",
+            return_value={"candidates": [], "source_attempts": []},
+        )
+        self._metadata_search_patch.start()
+        self._online_audio_search_patch = patch(
+            "src.api.ws_runner.search_online_audio_candidates",
+            return_value=[],
+        )
+        self._online_audio_search_patch.start()
+        self._to_thread_patch = patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        )
+        self._to_thread_patch.start()
 
     def tearDown(self) -> None:
         """Restore Spotify sync state resolution and remove temporary data."""
+        self._to_thread_patch.stop()
+        self._online_audio_search_patch.stop()
+        self._metadata_search_patch.stop()
         self._spotify_sync_path_patch.stop()
         self._spotify_sync_home.cleanup()
 
@@ -1252,7 +1270,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             for event in ui.events
         ))
 
-    async def test_play_number_starts_play_selection_without_agent_turn(self) -> None:
+    async def test_play_number_starts_song_candidates_without_method_panel(self) -> None:
         """Verifies that play number starts play selection without agent turn behaves as expected.
 
         Typical use: Use this in automated tests when guarding the play number starts play selection without agent turn behavior against regressions.
@@ -1263,32 +1281,39 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
 
+        metadata_result = {
+            "candidates": [{"name": "Song 1", "artist": "Artist", "album": "Album"}],
+            "source_attempts": [],
+        }
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to '1'."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), \
              self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
             await runner._handle_user_input(ui, "play 1")
-            await asyncio.sleep(0)
 
         self.assertFalse(runner._run_agent_turn.called)
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertTrue(confirm_events)
-        self.assertEqual(confirm_events[-1]["tool_name"], "playback_choice")
+        self.assertEqual(confirm_events[-1]["tool_name"], "song_candidate")
         self.assertEqual(confirm_events[-1]["tool_args"]["query"], "1")
-        self.assertIn("spotify_play", [choice["value"] for choice in confirm_events[-1]["choices"]])
+        self.assertFalse(any(event.get("tool_args", {}).get("stage") == "method_choice" for event in confirm_events))
 
-    async def test_play_local_match_can_skip_to_playback_method_choices(self) -> None:
-        """Verifies that play local match can skip to playback method choices behaves as expected.
+    async def test_play_local_match_can_skip_directly_to_song_candidates(self) -> None:
+        """Verifies that skipping a local match bypasses playback method selection.
 
         Typical use: Use this in automated tests when guarding the play local match can skip to playback method choices behavior against regressions.
 
-        Example: test_play_local_match_can_skip_to_playback_method_choices() -> passes without assertion failures when the behavior remains correct.
+        Example: skipping the local match opens song candidates directly.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
 
-        with patch("src.api.ws_runner.search_local_file", return_value="/home/user/Music/song.mp3"), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+        metadata_result = {
+            "candidates": [{"name": "Song", "artist": "Artist", "album": "Album"}],
+            "source_attempts": [],
+        }
+        with patch("src.api.ws_runner.search_local_file", return_value="/home/user/Music/song.mp3"):
             await runner._handle_user_input(ui, "play song")
 
             first_confirm = [event for event in ui.events if event.get("type") == "confirm"][-1]
@@ -1296,70 +1321,35 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual([choice["value"] for choice in first_confirm["choices"]], ["play_local", "skip_local", "cancel"])
 
             session = getattr(ui, "_play_selection")
-            await session.handle_choice("skip_local")
+            with patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result), patch(
+                "src.api.ws_runner.asyncio.to_thread",
+                side_effect=_to_thread_inline,
+            ):
+                await session.handle_choice("skip_local")
 
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
-        self.assertEqual(confirm_events[-1]["message"], "选择播放方式")
-        self.assertEqual(
-            [choice["value"] for choice in confirm_events[-1]["choices"]],
-            ["spotify_play", "apple_music_play", "online_play", "cancel"],
-        )
+        self.assertEqual(confirm_events[-1]["tool_name"], "song_candidate")
+        self.assertFalse(any(event.get("tool_args", {}).get("stage") == "method_choice" for event in confirm_events))
 
-    async def test_playback_method_puts_online_first_without_accounts(self) -> None:
+    async def test_normal_playback_does_not_probe_provider_accounts(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
-
+        metadata_result = {
+            "candidates": [{"name": "Song", "artist": "Artist", "album": "Album"}],
+            "source_attempts": [],
+        }
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
-             patch("src.api.ws_runner.load_spotify_token", return_value=None), \
-             patch("src.api.ws_runner.spotify_account", return_value={
-                 "status": "success",
-                 "data": {"logged_in": False, "product": "unknown"},
-             }), \
-             patch("src.api.ws_runner.load_apple_music_user_token", return_value=None):
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result), \
+             patch("src.api.ws_runner.spotify_account") as spotify_account_check, \
+             patch("src.api.ws_runner.load_apple_music_user_token") as apple_music_account_check, \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "play song")
 
-        confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
-        self.assertEqual([choice["value"] for choice in confirm["choices"]], [
-            "online_play",
-            "spotify_play",
-            "apple_music_play",
-            "cancel",
-        ])
-
-    async def test_playback_method_puts_online_first_for_spotify_free_account(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        with patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
-             patch("src.api.ws_runner.load_spotify_token", return_value=type("Token", (), {"access_token": "token"})()), \
-             patch("src.api.ws_runner.spotify_account", return_value={
-                 "status": "success",
-                 "data": {"logged_in": True, "product": "free"},
-             }), \
-             patch("src.api.ws_runner.load_apple_music_user_token", return_value=object()):
-            await runner._handle_user_input(ui, "play song")
-
-        confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
-        self.assertEqual(confirm["choices"][0]["value"], "online_play")
-
-    async def test_playback_method_keeps_spotify_first_for_premium_account(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        with patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
-             patch("src.api.ws_runner.load_spotify_token", return_value=type("Token", (), {"access_token": "token"})()), \
-             patch("src.api.ws_runner.spotify_account", return_value={
-                 "status": "success",
-                 "data": {"logged_in": True, "product": "premium"},
-             }), \
-             patch("src.api.ws_runner.load_apple_music_user_token", return_value=None):
-            await runner._handle_user_input(ui, "play song")
-
-        confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
-        self.assertEqual(confirm["choices"][0]["value"], "spotify_play")
+        spotify_account_check.assert_not_called()
+        apple_music_account_check.assert_not_called()
+        confirms = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(confirms[-1]["tool_name"], "song_candidate")
+        self.assertFalse(any(event.get("tool_args", {}).get("stage") == "method_choice" for event in confirms))
 
     async def test_explicit_natural_language_playback_starts_selection_session(self) -> None:
         """Verifies that explicit natural language playback starts selection session behaves as expected.
@@ -1373,14 +1363,15 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ui = FakeUI()
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to '青花瓷'."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value=_metadata_result("青花瓷")), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "播放 青花瓷")
 
         self.assertFalse(runner._run_agent_turn.called)
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertTrue(confirm_events)
         self.assertEqual(confirm_events[-1]["tool_args"]["query"], "青花瓷")
-        self.assertEqual(confirm_events[-1]["tool_name"], "playback_choice")
+        self.assertEqual(confirm_events[-1]["tool_name"], "song_candidate")
 
     async def test_spotify_mode_playback_shows_spotify_track_candidates(self) -> None:
         runner = WebSocketRunner()
@@ -2355,13 +2346,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.classify_music_intent", return_value=decision), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), \
              patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value=_metadata_result("周杰伦 七里香")):
             await runner._handle_user_input(ui, "最近我对周杰伦的《七里香》很感兴趣")
 
         self.assertFalse(runner._run_agent_turn.called)
         self.assertIsNone(getattr(ui, "_music_intent_confirmation", None))
         confirm = [event for event in ui.events if event.get("type") == "confirm"][-1]
-        self.assertEqual(confirm["tool_name"], "playback_choice")
+        self.assertEqual(confirm["tool_name"], "song_candidate")
         self.assertEqual(confirm["tool_args"]["query"], "周杰伦 七里香")
 
     async def test_track_interest_acceptance_starts_play_selection(self) -> None:
@@ -2382,10 +2373,10 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.classify_music_intent", return_value=decision), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), \
              patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value=_metadata_result("周杰伦 七里香")):
             await runner._handle_user_input(ui, "最近我对周杰伦的《七里香》很感兴趣")
 
-        playback_confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
+        playback_confirm = [event for event in ui.events if event.get("tool_name") == "song_candidate"][-1]
         self.assertEqual(playback_confirm["tool_args"]["query"], "周杰伦 七里香")
 
     async def test_general_music_question_does_not_start_playback(self) -> None:
@@ -2442,12 +2433,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.agent_loop", side_effect=agent_events), \
              patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value=_metadata_result("青花瓷")), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._run_agent_turn(ui, "能不能来点青花瓷")
 
         session = getattr(ui, "_play_selection")
         self.assertEqual(session.query, "青花瓷")
-        confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
+        confirm = [event for event in ui.events if event.get("tool_name") == "song_candidate"][-1]
         self.assertEqual(confirm["tool_args"]["query"], "青花瓷")
 
     async def test_recommendation_route_uses_restricted_agent_without_confirm(self) -> None:
@@ -2501,10 +2493,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         with patch("src.api.ws_runner.classify_music_intent", return_value=decision), \
              patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value=_metadata_result("晴天 周杰伦")), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "播放第 2 首")
 
-        confirm = [event for event in ui.events if event.get("tool_name") == "playback_choice"][-1]
+        confirm = [event for event in ui.events if event.get("tool_name") == "song_candidate"][-1]
         self.assertEqual(confirm["tool_args"]["query"], "晴天 周杰伦")
 
     async def test_out_of_range_recommendation_reference_reports_valid_range(self) -> None:
@@ -2543,22 +2536,23 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ui = FakeUI()
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to '方大同的Sorry'."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
-             patch("src.api.ws_runner._llm_auth_ready", return_value=(False, "openai", "missing")):
+             patch("src.api.ws_runner._llm_auth_ready", return_value=(False, "openai", "missing")), \
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value=_metadata_result("方大同的Sorry")), \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "帮我放一首方大同的Sorry")
 
         self.assertFalse(runner._run_agent_turn.called)
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertTrue(confirm_events)
         self.assertEqual(confirm_events[-1]["tool_args"]["query"], "方大同的Sorry")
-        self.assertEqual(confirm_events[-1]["tool_name"], "playback_choice")
+        self.assertEqual(confirm_events[-1]["tool_name"], "song_candidate")
 
-    async def test_want_to_listen_playback_online_choice_starts_song_metadata_candidates(self) -> None:
-        """Verifies that want to listen playback online choice starts song metadata candidates behaves as expected.
+    async def test_want_to_listen_starts_song_metadata_candidates_without_method_choice(self) -> None:
+        """Verifies that a play request starts metadata candidates directly.
 
         Typical use: Use this in automated tests when guarding the want to listen playback online choice starts song metadata candidates behavior against regressions.
 
-        Example: test_want_to_listen_playback_online_choice_starts_song_metadata_candidates() -> passes without assertion failures when the behavior remains correct.
+        Example: a want-to-listen request emits a song-candidate confirmation.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -2581,18 +2575,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to '青花瓷'."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
-             patch("src.api.ws_runner._llm_auth_ready", return_value=(False, "openai", "missing")):
+             patch("src.api.ws_runner._llm_auth_ready", return_value=(False, "openai", "missing")), \
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result) as metadata_search, \
+             patch("src.api.ws_runner.search_youtube_songs") as youtube_search, \
+             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "我想听 青花瓷")
 
         self.assertFalse(runner._run_agent_turn.called)
-        session = getattr(ui, "_play_selection")
-        with patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result) as metadata_search, \
-             patch("src.api.ws_runner.search_youtube_songs") as youtube_search, \
-             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
-             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await session.handle_choice("online_play")
-
         metadata_search.assert_called_once_with("青花瓷", 5)
         youtube_search.assert_not_called()
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
@@ -2601,7 +2590,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("3:59", confirm_events[-1]["choices"][0]["description"])
         self.assertTrue(any(event.get("type") == "activity" and event.get("title") == "iTunes" for event in ui.events))
 
-    async def test_online_choice_without_open_audio_provider_still_starts_song_metadata_candidates(self) -> None:
+    async def test_normal_mode_starts_metadata_before_open_audio_setup_is_needed(self) -> None:
         """Verifies that online choice without open audio provider still starts song metadata candidates behaves as expected.
 
         Typical use: Use this in automated tests when guarding the online choice without open audio provider still starts song metadata candidates behavior against regressions.
@@ -2629,20 +2618,35 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to '青花瓷'."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None), \
              patch("src.api.ws_runner.online_audio_configured", return_value=False) as configured, \
              patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result) as metadata_search, \
              patch("src.api.ws_runner.search_online_audio_candidates") as online_search, \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "play 青花瓷")
-            session = getattr(ui, "_play_selection")
-            await session.handle_choice("online_play")
 
         configured.assert_not_called()
         metadata_search.assert_called_once_with("青花瓷", 5)
         online_search.assert_not_called()
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertEqual(confirm_events[-1]["tool_name"], "song_candidate")
+
+    async def test_missing_online_audio_setup_ends_without_method_panel(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner.search_local_file", return_value="No local files found."), patch(
+            "src.api.ws_runner.search_online_audio_candidates",
+            side_effect=ws_runner.OnlineAudioSetupRequired("setup required"),
+        ):
+            await runner._handle_user_input(ui, "play song")
+
+        self.assertIsNone(getattr(ui, "_play_selection", None))
+        confirms = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertFalse(any(event.get("tool_args", {}).get("stage") == "method_choice" for event in confirms))
+        self.assertTrue(any(
+            event.get("type") == "error" and ws_runner.ONLINE_AUDIO_SETUP_MESSAGE in str(event.get("message"))
+            for event in ui.events
+        ))
 
     async def test_setup_jamendo_stores_open_audio_api_key(self) -> None:
         """Verifies that setup jamendo stores open audio api key behaves as expected.
@@ -3587,14 +3591,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         }
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'messy query'."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
+             patch("src.api.ws_runner.search_track_metadata_candidates", return_value={"candidates": [song_candidate], "source_attempts": []}):
             await runner._handle_user_input(ui, "play messy query")
         session = getattr(ui, "_play_selection")
-        with patch("src.api.ws_runner.search_track_metadata_candidates", return_value={"candidates": [song_candidate], "source_attempts": []}), \
-             patch("src.api.ws_runner.search_online_audio_candidates", return_value=[online_candidate]) as online_search, \
+        with patch("src.api.ws_runner.search_online_audio_candidates", return_value=[online_candidate]) as online_search, \
              patch("src.api.ws_runner.play_online_audio_candidate", return_value=playback_result) as play_candidate, \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await session.handle_choice("online_play")
             await session.handle_choice("song_candidate:0")
 
         online_search.assert_called_once()
@@ -4354,6 +4356,23 @@ async def _to_thread_inline(fn, /, *args, **kwargs):
     Example: _to_thread_inline() -> passes without assertion failures when the behavior remains correct.
     """
     return fn(*args, **kwargs)
+
+
+def _metadata_result(query: str) -> dict[str, object]:
+    """Return one deterministic metadata candidate for playback-routing tests."""
+    return {
+        "candidates": [
+            {
+                "id": f"metadata:{query}",
+                "metadata_source": "itunes",
+                "provider": "itunes",
+                "name": query,
+                "artist": "Artist",
+                "album": "Album",
+            }
+        ],
+        "source_attempts": [],
+    }
 
 
 if __name__ == "__main__":

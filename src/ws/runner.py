@@ -254,7 +254,7 @@ from src.tools.spotify_play import (
     spotify_recommend,
     spotify_saved_tracks,
 )
-from src.tools.song_cache import find_best_cached_song, resolve_cached_song, upsert_cached_song
+from src.tools.song_cache import find_best_cached_song, upsert_cached_song
 from src.ws.constants import (
     APPLE_MUSIC_SETUP_TRIGGERS,
     LLM_AUTH_PROVIDER_CHOICES,
@@ -264,7 +264,6 @@ from src.ws.constants import (
     LOCAL_PLAYBACK_CHOICES,
     LOCAL_PLAYBACK_CONTROL_TOOLS,
     PLAYBACK_AGENT_TOOLS,
-    PLAYBACK_METHOD_CHOICES,
     RECOMMEND_AGENT_TOOLS,
     RECOMMENDATION_TOOLS,
     SEARCH_RESULT_TOOLS,
@@ -2211,7 +2210,6 @@ class PlaySelectionSession:
         self.runner = runner
         self.query = query.strip()
         self.local_file: str | None = None
-        self.cache_hit: dict[str, Any] | None = None
         self.active_confirm_id: str | None = None
         self.pending_player_confirm_result: dict[str, Any] | None = None
         self.metadata_candidates: list[dict[str, Any]] = []
@@ -2239,8 +2237,7 @@ class PlaySelectionSession:
             await self._ask_local_choice(local_result)
             return
 
-        self.cache_hit = find_best_cached_song(self.query)
-        await self._ask_method_choice()
+        await self._ask_metadata_candidates(self.query)
 
     def owns_confirm(self, confirm_id: str) -> bool:
         """Coordinates owns confirm for the current Sonex flow.
@@ -2352,16 +2349,11 @@ class PlaySelectionSession:
             await self._finish("Local playback selected.")
             return
         if choice == "skip_local":
-            self.cache_hit = find_best_cached_song(self.query)
-            await self._ask_method_choice()
-            return
-        if choice == "spotify_play":
-            await self._play_from_provider("spotify_play", "spotify")
-            return
-        if choice == "apple_music_play":
-            await self._play_from_provider("apple_music_play", "apple_music")
+            await self._ask_metadata_candidates(self.query)
             return
         if choice == "online_play":
+            # Compatibility for an in-flight client that still owns the removed
+            # playback-method confirmation. New normal-mode sessions never emit it.
             await self._ask_metadata_candidates(self.query)
             return
         await self._finish("Unknown playback choice.", status="error")
@@ -2403,18 +2395,6 @@ class PlaySelectionSession:
         await self._ask_online_audio_candidates(self.query, playback_metadata=self.selected_playback_metadata)
         return True
 
-    async def _ensure_online_audio_setup(self) -> bool:
-        """Prepares ensure online audio setup for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs ensure online audio setup without duplicating the local rules.
-
-        Example: await _ensure_online_audio_setup() -> returns the value used by the surrounding Sonex flow.
-        """
-        if online_audio_configured():
-            return True
-        await self._show_online_audio_setup_required()
-        return False
-
     async def _show_online_audio_setup_required(self) -> None:
         """Prepares show online audio setup required for an internal Sonex flow.
 
@@ -2430,7 +2410,7 @@ class PlaySelectionSession:
         )
         await self.ui.append_agent_message(ONLINE_AUDIO_SETUP_MESSAGE)
         await self.ui.send_error(ONLINE_AUDIO_SETUP_MESSAGE)
-        await self._ask_method_choice()
+        await self._finish("Online audio setup required.", status="error")
 
     async def _ask_local_choice(self, local_file: str) -> None:
         """Prepares ask local choice for an internal Sonex flow.
@@ -2443,48 +2423,6 @@ class PlaySelectionSession:
             message=f"💾 播放本地文件 {_filename(local_file)}?",
             choices=LOCAL_PLAYBACK_CHOICES,
             tool_args={"query": self.query, "file": local_file, "stage": "local_match"},
-        )
-
-    async def _ask_method_choice(self) -> None:
-        """Prepares ask method choice for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs ask method choice without duplicating the local rules.
-
-        Example: await _ask_method_choice() -> returns the value used by the surrounding Sonex flow.
-        """
-        tool_args: dict[str, Any] = {"query": self.query, "stage": "method_choice"}
-        if self.cache_hit:
-            tool_args["cache_id"] = self.cache_hit.get("cache_id")
-            tool_args["cached_song"] = self.cache_hit
-        try:
-            spotify_token = load_spotify_token()
-            spotify_logged_in = bool(spotify_token and spotify_token.access_token)
-        except Exception:
-            spotify_logged_in = False
-        spotify_product = "unknown"
-        if spotify_logged_in:
-            try:
-                spotify_result = spotify_account(requests_timeout=1.5)
-                spotify_data = spotify_result.get("data") if isinstance(spotify_result, dict) else {}
-                spotify_product = str(spotify_data.get("product") or "unknown").lower() if isinstance(spotify_data, dict) else "unknown"
-            except Exception:
-                spotify_product = "unknown"
-        try:
-            apple_token = load_apple_music_user_token()
-            apple_logged_in = bool(apple_token and apple_token.access_token)
-        except Exception:
-            apple_logged_in = False
-        choices = list(PLAYBACK_METHOD_CHOICES)
-        if (not spotify_logged_in and not apple_logged_in) or spotify_product == "free":
-            choices = [
-                *[choice for choice in choices if choice["value"] == "online_play"],
-                *[choice for choice in choices if choice["value"] not in {"online_play", "cancel"}],
-                *[choice for choice in choices if choice["value"] == "cancel"],
-            ]
-        await self._ask_confirm(
-            message="选择播放方式",
-            choices=choices,
-            tool_args=tool_args,
         )
 
     async def _ask_metadata_candidates(self, query: str) -> None:
@@ -2818,42 +2756,6 @@ class PlaySelectionSession:
                 "choices": choices,
             }
         )
-
-    async def _play_from_provider(self, tool_name: str, provider: str) -> None:
-        """Prepares play from provider for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs play from provider without duplicating the local rules.
-
-        Example: await _play_from_provider(tool_name=..., provider=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        args: dict[str, Any] = {"query": self.query}
-        cached_item = self._cached_item_for_provider(provider)
-        if cached_item and cached_item.get("uri"):
-            args = {"uri": cached_item["uri"], "query": self.query}
-        result = await self._invoke_playback(tool_name, args, cache_provider=provider)
-        if _is_player_confirm_result(result):
-            return
-        await self._finish(f"{provider.replace('_', ' ').title()} playback selected.")
-
-    def _cached_item_for_provider(self, provider: str) -> dict[str, Any] | None:
-        """Prepares cached item for provider for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs cached item for provider without duplicating the local rules.
-
-        Example: _cached_item_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        if not self.cache_hit:
-            return None
-        try:
-            full = resolve_cached_song(str(self.cache_hit["cache_id"]))
-        except Exception:
-            return None
-        providers = full.get("providers")
-        if isinstance(providers, dict) and isinstance(providers.get(provider), dict):
-            return providers[provider]
-        if full.get("provider") == provider:
-            return full
-        return None
 
     async def _invoke_playback(
         self,

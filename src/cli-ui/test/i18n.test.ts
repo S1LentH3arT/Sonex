@@ -84,40 +84,6 @@ const knownChat = applyLanguageToServerEvent({
 }, "zh-CN");
 assert.equal(knownChat.text, "/keymap 命令由本次 TUI 会话处理。");
 
-const playbackMethodConfirm = applyLanguageToServerEvent({
-    type: "confirm",
-    id: "confirm_1",
-    tool_name: "playback_choice",
-    tool_args: { query: "song", stage: "method_choice" },
-    message: "选择播放方式",
-    choices: [
-        {
-            value: "spotify_play",
-            label: "🎧 Spotify Play",
-            description: "Spotify Premium subscription and desktop/mobile Spotify apps required.",
-        },
-        {
-            value: "apple_music_play",
-            label: "🍎 Apple Music Play",
-            description: "Apple Music Subscription required. Play through Sonex internal player.",
-        },
-        {
-            value: "online_play",
-            label: "🌐 Sonex online Play",
-            description: "No subscription required. Play through Sonex internal player.",
-        },
-        { value: "cancel", label: "Cancel" },
-    ],
-}, "zh-CN");
-assert.equal(playbackMethodConfirm.message, "选择播放方式");
-assert.equal(playbackMethodConfirm.choices?.[0]?.label, "🎧 Spotify 播放");
-assert.equal(playbackMethodConfirm.choices?.[0]?.description, "需要 Spotify Premium 订阅，以及桌面或移动端 Spotify app");
-assert.equal(playbackMethodConfirm.choices?.[1]?.label, "🍎 Apple Music 播放");
-assert.equal(playbackMethodConfirm.choices?.[1]?.description, "需要 Apple Music 订阅并通过 Sonex 内置播放器播放");
-assert.equal(playbackMethodConfirm.choices?.[2]?.label, "🌐 Sonex 在线播放");
-assert.equal(playbackMethodConfirm.choices?.[2]?.description, "需要先配置 Jamendo/Audius API Key");
-assert.equal(playbackMethodConfirm.choices?.[3]?.label, "取消");
-
 const playerConfirm = applyLanguageToServerEvent({
     type: "confirm",
     id: "confirm_2",

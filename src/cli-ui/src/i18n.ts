@@ -186,43 +186,6 @@ const knownText: Record<string, Record<UiLanguage, string>> = {
     },
 };
 
-const playbackMethodChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {
-    spotify_play: {
-        en: {
-            label: "🎧 Spotify Play",
-            description: "require Spotify Premium subscription and desktop/mobile Spotify apps",
-        },
-        "zh-CN": {
-            label: "🎧 Spotify 播放",
-            description: "需要 Spotify Premium 订阅，以及桌面或移动端 Spotify app",
-        },
-    },
-    apple_music_play: {
-        en: {
-            label: "🍎 Apple Music Play",
-            description: "require Apple Music Subscription, play through Sonex internal player",
-        },
-        "zh-CN": {
-            label: "🍎 Apple Music 播放",
-            description: "需要 Apple Music 订阅并通过 Sonex 内置播放器播放",
-        },
-    },
-    online_play: {
-        en: {
-            label: "🌐 Sonex online Play",
-            description: "setup Jamendo/Audius before your journey",
-        },
-        "zh-CN": {
-            label: "🌐 Sonex 在线播放",
-            description: "需要先配置 Jamendo/Audius API Key",
-        },
-    },
-    cancel: {
-        en: { label: "Cancel" },
-        "zh-CN": { label: "取消" },
-    },
-};
-
 const playerConfirmChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {
     mpv: {
         en: { label: "🎧 mpv", description: "default playback backend with smooth experience" },
@@ -271,11 +234,7 @@ function translateKnown(value: string | null | undefined, language: UiLanguage):
 
 function localizeConfirmChoice(choice: ConfirmChoice, stage: unknown, language: UiLanguage): ConfirmChoice {
     const value = String(choice.value || "");
-    const table = stage === "method_choice"
-        ? playbackMethodChoices
-        : stage === "player_confirm"
-            ? playerConfirmChoices
-            : null;
+    const table = stage === "player_confirm" ? playerConfirmChoices : null;
     const mapped = table?.[value]?.[language];
     if (!mapped) return choice;
     return {

@@ -32,25 +32,6 @@ LOCAL_PLAYBACK_CONTROL_TOOLS = {
 
 LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
 
-PLAYBACK_METHOD_CHOICES = [
-    {
-        "value": "spotify_play",
-        "label": "🎧 Spotify Play",
-        "description": "Spotify Premium subscription and desktop/mobile Spotify apps required.",
-    },
-    {
-        "value": "apple_music_play",
-        "label": "🍎 Apple Music Play",
-        "description": "Apple Music Subscription required. Play through Sonex internal player.",
-    },
-    {
-        "value": "online_play",
-        "label": "🌐 Sonex online Play",
-        "description": "No subscription required. Play through Sonex internal player.",
-    },
-    {"value": "cancel", "label": "Cancel"},
-]
-
 LOCAL_PLAYBACK_CHOICES = [
     {"value": "play_local", "label": "播放本地"},
     {"value": "skip_local", "label": "不播放本地，选择其他方式"},
