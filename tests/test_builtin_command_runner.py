@@ -616,6 +616,35 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(message in str(event.get("detail")) for event in ui.events if event.get("type") == "activity"))
         self.assertTrue(any(message in str(event.get("text")) for event in ui.events if event.get("type") == "chat"))
 
+    async def test_spotify_setup_does_not_claim_account_verified_after_rate_limit(self) -> None:
+        ui = FakeUI()
+        session = ws_runner.SpotifySetupSession(ui)
+        message = (
+            "Spotify says Too Many Requests. Requests are too frequent; try again later. "
+            "Try again after 30 seconds."
+        )
+        account = {
+            "status": "fail",
+            "message": message,
+            "error_code": "SPOTIFY_RATE_LIMITED",
+            "data": {"retry_after": "30 seconds"},
+        }
+
+        with patch(
+            "src.api.ws_runner._spotify_loopback_login_for_tui",
+            return_value=account,
+        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await session._finish_oauth("https://accounts.spotify.com/authorize", "state")
+
+        activities = [event for event in ui.events if event.get("type") == "activity"]
+        setup_events = [event for event in ui.events if event.get("type") == "spotify_setup"]
+        self.assertEqual(activities[-1]["title"], "Spotify verification pending")
+        self.assertEqual(activities[-1]["status"], "error")
+        self.assertIn("authorization was saved", str(activities[-1]["detail"]))
+        self.assertIn(message, str(activities[-1]["detail"]))
+        self.assertEqual(setup_events[-1]["title"], "Spotify authorized; verification pending")
+        self.assertNotIn("Account product: unknown", str(setup_events[-1]["message"]))
+
     async def test_spotify_command_reports_pending_before_account_check_returns(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()

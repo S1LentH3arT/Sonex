@@ -135,6 +135,40 @@ class SpotifyToolTests(unittest.TestCase):
 
         self.assertEqual(cooldown.exception.headers["Retry-After"], "12")
 
+    def test_spotify_account_stops_on_rate_limit_and_recovers_after_cooldown(self) -> None:
+        """Account verification must not hide a 429 behind an unknown product."""
+        clock = [100.0]
+        token = auth_models.OAuthToken(
+            access_token="token",
+            refresh_token="refresh",
+            expires_at="2100-01-01T00:00:00+00:00",
+            scopes=["user-read-private"],
+        )
+        client = Mock()
+        client.current_user.side_effect = [
+            SpotifyException(429, -1, "Too Many Requests", headers={"Retry-After": "30"}),
+            {"id": "listener", "display_name": "Listener", "product": "premium"},
+        ]
+
+        with patch.object(spotify, "load_spotify_token", return_value=token), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=client,
+        ), patch.object(spotify.time, "monotonic", side_effect=lambda: clock[0]):
+            limited = spotify.spotify_account(requests_timeout=1.5)
+            cooling_down = spotify.spotify_account(requests_timeout=1.5)
+            clock[0] += 30.1
+            recovered = spotify.spotify_account(requests_timeout=1.5)
+
+        self.assertEqual(limited["status"], "fail")
+        self.assertEqual(limited["error_code"], "SPOTIFY_RATE_LIMITED")
+        self.assertEqual(limited["data"]["retry_after"], "30 seconds")
+        self.assertEqual(cooling_down["status"], "fail")
+        self.assertEqual(cooling_down["error_code"], "SPOTIFY_RATE_LIMITED")
+        self.assertEqual(client.current_user.call_count, 2)
+        self.assertEqual(recovered["status"], "success")
+        self.assertEqual(recovered["data"]["product"], "premium")
+
     def _track(self, idx: int) -> dict:
         """Verifies that track behaves as expected.
 

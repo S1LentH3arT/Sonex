@@ -890,17 +890,12 @@ def _spotify_product(*, requests_timeout: float | None = None) -> tuple[str, dic
 
     Example: _spotify_product() -> returns the value used by the surrounding Sonex flow.
     """
-    try:
-        client = spotify_user_client(
-            SPOTIFY_PRIVATE_SCOPES,
-            requests_timeout=5 if requests_timeout is None else requests_timeout,
-            retries=0,
-        )
-        profile = _spotify_api_call(client.current_user)
-    except SpotifyLoginRequiredError:
-        return "unknown", None
-    except Exception:
-        return "unknown", None
+    client = spotify_user_client(
+        SPOTIFY_PRIVATE_SCOPES,
+        requests_timeout=5 if requests_timeout is None else requests_timeout,
+        retries=0,
+    )
+    profile = _spotify_api_call(client.current_user)
     return str(profile.get("product") or "unknown").lower(), profile
 
 
@@ -942,10 +937,18 @@ def spotify_account(requests_timeout: float | None = None) -> dict[str, Any]:
 
     Example: spotify_account() -> returns the value used by the surrounding Sonex flow.
     """
-    token = load_spotify_token()
-    logged_in = bool(token and token.access_token)
-    scopes = set(token.scopes if token else [])
-    product, profile = _spotify_product(requests_timeout=requests_timeout) if logged_in else ("unknown", None)
+    try:
+        token = load_spotify_token()
+        logged_in = bool(token and token.access_token)
+        scopes = set(token.scopes if token else [])
+        product, profile = (
+            _spotify_product(requests_timeout=requests_timeout)
+            if logged_in
+            else ("unknown", None)
+        )
+    except Exception as exc:
+        return _spotify_error("spotify_account", exc, "SPOTIFY_API_ERROR")
+
     data = {
         "logged_in": logged_in,
         "product": product,

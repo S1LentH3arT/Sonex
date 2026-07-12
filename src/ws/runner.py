@@ -1431,6 +1431,29 @@ class SpotifySetupSession:
             )
             return
 
+        if _is_failed_tool_result(account):
+            failure = _friendly_runtime_error_message(
+                account,
+                fallback="Spotify account verification could not complete.",
+            )
+            message = (
+                "Spotify authorization was saved, but account verification could not complete. "
+                f"{failure} Run /spotify again when Spotify is reachable."
+            )
+            await self.ui.append_activity(
+                kind="error",
+                title="Spotify verification pending",
+                detail=message,
+                status="error",
+            )
+            await self.ui.send_spotify_setup(
+                step="done",
+                title="Spotify authorized; verification pending",
+                message=message,
+                active=False,
+            )
+            return
+
         data = account.get("data") if isinstance(account, dict) else {}
         product = data.get("product") if isinstance(data, dict) else "unknown"
         await self.ui.append_activity(
