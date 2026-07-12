@@ -389,6 +389,20 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
     Collects assertions that exercise builtin command runner tests behavior without mixing unrelated fixtures.
     """
+    def setUp(self) -> None:
+        """Isolate Spotify synchronization scheduling metadata for each test."""
+        self._spotify_sync_home = tempfile.TemporaryDirectory()
+        self._spotify_sync_path_patch = patch(
+            "src.tools.spotify_library_sync.spotify_library_sync_state_path",
+            return_value=Path(self._spotify_sync_home.name) / "library_sync.json",
+        )
+        self._spotify_sync_path_patch.start()
+
+    def tearDown(self) -> None:
+        """Restore Spotify sync state resolution and remove temporary data."""
+        self._spotify_sync_path_patch.stop()
+        self._spotify_sync_home.cleanup()
+
     async def test_auth_resume_reenters_music_router_without_duplicate_user_message(self) -> None:
         """Verifies that auth resume reenters music router without duplicate user message behaves as expected.
 
@@ -1693,7 +1707,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(upsert.call_count, 2)
         local_choices.assert_called_with(writable_only=False)
         confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
-        self.assertEqual(len(confirms), 2)
+        self.assertEqual(len(confirms), 3)
         self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
         self.assertTrue(getattr(ui, "_spotify_library_synced"))
 
@@ -1722,6 +1736,168 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.gather(first, second)
 
         sync.assert_awaited_once_with(ui)
+
+    async def test_spotify_mode_playlist_uses_fresh_persisted_mirrors_across_sessions(self) -> None:
+        state = ws_runner.SpotifyLibrarySyncState(last_success_at=time.time())
+        ws_runner.save_spotify_library_sync_state(state)
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
+
+        with patch("src.api.ws_runner._spotify_mirror_external_ids", return_value={"spotify-library"}), patch(
+            "src.api.ws_runner.spotify_saved_tracks",
+        ) as saved, patch(
+            "src.api.ws_runner.playlist_choices",
+            return_value=[{"value": "playlist:likes", "label": "likes", "description": "0 saved tracks"}],
+        ):
+            await runner._handle_user_input(ui, "/playlist")
+
+        saved.assert_not_called()
+        self.assertTrue(getattr(ui, "_spotify_library_synced"))
+        self.assertTrue(any(event.get("tool_name") == "playlist_browse" for event in ui.events))
+
+    async def test_spotify_mode_playlist_failure_backoff_survives_new_ui_session(self) -> None:
+        runner = WebSocketRunner()
+        first_ui = FakeUI()
+        second_ui = FakeUI()
+        setattr(first_ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
+        setattr(second_ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
+        failure = {
+            "status": "fail",
+            "message": "Spotify did not respond before the request timeout.",
+            "error_code": "SPOTIFY_READ_TIMEOUT",
+        }
+
+        with patch("src.api.ws_runner.spotify_saved_tracks", return_value=failure) as saved, patch(
+            "src.api.ws_runner.playlist_choices",
+            return_value=[{"value": "playlist:likes", "label": "likes", "description": "0 saved tracks"}],
+        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._handle_user_input(first_ui, "/playlist")
+            await runner._handle_user_input(second_ui, "/playlist")
+
+        saved.assert_called_once()
+        self.assertTrue(
+            any("will retry after" in str(event.get("detail")) for event in second_ui.events)
+        )
+
+    async def test_spotify_mode_playlist_sync_skips_unchanged_snapshot(self) -> None:
+        now = time.time()
+        state = ws_runner.SpotifyLibrarySyncState(
+            saved_tracks_cursor="2026-07-11T00:00:00Z",
+            last_full_saved_tracks_at=now,
+            playlist_snapshots={"playlist-1": "snapshot-1"},
+        )
+        ws_runner.save_spotify_library_sync_state(state)
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with patch(
+            "src.api.ws_runner._spotify_mirror_external_ids",
+            return_value={"spotify-library", "playlist-1"},
+        ), patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "success",
+            "data": {"tracks": []},
+        }), patch("src.api.ws_runner.spotify_playlists", return_value={
+            "status": "success",
+            "data": {"playlists": [{"id": "playlist-1", "name": "Road", "snapshot_id": "snapshot-1"}]},
+        }), patch("src.api.ws_runner.spotify_playlist_tracks") as playlist_tracks, patch(
+            "src.api.ws_runner.upsert_mirror_playlist",
+        ) as upsert, patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            synced, _message = await runner._sync_spotify_library_to_playlists(ui)
+
+        self.assertTrue(synced)
+        playlist_tracks.assert_not_called()
+        upsert.assert_not_called()
+
+    async def test_spotify_mode_playlist_sync_merges_incremental_saved_tracks(self) -> None:
+        now = time.time()
+        state = ws_runner.SpotifyLibrarySyncState(
+            saved_tracks_cursor="2026-07-11T00:00:00Z",
+            last_full_saved_tracks_at=now,
+        )
+        ws_runner.save_spotify_library_sync_state(state)
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        new_track = {
+            "name": "New",
+            "artist": "Artist",
+            "uri": "spotify:track:new",
+            "added_at": "2026-07-12T00:00:00Z",
+        }
+        cursor_track = {
+            "name": "Old",
+            "artist": "Artist",
+            "uri": "spotify:track:old",
+            "added_at": "2026-07-11T00:00:00Z",
+        }
+
+        with patch(
+            "src.api.ws_runner._spotify_mirror_external_ids",
+            return_value={"spotify-library"},
+        ), patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "success",
+            "data": {"tracks": [new_track, cursor_track]},
+        }), patch("src.api.ws_runner.list_playlist_tracks", return_value=[cursor_track]), patch(
+            "src.api.ws_runner.spotify_playlists",
+            return_value={"status": "success", "data": {"playlists": []}},
+        ), patch("src.api.ws_runner.upsert_mirror_playlist") as upsert, patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            synced, _message = await runner._sync_spotify_library_to_playlists(ui)
+
+        self.assertTrue(synced)
+        stored_tracks = upsert.call_args.kwargs["tracks"]
+        self.assertEqual([track["uri"] for track in stored_tracks], ["spotify:track:new", "spotify:track:old"])
+
+    async def test_spotify_mode_playlist_sync_keeps_partial_mirrors(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        inaccessible = {
+            "status": "fail",
+            "message": "Spotify denied access to this playlist.",
+            "error_code": "SPOTIFY_FORBIDDEN",
+        }
+        available = {
+            "status": "success",
+            "data": {
+                "tracks": [
+                    {
+                        "name": "Available",
+                        "artist": "Artist",
+                        "uri": "spotify:track:available",
+                    }
+                ]
+            },
+        }
+
+        with patch(
+            "src.api.ws_runner._spotify_mirror_external_ids",
+            return_value={"spotify-library"},
+        ), patch("src.api.ws_runner.spotify_saved_tracks", return_value={
+            "status": "success",
+            "data": {"tracks": []},
+        }), patch("src.api.ws_runner.spotify_playlists", return_value={
+            "status": "success",
+            "data": {
+                "playlists": [
+                    {"id": "private", "name": "Private"},
+                    {"id": "available", "name": "Available"},
+                ]
+            },
+        }), patch(
+            "src.api.ws_runner.spotify_playlist_tracks",
+            side_effect=[inaccessible, available],
+        ), patch("src.api.ws_runner.upsert_mirror_playlist") as upsert, patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            synced, message = await runner._sync_spotify_library_to_playlists(ui)
+
+        self.assertFalse(synced)
+        self.assertIn("denied access", message)
+        external_ids = [call.kwargs["external_id"] for call in upsert.call_args_list]
+        self.assertEqual(external_ids, ["spotify-library", "available"])
 
     async def test_spotify_session_cache_returns_stale_read_during_cooldown(self) -> None:
         coordinator = ws_runner.SpotifySessionRequestCoordinator()
@@ -1762,10 +1938,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             0.001,
         ), patch("src.api.ws_runner.playlist_choices", return_value=choices):
             await runner._handle_user_input(ui, "/playlist")
+            task = ws_runner._spotify_session_requests(ui).playlist_sync_task
+            if task is not None:
+                await task
 
-        self.assertTrue(any("Spotify Library sync timed out" in str(event.get("text")) for event in ui.events))
+        self.assertTrue(any("Spotify Library sync timed out" in str(event.get("text") or event.get("detail")) for event in ui.events))
         self.assertTrue(any(event.get("theme") == "spotify" for event in ui.events if event.get("role") == "agent"))
-        self.assertTrue(any("Showing existing local playlists" in str(event.get("detail")) for event in ui.events))
+        self.assertTrue(any("Existing local playlists remain available" in str(event.get("detail")) for event in ui.events))
         confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
         self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
 
@@ -1788,6 +1967,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         texts = [str(event.get("text") or event.get("detail") or "") for event in ui.events]
         self.assertTrue(any("Spotify is rate limited" in text for text in texts))
         self.assertTrue(any("62861 seconds" in text for text in texts))
+        state = ws_runner.load_spotify_library_sync_state()
+        self.assertGreater(state.next_retry_at - time.time(), 62_000)
 
     async def test_spotify_mode_playlist_sync_failure_opens_existing_local_mirrors(self) -> None:
         runner = WebSocketRunner()
@@ -1812,7 +1993,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         saved.assert_called_once()
         local_choices.assert_called_with(writable_only=False)
         self.assertFalse(getattr(ui, "_spotify_library_synced", False))
-        self.assertTrue(any("Showing existing local playlists" in str(event.get("detail")) for event in ui.events))
+        self.assertTrue(any("Existing local playlists remain available" in str(event.get("detail")) for event in ui.events))
         confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
         self.assertEqual(confirms[-1]["choices"][0]["label"], "[Spotify] Spotify Library")
 
@@ -1837,9 +2018,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "/playlist")
 
         texts = [str(event.get("text") or event.get("detail") or "") for event in ui.events]
-        self.assertTrue(any("Spotify connection failed while syncing playlists" in text for text in texts))
+        self.assertTrue(any("Spotify API request failed over the current network route" in text for text in texts))
         self.assertFalse(any("HTTPSConnectionPool" in text for text in texts))
-        self.assertTrue(any("Showing existing local playlists" in text for text in texts))
+        self.assertTrue(any("Existing local playlists remain available" in text for text in texts))
         confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
         self.assertEqual(confirms[-1]["choices"][0]["label"], "likes")
 
@@ -1865,7 +2046,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         texts = [str(event.get("text") or event.get("detail") or "") for event in ui.events]
         self.assertTrue(any("local proxy http://127.0.0.1:7897" in text for text in texts))
         self.assertTrue(any("start the proxy" in text for text in texts))
-        self.assertTrue(any("Showing existing local playlists" in text for text in texts))
+        self.assertTrue(any("Existing local playlists remain available" in text for text in texts))
         confirms = [event for event in ui.events if event.get("tool_name") == "playlist_browse"]
         self.assertEqual(confirms[-1]["choices"][0]["label"], "likes")
 

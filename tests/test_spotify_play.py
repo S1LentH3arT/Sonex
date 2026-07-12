@@ -8,14 +8,17 @@ from __future__ import annotations
 import unittest
 import importlib
 import os
+import requests
 import ssl
 import tempfile
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from spotipy import SpotifyException
 
 spotify = importlib.import_module("src.tools.spotify_play")
 spotify_auth = importlib.import_module("src.auth.spotify")
+spotify_sync = importlib.import_module("src.tools.spotify_library_sync")
 auth_store = importlib.import_module("src.auth.store")
 auth_models = importlib.import_module("src.auth.models")
 
@@ -59,6 +62,63 @@ class SpotifyToolTests(unittest.TestCase):
 
         self.assertEqual(sleeps, [0.25, 0.25])
         self.assertEqual(cooldown.exception.headers["Retry-After"], "7")
+
+    def test_spotify_user_client_disables_all_http_retries(self) -> None:
+        token = auth_models.OAuthToken(
+            access_token="token",
+            refresh_token="refresh",
+            expires_at="2100-01-01T00:00:00+00:00",
+            scopes=["user-library-read"],
+        )
+
+        with patch.object(spotify_auth, "ensure_spotify_token", return_value=token), patch.object(
+            spotify_auth.spotipy,
+            "Spotify",
+            return_value=object(),
+        ) as client:
+            spotify_auth.spotify_user_client(
+                {"user-library-read"},
+                requests_timeout=5,
+                retries=0,
+            )
+
+        client.assert_called_once_with(
+            auth="token",
+            requests_timeout=5,
+            retries=0,
+            status_retries=0,
+            requests_session=False,
+        )
+
+    def test_non_retrying_spotify_client_preserves_retry_after_header(self) -> None:
+        token = auth_models.OAuthToken(
+            access_token="token",
+            refresh_token="refresh",
+            expires_at="2100-01-01T00:00:00+00:00",
+            scopes=["user-library-read"],
+        )
+        response = Mock()
+        response.status_code = 429
+        response.url = "https://api.spotify.com/v1/me/tracks"
+        response.headers = {"Retry-After": "62861"}
+        response.text = "Too Many Requests"
+        response.json.return_value = {"error": {"message": "Too Many Requests"}}
+        response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=response)
+
+        with patch.object(spotify_auth, "ensure_spotify_token", return_value=token), patch(
+            "requests.api.request",
+            return_value=response,
+        ):
+            client = spotify_auth.spotify_user_client(
+                {"user-library-read"},
+                requests_timeout=5,
+                retries=0,
+            )
+            with self.assertRaises(SpotifyException) as error:
+                client._internal_call("GET", "https://api.spotify.com/v1/me/tracks", None, {})
+
+        self.assertEqual(error.exception.http_status, 429)
+        self.assertEqual(error.exception.headers["Retry-After"], "62861")
 
     def test_request_gate_uses_fallback_for_invalid_retry_after(self) -> None:
         clock = [50.0]
@@ -722,6 +782,38 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "SPOTIFY_PROXY_UNAVAILABLE")
         self.assertIn("local proxy http://127.0.0.1:7897", result["message"])
         self.assertIn("TLS connection closed unexpectedly", result["message"])
+
+    def test_spotify_saved_tracks_classifies_read_timeout(self) -> None:
+        with patch.object(
+            spotify,
+            "spotify_user_client",
+            side_effect=requests.exceptions.ReadTimeout("read timeout"),
+        ):
+            result = spotify.spotify_saved_tracks(limit=10)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_READ_TIMEOUT")
+        self.assertEqual(result["message"], "Spotify did not respond before the request timeout.")
+
+    def test_spotify_library_sync_state_round_trip_and_freshness(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "library-sync.json"
+            state = spotify_sync.SpotifyLibrarySyncState(
+                last_attempt_at=90,
+                last_success_at=100,
+                next_retry_at=150,
+                last_error_code="SPOTIFY_RATE_LIMITED",
+                saved_tracks_cursor="2026-07-12T00:00:00Z",
+                last_full_saved_tracks_at=80,
+                playlist_snapshots={"playlist-1": "snapshot-1"},
+            )
+            spotify_sync.save_spotify_library_sync_state(state, path)
+            loaded = spotify_sync.load_spotify_library_sync_state(path)
+
+        self.assertEqual(loaded.playlist_snapshots, {"playlist-1": "snapshot-1"})
+        self.assertTrue(loaded.is_fresh(now=101))
+        self.assertTrue(loaded.is_backing_off(now=149))
+        self.assertFalse(loaded.is_backing_off(now=151))
 
     def test_spotify_queue_scope_missing_uses_stable_error_code(self) -> None:
         with patch.object(

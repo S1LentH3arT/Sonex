@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-import spotipy
+import requests
 from spotipy import SpotifyException
 
 from src.auth.spotify import (
@@ -29,7 +29,7 @@ from src.auth.spotify import (
     spotify_user_client,
 )
 from src.llm.transport import ChatRequest
-from src.log import sonex_home
+from src.log import get_logger, sonex_home
 from src.thinking.config import ThinkingConfig
 from src.tools.registry import Params, registry
 from src.tools.result import ToolResult
@@ -49,6 +49,7 @@ SPOTIFY_API_FALLBACK_COOLDOWN_SECONDS = 30.0
 
 _RECENT_TRACKS: list[dict[str, Any]] = []
 _RECENT_TRACKS_LOADED = False
+_LOGGER = get_logger(__name__)
 
 
 class SpotifyRateLimitCooldownError(RuntimeError):
@@ -581,6 +582,7 @@ def _normalize_playlist(item: dict[str, Any]) -> dict[str, Any]:
         "uri": item.get("uri"),
         "public": item.get("public"),
         "collaborative": item.get("collaborative"),
+        "snapshot_id": item.get("snapshot_id"),
     }
 
 
@@ -730,19 +732,32 @@ def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR
     data: dict[str, Any] = {}
     proxy = _loopback_proxy_url()
 
-    if proxy and _is_connection_refused(exc):
+    if isinstance(exc, requests.exceptions.ProxyError) or (proxy and _is_connection_refused(exc)):
         code = "SPOTIFY_PROXY_UNAVAILABLE"
+        proxy_label = f"local proxy {proxy}" if proxy else "the configured proxy"
         message = (
-            f"{message} (local proxy {proxy} is not accepting connections; "
+            f"{message} ({proxy_label} is not accepting connections; "
             "start the proxy or update/unset HTTPS_PROXY/HTTP_PROXY/https_proxy/http_proxy/all_proxy/ALL_PROXY.)"
         )
-    elif proxy and _is_tls_eof(exc):
-        code = "SPOTIFY_PROXY_UNAVAILABLE"
+    elif isinstance(exc, requests.exceptions.ConnectTimeout):
+        code = "SPOTIFY_CONNECT_TIMEOUT"
+        message = "Spotify connection timed out before the API accepted the request."
+    elif isinstance(exc, requests.exceptions.ReadTimeout):
+        code = "SPOTIFY_READ_TIMEOUT"
+        message = "Spotify did not respond before the request timeout."
+    elif isinstance(exc, requests.exceptions.SSLError) or _is_tls_eof(exc):
+        code = "SPOTIFY_PROXY_UNAVAILABLE" if proxy else "SPOTIFY_TLS_ERROR"
+        target = f"local proxy {proxy}" if proxy else "Spotify"
         message = (
-            f"{message} (local proxy {proxy} TLS connection closed unexpectedly; "
-            "verify the proxy is running on the URL Python resolves, or update/unset "
-            "HTTPS_PROXY/HTTP_PROXY/https_proxy/http_proxy/all_proxy/ALL_PROXY.)"
+            f"{target} TLS connection closed unexpectedly; "
+            "verify the proxy route and TLS settings before retrying."
         )
+    elif isinstance(exc, requests.exceptions.ConnectionError):
+        code = "SPOTIFY_CONNECTION_ERROR"
+        message = "Spotify could not be reached over the current network route."
+    elif _is_connection_refused(exc):
+        code = "SPOTIFY_CONNECTION_ERROR"
+        message = "Spotify refused the connection over the current network route."
     elif isinstance(exc, SpotifyConfigMissingError):
         code = "SPOTIFY_CONFIG_MISSING"
     elif isinstance(exc, SpotifyLoginRequiredError):
@@ -770,6 +785,14 @@ def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR
         if retry_after:
             data["retry_after"] = f"{retry_after} seconds"
             message = f"{message} Try again after {retry_after} seconds."
+
+    _LOGGER.warning(
+        "Spotify request failed tool=%s code=%s exception=%s http_status=%s",
+        tool,
+        code,
+        type(exc).__name__,
+        status,
+    )
 
     return ToolResult.fail(tool=tool, message=message, error_code=code, data=data).to_dict()
 
@@ -868,11 +891,11 @@ def _spotify_product(*, requests_timeout: float | None = None) -> tuple[str, dic
     Example: _spotify_product() -> returns the value used by the surrounding Sonex flow.
     """
     try:
-        if requests_timeout is None:
-            client = spotify_user_client(SPOTIFY_PRIVATE_SCOPES, requests_timeout=5, retries=0)
-        else:
-            token = ensure_spotify_token(SPOTIFY_PRIVATE_SCOPES)
-            client = spotipy.Spotify(auth=token.access_token, requests_timeout=requests_timeout, retries=0)
+        client = spotify_user_client(
+            SPOTIFY_PRIVATE_SCOPES,
+            requests_timeout=5 if requests_timeout is None else requests_timeout,
+            retries=0,
+        )
         profile = _spotify_api_call(client.current_user)
     except SpotifyLoginRequiredError:
         return "unknown", None

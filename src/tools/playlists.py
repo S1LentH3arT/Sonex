@@ -180,7 +180,16 @@ def _track_snapshot(track: dict[str, Any], *, saved_at: float) -> dict[str, Any]
         "provider": _text(track.get("provider") or track.get("source")) or "unknown",
         "saved_at": saved_at,
     }
-    for key in ("uri", "url", "youtube_url", "spotify_url", "apple_music_url", "album_cover_url", "audio_path"):
+    for key in (
+        "uri",
+        "url",
+        "youtube_url",
+        "spotify_url",
+        "apple_music_url",
+        "album_cover_url",
+        "audio_path",
+        "added_at",
+    ):
         if track.get(key):
             snapshot[key] = track.get(key)
     return snapshot

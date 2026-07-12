@@ -221,6 +221,11 @@ def spotify_app_client(
         kwargs["requests_timeout"] = requests_timeout
     if retries is not None:
         kwargs["retries"] = retries
+        kwargs["status_retries"] = retries
+        if retries == 0:
+            # Spotipy otherwise keeps its default status_retries=3 and turns a
+            # first 429 into RetryError, losing the response Retry-After header.
+            kwargs["requests_session"] = False
     return spotipy.Spotify(**kwargs)
 
 
@@ -346,6 +351,11 @@ def spotify_user_client(
         kwargs["requests_timeout"] = requests_timeout
     if retries is not None:
         kwargs["retries"] = retries
+        kwargs["status_retries"] = retries
+        if retries == 0:
+            # Use Requests' non-retrying API path so Spotipy receives the
+            # original HTTP response and preserves Retry-After on 429 errors.
+            kwargs["requests_session"] = False
     return spotipy.Spotify(**kwargs)
 
 

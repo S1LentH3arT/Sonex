@@ -83,10 +83,18 @@ from src.tools.playlists import (
     SPOTIFY_LIBRARY_EXTERNAL_ID,
     SPOTIFY_LIBRARY_PLAYLIST,
     list_playlist_tracks,
+    list_playlists,
     playlist_choices,
     save_track_to_playlist,
     track_in_playlist,
     upsert_mirror_playlist,
+)
+from src.tools.spotify_library_sync import (
+    SPOTIFY_LIBRARY_SYNC_FAILURE_BACKOFF_SECONDS,
+    SpotifyLibrarySyncState,
+    load_spotify_library_sync_state,
+    retry_after_seconds,
+    save_spotify_library_sync_state,
 )
 from src.tools.track_search import search_track_metadata_candidates
 
@@ -444,14 +452,20 @@ def _friendly_runtime_error_message(result: Any, *, fallback: str = "Something w
             retry_after = str(data.get("retry_after") or "").strip()
             if retry_after and retry_after not in message:
                 message = f"{message} Spotify is rate limited; try again after {retry_after}."
-        if code == "SPOTIFY_PROXY_UNAVAILABLE" and message:
+        if code in {
+            "SPOTIFY_PROXY_UNAVAILABLE",
+            "SPOTIFY_CONNECT_TIMEOUT",
+            "SPOTIFY_READ_TIMEOUT",
+            "SPOTIFY_TLS_ERROR",
+            "SPOTIFY_CONNECTION_ERROR",
+        } and message:
             return sanitize_error_message(message)
         if code == "SPOTIFY_API_ERROR" and (
             "httpsconnectionpool" in lowered
             or "ssleoferror" in lowered
             or "max retries exceeded" in lowered
         ):
-            return "Spotify connection failed while syncing playlists. Showing existing local playlists when available."
+            return "Spotify API request failed over the current network route. Existing local playlists remain available."
         if message:
             return sanitize_error_message(message)
     return sanitize_error_message(fallback)
@@ -3406,8 +3420,13 @@ def _spotify_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, 
     return rows
 
 
-async def _fetch_all_spotify_saved_tracks(ui: WebSocketUIAdapter | None = None, limit: int = 50) -> tuple[bool, list[dict[str, Any]], Any]:
-    """Loads every available saved Spotify track using paged API calls."""
+async def _fetch_all_spotify_saved_tracks(
+    ui: WebSocketUIAdapter | None = None,
+    limit: int = 50,
+    *,
+    stop_at_added_at: str = "",
+) -> tuple[bool, list[dict[str, Any]], Any]:
+    """Load saved Spotify tracks, optionally stopping at an incremental cursor."""
     bounded_limit = min(50, max(1, int(limit or 50)))
     offset = 0
     tracks: list[dict[str, Any]] = []
@@ -3426,10 +3445,47 @@ async def _fetch_all_spotify_saved_tracks(ui: WebSocketUIAdapter | None = None, 
             return False, tracks, result
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
         page = [item for item in data.get("tracks") or [] if isinstance(item, dict)]
-        tracks.extend(page)
+        reached_cursor = False
+        for track in page:
+            added_at = str(track.get("added_at") or "")
+            if stop_at_added_at and added_at and added_at <= stop_at_added_at:
+                reached_cursor = True
+                break
+            tracks.append(track)
+        if reached_cursor:
+            return True, tracks, result
         if len(page) < bounded_limit:
             return True, tracks, result
         offset += bounded_limit
+
+
+def _merge_spotify_saved_tracks(
+    fresh_tracks: list[dict[str, Any]],
+    persisted_tracks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge incrementally loaded saved tracks ahead of the local mirror."""
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for track in [*fresh_tracks, *persisted_tracks]:
+        key = str(track.get("uri") or track.get("spotify_url") or track.get("key") or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(track)
+    return merged
+
+
+def _spotify_mirror_external_ids() -> set[str]:
+    """Return external IDs for Spotify mirrors already available locally."""
+    try:
+        playlists = list_playlists()
+    except OSError:
+        return set()
+    return {
+        str(playlist.get("external_id") or "")
+        for playlist in playlists
+        if playlist.get("source_app") == "Spotify" and playlist.get("external_id")
+    }
 
 
 async def _fetch_all_spotify_playlist_tracks(playlist_id: str, ui: WebSocketUIAdapter | None = None, limit: int = 100) -> tuple[bool, list[dict[str, Any]], Any]:
@@ -4936,56 +4992,181 @@ class WebSocketRunner:
 
     async def _show_spotify_playlists(self, ui: WebSocketUIAdapter) -> None:
         coordinator = _spotify_session_requests(ui)
-        if not coordinator.playlist_sync_attempted:
+        await self._show_playlist_browse(ui)
+        browse_session = getattr(ui, "_playlist_browse", None)
+
+        if coordinator.playlist_sync_attempted:
+            return
+
+        state = load_spotify_library_sync_state()
+        now = time.time()
+        if state.is_fresh(now=now) and _spotify_mirror_external_ids():
             coordinator.playlist_sync_attempted = True
-            await ui.append_activity(kind="tool", title="Spotify playlists", detail="Syncing Spotify Library and playlists.", status="pending")
-            coordinator.playlist_sync_task = asyncio.create_task(self._sync_spotify_library_to_playlists(ui))
+            coordinator.playlist_sync_succeeded = True
+            coordinator.playlist_sync_message = "Using recently synchronized Spotify playlists."
+            setattr(ui, "_spotify_library_synced", True)
+            return
 
-        task = coordinator.playlist_sync_task
-        if task is not None:
-            try:
-                synced, message = await asyncio.shield(task)
-            finally:
-                if task.done() and coordinator.playlist_sync_task is task:
-                    coordinator.playlist_sync_task = None
-            coordinator.playlist_sync_succeeded = synced
-            coordinator.playlist_sync_message = message
-            setattr(ui, "_spotify_library_synced", synced)
-
-        if not coordinator.playlist_sync_succeeded:
-            message = coordinator.playlist_sync_message
-            await ui.append_activity(kind="error", title="Spotify playlists", detail=message, status="error")
-            await ui.append_agent_message(message)
+        cooldown = spotify_api_cooldown_remaining()
+        if cooldown > 0:
+            state.next_retry_at = max(state.next_retry_at, now + cooldown)
+            save_spotify_library_sync_state(state)
+        if state.is_backing_off(now=now):
+            coordinator.playlist_sync_attempted = True
+            retry_after = max(1, int(state.next_retry_at - now + 0.999))
+            coordinator.playlist_sync_message = (
+                f"Using local playlists; Spotify synchronization will retry after {retry_after} seconds."
+            )
             await ui.append_activity(
                 kind="status",
                 title="Spotify playlists",
-                detail="Showing existing local playlists because Spotify sync failed; this session will not repeat the full sync.",
+                detail=coordinator.playlist_sync_message,
                 status="warning",
             )
-        await self._show_playlist_browse(ui)
+            return
+
+        coordinator.playlist_sync_attempted = True
+        state.last_attempt_at = now
+        save_spotify_library_sync_state(state)
+        await ui.append_activity(
+            kind="tool",
+            title="Spotify playlists",
+            detail="Showing local playlists while Spotify mirrors refresh in the background.",
+            status="pending",
+        )
+        coordinator.playlist_sync_task = asyncio.create_task(
+            self._run_spotify_playlist_sync(ui, browse_session)
+        )
+        # Start the task before returning so fast local/test implementations
+        # can complete, while real network I/O remains detached and responsive.
+        await asyncio.sleep(0)
+
+    async def _run_spotify_playlist_sync(
+        self,
+        ui: WebSocketUIAdapter,
+        browse_session: Any,
+    ) -> tuple[bool, str]:
+        """Run one background mirror refresh without blocking local browsing."""
+        coordinator = _spotify_session_requests(ui)
+        try:
+            synced, message = await self._sync_spotify_library_to_playlists(ui)
+        except Exception:
+            message = "Spotify playlist synchronization stopped unexpectedly."
+            state = load_spotify_library_sync_state()
+            self._record_spotify_sync_failure(state, {"error_code": "SPOTIFY_SYNC_ERROR"})
+            synced = False
+
+        coordinator.playlist_sync_succeeded = synced
+        coordinator.playlist_sync_message = message
+        setattr(ui, "_spotify_library_synced", synced)
+        if synced:
+            await ui.append_activity(kind="status", title="Spotify playlists", detail=message, status="success")
+            if getattr(ui, "_playlist_browse", None) is browse_session:
+                await self._show_playlist_browse(ui)
+        else:
+            await ui.append_activity(
+                kind="status",
+                title="Spotify playlists",
+                detail=f"{message} Existing local playlists remain available.",
+                status="warning",
+            )
+            if not _spotify_mirror_external_ids():
+                await ui.append_agent_message(message)
+        if coordinator.playlist_sync_task is asyncio.current_task():
+            coordinator.playlist_sync_task = None
+        return synced, message
+
+    @staticmethod
+    def _record_spotify_sync_failure(state: SpotifyLibrarySyncState, result: Any) -> None:
+        """Persist a retry boundary so reconnects do not repeat a failed burst."""
+        code = (
+            str(result.get("error_code") or "SPOTIFY_SYNC_ERROR")
+            if isinstance(result, dict)
+            else "SPOTIFY_SYNC_ERROR"
+        )
+        delay = SPOTIFY_LIBRARY_SYNC_FAILURE_BACKOFF_SECONDS
+        if code == "SPOTIFY_RATE_LIMITED":
+            delay = retry_after_seconds(result, fallback_seconds=delay)
+        state.last_error_code = code
+        state.next_retry_at = max(state.next_retry_at, time.time() + delay)
+        save_spotify_library_sync_state(state)
 
     async def _sync_spotify_library_to_playlists(self, ui: WebSocketUIAdapter) -> tuple[bool, str]:
-        saved_ok, saved_tracks, saved_result = await _fetch_all_spotify_saved_tracks(ui)
-        if not saved_ok:
-            return False, _friendly_runtime_error_message(saved_result, fallback="Spotify Library sync failed.")
-        await asyncio.to_thread(
-            upsert_mirror_playlist,
-            source_app="Spotify",
-            name=SPOTIFY_LIBRARY_PLAYLIST,
-            external_id=SPOTIFY_LIBRARY_EXTERNAL_ID,
-            tracks=saved_tracks,
+        state = load_spotify_library_sync_state()
+        now = time.time()
+        mirror_ids = _spotify_mirror_external_ids()
+        full_saved_sync = (
+            SPOTIFY_LIBRARY_EXTERNAL_ID not in mirror_ids
+            or state.needs_full_saved_tracks_reconcile(now=now)
         )
+        saved_ok, saved_tracks, saved_result = await _fetch_all_spotify_saved_tracks(
+            ui,
+            stop_at_added_at="" if full_saved_sync else state.saved_tracks_cursor,
+        )
+        if not saved_ok:
+            self._record_spotify_sync_failure(state, saved_result)
+            return False, _friendly_runtime_error_message(saved_result, fallback="Spotify Library sync failed.")
+        if full_saved_sync or saved_tracks:
+            tracks_to_store = saved_tracks
+            if not full_saved_sync:
+                persisted_tracks = await asyncio.to_thread(
+                    list_playlist_tracks,
+                    SPOTIFY_LIBRARY_PLAYLIST,
+                    source_app="Spotify",
+                    external_id=SPOTIFY_LIBRARY_EXTERNAL_ID,
+                )
+                tracks_to_store = _merge_spotify_saved_tracks(saved_tracks, persisted_tracks)
+            await asyncio.to_thread(
+                upsert_mirror_playlist,
+                source_app="Spotify",
+                name=SPOTIFY_LIBRARY_PLAYLIST,
+                external_id=SPOTIFY_LIBRARY_EXTERNAL_ID,
+                tracks=tracks_to_store,
+            )
+        cursors = [str(track.get("added_at") or "") for track in saved_tracks if track.get("added_at")]
+        if cursors:
+            state.saved_tracks_cursor = max([state.saved_tracks_cursor, *cursors])
+        if full_saved_sync:
+            state.last_full_saved_tracks_at = now
+        save_spotify_library_sync_state(state)
 
         playlists_ok, playlists, result = await _fetch_all_spotify_playlists(ui)
         if not playlists_ok:
+            self._record_spotify_sync_failure(state, result)
             return False, _friendly_runtime_error_message(result, fallback="Spotify playlists failed.")
+        failures: list[str] = []
+        stop_codes = {
+            "SPOTIFY_PROXY_UNAVAILABLE",
+            "SPOTIFY_CONNECT_TIMEOUT",
+            "SPOTIFY_READ_TIMEOUT",
+            "SPOTIFY_TLS_ERROR",
+            "SPOTIFY_CONNECTION_ERROR",
+            "SPOTIFY_RATE_LIMITED",
+        }
         for playlist in playlists:
             playlist_id = str(playlist.get("id") or "").strip()
             if not playlist_id:
                 continue
+            snapshot_id = str(playlist.get("snapshot_id") or "").strip()
+            if (
+                snapshot_id
+                and playlist_id in mirror_ids
+                and state.playlist_snapshots.get(playlist_id) == snapshot_id
+            ):
+                continue
             ok, tracks, tracks_result = await _fetch_all_spotify_playlist_tracks(playlist_id, ui)
             if not ok:
-                return False, _friendly_runtime_error_message(tracks_result, fallback="Spotify playlist tracks failed.")
+                failures.append(
+                    _friendly_runtime_error_message(
+                        tracks_result,
+                        fallback="Spotify playlist tracks failed.",
+                    )
+                )
+                self._record_spotify_sync_failure(state, tracks_result)
+                code = str(tracks_result.get("error_code") or "") if isinstance(tracks_result, dict) else ""
+                if code in stop_codes:
+                    break
+                continue
             await asyncio.to_thread(
                 upsert_mirror_playlist,
                 source_app="Spotify",
@@ -4993,6 +5174,16 @@ class WebSocketRunner:
                 external_id=playlist_id,
                 tracks=tracks,
             )
+            mirror_ids.add(playlist_id)
+            if snapshot_id:
+                state.playlist_snapshots[playlist_id] = snapshot_id
+            save_spotify_library_sync_state(state)
+        if failures:
+            return False, failures[0]
+        state.last_success_at = time.time()
+        state.next_retry_at = 0.0
+        state.last_error_code = ""
+        save_spotify_library_sync_state(state)
         return True, "Spotify playlists synced."
 
     async def _show_spotify_queue(self, ui: WebSocketUIAdapter) -> None:
