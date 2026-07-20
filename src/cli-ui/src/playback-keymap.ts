@@ -55,3 +55,12 @@ export function isLocalPlaybackShortcutSource(player: Pick<PlayerState, "source"
     if (!source && !provider) return true;
     return LOCAL_PLAYBACK_SOURCES.has(source) || LOCAL_PLAYBACK_SOURCES.has(provider);
 }
+
+/**
+ * Returns whether the active player state belongs to Spotify playback.
+ */
+export function isSpotifyPlaybackShortcutSource(player: Pick<PlayerState, "source" | "provider">): boolean {
+    const source = typeof player.source === "string" ? player.source.toLowerCase() : "";
+    const provider = typeof player.provider === "string" ? player.provider.toLowerCase() : "";
+    return source === "spotify" || provider === "spotify";
+}

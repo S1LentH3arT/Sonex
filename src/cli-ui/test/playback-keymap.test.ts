@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     clampPlaybackVolume,
     isLocalPlaybackShortcutSource,
+    isSpotifyPlaybackShortcutSource,
     playbackCommandForShortcut,
     playbackShortcutFromInput,
 } from '../src/playback-keymap.js';
@@ -28,3 +29,5 @@ assert.equal(playbackCommandForShortcut("saveToPlaylist", { is_playing: true }),
 
 assert.equal(isLocalPlaybackShortcutSource({ source: "youtube", provider: "youtube" }), true);
 assert.equal(isLocalPlaybackShortcutSource({ source: "spotify", provider: "spotify" }), false);
+assert.equal(isSpotifyPlaybackShortcutSource({ source: "spotify", provider: "spotify" }), true);
+assert.equal(isSpotifyPlaybackShortcutSource({ source: "youtube", provider: "youtube" }), false);

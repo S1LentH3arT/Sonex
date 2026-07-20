@@ -829,6 +829,75 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "SPOTIFY_READ_TIMEOUT")
         self.assertEqual(result["message"], "Spotify did not respond before the request timeout.")
 
+    def test_spotify_pause_targets_selected_device(self) -> None:
+        client = Mock()
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=client,
+        ):
+            result = spotify.spotify_pause(device_id="desktop")
+
+        client.pause_playback.assert_called_once_with(device_id="desktop")
+        self.assertEqual(result["status"], "success")
+        self.assertNotIn("device_id", result["data"])
+
+    def test_spotify_resume_targets_selected_device(self) -> None:
+        client = Mock()
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=client,
+        ):
+            result = spotify.spotify_resume(device_id="desktop")
+
+        client.start_playback.assert_called_once_with(device_id="desktop")
+        self.assertEqual(result["status"], "success")
+        self.assertNotIn("device_id", result["data"])
+
+    def test_spotify_pause_and_resume_keep_no_device_calls_compatible(self) -> None:
+        client = Mock()
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=client,
+        ):
+            pause_result = spotify.spotify_pause()
+            resume_result = spotify.spotify_resume()
+
+        client.pause_playback.assert_called_once_with()
+        client.start_playback.assert_called_once_with()
+        self.assertEqual(pause_result["status"], "success")
+        self.assertEqual(resume_result["status"], "success")
+
+    def test_spotify_pause_maps_login_and_timeout_errors(self) -> None:
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "spotify_user_client",
+            side_effect=spotify.SpotifyLoginRequiredError("login required"),
+        ):
+            login_result = spotify.spotify_pause(device_id="desktop")
+
+        client = Mock()
+        client.pause_playback.side_effect = requests.exceptions.ReadTimeout("read timeout")
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=client,
+        ):
+            timeout_result = spotify.spotify_pause(device_id="desktop")
+
+        self.assertEqual(login_result["error_code"], "SPOTIFY_LOGIN_REQUIRED")
+        self.assertEqual(timeout_result["error_code"], "SPOTIFY_READ_TIMEOUT")
+
+    def test_spotify_pause_and_resume_schemas_accept_optional_device_id(self) -> None:
+        for tool_name in ("spotify_pause", "spotify_resume"):
+            tool = spotify.registry.get(tool_name)
+            self.assertIsNotNone(tool)
+            assert tool is not None
+            self.assertIn("device_id", tool.parameters.properties)
+            self.assertNotIn("device_id", tool.parameters.required)
+
     def test_spotify_library_sync_state_round_trip_and_freshness(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "library-sync.json"

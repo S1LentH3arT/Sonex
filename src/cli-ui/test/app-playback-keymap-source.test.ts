@@ -6,14 +6,15 @@ const typesSource = readFileSync(new URL('../src/types.ts', import.meta.url), 'u
 
 assert.match(appSource, /const \[playbackKeymapEnabled, setPlaybackKeymapEnabled\] = useState\(true\)/);
 assert.match(appSource, /process\.stdin\.on\("data", handlePlaybackShortcut\)/);
-assert.match(appSource, /activeRegionRef\.current !== "miniPlayer"/);
 assert.match(appSource, /!playbackSessionActiveRef\.current/);
 assert.match(appSource, /!playbackKeymapEnabledRef\.current/);
 assert.match(appSource, /confirmRef\.current/);
 assert.match(appSource, /spotifySetupActiveRef\.current/);
 assert.match(appSource, /authSetupActiveRef\.current/);
 assert.match(appSource, /slashMenuActiveRef\.current/);
-assert.match(appSource, /isLocalPlaybackShortcutSource\(playerRef\.current\)/);
+assert.match(appSource, /const localShortcut = activeRegionRef\.current === "miniPlayer"[\s\S]*isLocalPlaybackShortcutSource\(playerRef\.current\)/);
+assert.match(appSource, /const spotifyShortcut = activeRegionRef\.current === "spotifyImmersive"[\s\S]*spotifyModeRef\.current\.enabled[\s\S]*action === "togglePlayback"[\s\S]*isSpotifyPlaybackShortcutSource\(playerRef\.current\)/);
+assert.match(appSource, /if \(!localShortcut && !spotifyShortcut\) return;/);
 assert.match(appSource, /send\(\{ type: "internal_command", text: command \}\)/);
 assert.match(appSource, /case "track_panel":/);
 assert.match(appSource, /setTrackPanel\(\{/);

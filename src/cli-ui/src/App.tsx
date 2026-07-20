@@ -12,7 +12,7 @@ import { applyLanguageToServerEvent, helpCommandsForLanguage, languageLabel, loc
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, resolveSpotifyImmersiveLayout, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
-import { isLocalPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
+import { isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import { clearTerminalForLayoutSwitch } from './terminal-clear.js';
 import { markQueuedTracks } from './track-panel.js';
 import { loadUiLanguage, saveUiLanguage } from './ui-settings.js';
@@ -472,14 +472,20 @@ export const App = () => {
         const handlePlaybackShortcut = (chunk: Buffer | string) => {
             const action = playbackShortcutFromInput(chunk.toString("utf8"));
             if (!action) return;
-            if (activeRegionRef.current !== "miniPlayer") return;
             if (!playbackSessionActiveRef.current) return;
             if (!playbackKeymapEnabledRef.current) return;
             if (confirmRef.current) return;
             if (spotifySetupActiveRef.current) return;
             if (authSetupActiveRef.current) return;
             if (slashMenuActiveRef.current) return;
-            if (!isLocalPlaybackShortcutSource(playerRef.current)) return;
+
+            const localShortcut = activeRegionRef.current === "miniPlayer"
+                && isLocalPlaybackShortcutSource(playerRef.current);
+            const spotifyShortcut = activeRegionRef.current === "spotifyImmersive"
+                && spotifyModeRef.current.enabled
+                && action === "togglePlayback"
+                && isSpotifyPlaybackShortcutSource(playerRef.current);
+            if (!localShortcut && !spotifyShortcut) return;
 
             const command = playbackCommandForShortcut(action, playerRef.current);
             send({ type: "internal_command", text: command });
@@ -876,13 +882,6 @@ export const App = () => {
 
     useInput((inputKey, key) => {
         if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
-
-        if (activeRegionRef.current === "spotifyImmersive") {
-            if (key.ctrl && inputKey === "c") return;
-            switchRegion("chat");
-            return;
-        }
-
         if (key.tab || inputKey === "\t") {
             switchRegion(toggleShellRegion(activeRegionRef.current, playbackSessionActiveRef.current, spotifyModeRef.current.enabled));
         }

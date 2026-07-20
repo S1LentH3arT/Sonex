@@ -173,7 +173,7 @@ export function resolveRegionAfterPlayerEvent({
     if (!sessionActive) {
         return { region: 'chat', sessionActive: false };
     }
-    if (spotifyModeEnabled) {
+    if (spotifyModeEnabled && !wasSessionActive) {
         return { region: 'spotifyImmersive', sessionActive: true };
     }
     if (!wasSessionActive) {

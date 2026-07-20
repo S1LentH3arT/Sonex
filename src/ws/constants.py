@@ -30,6 +30,11 @@ LOCAL_PLAYBACK_CONTROL_TOOLS = {
     "progress": "local_playback_status",
 }
 
+SPOTIFY_PLAYBACK_CONTROL_TOOLS = {
+    "pause": "spotify_pause",
+    "resume": "spotify_resume",
+}
+
 LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
 
 LOCAL_PLAYBACK_CHOICES = [

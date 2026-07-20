@@ -1328,6 +1328,7 @@ const SpotifyImmersiveRegion = ({
     spotifyImmersiveLayout: SpotifyImmersiveLayout;
 }) => {
     const deviceName = spotifyMode.device_name ?? "Spotify Connect";
+    const deviceStatus = player.is_playing ? "playing" : "paused";
     const topPadding = spotifyImmersiveLayout.topPadding;
     const deviceWidth = spotifyImmersiveLayout.deviceSlot.width;
 
@@ -1345,7 +1346,7 @@ const SpotifyImmersiveRegion = ({
             <Box height={1} marginTop={1} />
             <Box justifyContent="center">
                 <Box width={deviceWidth > 0 ? deviceWidth : undefined} justifyContent="center">
-                    <Text color={SPOTIFY_GREEN} wrap="truncate-end">playing on {deviceName}</Text>
+                    <Text color={SPOTIFY_GREEN} wrap="truncate-end">{deviceStatus} on {deviceName}</Text>
                 </Box>
             </Box>
         </Box>

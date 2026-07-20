@@ -87,6 +87,36 @@ assert.deepEqual(
 
 assert.deepEqual(
     resolveRegionAfterPlayerEvent({
+        currentRegion: 'chat',
+        wasSessionActive: true,
+        player: { ...playing, progress_ms: 2_000, provider: 'spotify', source: 'spotify' },
+        spotifyModeEnabled: true,
+    }),
+    { region: 'chat', sessionActive: true },
+);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'chat',
+        wasSessionActive: true,
+        player: { ...playing, is_playing: false, provider: 'spotify', source: 'spotify' },
+        spotifyModeEnabled: true,
+    }),
+    { region: 'chat', sessionActive: true },
+);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'chat',
+        wasSessionActive: true,
+        player: { ...playing, name: 'Next Track', provider: 'spotify', source: 'spotify' },
+        spotifyModeEnabled: true,
+    }),
+    { region: 'chat', sessionActive: true },
+);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
         currentRegion: 'miniPlayer',
         wasSessionActive: true,
         player: { ...playing, is_playing: false },

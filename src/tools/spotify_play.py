@@ -1628,37 +1628,43 @@ def spotify_recommend(query: str, limit: int = 10, recent_tracks: list[dict[str,
     ).to_dict()
 
 
-def spotify_pause() -> dict[str, Any]:
+def spotify_pause(device_id: str | None = None) -> dict[str, Any]:
     """Coordinates spotify pause for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs spotify pause as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Example: spotify_pause() -> returns the value used by the surrounding Sonex flow.
+    Example: spotify_pause(device_id="desktop") pauses the selected Spotify Connect device.
     """
     blocked = _require_premium_control("spotify_pause")
     if blocked:
         return blocked
     try:
         client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
-        _spotify_api_call(client.pause_playback)
+        if device_id:
+            _spotify_api_call(lambda: client.pause_playback(device_id=device_id))
+        else:
+            _spotify_api_call(client.pause_playback)
     except Exception as exc:
         return _spotify_error("spotify_pause", exc, "SPOTIFY_API_ERROR")
     return ToolResult.success(tool="spotify_pause", message="Spotify playback paused.", data={"is_playing": False}).to_dict()
 
 
-def spotify_resume() -> dict[str, Any]:
+def spotify_resume(device_id: str | None = None) -> dict[str, Any]:
     """Coordinates spotify resume for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs spotify resume as part of a Sonex command, playback, auth, llm, or ui path.
 
-    Example: spotify_resume() -> returns the value used by the surrounding Sonex flow.
+    Example: spotify_resume(device_id="desktop") resumes the selected Spotify Connect device.
     """
     blocked = _require_premium_control("spotify_resume")
     if blocked:
         return blocked
     try:
         client = spotify_user_client(SPOTIFY_MODIFY_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
-        _spotify_api_call(client.start_playback)
+        if device_id:
+            _spotify_api_call(lambda: client.start_playback(device_id=device_id))
+        else:
+            _spotify_api_call(client.start_playback)
     except Exception as exc:
         return _spotify_error("spotify_resume", exc, "SPOTIFY_API_ERROR")
     return ToolResult.success(tool="spotify_resume", message="Spotify playback resumed.", data={"is_playing": True}).to_dict()
@@ -1831,8 +1837,22 @@ _register_tool(
     spotify_play,
     read_only=False,
 )
-_register_tool("spotify_pause", "Pause Spotify playback.", {}, [], spotify_pause, read_only=False)
-_register_tool("spotify_resume", "Resume Spotify playback.", {}, [], spotify_resume, read_only=False)
+_register_tool(
+    "spotify_pause",
+    "Pause Spotify playback.",
+    {"device_id": {"type": "string", "description": "Optional Spotify Connect device id."}},
+    [],
+    spotify_pause,
+    read_only=False,
+)
+_register_tool(
+    "spotify_resume",
+    "Resume Spotify playback.",
+    {"device_id": {"type": "string", "description": "Optional Spotify Connect device id."}},
+    [],
+    spotify_resume,
+    read_only=False,
+)
 _register_tool("spotify_next", "Skip to the next Spotify track.", {}, [], spotify_next, read_only=False)
 _register_tool("spotify_previous", "Skip to the previous Spotify track.", {}, [], spotify_previous, read_only=False)
 

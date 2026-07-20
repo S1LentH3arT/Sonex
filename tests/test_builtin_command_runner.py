@@ -2948,6 +2948,86 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["session_id"], "session-1")
         self.assertFalse(player_events[-1]["state"]["is_playing"])
 
+    async def test_internal_pause_command_controls_selected_spotify_device_without_agent_turn(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        result = {
+            "status": "success",
+            "tool": "spotify_pause",
+            "message": "Spotify playback paused.",
+            "data": {"is_playing": False},
+        }
+
+        with patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke, patch(
+            "src.api.ws_runner._request_spotify_sync"
+        ) as request_sync:
+            await runner._handle_internal_command(ui, "/pause")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        invoke.assert_called_once_with("spotify_pause", {"device_id": "desktop"})
+        request_sync.assert_called_once_with(ui)
+
+    async def test_internal_resume_command_controls_selected_spotify_device(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "Studio Desktop"})
+        result = {
+            "status": "success",
+            "tool": "spotify_resume",
+            "message": "Spotify playback resumed.",
+            "data": {"is_playing": True},
+        }
+
+        with patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke, patch(
+            "src.api.ws_runner._request_spotify_sync"
+        ) as request_sync:
+            await runner._handle_internal_command(ui, "/resume")
+
+        invoke.assert_called_once_with("spotify_resume", {"device_id": "desktop"})
+        request_sync.assert_called_once_with(ui)
+
+    async def test_failed_spotify_pause_keeps_state_and_requests_correction(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
+        setattr(ui, "_last_player_state", {"provider": "spotify", "name": "Song", "is_playing": True})
+        result = {
+            "status": "fail",
+            "tool": "spotify_pause",
+            "message": "Spotify device is unavailable.",
+            "error_code": "SPOTIFY_DEVICE_REQUIRED",
+            "data": {},
+        }
+
+        with patch("src.api.ws_runner.registry.invoke", return_value=result), patch(
+            "src.api.ws_runner._request_spotify_sync"
+        ) as request_sync:
+            await runner._handle_internal_command(ui, "/pause")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertEqual(getattr(ui, "_last_player_state")["is_playing"], True)
+        request_sync.assert_called_once_with(ui)
+        self.assertTrue(any(event.get("status") == "error" for event in ui.events))
+
+    async def test_internal_stop_remains_local_in_spotify_mode(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
+        result = {
+            "status": "success",
+            "tool": "local_playback_stop",
+            "message": "Playback stopped.",
+            "data": {"name": "Song", "is_playing": False, "ended": True},
+        }
+
+        with patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke:
+            await runner._handle_internal_command(ui, "/stop")
+
+        invoke.assert_called_once_with("local_playback_stop", {})
+
     async def test_spotify_play_result_enters_starting_state_until_live_sync_confirms_playback(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()

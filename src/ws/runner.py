@@ -267,6 +267,7 @@ from src.ws.constants import (
     RECOMMEND_AGENT_TOOLS,
     RECOMMENDATION_TOOLS,
     SEARCH_RESULT_TOOLS,
+    SPOTIFY_PLAYBACK_CONTROL_TOOLS,
     SPOTIFY_SETUP_TRIGGERS,
 )
 from src.ws.transcript import _coerce_transcript_messages, _save_session_transcript
@@ -4703,7 +4704,7 @@ class WebSocketRunner:
             return
 
         if command_name in LOCAL_PLAYBACK_CONTROL_TOOLS:
-            await self._handle_local_playback_control(ui, command_name)
+            await self._handle_playback_control(ui, command_name)
             return
 
         if command_name == "volume":
@@ -5164,13 +5165,31 @@ class WebSocketRunner:
         setattr(ui, "_playlist_save", session)
         await session.start(requested_playlist)
 
-    async def _handle_local_playback_control(self, ui: WebSocketUIAdapter, command_name: str) -> None:
-        """Prepares handle local playback control for an internal Sonex flow.
+    async def _handle_playback_control(self, ui: WebSocketUIAdapter, command_name: str) -> None:
+        """Routes internal playback controls to the active playback provider.
 
-        Typical use: Use this helper when nearby code needs handle local playback control without duplicating the local rules.
-
-        Example: await _handle_local_playback_control(ui=..., command_name=...) -> returns the value used by the surrounding Sonex flow.
+        Spotify pause/resume calls run off the event loop and target the mode's selected device.
+        Other playback controls keep using the local playback controller.
         """
+        if self._spotify_mode_enabled(ui) and command_name in SPOTIFY_PLAYBACK_CONTROL_TOOLS:
+            tool_name = SPOTIFY_PLAYBACK_CONTROL_TOOLS[command_name]
+            mode = getattr(ui, "_spotify_mode", None)
+            device_id = str(mode.get("device_id") or "").strip() if isinstance(mode, dict) else ""
+            args = {"device_id": device_id} if device_id else {}
+            try:
+                result = await _run_spotify_mode_call(
+                    ui,
+                    func=lambda: registry.invoke(tool_name, args),
+                    pending_detail=f"{command_name.capitalize()} Spotify playback on the selected device.",
+                    timeout_message=f"Spotify {command_name} timed out. Playback state will refresh automatically.",
+                    failure_title="Spotify playback",
+                )
+                if result is not None:
+                    await self._sync_tool_result_ui(ui, tool_name, result)
+            finally:
+                _request_spotify_sync(ui)
+            return
+
         tool_name = LOCAL_PLAYBACK_CONTROL_TOOLS[command_name]
         try:
             result = registry.invoke(tool_name, {})
