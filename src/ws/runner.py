@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import queue
 import random
@@ -77,7 +78,12 @@ from src.tools.online_play import (
     search_spotify_track_candidates,
     search_online_audio_candidates,
 )
-from src.tools.playback_queue import playback_queue_snapshot, remember_playback_track
+from src.tools.playback_queue import (
+    is_persistable_playback_track,
+    playback_queue_snapshot,
+    remember_playback_track,
+    remove_playback_device_artifact,
+)
 from src.tools.playlists import (
     LIKES_PLAYLIST,
     SPOTIFY_LIBRARY_EXTERNAL_ID,
@@ -97,6 +103,9 @@ from src.tools.spotify_library_sync import (
     save_spotify_library_sync_state,
 )
 from src.tools.track_search import search_track_metadata_candidates
+
+
+logger = logging.getLogger(__name__)
 
 
 # Backward-compatible runner patch points; these now resolve the unified online-audio layer.
@@ -194,6 +203,19 @@ def _dedupe_recommendation_tracks(*track_groups: list[dict[str, Any]], limit: in
             if len(tracks) >= limit:
                 return tracks
     return tracks
+
+
+def _spotify_recommendation_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        track
+        for track in tracks
+        if str(track.get("name") or track.get("title") or "").strip()
+        and str(track.get("uri") or "").strip().startswith("spotify:track:")
+    ]
+
+
+def _has_spotify_track_uri(track: dict[str, Any]) -> bool:
+    return str(track.get("uri") or "").strip().startswith("spotify:track:")
 
 
 def _recommendation_message(query: str, tracks: list[dict[str, Any]]) -> str:
@@ -488,14 +510,39 @@ def _walk_dicts(value: Any) -> list[dict[str, Any]]:
     return found
 
 
-def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None]:
+def _extract_music_state(
+    result: Any,
+    *,
+    tool_name: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
     """Prepares extract music state for an internal Sonex flow.
 
     Typical use: Use this helper when nearby code needs extract music state without duplicating the local rules.
 
     Example: _extract_music_state(result=...) -> returns the value used by the surrounding Sonex flow.
     """
-    for item in _walk_dicts(result):
+    resolved_tool = tool_name or (str(result.get("tool") or "") if isinstance(result, dict) else "")
+    if resolved_tool == "spotify_current_playback":
+        data = result.get("data") if isinstance(result, dict) else None
+        uri = str(data.get("uri") or "").strip() if isinstance(data, dict) else ""
+        name = str(data.get("name") or data.get("title") or "").strip() if isinstance(data, dict) else ""
+        provider = str(data.get("provider") or data.get("source") or "").strip() if isinstance(data, dict) else ""
+        has_track_shape = bool(
+            isinstance(data, dict)
+            and name
+            and (
+                uri.startswith("spotify:track:")
+                or data.get("item_type") == "track"
+                or (provider == "spotify" and data.get("artist") and data.get("duration_ms"))
+            )
+        )
+        if not has_track_shape:
+            return None, None
+        items = [data]
+    else:
+        items = _walk_dicts(result)
+
+    for item in items:
         name = item.get("name") or item.get("title")
         artist = item.get("artist")
         album = item.get("album")
@@ -523,10 +570,11 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
             "playback_status": item.get("playback_status") or ("playing" if is_playing else "paused"),
             "progress_source": item.get("progress_source"),
             "uri": item.get("uri"),
-            "provider": item.get("provider"),
+            "provider": item.get("provider") or ("spotify" if resolved_tool == "spotify_current_playback" else None),
             "player": item.get("player"),
             "session_id": item.get("session_id"),
-            "source": item.get("source"),
+            "source": item.get("source") or ("spotify" if resolved_tool == "spotify_current_playback" else None),
+            "item_type": item.get("item_type"),
             "ended": item.get("ended"),
             "volume_percent": item.get("volume_percent"),
             "spotify_url": item.get("spotify_url"),
@@ -799,11 +847,27 @@ def _decorate_player_state(state: dict[str, Any]) -> dict[str, Any]:
 
 def _remember_actual_playback(player_state: dict[str, Any]) -> None:
     """Updates persisted queue state from accepted playback state."""
+    if not is_persistable_playback_track(player_state):
+        logger.warning("Rejected a device-shaped or incomplete playback state before persistence.")
+        return
+    if player_state.get("provider") == "spotify" and not _has_spotify_track_uri(player_state):
+        logger.warning("Rejected a Spotify playback state without a track URI before persistence.")
+        return
     remember_playback_track(player_state)
     if player_state.get("provider") == "apple_music":
         remember_apple_music_recent_track(player_state)
     else:
         remember_recent_track(player_state)
+
+
+def _clean_spotify_device_artifact(mode: dict[str, Any] | None) -> int:
+    device_id = str((mode or {}).get("device_id") or "").strip()
+    if not device_id:
+        return 0
+    removed = remove_playback_device_artifact(device_id)
+    if removed:
+        logger.info("Removed %d device-shaped playback queue item(s).", removed)
+    return removed
 
 
 def _is_spotify_setup_request(text: str) -> bool:
@@ -3533,6 +3597,7 @@ class SpotifyDeviceSelectionSession:
         mode = _spotify_mode_state(device)
         setattr(self.ui, "_spotify_mode", mode)
         _persist_spotify_mode(mode)
+        _clean_spotify_device_artifact(mode)
         await _send_spotify_mode(self.ui, mode)
         message = f"Spotify mode on: {device.get('name') or 'selected device'}."
         await self.ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
@@ -4013,11 +4078,15 @@ class WebSocketRunner:
                 _spotify_sync_event(ui).clear()
                 result = await asyncio.to_thread(spotify_current_playback)
                 if isinstance(result, dict) and result.get("status") == "success":
-                    player_state, cover_url = _extract_music_state(result)
+                    player_state, cover_url = _extract_music_state(
+                        result,
+                        tool_name="spotify_current_playback",
+                    )
                     if player_state:
                         player_state = _spotify_live_player_state(player_state)
                         player_state = _decorate_player_state(player_state)
-                        _remember_actual_playback(player_state)
+                        if _has_spotify_track_uri(player_state):
+                            _remember_actual_playback(player_state)
                         signature = _player_sync_signature(player_state)
                         if signature != last_signature:
                             setattr(ui, "_last_player_state", player_state)
@@ -4203,6 +4272,7 @@ class WebSocketRunner:
             return
         setattr(ui, "_spotify_mode", mode)
         setattr(ui, "_spotify_library_synced", False)
+        _clean_spotify_device_artifact(mode)
         await _send_spotify_mode(ui, mode)
 
     async def _handle_spotify_mode_input(self, ui: WebSocketUIAdapter, user_input: str) -> None:
@@ -4258,6 +4328,9 @@ class WebSocketRunner:
     async def _run_recommend_command(self, ui: WebSocketUIAdapter, query: str) -> None:
         query = query.strip()
         limit = 5
+        spotify_mode = self._spotify_mode_enabled(ui)
+        if spotify_mode:
+            _clean_spotify_device_artifact(getattr(ui, "_spotify_mode", None))
         try:
             recent_tracks = playback_queue_snapshot()
         except Exception:
@@ -4269,7 +4342,7 @@ class WebSocketRunner:
             detail="Finding tracks to recommend.",
             status="pending",
         )
-        if self._spotify_mode_enabled(ui):
+        if spotify_mode:
             try:
                 result = await asyncio.to_thread(
                     spotify_recommend,
@@ -4279,7 +4352,10 @@ class WebSocketRunner:
                 )
             except Exception as exc:
                 result = _recommendation_provider_failure("spotify_recommend", exc)
-            tracks = _dedupe_recommendation_tracks(_recommendation_tracks(result), limit=limit)
+            tracks = _dedupe_recommendation_tracks(
+                _spotify_recommendation_tracks(_recommendation_tracks(result)),
+                limit=limit,
+            )
         else:
             spotify_result, apple_result = await asyncio.gather(
                 asyncio.to_thread(spotify_recommend, query=query, limit=limit, recent_tracks=recent_tracks),
@@ -4313,7 +4389,7 @@ class WebSocketRunner:
         setattr(ui, "_recommendation_turn_active", False)
         await ui.append_agent_message(_recommendation_message(query, tracks))
 
-        if self._spotify_mode_enabled(ui):
+        if spotify_mode:
             await self._queue_spotify_recommendations(ui, tracks)
             return
 
@@ -4330,13 +4406,17 @@ class WebSocketRunner:
     async def _queue_spotify_recommendations(self, ui: WebSocketUIAdapter, tracks: list[dict[str, Any]]) -> None:
         mode = getattr(ui, "_spotify_mode", {}) or {}
         device_id = str(mode.get("device_id") or "").strip() or None
-        for track in tracks:
+        valid_tracks = _spotify_recommendation_tracks(tracks)
+        dropped = len(tracks) - len(valid_tracks)
+        if dropped:
+            logger.warning("Dropped %d non-track Spotify recommendation(s) before queue add.", dropped)
+        if not valid_tracks:
+            message = "Cannot add recommendations without valid Spotify track URIs."
+            await ui.append_activity(kind="error", title="Spotify queue", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        for track in valid_tracks:
             uri = str(track.get("uri") or "").strip()
-            if not uri.startswith("spotify:track:"):
-                message = f"Cannot add recommendation to Spotify queue without a Spotify track URI: {track.get('name') or '-'}."
-                await ui.append_activity(kind="error", title="Spotify queue", detail=message, status="error")
-                await ui.append_agent_message(message)
-                return
             result = await asyncio.to_thread(spotify_queue_add, uri, device_id=device_id)
             if _is_failed_tool_result(result):
                 message = _friendly_runtime_error_message(result, fallback="Spotify queue failed.")
@@ -4348,7 +4428,7 @@ class WebSocketRunner:
         await ui.append_activity(
             kind="status",
             title="Spotify queue",
-            detail=f"Added {len(tracks)} recommended track(s) to Spotify queue.",
+            detail=f"Added {len(valid_tracks)} recommended track(s) to Spotify queue.",
             status="success",
         )
 
@@ -4901,6 +4981,7 @@ class WebSocketRunner:
             mode = _spotify_mode_state(active_device, scopes)
             setattr(ui, "_spotify_mode", mode)
             _persist_spotify_mode(mode)
+            _clean_spotify_device_artifact(mode)
             await _send_spotify_mode(ui, mode)
             message = f"Spotify mode on: {active_device.get('name') or 'active device'}."
             await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
@@ -5354,7 +5435,7 @@ class WebSocketRunner:
             await ui._send({"type": "search_results", "tracks": search_tracks})
 
         result_status = str(tool_result.get("status") or "").lower() if isinstance(tool_result, dict) else ""
-        player_state, cover_url = _extract_music_state(tool_result)
+        player_state, cover_url = _extract_music_state(tool_result, tool_name=tool_name)
         is_control_tool = tool_name in set(LOCAL_PLAYBACK_CONTROL_TOOLS.values())
         is_spotify_play_tool = tool_name == "spotify_play"
         if result_status == "success" and is_spotify_play_tool and player_state:

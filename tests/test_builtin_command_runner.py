@@ -857,11 +857,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             }), encoding="utf-8")
             with patch("src.api.ws_runner.load_spotify_token", return_value=token), \
                  patch("src.api.ws_runner.spotify_account") as account, \
-                 patch("src.api.ws_runner.spotify_devices") as devices:
+                 patch("src.api.ws_runner.spotify_devices") as devices, \
+                 patch("src.api.ws_runner.remove_playback_device_artifact", return_value=1) as cleanup:
                 await runner._restore_persistent_spotify_mode(ui)
 
         account.assert_not_called()
         devices.assert_not_called()
+        cleanup.assert_called_once_with("desktop")
         self.assertTrue(getattr(ui, "_spotify_mode")["enabled"])
         self.assertEqual(getattr(ui, "_spotify_mode")["device_name"], "Studio Desktop")
         self.assertTrue([event for event in ui.events if event.get("type") == "spotify_mode" and event.get("enabled")])
@@ -1506,6 +1508,37 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         spotify_queue.assert_not_called()
         self.assertTrue(any("No active Spotify device found." in str(event.get("text")) for event in ui.events))
         self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
+
+    async def test_spotify_mode_recommend_drops_uri_less_tracks_before_render_and_queue(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop", "device_name": "SILENCE"})
+        device = {"id": "desktop", "name": "SILENCE", "artist": "-", "album": "-"}
+        valid = {"name": "Valid Song", "artist": "Artist", "uri": "spotify:track:valid"}
+
+        with patch("src.api.ws_runner.spotify_recommend", return_value={
+            "status": "success",
+            "data": {"tracks": [device, valid]},
+        }), patch("src.api.ws_runner.spotify_queue_add", return_value={
+            "status": "success",
+            "message": "Added to Spotify queue.",
+        }) as queue_add, patch("src.api.ws_runner.spotify_queue", return_value={
+            "status": "success",
+            "data": {"tracks": [valid]},
+        }), patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]), patch(
+            "src.api.ws_runner.remove_playback_device_artifact",
+            return_value=0,
+        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
+            await runner._run_recommend_command(ui, "")
+
+        queue_add.assert_called_once_with("spotify:track:valid", device_id="desktop")
+        recommendation_messages = [
+            str(event.get("text"))
+            for event in ui.events
+            if event.get("type") == "chat" and "推荐" in str(event.get("text"))
+        ]
+        self.assertTrue(any("Valid Song" in message for message in recommendation_messages))
+        self.assertFalse(any("SILENCE" in message for message in recommendation_messages))
 
     async def test_spotify_mode_random_plays_random_recent_track_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
@@ -3033,6 +3066,52 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         state = player_events[-1]["state"]
         self.assertEqual(state["progress_source"], "spotify_live")
         self.assertEqual(state["progress_anchor_ms"], 200000)
+
+    async def test_spotify_live_sync_ignores_named_device_without_current_track(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        ui.closed = False
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
+        playback = {
+            "status": "success",
+            "tool": "spotify_current_playback",
+            "data": {
+                "is_playing": False,
+                "progress_ms": 0,
+                "device": {"id": "desktop", "name": "SILENCE", "type": "Computer"},
+            },
+        }
+
+        async def stop_after_first_wait(_ui: object, _seconds: float) -> None:
+            ui.closed = True
+
+        with patch("src.api.ws_runner.spotify_current_playback", return_value=playback), patch(
+            "src.api.ws_runner._remember_actual_playback"
+        ) as remember, patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline), patch(
+            "src.api.ws_runner._wait_for_spotify_sync",
+            side_effect=stop_after_first_wait,
+        ):
+            await runner._sync_spotify_playback(ui)
+
+        remember.assert_not_called()
+        self.assertFalse(any(event.get("type") == "player" for event in ui.events))
+
+    def test_actual_playback_persistence_rejects_device_shaped_state(self) -> None:
+        device_state = {
+            "id": "desktop",
+            "name": "SILENCE",
+            "artist": "-",
+            "album": "-",
+            "provider": "unknown",
+        }
+
+        with patch("src.api.ws_runner.remember_playback_track") as queue_remember, patch(
+            "src.api.ws_runner.remember_recent_track"
+        ) as recent_remember:
+            ws_runner._remember_actual_playback(device_state)
+
+        queue_remember.assert_not_called()
+        recent_remember.assert_not_called()
 
     async def test_volume_command_is_not_user_accessible_from_chat(self) -> None:
         runner = WebSocketRunner()

@@ -43,6 +43,7 @@ SPOTIFY_TOP_READ_SCOPES = {"user-top-read"}
 SPOTIFY_PLAYLIST_READ_SCOPES = {"playlist-read-private", "playlist-read-collaborative"}
 SPOTIFY_LIBRARY_READ_SCOPES = {"user-library-read"}
 SPOTIFY_LIBRARY_REQUEST_TIMEOUT_SECONDS = 5
+SPOTIFY_QUEUE_ADD_TIMEOUT_SECONDS = 10
 MAX_RECENT_TRACKS = 10
 SPOTIFY_API_MIN_INTERVAL_SECONDS = 0.25
 SPOTIFY_API_FALLBACK_COOLDOWN_SECONDS = 30.0
@@ -528,7 +529,13 @@ def _normalize_current_playback(payload: dict[str, Any] | None) -> dict[str, Any
         }
 
     item = payload.get("item") or {}
-    track = _normalize_track(item) if item.get("type") == "track" or item.get("name") else {}
+    item_uri = str(item.get("uri") or "").strip()
+    is_track = (
+        item.get("type") == "track"
+        or item_uri.startswith("spotify:track:")
+        or (not item.get("type") and bool(item.get("name")))
+    )
+    track = _normalize_track(item) if is_track else {}
     progress_ms = payload.get("progress_ms") or 0
     timestamp = payload.get("timestamp") or _timestamp_ms()
     device = payload.get("device") or {}
@@ -540,6 +547,9 @@ def _normalize_current_playback(payload: dict[str, Any] | None) -> dict[str, Any
         "started_at": timestamp - progress_ms,
         "is_playing": bool(payload.get("is_playing")),
         "currently_playing_type": payload.get("currently_playing_type"),
+        "item_type": (item.get("type") or "track") if track else None,
+        "provider": "spotify" if track else None,
+        "source": "spotify" if track else None,
         "device": {
             "id": device.get("id"),
             "name": device.get("name"),
@@ -1185,7 +1195,7 @@ def spotify_queue_add(uri: str, device_id: str | None = None) -> dict[str, Any]:
     try:
         client = spotify_user_client(
             SPOTIFY_MODIFY_PLAYBACK_SCOPES | SPOTIFY_READ_PLAYBACK_SCOPES,
-            requests_timeout=5,
+            requests_timeout=SPOTIFY_QUEUE_ADD_TIMEOUT_SECONDS,
             retries=0,
         )
         if not device_id and not _has_active_device(client):
@@ -1443,6 +1453,27 @@ def _dedupe_tracks(tracks: list[dict[str, Any]], limit: int = 40) -> list[dict[s
     return deduped
 
 
+def _is_spotify_track_candidate(track: dict[str, Any]) -> bool:
+    uri = str(track.get("uri") or "").strip()
+    name = str(track.get("name") or track.get("title") or "").strip()
+    return bool(name and uri.startswith("spotify:track:"))
+
+
+def _is_music_context_track(track: dict[str, Any]) -> bool:
+    name = str(track.get("name") or track.get("title") or "").strip()
+    artist = str(track.get("artist") or "").strip().casefold()
+    album = str(track.get("album") or "").strip().casefold()
+    return bool(
+        name
+        and (
+            _is_spotify_track_candidate(track)
+            or artist not in {"", "-", "unknown"}
+            or album not in {"", "-", "unknown"}
+            or int(track.get("duration_ms") or 0) > 0
+        )
+    )
+
+
 def _spotify_candidate_tracks(
     query: str,
     limit: int,
@@ -1456,8 +1487,9 @@ def _spotify_candidate_tracks(
     """
     candidates: list[dict[str, Any]] = []
 
-    local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
-    candidates.extend(local_recent)
+    supplied_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
+    local_recent = [track for track in supplied_recent if _is_music_context_track(track)]
+    candidates.extend(track for track in local_recent if _is_spotify_track_candidate(track))
 
     if query.strip():
         search_result = spotify_search(query=query, limit=max(limit, 10), types="track")
@@ -1488,7 +1520,8 @@ def _spotify_candidate_tracks(
         except Exception:
             pass
 
-    return _dedupe_tracks(candidates, limit=50)
+    valid_candidates = [track for track in candidates if _is_spotify_track_candidate(track)]
+    return _dedupe_tracks(valid_candidates, limit=50)
 
 
 def _parse_recommendation_json(text: str) -> list[dict[str, Any]]:
@@ -1579,17 +1612,19 @@ def spotify_recommend(query: str, limit: int = 10, recent_tracks: list[dict[str,
     """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     preferences = _user_preferences_text()
-    local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
+    supplied_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
+    local_recent = [track for track in supplied_recent if _is_music_context_track(track)]
     candidates = _spotify_candidate_tracks(
         query=query,
         limit=bounded_limit,
         recent_tracks=local_recent,
     )
+    candidates = [track for track in candidates if _is_spotify_track_candidate(track)]
     if not candidates:
         return ToolResult.fail(
             tool="spotify_recommend",
-            message="No Spotify recommendation candidates found. Search or play a few tracks first.",
-            error_code="SPOTIFY_RECOMMEND_NO_CANDIDATES",
+            message="No valid Spotify track candidates found. Search or play a few tracks first.",
+            error_code="SPOTIFY_RECOMMEND_NO_VALID_TRACKS",
         ).to_dict()
 
     reason_by_uri: dict[str, str] = {}

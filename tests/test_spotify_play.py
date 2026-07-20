@@ -246,6 +246,8 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(playback["progress_ms"], 42000)
         self.assertEqual(playback["started_at"], 58000)
         self.assertEqual(playback["album_cover_url"], "cover")
+        self.assertEqual(playback["item_type"], "track")
+        self.assertEqual(playback["provider"], "spotify")
 
     def test_free_account_disables_playback_control(self) -> None:
         """Verifies that free account disables playback control behaves as expected.
@@ -878,7 +880,7 @@ class SpotifyToolTests(unittest.TestCase):
 
         user_client.assert_called_once_with(
             spotify.SPOTIFY_MODIFY_PLAYBACK_SCOPES | spotify.SPOTIFY_READ_PLAYBACK_SCOPES,
-            requests_timeout=5,
+            requests_timeout=10,
             retries=0,
         )
         self.assertEqual(client.calls, [("spotify:track:track-1", "desktop")])
@@ -937,6 +939,28 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["error_code"], "SPOTIFY_API_ERROR")
 
+    def test_spotify_queue_add_maps_read_timeout_without_retry(self) -> None:
+        class Client:
+            def __init__(self) -> None:
+                self.call_count = 0
+
+            def add_to_queue(self, uri: str, device_id: str | None = None) -> None:
+                self.call_count += 1
+                raise requests.exceptions.ReadTimeout("read timeout")
+
+        client = Client()
+        with patch.object(spotify, "_require_premium_control", return_value=None), patch.object(
+            spotify,
+            "spotify_user_client",
+            return_value=client,
+        ):
+            result = spotify.spotify_queue_add("spotify:track:track-1", device_id="desktop")
+
+        self.assertEqual(client.call_count, 1)
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_READ_TIMEOUT")
+        self.assertEqual(result["message"], "Spotify did not respond before the request timeout.")
+
     def test_spotify_recommend_uses_only_candidate_tracks(self) -> None:
         """Verifies that spotify recommend uses only candidate tracks behaves as expected.
 
@@ -976,6 +1000,36 @@ class SpotifyToolTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(rank.call_args.kwargs["recent_tracks"], recent_tracks)
+
+    def test_spotify_recommend_excludes_uri_less_device_candidate(self) -> None:
+        device = {"id": "device-id", "name": "SILENCE", "artist": "-", "album": "-"}
+        valid = self._track(1)
+        with (
+            patch.object(spotify, "_user_preferences_text", return_value=""),
+            patch.object(spotify, "_spotify_candidate_tracks", return_value=[device, valid]),
+            patch.object(spotify, "_rank_candidates_with_llm", return_value=[]) as rank,
+        ):
+            result = spotify.spotify_recommend(query="", limit=2, recent_tracks=[device, valid])
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual([track["name"] for track in result["data"]["tracks"]], [valid["name"]])
+        self.assertEqual(rank.call_args.kwargs["recent_tracks"], [valid])
+
+    def test_spotify_recommend_fails_when_only_non_track_candidates_remain(self) -> None:
+        with (
+            patch.object(spotify, "_user_preferences_text", return_value=""),
+            patch.object(
+                spotify,
+                "_spotify_candidate_tracks",
+                return_value=[{"id": "device-id", "name": "SILENCE"}],
+            ),
+            patch.object(spotify, "_rank_candidates_with_llm") as rank,
+        ):
+            result = spotify.spotify_recommend(query="", limit=1)
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "SPOTIFY_RECOMMEND_NO_VALID_TRACKS")
+        rank.assert_not_called()
 
     def test_spotify_candidate_tracks_use_supplied_recent_without_remote_history(self) -> None:
         recent_tracks = [self._track(4)]

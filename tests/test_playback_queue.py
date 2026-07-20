@@ -8,7 +8,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from src.tools.playback_queue import playback_queue_snapshot, remember_playback_track
+from src.tools.playback_queue import (
+    playback_queue_snapshot,
+    remember_playback_track,
+    remove_playback_device_artifact,
+)
 
 
 class PlaybackQueueTests(unittest.TestCase):
@@ -133,3 +137,55 @@ class PlaybackQueueTests(unittest.TestCase):
             queue = remember_playback_track({"provider": "youtube"})
 
         self.assertEqual([item["name"] for item in queue], ["Valid Song"])
+
+    def test_device_like_identity_does_not_update_queue(self) -> None:
+        with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
+            remember_playback_track(
+                {
+                    "name": "Valid Song",
+                    "artist": "Artist",
+                    "provider": "youtube",
+                    "url": "https://example.test/valid",
+                }
+            )
+            queue = remember_playback_track(
+                {
+                    "id": "spotify-device-id",
+                    "name": "SILENCE",
+                    "artist": "-",
+                    "album": "-",
+                    "provider": "unknown",
+                }
+            )
+
+        self.assertEqual([item["name"] for item in queue], ["Valid Song"])
+
+    def test_remove_playback_device_artifact_is_targeted_backed_up_and_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
+            queue_path = Path(home) / "cache" / "playback_queue.json"
+            queue_path.parent.mkdir(parents=True)
+            queue_path.write_text(
+                """{
+  "version": 1,
+  "tracks": [
+    {"id": "desktop", "name": "SILENCE", "artist": "-", "album": "-", "provider": "unknown"},
+    {"id": "phone", "name": "PHONE", "artist": "-", "album": "-", "provider": "unknown"},
+    {"id": "track-id", "name": "Valid Song", "artist": "Artist", "provider": "spotify", "uri": "spotify:track:valid"}
+  ]
+}
+""",
+                encoding="utf-8",
+            )
+
+            removed = remove_playback_device_artifact("desktop")
+            queue = playback_queue_snapshot()
+            backup_path = queue_path.with_suffix(".json.bak")
+            removed_again = remove_playback_device_artifact("desktop")
+            backup_exists = backup_path.exists()
+            backup_text = backup_path.read_text(encoding="utf-8")
+
+        self.assertEqual(removed, 1)
+        self.assertEqual(removed_again, 0)
+        self.assertEqual([item["name"] for item in queue], ["PHONE", "Valid Song"])
+        self.assertTrue(backup_exists)
+        self.assertIn("SILENCE", backup_text)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -14,6 +15,19 @@ from src.tools.song_cache import recent_cached_songs
 from src.tools.spotify_play import recent_tracks_snapshot as spotify_recent_tracks_snapshot
 
 MAX_PLAYBACK_QUEUE = 10
+_PLAYABLE_LOCATOR_FIELDS = (
+    "cache_id",
+    "uri",
+    "spotify_url",
+    "apple_music_url",
+    "youtube_url",
+    "url",
+    "stream_url",
+    "audio_path",
+    "file_path",
+    "path",
+)
+_PLACEHOLDER_VALUES = {"", "-", "unknown", "none", "null"}
 
 
 def _default_queue_path() -> Path:
@@ -83,6 +97,25 @@ def _track_key(track: dict[str, Any]) -> str:
     if artist or album or duration or _text(track.get("provider") or track.get("source")) == "local":
         return f"text:{name.casefold()}|{artist.casefold()}|{album.casefold()}|{duration}"
     return ""
+
+
+def _meaningful_text(value: Any) -> bool:
+    return _text(value).casefold() not in _PLACEHOLDER_VALUES
+
+
+def is_persistable_playback_track(track: dict[str, Any]) -> bool:
+    """Returns whether a playback payload has enough identity to represent a track."""
+    if not _meaningful_text(track.get("name") or track.get("title")):
+        return False
+    if any(_text(track.get(field)) for field in _PLAYABLE_LOCATOR_FIELDS):
+        return True
+    if _text(track.get("provider") or track.get("source")).casefold() == "local":
+        return True
+    return bool(
+        _meaningful_text(track.get("artist"))
+        or _meaningful_text(track.get("album"))
+        or int(track.get("duration_ms") or 0) > 0
+    )
 
 
 def _snapshot_track(track: dict[str, Any], *, played_at: float) -> dict[str, Any] | None:
@@ -158,6 +191,8 @@ def _seed_queue() -> list[dict[str, Any]]:
         for index, track in enumerate(tracks[:MAX_PLAYBACK_QUEUE]):
             if not isinstance(track, dict):
                 continue
+            if not is_persistable_playback_track(track):
+                continue
             snapshot = _snapshot_track(
                 track,
                 played_at=_played_at_value(
@@ -201,6 +236,8 @@ def remember_playback_track(
 ) -> list[dict[str, Any]]:
     path = _queue_path(queue_path)
     queue = _load_queue(path) or []
+    if not is_persistable_playback_track(track):
+        return [dict(item) for item in queue]
     played_at = time.time() if now is None else float(now)
     snapshot = _snapshot_track(track, played_at=played_at)
     if snapshot is None:
@@ -210,3 +247,39 @@ def remember_playback_track(
     queue = queue[:MAX_PLAYBACK_QUEUE]
     _save_queue(path, queue)
     return [dict(item) for item in queue]
+
+
+def remove_playback_device_artifact(
+    device_id: str,
+    *,
+    queue_path: Path | None = None,
+) -> int:
+    """Removes a legacy device-shaped queue item while preserving a backup."""
+    normalized_device_id = _text(device_id)
+    if not normalized_device_id:
+        return 0
+    path = _queue_path(queue_path)
+    queue = _load_queue(path)
+    if queue is None:
+        return 0
+
+    retained = [
+        item
+        for item in queue
+        if not (
+            _text(item.get("id")) == normalized_device_id
+            and not is_persistable_playback_track(item)
+        )
+    ]
+    removed = len(queue) - len(retained)
+    if not removed:
+        return 0
+
+    backup_path = path.with_suffix(f"{path.suffix}.bak")
+    try:
+        if not backup_path.exists():
+            shutil.copy2(path, backup_path)
+    except OSError:
+        return 0
+    _save_queue(path, retained)
+    return removed
