@@ -3,6 +3,7 @@
 .agents
 .codex
 .idea
+.worktrees/
 docs/superpowers/
 identifier.sqlite
 **/__pycache__/
