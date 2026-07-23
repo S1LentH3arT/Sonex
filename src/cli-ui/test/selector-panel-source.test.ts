@@ -58,6 +58,16 @@ assert.doesNotMatch(slashCommandListBody, /rowFill/);
 assert.doesNotMatch(slashCommandListBody, /backgroundColor=/);
 assert.doesNotMatch(slashCommandListBody, /selected \? "> " : "  "/);
 assert.doesNotMatch(slashCommandListBody, /SPOTIFY_SELECTED_TEXT/);
+assert.match(slashCommandListBody, /<Box flexDirection="column">/);
+assert.doesNotMatch(slashCommandListBody, /paddingX=/);
+assert.match(
+    inputDockBody,
+    /<Box flexDirection="column" flexShrink=\{0\} paddingX=\{1\}>[\s\S]*<SlashCommandList/,
+);
+assert.match(
+    inputDockBody,
+    /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN : "#808791"\}[\s\S]*paddingX=\{1\} paddingTop=\{0\}/,
+);
 
 assert.match(compactConfirmBody, /<ChoicePanel/);
 assert.match(compactConfirmBody, /const visibleChoices = getVisibleConfirmChoices\(confirm\.choices\);/);

@@ -339,7 +339,7 @@ const SlashCommandList = ({ suggestions, selectedIndex, spotifyTheme = false }: 
     );
 
     return (
-        <Box flexDirection="column" paddingX={1}>
+        <Box flexDirection="column">
             {visibleSuggestions.map((command, index) => {
                 const absoluteIndex = startIndex + index;
                 const selected = absoluteIndex === boundedIndex;
