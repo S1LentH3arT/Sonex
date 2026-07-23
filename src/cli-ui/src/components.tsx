@@ -1157,35 +1157,32 @@ const InputDock = ({
                 spotifyTheme={Boolean(spotifySetup)}
             /> : null}
             {showInput ? (
-                <Box borderTop={true} borderBottom={true} borderLeft={false} borderRight={false}
-                    borderStyle="single" borderColor={spotifyMode?.enabled ? SPOTIFY_GREEN : "#808791"}
-                    paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="column"
-                    minHeight={minimal ? 3 : 4} flexShrink={0}>
-                    {spotifyMode?.enabled ? (
-                        <Box justifyContent="flex-end">
-                            <Text
-                                color={SPOTIFY_SELECTED_TEXT}
-                                backgroundColor={SPOTIFY_GREEN}
-                            >
-                                {spotifyModeBorderLabel}
+                <>
+                    <Box borderTop={true} borderBottom={true} borderLeft={false} borderRight={false}
+                        borderStyle="single" borderColor={spotifyMode?.enabled ? SPOTIFY_GREEN : "#808791"}
+                        paddingX={1} paddingTop={0} flexDirection="column"
+                        minHeight={3} flexShrink={0}>
+                        <Box flexDirection="row">
+                            <Text color={spotifyMode?.enabled ? SPOTIFY_GREEN : "#7f5d6b"}>
+                                {minimal && switchHint ? `${switchHint} · ` : ""}
                             </Text>
+                            <PromptInput
+                                input={input}
+                                setInput={setInput}
+                                onSubmit={onSubmit}
+                                focus={inputFocus}
+                                placeholder={inputPlaceholder}
+                                mask={inputMask}
+                                inputRevision={inputRevision}
+                            />
                         </Box>
-                    ) : null}
-                    <Box flexDirection="row">
-                        <Text color={spotifyMode?.enabled ? SPOTIFY_GREEN : "#7f5d6b"}>
-                            {minimal && switchHint ? `${switchHint} · ` : ""}
-                        </Text>
-                        <PromptInput
-                            input={input}
-                            setInput={setInput}
-                            onSubmit={onSubmit}
-                            focus={inputFocus}
-                            placeholder={inputPlaceholder}
-                            mask={inputMask}
-                            inputRevision={inputRevision}
-                        />
                     </Box>
-                </Box>
+                    <Box height={1} justifyContent="flex-end" paddingX={1}>
+                        {spotifyMode?.enabled ? (
+                            <Text bold color={SPOTIFY_GREEN}>{spotifyModeBorderLabel}</Text>
+                        ) : null}
+                    </Box>
+                </>
             ) : null}
         </Box>
     );

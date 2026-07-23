@@ -80,7 +80,21 @@ assert.match(inputDockBody, /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GRE
 assert.match(inputDockBody, /\{minimal && switchHint \? `\$\{switchHint\} · ` : ""\}/);
 assert.doesNotMatch(inputDockBody, /`\$\{switchHint\} · > `/);
 assert.doesNotMatch(inputDockBody, /: "> "/);
-assert.match(inputDockBody, /color=\{SPOTIFY_SELECTED_TEXT\}[\s\S]*backgroundColor=\{SPOTIFY_GREEN\}[\s\S]*\{spotifyModeBorderLabel\}/);
+assert.doesNotMatch(inputDockBody, /paddingBottom=\{1\}/);
+assert.match(inputDockBody, /minHeight=\{3\}/);
+assert.doesNotMatch(inputDockBody, /minHeight=\{minimal \? 3 : 4\}/);
+assert.match(inputDockBody, /<PromptInput[\s\S]*\/>\s*<\/Box>\s*<\/Box>\s*<Box height=\{1\} justifyContent="flex-end" paddingX=\{1\}>/);
+
+const modeRowStart = inputDockBody.indexOf('<Box height={1} justifyContent="flex-end" paddingX={1}>');
+const modeRowEnd = inputDockBody.indexOf('</Box>', modeRowStart);
+assert.ok(modeRowStart >= 0);
+assert.ok(modeRowEnd > modeRowStart);
+
+const modeRowBody = inputDockBody.slice(modeRowStart, modeRowEnd);
+assert.match(modeRowBody, /spotifyMode\?\.enabled \? \(/);
+assert.match(modeRowBody, /<Text bold color=\{SPOTIFY_GREEN\}>\{spotifyModeBorderLabel\}<\/Text>/);
+assert.doesNotMatch(modeRowBody, /backgroundColor=/);
+assert.doesNotMatch(modeRowBody, /SPOTIFY_SELECTED_TEXT/);
 assert.doesNotMatch(inputDockBody, /----Spotify Mode----/);
 assert.match(inputDockBody, /<CompactSetup[\s\S]*input=\{input\}[\s\S]*onSubmit=\{onSubmit\}/);
 assert.match(inputDockBody, /setupPanel \? <CompactSetup/);
