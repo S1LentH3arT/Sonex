@@ -68,21 +68,22 @@ export const HeaderFrame = ({ authState, variant, language = "en" }: { authState
     const identity = `${authState.model || authState.provider || FALLBACK_MODEL_NAME} • ${formatAuthLabel(authState)}`;
     if (variant === 'compact') {
         return (
-            <Box width="100%" height={4} paddingX={1} borderStyle="single" borderColor={BORDER_BLUE} flexDirection="column">
-                <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text color="#bf98a7">v{APP_VERSION}</Text></Text>
+            <Box width="100%" height={5} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
+                <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
+                <Box height={1} />
                 <Text color="#d8bcc7" wrap="truncate-end">{identity}</Text>
             </Box>
         );
     }
 
     return (
-        <Box width="100%" minHeight={9} paddingX={1} borderStyle="single" borderColor={BORDER_BLUE}>
+        <Box width="100%" minHeight={9} paddingX={1} borderStyle="round" borderColor="#808791">
             <Mascot />
             <Box flexDirection="column" justifyContent="flex-start">
-                <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text color="#bf98a7">v{APP_VERSION}</Text></Text>
+                <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
+                <Box height={1} />
                 <Text color="#d8bcc7">{identity}</Text>
                 <Text color="#bf98a7">~/dev/sonex</Text>
-                <Text color={BORDER_BLUE_SOFT}>{t(language, "tips.placeholder")}</Text>
             </Box>
         </Box>
     );
