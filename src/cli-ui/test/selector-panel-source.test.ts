@@ -71,10 +71,15 @@ assert.match(inputDockBody, /<SlashCommandList suggestions=\{slashSuggestions\} 
 assert.match(inputDockBody, /const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
 assert.match(inputDockBody, /<CompactConfirm confirm=\{confirm\} confirmIndex=\{confirmIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
 assert.match(inputDockBody, /spotifyTheme=\{Boolean\(spotifySetup\)\}/);
-assert.doesNotMatch(inputDockBody, /borderTop=\{!spotifyMode\?\.enabled\}/);
 assert.match(inputDockBody, /const spotifyModeBorderLabel = " Spotify Mode ";/);
 assert.match(inputDockBody, /borderTop=\{true\}/);
-assert.match(inputDockBody, /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN : BORDER_BLUE\}/);
+assert.match(inputDockBody, /borderBottom=\{true\}/);
+assert.match(inputDockBody, /borderLeft=\{false\}/);
+assert.match(inputDockBody, /borderRight=\{false\}/);
+assert.match(inputDockBody, /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN : "#808791"\}/);
+assert.match(inputDockBody, /\{minimal && switchHint \? `\$\{switchHint\} · ` : ""\}/);
+assert.doesNotMatch(inputDockBody, /`\$\{switchHint\} · > `/);
+assert.doesNotMatch(inputDockBody, /: "> "/);
 assert.match(inputDockBody, /color=\{SPOTIFY_SELECTED_TEXT\}[\s\S]*backgroundColor=\{SPOTIFY_GREEN\}[\s\S]*\{spotifyModeBorderLabel\}/);
 assert.doesNotMatch(inputDockBody, /----Spotify Mode----/);
 assert.match(inputDockBody, /<CompactSetup[\s\S]*input=\{input\}[\s\S]*onSubmit=\{onSubmit\}/);

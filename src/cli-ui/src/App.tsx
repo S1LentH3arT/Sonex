@@ -257,7 +257,7 @@ export const App = () => {
                 ? spotifySetup.prompt
                 : recommendInputLocked
                     ? t(language, "input.recommendPending")
-                    : t(language, "input.placeholder");
+                    : "";
     const inputMask = authSetup?.active && authSetup.mask
         ? "*"
         : spotifySetup?.active && spotifySetup.mask

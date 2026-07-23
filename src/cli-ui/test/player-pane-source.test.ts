@@ -9,7 +9,6 @@ assert.match(source, /const ConversationRegion =/);
 assert.match(source, /const miniSnapshot = useVisibleSnapshotOnRevision/);
 assert.match(source, /<PlayerPane[\s\S]*variant="compact"[\s\S]*active=\{true\}/);
 assert.equal(source.includes('usePlaybackProgress'), false);
-assert.equal(source.includes('setInterval'), false);
 
 const miniBodyStart = source.indexOf('const MiniPlayerStaticBody = React.memo');
 const playbackMeterStart = source.indexOf('const PlaybackMeter =');
@@ -36,6 +35,13 @@ assert.match(staticCover, /const patternDisplay = coverPattern/);
 assert.match(staticCover, /const fetchableCoverUrl = patternDisplay\.status === 'none'/);
 assert.match(staticCover, /if \(patternDisplay\.status === 'unfit'\)/);
 assert.match(miniBody, /alignItems="center"\s+justifyContent="flex-end"/);
+
+const playerPaneStart = source.indexOf('const PlayerPane =');
+const compactConfirmStart = source.indexOf('const CompactConfirm =');
+assert.ok(playerPaneStart >= 0);
+assert.ok(compactConfirmStart > playerPaneStart);
+const playerPane = source.slice(playerPaneStart, compactConfirmStart);
+assert.equal(playerPane.includes('setInterval'), false);
 
 const miniStart = source.indexOf('const MiniPlayerRegion =');
 const conversationStart = source.indexOf('const ConversationRegion =');

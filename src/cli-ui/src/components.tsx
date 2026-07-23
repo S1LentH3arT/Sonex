@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Text, measureElement } from 'ink';
+import { Box, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
 import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO } from './constants.js';
@@ -8,6 +8,7 @@ import { getVisibleConfirmChoices } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
 import { getVisibleChatWindow } from './chat-window.js';
 import { isHttpCoverSource, useCoverArt } from './hooks.js';
+import { hideInputCursor } from './input-cursor.js';
 import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
@@ -192,17 +193,36 @@ export const LoginScreen = ({
     );
 };
 
-const PromptInput = ({ input, setInput, onSubmit, focus, placeholder, mask, inputRevision }: PromptInputProps) => (
-    <TextInput
-        key={inputRevision}
-        value={input}
-        onChange={setInput}
-        onSubmit={onSubmit}
-        focus={focus}
-        placeholder={placeholder}
-        mask={mask}
-    />
-);
+const INPUT_CURSOR_BLINK_INTERVAL_MS = 500;
+
+const PromptInput = ({ input, setInput, onSubmit, focus, placeholder, mask, inputRevision }: PromptInputProps) => {
+    const [cursorVisible, setCursorVisible] = React.useState(true);
+
+    React.useEffect(() => {
+        setCursorVisible(true);
+        if (!focus) return;
+
+        const timer = setInterval(
+            () => setCursorVisible((visible) => !visible),
+            INPUT_CURSOR_BLINK_INTERVAL_MS,
+        );
+        return () => clearInterval(timer);
+    }, [focus, input, inputRevision]);
+
+    return (
+        <Transform transform={(output) => cursorVisible ? output : hideInputCursor(output)}>
+            <TextInput
+                key={inputRevision}
+                value={input}
+                onChange={setInput}
+                onSubmit={onSubmit}
+                focus={focus}
+                placeholder={placeholder}
+                mask={mask}
+            />
+        </Transform>
+    );
+};
 
 type ChoicePanelRow = {
     key: string;
@@ -1137,7 +1157,9 @@ const InputDock = ({
                 spotifyTheme={Boolean(spotifySetup)}
             /> : null}
             {showInput ? (
-                <Box borderTop={true} borderStyle="single" borderColor={spotifyMode?.enabled ? SPOTIFY_GREEN : BORDER_BLUE} paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="column"
+                <Box borderTop={true} borderBottom={true} borderLeft={false} borderRight={false}
+                    borderStyle="single" borderColor={spotifyMode?.enabled ? SPOTIFY_GREEN : "#808791"}
+                    paddingX={1} paddingTop={0} paddingBottom={1} flexDirection="column"
                     minHeight={minimal ? 3 : 4} flexShrink={0}>
                     {spotifyMode?.enabled ? (
                         <Box justifyContent="flex-end">
@@ -1150,7 +1172,9 @@ const InputDock = ({
                         </Box>
                     ) : null}
                     <Box flexDirection="row">
-                        <Text color={spotifyMode?.enabled ? SPOTIFY_GREEN : "#7f5d6b"}>{minimal && switchHint ? `${switchHint} · > ` : "> "}</Text>
+                        <Text color={spotifyMode?.enabled ? SPOTIFY_GREEN : "#7f5d6b"}>
+                            {minimal && switchHint ? `${switchHint} · ` : ""}
+                        </Text>
                         <PromptInput
                             input={input}
                             setInput={setInput}
