@@ -343,17 +343,11 @@ const SlashCommandList = ({ suggestions, selectedIndex, spotifyTheme = false }: 
             {visibleSuggestions.map((command, index) => {
                 const absoluteIndex = startIndex + index;
                 const selected = absoluteIndex === boundedIndex;
-                const rowBackgroundColor = spotifyTheme && selected ? SPOTIFY_GREEN : undefined;
-                const commandColor = rowBackgroundColor ? SPOTIFY_SELECTED_TEXT : selected ? BORDER_BLUE : "#fff4f6";
-                const rowText = `${selected ? "> " : "  "}${formatCommandListLabel(command)}${command.description}`;
-                const rowFill = rowBackgroundColor ? " ".repeat(Math.max(0, 96 - stringWidth(rowText))) : " "
+                const commandColor = selected ? (spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE) : "#fff4f6";
                 return (
-                    <Text key={command.name} backgroundColor={rowBackgroundColor} wrap="truncate-end">
-                        <Text color={commandColor} backgroundColor={rowBackgroundColor}>
-                            {selected ? "> " : "  "}
-                        </Text>
-                        <Text color={commandColor} backgroundColor={rowBackgroundColor}>{formatCommandListLabel(command)}</Text>
-                        <Text color={commandColor} backgroundColor={rowBackgroundColor}>{command.description}{rowFill}</Text>
+                    <Text key={command.name} color={commandColor} bold={selected} wrap="truncate-end">
+                        <Text>{formatCommandListLabel(command)}</Text>
+                        <Text>{command.description}</Text>
                     </Text>
                 );
             })}

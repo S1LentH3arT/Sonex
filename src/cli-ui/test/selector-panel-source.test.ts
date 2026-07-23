@@ -28,15 +28,36 @@ const compactConfirmStart = source.indexOf('const CompactConfirm =');
 const languagePanelStart = source.indexOf('const LanguagePanel =');
 const compactSetupStart = source.indexOf('const CompactSetup =');
 const inputDockStart = source.indexOf('const InputDock =');
+const slashCommandListStart = source.indexOf('const SlashCommandList =');
+const helpPanelStart = source.indexOf('const HelpPanel =');
 assert.ok(compactConfirmStart >= 0);
 assert.ok(languagePanelStart > compactConfirmStart);
 assert.ok(compactSetupStart > languagePanelStart);
 assert.ok(inputDockStart > languagePanelStart);
+assert.ok(slashCommandListStart >= 0);
+assert.ok(helpPanelStart > slashCommandListStart);
 
 const compactConfirmBody = source.slice(compactConfirmStart, languagePanelStart);
 const languagePanelBody = source.slice(languagePanelStart, inputDockStart);
 const compactSetupBody = source.slice(compactSetupStart, inputDockStart);
 const inputDockBody = source.slice(inputDockStart, source.indexOf('const ConversationColumn =', inputDockStart));
+const slashCommandListBody = source.slice(slashCommandListStart, helpPanelStart);
+
+assert.match(
+    slashCommandListBody,
+    /const commandColor = selected \? \(spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE\) : "#fff4f6";/,
+);
+assert.match(
+    slashCommandListBody,
+    /<Text key=\{command\.name\} color=\{commandColor\} bold=\{selected\} wrap="truncate-end">/,
+);
+assert.match(slashCommandListBody, /\{formatCommandListLabel\(command\)\}/);
+assert.match(slashCommandListBody, /\{command\.description\}/);
+assert.doesNotMatch(slashCommandListBody, /rowBackgroundColor/);
+assert.doesNotMatch(slashCommandListBody, /rowFill/);
+assert.doesNotMatch(slashCommandListBody, /backgroundColor=/);
+assert.doesNotMatch(slashCommandListBody, /selected \? "> " : "  "/);
+assert.doesNotMatch(slashCommandListBody, /SPOTIFY_SELECTED_TEXT/);
 
 assert.match(compactConfirmBody, /<ChoicePanel/);
 assert.match(compactConfirmBody, /const visibleChoices = getVisibleConfirmChoices\(confirm\.choices\);/);
