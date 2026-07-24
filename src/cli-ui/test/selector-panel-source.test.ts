@@ -52,7 +52,10 @@ assert.match(
     /<Text key=\{command\.name\} color=\{commandColor\} bold=\{selected\} wrap="truncate-end">/,
 );
 assert.match(slashCommandListBody, /\{formatCommandListLabel\(command\)\}/);
-assert.match(slashCommandListBody, /\{command\.description\}/);
+assert.match(
+    slashCommandListBody,
+    /<Text color="#9d7787">\{command\.description\}<\/Text>/,
+);
 assert.doesNotMatch(slashCommandListBody, /rowBackgroundColor/);
 assert.doesNotMatch(slashCommandListBody, /rowFill/);
 assert.doesNotMatch(slashCommandListBody, /backgroundColor=/);
