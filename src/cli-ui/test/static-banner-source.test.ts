@@ -11,7 +11,11 @@ assert.match(appSource, /clearTerminalForLayoutSwitch\(stdout\);[\s\S]*setActive
 assert.match(appSource, /resolveRegionAfterPlayerEvent/);
 assert.match(appSource, /toggleShellRegion/);
 assert.match(appSource, /switchRegion\("chat"\)/);
-assert.match(appSource, /activeRegion === "chat" \? <HeaderFrame/);
+assert.doesNotMatch(appSource, /activeRegion === "chat" \? <HeaderFrame/);
+assert.match(appSource, /const showFixedHeader = activeRegion === "chat" && authInterfaceActive/);
+assert.match(appSource, /\{showFixedHeader \? \([\s\S]*<HeaderFrame authState=\{authState\}/);
+assert.match(appSource, /authInterfaceActive \? chatItems\.filter\(isChatMessageItem\) : chatItems/);
+assert.match(componentSource, /item\.type === "info_banner"[\s\S]*<HeaderFrame/);
 assert.equal(appSource.includes('<Static'), false);
 assert.equal(appSource.includes('resolveShellLayout'), false);
 assert.equal(appSource.includes('smallPlaybackFocus'), false);

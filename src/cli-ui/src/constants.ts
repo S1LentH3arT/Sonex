@@ -18,6 +18,7 @@ export const MAX_VISIBLE_MODEL_CHOICES = 3;
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "bye", usage: "/bye", description: "save session and exit", needsArgument: false, aliases: ["exit"] },
     { name: "help", usage: "/help", description: "show available commands", needsArgument: false },
+    { name: "info", usage: "/info", description: "show current runtime information", needsArgument: false },
     { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "toggle mini-player playback shortcuts", needsArgument: false },
     { name: "lang", usage: "/lang", description: "choose the TUI display language", needsArgument: false },
     { name: "logout", usage: "/logout", description: "log out current LLM provider and exit", needsArgument: false },

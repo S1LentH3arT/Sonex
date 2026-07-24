@@ -520,6 +520,54 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
         self.assertTrue(any("handled by the TUI" in str(event.get("text")) for event in ui.events))
 
+    async def test_info_backend_fallback_reports_runtime_without_agent_or_auth_setup(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        state = ws_runner.AuthRuntimeState(
+            ready=True,
+            provider="openai",
+            model="gpt-info",
+            auth_type="oauth",
+            credential_source="auth.json",
+        )
+
+        with patch("src.api.ws_runner._llm_auth_state", return_value=state):
+            await runner._handle_user_input(ui, "/info")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
+        info_events = [
+            event for event in ui.events
+            if event.get("type") == "chat" and event.get("role") == "agent"
+        ]
+        self.assertEqual(len(info_events), 1)
+        text = str(info_events[0].get("text"))
+        self.assertIn("Model: gpt-info", text)
+        self.assertIn("Provider: openai", text)
+        self.assertIn("Auth: oauth", text)
+        self.assertIn("CWD: ", text)
+
+    async def test_info_is_available_in_spotify_mode(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+        setattr(ui, "_spotify_mode", {"enabled": True})
+        state = ws_runner.AuthRuntimeState(
+            ready=True,
+            provider="openai",
+            model="gpt-spotify-info",
+            auth_type="api_key",
+            credential_source="env",
+        )
+
+        with patch("src.api.ws_runner._llm_auth_state", return_value=state):
+            await runner._handle_user_input(ui, "/info")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertFalse(any("not available in Spotify mode" in str(event) for event in ui.events))
+        self.assertTrue(any("Model: gpt-spotify-info" in str(event.get("text")) for event in ui.events))
+
     async def test_help_prefix_filters_help_panel_commands(self) -> None:
         """Verifies that help prefix filters help panel commands behaves as expected.
 

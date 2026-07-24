@@ -18,5 +18,5 @@ assert.match(escapeBranch, /t\(language, "trackPanel\.playlistHidden"\)/);
 assert.match(escapeBranch, /t\(language, "trackPanel\.queueHidden"\)/);
 assert.match(escapeBranch, /setTrackPanel\(null\)/);
 assert.match(escapeBranch, /setTrackPanelIndex\(0\)/);
-assert.match(escapeBranch, /setChatItems\(\(prev\) => \[\.\.\.prev, \{ role: "agent", content: hiddenMessage, theme: "muted" \}\]\)/);
+assert.match(escapeBranch, /setChatItems\(\(prev\) => \[\.\.\.prev, \{[\s\S]*type: "message",[\s\S]*role: "agent",[\s\S]*content: hiddenMessage,[\s\S]*theme: "muted",[\s\S]*\}\]\)/);
 assert.equal(enterBranch.includes('Hidden'), false);

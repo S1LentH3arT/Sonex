@@ -59,7 +59,7 @@ export type ClientEvent =
     | { type: "confirm_result"; id: string; decision: string }
     | { type: "setup_input"; value: string }
     | { type: "auth_setup_input"; value: string }
-    | { type: "bye"; messages: ChatItem[]; reason: string };
+    | { type: "bye"; messages: ChatTranscriptMessage[]; reason: string };
 
 export type MusicCandidateDisplay = {
     kind: "music_candidate";
@@ -190,11 +190,22 @@ export type ChatBubbleProps = {
     theme?: ChatTheme | null;
 };
 
-export type ChatItem = {
+export type ChatMessageItem = {
+    type: "message";
     role: ChatRole;
     content: string;
     theme?: ChatTheme | null;
 };
+
+export type ChatTranscriptMessage = Omit<ChatMessageItem, "type">;
+
+export type InfoBannerItem = {
+    type: "info_banner";
+    authState: AuthRuntimeState;
+    cwd: string;
+};
+
+export type ChatItem = ChatMessageItem | InfoBannerItem;
 
 export type HelpCommand = {
     name: string;

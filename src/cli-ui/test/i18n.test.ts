@@ -25,6 +25,9 @@ const zhSlashCommands = localizeSlashCommands(SLASH_COMMANDS, "zh-CN");
 const langCommand = zhSlashCommands.find((command) => command.name === "lang");
 assert.equal(langCommand?.usage, "/lang");
 assert.equal(langCommand?.description, "选择 TUI 显示语言");
+const infoCommand = zhSlashCommands.find((command) => command.name === "info");
+assert.equal(infoCommand?.usage, "/info");
+assert.equal(infoCommand?.description, "显示当前运行信息");
 
 assert.equal(zhSlashCommands.find((command) => command.name === "play"), undefined);
 assert.equal(zhSlashCommands.find((command) => command.name === "search"), undefined);

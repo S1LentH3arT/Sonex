@@ -23,7 +23,9 @@ assert.match(appSource, /toggleShellRegion\(activeRegionRef\.current, playbackSe
 assert.match(appSource, /if \(key\.tab \|\| inputKey === "\\t"\) \{[\s\S]*toggleShellRegion/);
 assert.equal(appSource.includes('if (activeRegionRef.current === "spotifyImmersive")'), false);
 assert.match(appSource, /activeRegion !== "miniPlayer" && activeRegion !== "spotifyImmersive"/);
-assert.match(appSource, /activeRegion === "chat" \? <HeaderFrame/);
+assert.doesNotMatch(appSource, /activeRegion === "chat" \? <HeaderFrame/);
+assert.match(appSource, /const showFixedHeader = activeRegion === "chat" && authInterfaceActive/);
+assert.match(appSource, /\{showFixedHeader \? \([\s\S]*<HeaderFrame authState=\{authState\}/);
 assert.equal(appSource.includes('terminalSize.rows - 8'), false);
 assert.equal(appSource.includes('terminalSize.columns - 4'), false);
 

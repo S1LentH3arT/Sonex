@@ -1106,6 +1106,31 @@ def _llm_auth_state() -> AuthRuntimeState:
     )
 
 
+def _display_working_directory(cwd: Path | None = None) -> str:
+    """Return a home-relative display path for runtime status output."""
+    path = (cwd or Path.cwd()).resolve()
+    try:
+        relative = path.relative_to(Path.home().resolve())
+    except (OSError, ValueError):
+        return str(path)
+    if relative == Path("."):
+        return "~"
+    return str(Path("~") / relative)
+
+
+def _format_runtime_info(state: AuthRuntimeState, cwd: Path | None = None) -> str:
+    """Format current local runtime state without invoking the agent."""
+    return "\n".join(
+        (
+            "Sonex runtime:",
+            f"Model: {state.model}",
+            f"Provider: {state.provider}",
+            f"Auth: {state.auth_type}",
+            f"CWD: {_display_working_directory(cwd)}",
+        )
+    )
+
+
 def _llm_auth_ready() -> tuple[bool, str, str | None]:
     """Prepares llm auth ready for an internal Sonex flow.
 
@@ -3046,7 +3071,7 @@ SPOTIFY_MODE_AGENT_TOOLS = (
     "search_track",
     "spotify_play",
 )
-SPOTIFY_MODE_COMMANDS = {"bye", "lang", "logout", "model", "playlist", "quit", "queue", "random", "recommend"}
+SPOTIFY_MODE_COMMANDS = {"bye", "info", "lang", "logout", "model", "playlist", "quit", "queue", "random", "recommend"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS = 5.0
 SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS = 15.0
@@ -4668,6 +4693,10 @@ class WebSocketRunner:
             message = "The /lang command is handled by the TUI for this session."
             await ui.append_agent_message(message)
             await ui.append_activity(kind="status", title="TUI language", detail=message, status="success")
+            return
+
+        if command_name == "info":
+            await ui.append_agent_message(_format_runtime_info(_llm_auth_state()))
             return
 
         if command_name == "queue":

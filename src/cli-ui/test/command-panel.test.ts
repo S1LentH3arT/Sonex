@@ -73,6 +73,10 @@ const helpLang = allHelpCommands.find((command) => command.name === "lang");
 assert.equal(helpLang?.usage, "/lang");
 assert.equal(helpLang?.description, "choose the TUI display language");
 
+const helpInfo = allHelpCommands.find((command) => command.name === "info");
+assert.equal(helpInfo?.usage, "/info");
+assert.equal(helpInfo?.description, "show current runtime information");
+
 const helpPlaylist = allHelpCommands.find((command) => command.name === "playlist");
 assert.equal(helpPlaylist?.usage, "/playlist [name]|save [name]");
 assert.equal(helpPlaylist?.description, "browse or save playlists");
@@ -81,7 +85,7 @@ const helpQueue = allHelpCommands.find((command) => command.name === "queue");
 assert.equal(helpQueue?.usage, "/queue");
 assert.equal(helpQueue?.description, "show playback queue");
 
-assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["bye", "lang", "logout", "model", "playlist", "quit", "queue", "random", "recommend"]);
+assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["bye", "info", "lang", "logout", "model", "playlist", "quit", "queue", "random", "recommend"]);
 assert.deepEqual(spotifyModeSlashCommands().map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES);
 assert.deepEqual(spotifyModeSlashCommands("/").map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES);
 assert.deepEqual(spotifyModeSlashCommands("/p").map((command) => command.name), ["playlist"]);

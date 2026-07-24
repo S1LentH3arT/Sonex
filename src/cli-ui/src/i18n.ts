@@ -120,6 +120,7 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
 const commandDescriptions: Record<string, Record<UiLanguage, string>> = {
     bye: { en: "save session and exit", "zh-CN": "保存会话并退出" },
     help: { en: "show available commands", "zh-CN": "显示可用的 Sonex 命令" },
+    info: { en: "show current runtime information", "zh-CN": "显示当前运行信息" },
     keymap: { en: "toggle mini-player playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
     lang: { en: "choose the TUI display language", "zh-CN": "选择 TUI 显示语言" },
     logout: { en: "log out current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },

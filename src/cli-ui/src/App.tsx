@@ -8,6 +8,7 @@ import { DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl } f
 import { DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
 import { clamp, trimList } from './chat-window.js';
 import { useSonexSocket } from './hooks.js';
+import { chatMessagesForTranscript, createInfoBannerItem, isChatMessageItem } from './info-banner.js';
 import { applyLanguageToServerEvent, helpCommandsForLanguage, languageLabel, localizeSlashCommands, t } from './i18n.js';
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, resolveSpotifyImmersiveLayout, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
@@ -88,8 +89,15 @@ export const App = () => {
     const spotifySetupActiveRef = React.useRef(false);
     const authSetupActiveRef = React.useRef(false);
     const slashMenuActiveRef = React.useRef(false);
+    const startupInfoCapturedRef = React.useRef(false);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
+    const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
+    const showFixedHeader = activeRegion === "chat" && authInterfaceActive;
+    const conversationChatItems = React.useMemo(
+        () => authInterfaceActive ? chatItems.filter(isChatMessageItem) : chatItems,
+        [authInterfaceActive, chatItems],
+    );
     const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active
         ? []
         : spotifyMode.enabled
@@ -245,7 +253,12 @@ export const App = () => {
 
     const showError = React.useCallback((message: string, detail?: string | null) => {
         const content = detail ? `${message}\n${detail}` : message;
-        setChatItems((prev) => trimList([...prev, { role: "agent", content, theme: spotifyModeRef.current.enabled ? "spotify" : undefined }], MAX_CHAT_ITEMS));
+        setChatItems((prev) => trimList([...prev, {
+            type: "message",
+            role: "agent",
+            content,
+            theme: spotifyModeRef.current.enabled ? "spotify" : undefined,
+        }], MAX_CHAT_ITEMS));
         setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
     }, []);
 
@@ -267,7 +280,12 @@ export const App = () => {
         const evt = applyLanguageToServerEvent(rawEvent, language);
         switch (evt.type) {
             case "chat":
-                setChatItems((prev) => trimList([...prev, { role: evt.role, content: evt.text, theme: evt.theme }], MAX_CHAT_ITEMS));
+                setChatItems((prev) => trimList([...prev, {
+                    type: "message",
+                    role: evt.role,
+                    content: evt.text,
+                    theme: evt.theme,
+                }], MAX_CHAT_ITEMS));
                 setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
                 break;
             case "activity":
@@ -431,6 +449,14 @@ export const App = () => {
                     reason: evt.reason,
                 };
                 setAuthState(nextAuthState);
+                if (!startupInfoCapturedRef.current) {
+                    startupInfoCapturedRef.current = true;
+                    setChatItems((prev) => trimList([
+                        ...prev,
+                        createInfoBannerItem(nextAuthState, process.cwd()),
+                    ], MAX_CHAT_ITEMS));
+                    setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
+                }
                 break;
             case "help_panel":
                 setLaunchPreparing(false);
@@ -518,7 +544,7 @@ export const App = () => {
             timestamp: Date.now(),
         }));
 
-        const sent = send({ type: "bye", messages: chatItems, reason });
+        const sent = send({ type: "bye", messages: chatMessagesForTranscript(chatItems), reason });
         if (!sent) {
             setIsExiting(false);
             showError(
@@ -531,6 +557,7 @@ export const App = () => {
     const appendKeymapMessage = React.useCallback((enabled: boolean) => {
         const mode = enabled ? "enabled" : "pure mode";
         setChatItems((prev) => trimList([...prev, {
+            type: "message",
             role: "agent",
             content: language === "zh-CN" ? `迷你播放器快捷键已${enabled ? "启用" : "进入纯净模式"}。` : `Mini-player keymap is ${mode}.`,
         }], MAX_CHAT_ITEMS));
@@ -562,6 +589,7 @@ export const App = () => {
             return;
         }
         setChatItems((prev) => trimList([...prev, {
+            type: "message",
             role: "agent",
             content: t(language, "keymap.usage"),
         }], MAX_CHAT_ITEMS));
@@ -679,6 +707,22 @@ export const App = () => {
             return;
         }
 
+        if (!authSetup?.active && !spotifySetup?.active && command?.name === "info") {
+            setInput("");
+            setSlashMenuDismissedFor(null);
+            setHelpPanel(null);
+            setTrackPanel(null);
+            setTrackPanelIndex(0);
+            setLanguagePanel(null);
+            setHelpPanelIndex(0);
+            setChatItems((prev) => trimList([
+                ...prev,
+                createInfoBannerItem(authState, process.cwd()),
+            ], MAX_CHAT_ITEMS));
+            setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
+            return;
+        }
+
         if (!authSetup?.active && !spotifySetup?.active && text.startsWith("/") && !command) {
             const first = selectedSlashCommand ?? suggestions[0];
             if (first) {
@@ -712,7 +756,7 @@ export const App = () => {
         } else {
             send({ type: "user_input", text });
         }
-    }, [applySlashCompletion, authSetup?.active, confirm, handleKeymapCommand, openLanguagePanel, recommendInputLocked, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active, visibleConfirmChoices]);
+    }, [applySlashCompletion, authSetup?.active, authState, confirm, handleKeymapCommand, openLanguagePanel, recommendInputLocked, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active, visibleConfirmChoices]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -865,7 +909,12 @@ export const App = () => {
             const hiddenMessage = dismissedTrackPanel === "playlist"
                 ? t(language, "trackPanel.playlistHidden")
                 : t(language, "trackPanel.queueHidden");
-            setChatItems((prev) => [...prev, { role: "agent", content: hiddenMessage, theme: "muted" }]);
+            setChatItems((prev) => [...prev, {
+                type: "message",
+                role: "agent",
+                content: hiddenMessage,
+                theme: "muted",
+            }]);
         } else if (isTrackPanelQueueShortcut(inputKey, key) && selectedTrackPanelTrack) {
             send({ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
         } else if (key.return && selectedTrackPanelTrack) {
@@ -894,7 +943,9 @@ export const App = () => {
             height={terminalSize.rows ?? undefined}
             minHeight={0}
         >
-            {activeRegion === "chat" ? <HeaderFrame authState={authState} variant={headerVariant} language={language} /> : null}
+            {showFixedHeader ? (
+                <HeaderFrame authState={authState} cwd={process.cwd()} variant={headerVariant} language={language} />
+            ) : null}
             {isLoginScreenActive ? (
                 <LoginScreen
                     authSetup={authSetup}
@@ -914,7 +965,7 @@ export const App = () => {
                         inputMask={inputMask}
                         inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !helpPanel && !languagePanel?.active && !isModelPanelActive && !recommendInputLocked}
                         inputRevision={inputRevision}
-                        chatItems={chatItems}
+                        chatItems={conversationChatItems}
                         player={player}
                         statusText={displayStatusText}
                         coverUrl={coverUrl}
@@ -940,6 +991,7 @@ export const App = () => {
                         chatScrollOffset={chatScrollOffset}
                         onMaxChatScrollOffsetChange={setMaxChatScrollOffset}
                         terminalSpace={terminalSize}
+                        headerVariant={headerVariant}
                         language={language}
                     />
                 </Box>

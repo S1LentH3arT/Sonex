@@ -22,5 +22,7 @@ assert.equal((headerBody.match(/borderStyle="round"/g) ?? []).length, 2);
 assert.equal((headerBody.match(/borderColor="#808791"/g) ?? []).length, 2);
 assert.equal((headerBody.match(/<Text bold color=\{BORDER_BLUE\}>v\{APP_VERSION\}<\/Text>/g) ?? []).length, 2);
 assert.equal((headerBody.match(/<Box height=\{1\} \/>/g) ?? []).length, 2);
-assert.match(headerBody, /height=\{5\}/);
+assert.match(headerBody, /height=\{6\}/);
+assert.equal((headerBody.match(/\{displayCwd\}/g) ?? []).length, 2);
+assert.doesNotMatch(headerBody, /~\/dev\/sonex/);
 assert.doesNotMatch(headerBody, /tips\.placeholder/);

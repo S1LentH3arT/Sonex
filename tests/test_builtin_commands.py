@@ -52,6 +52,22 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertEqual(parsed.args, "")
         self.assertTrue(parsed.known)
 
+    def test_info_command_is_visible_local_metadata(self) -> None:
+        parsed = parse_builtin_command("/info")
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertEqual(parsed.name, "info")
+        self.assertEqual(parsed.args, "")
+        self.assertTrue(parsed.known)
+        self.assertEqual(parsed.command.mode, "local")
+        self.assertTrue(parsed.command.visible)
+        self.assertIsNone(parsed.command_intent())
+
+        commands = {command.name: command for command in command_suggestions()}
+        self.assertEqual(commands["info"].usage, "/info")
+        self.assertEqual(commands["info"].description, "Show current runtime information.")
+        self.assertIn("/info", format_help())
+
     def test_recommend_with_args(self) -> None:
         """Verifies that recommend with args behaves as expected.
 
@@ -341,7 +357,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        for name in ["help", "model", "logout", "setup", "bye", "quit", "player", "keymap", "lang"]:
+        for name in ["help", "info", "model", "logout", "setup", "bye", "quit", "player", "keymap", "lang"]:
             with self.subTest(name=name):
                 self.assertEqual(commands[name].mode, "local")
 

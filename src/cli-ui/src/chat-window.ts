@@ -1,5 +1,6 @@
 import stringWidth from 'string-width';
 import { CHAT_HEADER_ROWS, MIN_CHAT_VIEWPORT_ROWS } from './constants.js';
+import type { ChatHeaderVariant } from './layout.js';
 import type { ChatItem, VisibleChatWindow } from './types.js';
 
 /**
@@ -31,7 +32,10 @@ export function clamp(value: number, min: number, max: number): number {
  * @param item Input value used by the estimate chat item rows operation.
  * @returns The computed result for the surrounding CLI UI flow.
  */
-function estimateChatItemRows(item: ChatItem, wrapWidth: number): number {
+function estimateChatItemRows(item: ChatItem, wrapWidth: number, headerVariant: ChatHeaderVariant): number {
+    if (item.type === "info_banner") {
+        return headerVariant === "compact" ? 6 : 9;
+    }
     const boundedWrapWidth = Math.max(1, wrapWidth);
     const contentRows = item.content.split("\n").reduce((rows, line) => {
         return rows + Math.max(1, Math.ceil(stringWidth(line) / boundedWrapWidth));
@@ -52,6 +56,7 @@ export function getVisibleChatWindow(
     viewportRows: number,
     scrollOffset: number,
     wrapWidth: number,
+    headerVariant: ChatHeaderVariant = "full",
 ): VisibleChatWindow {
     if (items.length === 0) {
         return { items: [], hasHiddenAbove: false, hasHiddenBelow: false, maxScrollOffset: 0 };
@@ -65,7 +70,7 @@ export function getVisibleChatWindow(
     let usedRows = 0;
 
     while (startIndex > 0) {
-        const nextRows = estimateChatItemRows(items[startIndex - 1], wrapWidth);
+        const nextRows = estimateChatItemRows(items[startIndex - 1], wrapWidth, headerVariant);
         if (usedRows > 0 && usedRows + nextRows > contentRows) {
             break;
         }

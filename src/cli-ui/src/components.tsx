@@ -7,6 +7,7 @@ import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } 
 import { getVisibleConfirmChoices } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
 import { getVisibleChatWindow } from './chat-window.js';
+import { formatWorkingDirectory } from './info-banner.js';
 import { isHttpCoverSource, useCoverArt } from './hooks.js';
 import { hideInputCursor } from './input-cursor.js';
 import { languageLabel, t } from './i18n.js';
@@ -65,14 +66,21 @@ export const formatAuthLabel = (state: AuthRuntimeState): string => {
     return state.auth_type || state.credential_source || "auth";
 };
 
-export const HeaderFrame = ({ authState, variant, language = "en" }: { authState: AuthRuntimeState; variant: ChatHeaderVariant; language?: UiLanguage }) => {
+export const HeaderFrame = ({ authState, cwd, variant, language = "en" }: {
+    authState: AuthRuntimeState;
+    cwd: string;
+    variant: ChatHeaderVariant;
+    language?: UiLanguage;
+}) => {
     const identity = `${authState.model || authState.provider || FALLBACK_MODEL_NAME} • ${formatAuthLabel(authState)}`;
+    const displayCwd = formatWorkingDirectory(cwd);
     if (variant === 'compact') {
         return (
-            <Box width="100%" height={5} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
+            <Box width="100%" height={6} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
                 <Text color="#d8bcc7" wrap="truncate-end">{identity}</Text>
+                <Text color="#bf98a7" wrap="truncate-end">{displayCwd}</Text>
             </Box>
         );
     }
@@ -84,7 +92,7 @@ export const HeaderFrame = ({ authState, variant, language = "en" }: { authState
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
                 <Text color="#d8bcc7">{identity}</Text>
-                <Text color="#bf98a7">~/dev/sonex</Text>
+                <Text color="#bf98a7">{displayCwd}</Text>
             </Box>
         </Box>
     );
@@ -406,10 +414,11 @@ const ChatBubble = ({ role, content, theme = null }: ChatBubbleProps) => {
     );
 };
 
-const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false, language = "en" }: {
+const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, headerVariant, fill = false, language = "en" }: {
     items: ChatItem[];
     scrollOffset: number;
     onMaxScrollOffsetChange: (value: number) => void;
+    headerVariant: ChatHeaderVariant;
     fill?: boolean;
     language?: UiLanguage;
 }) => {
@@ -417,8 +426,8 @@ const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false, 
     const [viewportSize, setViewportSize] = React.useState({ width: 68, height: 12 });
     const wrapWidth = Math.max(1, viewportSize.width - 7);
     const visibleWindow = React.useMemo(
-        () => getVisibleChatWindow(items, viewportSize.height, scrollOffset, wrapWidth),
-        [items, scrollOffset, viewportSize.height, wrapWidth],
+        () => getVisibleChatWindow(items, viewportSize.height, scrollOffset, wrapWidth, headerVariant),
+        [headerVariant, items, scrollOffset, viewportSize.height, wrapWidth],
     );
 
     React.useEffect(() => {
@@ -441,8 +450,23 @@ const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, fill = false, 
                 ) : (
                     <>
                         {visibleWindow.hasHiddenAbove ? <Text color="#7f5d6b">{t(language, "chat.hiddenAbove")}</Text> : null}
-                        {visibleWindow.items.map((chat, idx) => (
-                            <ChatBubble key={`${items.indexOf(chat)}_${idx}`} role={chat.role} content={chat.content} theme={chat.theme} />
+                        {visibleWindow.items.map((item, idx) => (
+                            item.type === "info_banner" ? (
+                                <HeaderFrame
+                                    key={`${items.indexOf(item)}_${idx}_info`}
+                                    authState={item.authState}
+                                    cwd={item.cwd}
+                                    variant={headerVariant}
+                                    language={language}
+                                />
+                            ) : (
+                                <ChatBubble
+                                    key={`${items.indexOf(item)}_${idx}_message`}
+                                    role={item.role}
+                                    content={item.content}
+                                    theme={item.theme}
+                                />
+                            )
                         ))}
                         {visibleWindow.hasHiddenBelow ? <Text color="#7f5d6b">{t(language, "chat.hiddenBelow")}</Text> : null}
                     </>
@@ -1207,6 +1231,7 @@ const ConversationColumn = ({
     trackPanel,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
+    headerVariant,
     language = "en",
     fill = false,
 }: {
@@ -1233,6 +1258,7 @@ const ConversationColumn = ({
     trackPanel: TrackPanelState;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
+    headerVariant: ChatHeaderVariant;
     language?: UiLanguage;
     fill?: boolean;
 }) => {
@@ -1245,7 +1271,14 @@ const ConversationColumn = ({
 
     return (
         <Box flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} height={fill ? "100%" : undefined}>
-            <ChatPane items={chatItems} scrollOffset={chatScrollOffset} onMaxScrollOffsetChange={onMaxChatScrollOffsetChange} fill={fill} language={language} />
+            <ChatPane
+                items={chatItems}
+                scrollOffset={chatScrollOffset}
+                onMaxScrollOffsetChange={onMaxChatScrollOffsetChange}
+                headerVariant={headerVariant}
+                fill={fill}
+                language={language}
+            />
             {showMiniMascotStatus ? <MiniMascotStatus /> : null}
             <InputDock
                 input={input}
@@ -1395,6 +1428,7 @@ const ConversationRegion = ({
     trackPanelIndex,
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
+    headerVariant,
     language = "en",
 }: {
     chatItems: ChatItem[];
@@ -1422,6 +1456,7 @@ const ConversationRegion = ({
     trackPanelIndex: number;
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
+    headerVariant: ChatHeaderVariant;
     language?: UiLanguage;
 }) => {
     if (trackPanel) {
@@ -1454,6 +1489,7 @@ const ConversationRegion = ({
             trackPanel={trackPanel}
             chatScrollOffset={chatScrollOffset}
             onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
+            headerVariant={headerVariant}
             language={language}
             fill={true}
             />
@@ -1495,6 +1531,7 @@ export const DynamicShell = ({
     chatScrollOffset,
     onMaxChatScrollOffsetChange,
     terminalSpace,
+    headerVariant,
     language = "en",
 }: {
     input: string;
@@ -1530,6 +1567,7 @@ export const DynamicShell = ({
     chatScrollOffset: number;
     onMaxChatScrollOffsetChange: (value: number) => void;
     terminalSpace: TerminalSpace;
+    headerVariant: ChatHeaderVariant;
     language?: UiLanguage;
 }) => {
     if (activeRegion === "miniPlayer") {
@@ -1583,6 +1621,7 @@ export const DynamicShell = ({
             trackPanelIndex={trackPanelIndex}
             chatScrollOffset={chatScrollOffset}
             onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
+            headerVariant={headerVariant}
             language={language}
         />
     );
