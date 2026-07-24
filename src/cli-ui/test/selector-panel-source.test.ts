@@ -54,8 +54,13 @@ assert.match(
 assert.match(slashCommandListBody, /\{formatCommandListLabel\(command\)\}/);
 assert.match(
     slashCommandListBody,
-    /<Text color="#9d7787">\{command\.description\}<\/Text>/,
+    /const descriptionColor = selected \? commandColor : "#808791";/,
 );
+assert.match(
+    slashCommandListBody,
+    /<Text color=\{descriptionColor\}>\{command\.description\}<\/Text>/,
+);
+assert.doesNotMatch(slashCommandListBody, /color="#9d7787">\{command\.description\}/);
 assert.doesNotMatch(slashCommandListBody, /rowBackgroundColor/);
 assert.doesNotMatch(slashCommandListBody, /rowFill/);
 assert.doesNotMatch(slashCommandListBody, /backgroundColor=/);

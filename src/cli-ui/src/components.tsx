@@ -344,10 +344,11 @@ const SlashCommandList = ({ suggestions, selectedIndex, spotifyTheme = false }: 
                 const absoluteIndex = startIndex + index;
                 const selected = absoluteIndex === boundedIndex;
                 const commandColor = selected ? (spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE) : "#fff4f6";
+                const descriptionColor = selected ? commandColor : "#808791";
                 return (
                     <Text key={command.name} color={commandColor} bold={selected} wrap="truncate-end">
                         <Text>{formatCommandListLabel(command)}</Text>
-                        <Text color="#9d7787">{command.description}</Text>
+                        <Text color={descriptionColor}>{command.description}</Text>
                     </Text>
                 );
             })}
