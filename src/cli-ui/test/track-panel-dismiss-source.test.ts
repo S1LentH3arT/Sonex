@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
-const trackPanelInputStart = source.indexOf('useInput((inputKey, key) => {\n        if (!trackPanel');
-const trackPanelInputEnd = source.indexOf('\n    }, { isActive: Boolean(trackPanel)', trackPanelInputStart);
+const trackPanelInputStart = source.indexOf('useInput((inputKey, key) => {\n        if (activeRegion !== "trackPanel"');
+const trackPanelInputEnd = source.indexOf('\n    }, {\n        isActive: activeRegion === "trackPanel"', trackPanelInputStart);
 
 assert.ok(trackPanelInputStart >= 0);
 assert.ok(trackPanelInputEnd > trackPanelInputStart);
@@ -18,5 +18,9 @@ assert.match(escapeBranch, /t\(language, "trackPanel\.playlistHidden"\)/);
 assert.match(escapeBranch, /t\(language, "trackPanel\.queueHidden"\)/);
 assert.match(escapeBranch, /setTrackPanel\(null\)/);
 assert.match(escapeBranch, /setTrackPanelIndex\(0\)/);
-assert.match(escapeBranch, /setChatItems\(\(prev\) => \[\.\.\.prev, \{[\s\S]*type: "message",[\s\S]*role: "agent",[\s\S]*content: hiddenMessage,[\s\S]*theme: "muted",[\s\S]*\}\]\)/);
+assert.match(escapeBranch, /switchRegion\("chat"\)/);
+assert.match(
+    escapeBranch,
+    /commitItems\(\[\{[\s\S]*type: "message",[\s\S]*role: "agent",[\s\S]*content: hiddenMessage,[\s\S]*theme: "muted",[\s\S]*tone: "system",[\s\S]*\}\]\)/,
+);
 assert.equal(enterBranch.includes('Hidden'), false);

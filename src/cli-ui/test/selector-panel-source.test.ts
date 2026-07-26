@@ -3,12 +3,29 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const constantsSource = readFileSync(new URL('../src/constants.ts', import.meta.url), 'utf8');
 
 assert.match(source, /type ChoicePanelRow =/);
-assert.match(source, /const ChoicePanel = \(/);
-assert.match(source, /const SPOTIFY_GREEN = "#1db954"/);
+assert.match(
+    source,
+    /const ChoicePanel = \(\{ rows, selectedIndex, visibleLimit, selectedBackgroundColor, showSelectionMarker = true, boldSelected = false, marginTop = 1 \}/,
+);
+assert.match(
+    source,
+    /<Box flexDirection="column" marginTop=\{marginTop\}>/,
+);
+assert.match(
+    source,
+    /<Text key=\{row\.key\} backgroundColor=\{rowBackgroundColor\} bold=\{boldSelected && selected\}>/,
+);
+assert.match(
+    source,
+    /\{showSelectionMarker \? \([\s\S]*\{selected \? "> " : "  "\}[\s\S]*\) : null\}/,
+);
+assert.match(constantsSource, /export const SPOTIFY_GREEN = "#1db954"/);
+assert.match(source, /import \{[\s\S]*SPOTIFY_GREEN[\s\S]*\} from '\.\/constants\.js'/);
 assert.match(source, /const CONFIRM_CHOICE_LABEL_WIDTH = 18/);
-assert.match(source, /const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 94/);
+assert.match(source, /const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 102/);
 assert.match(source, /const PLAYLIST_BROWSE_NAME_WIDTH = 32/);
 assert.match(source, /const formatChoicePanelLabel = \(row: ChoicePanelRow\): string =>/);
 assert.match(source, /stringWidth\(row\.label\)/);
@@ -40,8 +57,12 @@ assert.ok(helpPanelStart > slashCommandListStart);
 const compactConfirmBody = source.slice(compactConfirmStart, languagePanelStart);
 const languagePanelBody = source.slice(languagePanelStart, inputDockStart);
 const compactSetupBody = source.slice(compactSetupStart, inputDockStart);
-const inputDockBody = source.slice(inputDockStart, source.indexOf('const ConversationColumn =', inputDockStart));
+const inputDockBody = source.slice(inputDockStart, source.indexOf('export const DynamicTail =', inputDockStart));
 const slashCommandListBody = source.slice(slashCommandListStart, helpPanelStart);
+const songCandidateBranch = compactConfirmBody.slice(
+    compactConfirmBody.indexOf('if (isSongCandidateConfirm)'),
+    compactConfirmBody.indexOf('if (confirm.tool_name === "playlist_browse")'),
+);
 
 assert.match(
     slashCommandListBody,
@@ -74,13 +95,47 @@ assert.match(
 );
 assert.match(
     inputDockBody,
-    /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN : "#808791"\}[\s\S]*paddingX=\{1\} paddingTop=\{0\}/,
+    /borderStyle="single" borderColor="#808791"[\s\S]*paddingX=\{1\} paddingTop=\{0\}/,
 );
 
 assert.match(compactConfirmBody, /<ChoicePanel/);
 assert.match(compactConfirmBody, /const visibleChoices = getVisibleConfirmChoices\(confirm\.choices\);/);
 assert.match(compactConfirmBody, /spotifyTheme = false/);
 assert.match(compactConfirmBody, /const isSpotifyConfirm = spotifyTheme \|\| confirm\.tool_name === "spotify_device"/);
+assert.match(
+    source,
+    /import \{ CHAT_SYSTEM_MARKER_COLOR,[\s\S]*\} from '\.\/chat-message\.js'/,
+);
+assert.match(
+    compactConfirmBody,
+    /const isSongCandidateConfirm = confirm\.tool_name === "song_candidate";/,
+);
+assert.match(
+    songCandidateBranch,
+    /if \(isSongCandidateConfirm\) \{[\s\S]*<Box flexDirection="column" paddingLeft=\{1\} paddingRight=\{0\} borderStyle="round" borderColor="#808791">/,
+);
+assert.match(
+    songCandidateBranch,
+    /<Text bold color=\{CHAT_SYSTEM_MARKER_COLOR\}>Select the version to play<\/Text>/,
+);
+assert.match(
+    songCandidateBranch,
+    /<Text color="#7f5d6b">press Esc to cancel<\/Text>/,
+);
+assert.match(
+    songCandidateBranch,
+    /press Esc to cancel<\/Text>\s*<Box height=\{1\} \/>\s*<ChoicePanel/,
+);
+assert.match(
+    songCandidateBranch,
+    /<ChoicePanel[\s\S]*showSelectionMarker=\{false\}[\s\S]*boldSelected=\{true\}[\s\S]*marginTop=\{0\}[\s\S]*\/>\s*<\/Box>/,
+);
+assert.doesNotMatch(songCandidateBranch, /selectedBackgroundColor=/);
+assert.doesNotMatch(songCandidateBranch, /confirmCancelHint/);
+assert.doesNotMatch(songCandidateBranch, /backgroundColor=|SONG_CANDIDATE_PANEL_BACKGROUND|rowWidth=|rowPaddingX=/);
+assert.doesNotMatch(songCandidateBranch, /paddingBottom=\{1\}|paddingY=\{1\}/);
+assert.doesNotMatch(songCandidateBranch, /borderTop=\{true\}/);
+assert.doesNotMatch(songCandidateBranch, /border(?:Top|Bottom|Left|Right)=\{false\}/);
 assert.match(compactConfirmBody, /if \(confirm\.tool_name === "playlist_browse"\) \{/);
 assert.match(compactConfirmBody, /<PlaylistBrowsePanel choices=\{visibleChoices\} selectedIndex=\{confirmIndex\} spotifyTheme=\{isSpotifyConfirm\} \/>/);
 assert.match(compactConfirmBody, /borderColor=\{isSpotifyConfirm \? SPOTIFY_GREEN : BORDER_BLUE\}/);
@@ -110,22 +165,25 @@ assert.match(inputDockBody, /<SlashCommandList suggestions=\{slashSuggestions\} 
 assert.match(inputDockBody, /const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
 assert.match(inputDockBody, /<CompactConfirm confirm=\{confirm\} confirmIndex=\{confirmIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
 assert.match(inputDockBody, /spotifyTheme=\{Boolean\(spotifySetup\)\}/);
-assert.match(inputDockBody, /const spotifyModeBorderLabel = " Spotify Mode ";/);
+assert.match(inputDockBody, /const spotifyModeBorderLabel = " 🎧 Spotify Mode ";/);
 assert.match(inputDockBody, /borderTop=\{true\}/);
 assert.match(inputDockBody, /borderBottom=\{true\}/);
 assert.match(inputDockBody, /borderLeft=\{false\}/);
 assert.match(inputDockBody, /borderRight=\{false\}/);
-assert.match(inputDockBody, /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN : "#808791"\}/);
+assert.match(inputDockBody, /borderStyle="single" borderColor="#808791"/);
+assert.match(inputDockBody, /<Text color="#7f5d6b">/);
+assert.doesNotMatch(inputDockBody, /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN/);
+assert.doesNotMatch(inputDockBody, /<Text color=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN/);
 assert.match(inputDockBody, /\{minimal && switchHint \? `\$\{switchHint\} · ` : ""\}/);
 assert.doesNotMatch(inputDockBody, /`\$\{switchHint\} · > `/);
 assert.doesNotMatch(inputDockBody, /: "> "/);
 assert.doesNotMatch(inputDockBody, /paddingBottom=\{1\}/);
 assert.match(inputDockBody, /minHeight=\{3\}/);
 assert.doesNotMatch(inputDockBody, /minHeight=\{minimal \? 3 : 4\}/);
-assert.match(inputDockBody, /<PromptInput[\s\S]*\/>\s*<\/Box>\s*<\/Box>\s*<Box height=\{1\} justifyContent="flex-end" paddingX=\{1\}>/);
+assert.match(inputDockBody, /<PromptInput[\s\S]*\/>\s*<\/Box>\s*<\/Box>\s*<Box height=\{1\} paddingX=\{1\} flexDirection="row">/);
 
-const modeRowStart = inputDockBody.indexOf('<Box height={1} justifyContent="flex-end" paddingX={1}>');
-const modeRowEnd = inputDockBody.indexOf('</Box>', modeRowStart);
+const modeRowStart = inputDockBody.indexOf('<Box height={1} paddingX={1} flexDirection="row">');
+const modeRowEnd = inputDockBody.indexOf('                </>', modeRowStart);
 assert.ok(modeRowStart >= 0);
 assert.ok(modeRowEnd > modeRowStart);
 

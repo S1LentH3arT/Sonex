@@ -1,6 +1,6 @@
 import type { PlayerState } from './types.js';
 
-export type ShellRegion = 'chat' | 'miniPlayer' | 'spotifyImmersive';
+export type ShellRegion = 'chat' | 'miniPlayer' | 'spotifyImmersive' | 'trackPanel';
 
 export type PlayerRegionTransition = {
     region: ShellRegion;

@@ -19,4 +19,4 @@ assert.match(inputPlaceholderBody, /: "";/);
 assert.doesNotMatch(inputPlaceholderBody, /input\.placeholder/);
 assert.match(appSource, /if \(recommendInputLocked\) return;[\s\S]*const sanitized = value\.replace/);
 assert.match(appSource, /if \(recommendInputLocked\) return;[\s\S]*const text = value\.trim\(\)/);
-assert.match(appSource, /inputFocus=\{\(!confirm \|\| Boolean\(selectedConfirmInput\)\) && rawModeAvailable && !helpPanel && !languagePanel\?\.active && !isModelPanelActive && !recommendInputLocked\}/);
+assert.match(appSource, /inputFocus=\{\(!confirm \|\| Boolean\(selectedConfirmInput\)\) && rawModeAvailable && !isExiting && !helpPanel && !languagePanel\?\.active && !isModelPanelActive && !recommendInputLocked\}/);

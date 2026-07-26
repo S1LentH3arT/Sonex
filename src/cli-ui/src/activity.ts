@@ -1,5 +1,5 @@
 import { MAX_ACTIVITY_ITEMS } from './constants.js';
-import { trimList } from './chat-window.js';
+import { trimList } from './list.js';
 import type { ActivityItem } from './types.js';
 
 /**

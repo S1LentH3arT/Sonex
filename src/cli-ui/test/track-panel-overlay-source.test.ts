@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const componentsSource = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
+const dynamicShellSource = componentsSource.slice(
+    componentsSource.indexOf('export const DynamicShell ='),
+);
 
 assert.doesNotMatch(componentsSource, /Conversation<\/Text>/);
 assert.match(componentsSource, /trackPanel\.queue/);
@@ -37,7 +40,11 @@ assert.doesNotMatch(componentsSource, /Array\.from\(\{ length: 10 \}/);
 assert.doesNotMatch(componentsSource, /panel\.panel === "queue" \? track\.duration : null/);
 assert.doesNotMatch(componentsSource, /`\$\{track\.artist\} • \$\{track\.duration\}`/);
 assert.match(componentsSource, /const TrackPanelOverlay = \(\{ trackPanel, selectedIndex = 0, language = "en" \}/);
-assert.match(componentsSource, /<TrackPanelOverlay trackPanel=\{trackPanel\} selectedIndex=\{trackPanelIndex\} language=\{language\} \/>/);
+assert.match(dynamicShellSource, /if \(activeRegion === "trackPanel" && trackPanel\)/);
+assert.match(
+    dynamicShellSource,
+    /<TrackPanelOverlay[\s\S]*trackPanel=\{trackPanel\}[\s\S]*selectedIndex=\{trackPanelIndex\}[\s\S]*language=\{language\}/,
+);
 assert.doesNotMatch(componentsSource, /<TrackPanel panel=\{trackPanel\} \/>/);
 assert.match(appSource, /const \[trackPanelIndex, setTrackPanelIndex\] = useState\(0\);/);
 assert.match(appSource, /setTrackPanelIndex\(0\);/);
@@ -47,6 +54,8 @@ assert.match(
     /case "queue":[\s\S]*setTrackPanel\(\(current\) => current \? \{ \.\.\.current, tracks: markQueuedTracks\(current\.panel === "queue" \? evt\.tracks : current\.tracks, evt\.tracks\) \} : current\);/,
 );
 assert.match(appSource, /case "track_panel":[\s\S]*tracks: markQueuedTracks\(evt\.tracks, queueItems\),/);
+assert.match(appSource, /case "track_panel":[\s\S]*switchRegion\("trackPanel"\);/);
 assert.match(appSource, /key\.upArrow[\s\S]*setTrackPanelIndex\(\(prev\) => Math\.max\(0, prev - 1\)\);/);
 assert.match(appSource, /key\.downArrow[\s\S]*setTrackPanelIndex\(\(prev\) => Math\.min\(trackPanel\.tracks\.length - 1, prev \+ 1\)\);/);
 assert.match(appSource, /if \(key\.escape\) \{\s*setTrackPanel\(null\);/);
+assert.match(appSource, /isActive: activeRegion === "trackPanel"/);

@@ -1,22 +1,23 @@
 import React from 'react';
-import { Box, Text, Transform, measureElement } from 'ink';
+import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
-import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO } from './constants.js';
+import { CHAT_SYSTEM_MARKER_COLOR, resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent } from './chat-message.js';
+import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
-import { getVisibleChatWindow } from './chat-window.js';
 import { formatWorkingDirectory } from './info-banner.js';
 import { isHttpCoverSource, useCoverArt } from './hooks.js';
-import { hideInputCursor } from './input-cursor.js';
+import { hideInputCursor, INPUT_CURSOR_BLINK_INTERVAL_MS } from './input-cursor.js';
 import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import { formatTrackPanelLine } from './track-panel.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { CommittedTranscriptRecord } from './transcript.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -66,9 +67,10 @@ export const formatAuthLabel = (state: AuthRuntimeState): string => {
     return state.auth_type || state.credential_source || "auth";
 };
 
-export const HeaderFrame = ({ authState, cwd, variant, language = "en" }: {
+export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en" }: {
     authState: AuthRuntimeState;
     cwd: string;
+    sessionId: string | null;
     variant: ChatHeaderVariant;
     language?: UiLanguage;
 }) => {
@@ -76,11 +78,17 @@ export const HeaderFrame = ({ authState, cwd, variant, language = "en" }: {
     const displayCwd = formatWorkingDirectory(cwd);
     if (variant === 'compact') {
         return (
-            <Box width="100%" height={6} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
+            <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
                 <Text color="#d8bcc7" wrap="truncate-end">{identity}</Text>
                 <Text color="#bf98a7" wrap="truncate-end">{displayCwd}</Text>
+                {sessionId ? (
+                    <>
+                        <Text color="#808791">session id:</Text>
+                        <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
+                    </>
+                ) : null}
             </Box>
         );
     }
@@ -93,6 +101,12 @@ export const HeaderFrame = ({ authState, cwd, variant, language = "en" }: {
                 <Box height={1} />
                 <Text color="#d8bcc7">{identity}</Text>
                 <Text color="#bf98a7">{displayCwd}</Text>
+                {sessionId ? (
+                    <>
+                        <Text color="#808791">session id:</Text>
+                        <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
+                    </>
+                ) : null}
             </Box>
         </Box>
     );
@@ -201,8 +215,6 @@ export const LoginScreen = ({
     );
 };
 
-const INPUT_CURSOR_BLINK_INTERVAL_MS = 500;
-
 const PromptInput = ({ input, setInput, onSubmit, focus, placeholder, mask, inputRevision }: PromptInputProps) => {
     const [cursorVisible, setCursorVisible] = React.useState(true);
 
@@ -210,15 +222,14 @@ const PromptInput = ({ input, setInput, onSubmit, focus, placeholder, mask, inpu
         setCursorVisible(true);
         if (!focus) return;
 
-        const timer = setInterval(
-            () => setCursorVisible((visible) => !visible),
-            INPUT_CURSOR_BLINK_INTERVAL_MS,
-        );
+        const timer = setInterval(() => setCursorVisible((visible) => !visible), INPUT_CURSOR_BLINK_INTERVAL_MS);
         return () => clearInterval(timer);
     }, [focus, input, inputRevision]);
 
     return (
-        <Transform transform={(output) => cursorVisible ? output : hideInputCursor(output)}>
+        <Transform transform={(output) => focus && cursorVisible
+            ? output
+            : hideInputCursor(output)}>
             <TextInput
                 key={inputRevision}
                 value={input}
@@ -242,10 +253,9 @@ type ChoicePanelRow = {
 
 const COMMAND_LIST_LABEL_WIDTH = 12;
 const CONFIRM_CHOICE_LABEL_WIDTH = 18;
-const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 94;
+const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 102;
 const MODEL_PANEL_LABEL_WIDTH = 20;
 const PLAYLIST_BROWSE_NAME_WIDTH = 32;
-const SPOTIFY_GREEN = "#1db954";
 const SPOTIFY_SELECTED_TEXT = "#06140c";
 const TRACK_PANEL_ROW_WIDTH = 96;
 
@@ -297,11 +307,14 @@ const formatChoicePanelLabel = (row: ChoicePanelRow): string => (
         : row.label
 );
 
-const ChoicePanel = ({ rows, selectedIndex, visibleLimit, selectedBackgroundColor }: {
+const ChoicePanel = ({ rows, selectedIndex, visibleLimit, selectedBackgroundColor, showSelectionMarker = true, boldSelected = false, marginTop = 1 }: {
     rows: ChoicePanelRow[];
     selectedIndex: number;
     visibleLimit?: number;
     selectedBackgroundColor?: string;
+    showSelectionMarker?: boolean;
+    boldSelected?: boolean;
+    marginTop?: number;
 }) => {
     if (rows.length === 0) return null;
     const { items: visibleRows, boundedIndex, startIndex } = visibleCommandWindow(
@@ -311,20 +324,26 @@ const ChoicePanel = ({ rows, selectedIndex, visibleLimit, selectedBackgroundColo
     );
 
     return (
-        <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={marginTop}>
             {visibleRows.map((row, index) => {
                 const absoluteIndex = startIndex + index;
                 const selected = absoluteIndex === boundedIndex;
                 const rowBackgroundColor = selected ? selectedBackgroundColor : undefined;
-                const rowColor = selectedBackgroundColor && selected ? "#06140c" : selected ? BORDER_BLUE : "#fff4f6";
+                const rowColor = selectedBackgroundColor && selected
+                    ? "#06140c"
+                    : selected
+                    ? BORDER_BLUE
+                    : "#fff4f6";
                 return (
-                    <Text key={row.key} backgroundColor={rowBackgroundColor}>
-                        <Text color={rowColor} backgroundColor={rowBackgroundColor}>{selected ? "> " : "  "}</Text>
+                    <Text key={row.key} backgroundColor={rowBackgroundColor} bold={boldSelected && selected}>
+                        {showSelectionMarker ? (
+                            <Text color={rowColor} backgroundColor={rowBackgroundColor}>
+                                {selected ? "> " : "  "}
+                            </Text>
+                        ) : null}
                         <Text color={rowColor} backgroundColor={rowBackgroundColor} wrap="truncate-end">{formatChoicePanelLabel(row)}</Text>
                         {row.description && row.display?.kind !== "music_candidate" ? (
-                            <>
-                                <Text color={rowColor} backgroundColor={rowBackgroundColor}>{row.description}</Text>
-                            </>
+                            <Text color={rowColor} backgroundColor={rowBackgroundColor}>{row.description}</Text>
                         ) : null}
                     </Text>
                 );
@@ -401,80 +420,69 @@ const HelpPanel = ({ panel, selectedIndex, language = "en" }: { panel: HelpPanel
     );
 };
 
-const ChatBubble = ({ role, content, theme = null }: ChatBubbleProps) => {
+const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null }: ChatBubbleProps) => {
     const isUser = role === "user";
-    const color = theme === "muted" && !isUser ? "#9ca3af" : theme === "spotify" && !isUser ? SPOTIFY_GREEN : isUser ? "#fff6f8" : "#f6e9ee";
-    const borderLeftColor = theme === "muted" && !isUser ? "#6b7280" : theme === "spotify" && !isUser ? SPOTIFY_GREEN : isUser ? BORDER_BLUE : BORDER_BLUE_SOFT;
+    const color = theme === "muted" && !isUser ? "#9ca3af" : isUser ? "#fff6f8" : "#f6e9ee";
+    const markerColor = resolveChatMarkerColor(role, theme, tone);
+    const subject = resolveChatSubject(role, tone);
+    const lines = wrapChatMessageContent(content, contentWidth);
 
     return (
-        <Box paddingX={2} marginBottom={1} borderStyle="single" borderTop={false} borderRight={false}
-            borderBottom={false} borderLeft={true} borderColor={borderLeftColor} flexDirection="column" width="100%">
-            <Text color={color}>{content}</Text>
+        <Box marginBottom={1} flexDirection="column" width="100%">
+            <Text bold color={markerColor}>{subject}</Text>
+            {lines.map((line, index) => {
+                const marker = index === lines.length - 1 ? "└" : "│";
+                return (
+                    <Text key={`${index}_${line}`}>
+                        <Text color={markerColor}>{marker}</Text>
+                        <Text color={color}>{` ${line}`}</Text>
+                    </Text>
+                );
+            })}
         </Box>
     );
 };
 
-const ChatPane = ({ items, scrollOffset, onMaxScrollOffsetChange, headerVariant, fill = false, language = "en" }: {
-    items: ChatItem[];
-    scrollOffset: number;
-    onMaxScrollOffsetChange: (value: number) => void;
-    headerVariant: ChatHeaderVariant;
-    fill?: boolean;
-    language?: UiLanguage;
-}) => {
-    const containerRef = React.useRef<any>(null);
-    const [viewportSize, setViewportSize] = React.useState({ width: 68, height: 12 });
-    const wrapWidth = Math.max(1, viewportSize.width - 7);
-    const visibleWindow = React.useMemo(
-        () => getVisibleChatWindow(items, viewportSize.height, scrollOffset, wrapWidth, headerVariant),
-        [headerVariant, items, scrollOffset, viewportSize.height, wrapWidth],
-    );
+export const CommittedRecord = ({
+    record,
+}: {
+    record: CommittedTranscriptRecord;
+}) => (
+    <Box flexDirection="column" paddingX={1}>
+        {record.item.type === "info_banner" ? (
+            <HeaderFrame
+                authState={record.item.authState}
+                cwd={record.item.cwd}
+                sessionId={record.item.sessionId}
+                variant={record.presentation.headerVariant}
+                language={record.presentation.language}
+            />
+        ) : (
+            <ChatBubble
+                role={record.item.role}
+                content={record.item.content}
+                contentWidth={record.presentation.contentWidth}
+                theme={record.item.theme}
+                tone={record.item.tone}
+            />
+        )}
+    </Box>
+);
 
-    React.useEffect(() => {
-        if (!containerRef.current) return;
-        const { width, height } = measureElement(containerRef.current);
-        if (width > 0 && height > 0 && (width !== viewportSize.width || height !== viewportSize.height)) {
-            setViewportSize({ width, height });
-        }
-    });
-
-    React.useEffect(() => {
-        onMaxScrollOffsetChange(visibleWindow.maxScrollOffset);
-    }, [onMaxScrollOffsetChange, visibleWindow.maxScrollOffset]);
-
-    return (
-        <Box ref={containerRef} flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} overflowY="hidden" paddingX={1}>
-            <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} overflowY="hidden">
-                {items.length === 0 ? (
-                    <Text color="#7f5d6b">{t(language, "chat.empty")}</Text>
-                ) : (
-                    <>
-                        {visibleWindow.hasHiddenAbove ? <Text color="#7f5d6b">{t(language, "chat.hiddenAbove")}</Text> : null}
-                        {visibleWindow.items.map((item, idx) => (
-                            item.type === "info_banner" ? (
-                                <HeaderFrame
-                                    key={`${items.indexOf(item)}_${idx}_info`}
-                                    authState={item.authState}
-                                    cwd={item.cwd}
-                                    variant={headerVariant}
-                                    language={language}
-                                />
-                            ) : (
-                                <ChatBubble
-                                    key={`${items.indexOf(item)}_${idx}_message`}
-                                    role={item.role}
-                                    content={item.content}
-                                    theme={item.theme}
-                                />
-                            )
-                        ))}
-                        {visibleWindow.hasHiddenBelow ? <Text color="#7f5d6b">{t(language, "chat.hiddenBelow")}</Text> : null}
-                    </>
-                )}
-            </Box>
-        </Box>
-    );
-};
+export const CommittedTranscript = ({
+    records,
+}: {
+    records: CommittedTranscriptRecord[];
+}) => (
+    <Static items={records}>
+        {(record) => (
+            <CommittedRecord
+                key={record.sequence}
+                record={record}
+            />
+        )}
+    </Static>
+);
 
 const localizeTrackPanelTitle = (panel: NonNullable<TrackPanelState>, language: UiLanguage): string => {
     if (panel.panel === "queue") return t(language, "trackPanel.queue");
@@ -955,6 +963,30 @@ const CompactConfirm = ({ confirm, confirmIndex, spotifyTheme = false }: {
     if (!confirm) return null;
     const visibleChoices = getVisibleConfirmChoices(confirm.choices);
     const isSpotifyConfirm = spotifyTheme || confirm.tool_name === "spotify_device";
+    const isSongCandidateConfirm = confirm.tool_name === "song_candidate";
+
+    if (isSongCandidateConfirm) {
+        return (
+            <Box flexDirection="column" paddingLeft={1} paddingRight={0} borderStyle="round" borderColor="#808791">
+                <Text bold color={CHAT_SYSTEM_MARKER_COLOR}>Select the version to play</Text>
+                <Text color="#7f5d6b">press Esc to cancel</Text>
+                <Box height={1} />
+                <ChoicePanel
+                    rows={visibleChoices.map((choice) => ({
+                        key: choice.value,
+                        label: choice.label,
+                        description: choice.description,
+                        display: choice.display,
+                        labelWidth: CONFIRM_CHOICE_LABEL_WIDTH,
+                    }))}
+                    selectedIndex={confirmIndex}
+                    showSelectionMarker={false}
+                    boldSelected={true}
+                    marginTop={0}
+                />
+            </Box>
+        );
+    }
 
     if (confirm.tool_name === "playlist_browse") {
         return (
@@ -1094,6 +1126,7 @@ const InputDock = ({
     spotifyMode,
     spotifySetup,
     authSetup,
+    modelStatus,
     slashSuggestions,
     slashIndex,
     helpPanel,
@@ -1117,6 +1150,7 @@ const InputDock = ({
     spotifyMode: SpotifyModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
+    modelStatus: string | null;
     slashSuggestions: SlashCommandSuggestion[];
     slashIndex: number;
     helpPanel: HelpPanelState;
@@ -1143,7 +1177,7 @@ const InputDock = ({
         }
         : null;
     const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && (!confirm || Boolean(selectedChoice?.input));
-    const spotifyModeBorderLabel = " Spotify Mode ";
+    const spotifyModeBorderLabel = " 🎧 Spotify Mode ";
 
     return (
         <Box flexDirection="column">
@@ -1178,11 +1212,11 @@ const InputDock = ({
             {showInput ? (
                 <>
                     <Box borderTop={true} borderBottom={true} borderLeft={false} borderRight={false}
-                        borderStyle="single" borderColor={spotifyMode?.enabled ? SPOTIFY_GREEN : "#808791"}
+                        borderStyle="single" borderColor="#808791"
                         paddingX={1} paddingTop={0} flexDirection="column"
                         minHeight={3} flexShrink={0}>
                         <Box flexDirection="row">
-                            <Text color={spotifyMode?.enabled ? SPOTIFY_GREEN : "#7f5d6b"}>
+                            <Text color="#7f5d6b">
                                 {minimal && switchHint ? `${switchHint} · ` : ""}
                             </Text>
                             <PromptInput
@@ -1196,10 +1230,17 @@ const InputDock = ({
                             />
                         </Box>
                     </Box>
-                    <Box height={1} justifyContent="flex-end" paddingX={1}>
-                        {spotifyMode?.enabled ? (
-                            <Text bold color={SPOTIFY_GREEN}>{spotifyModeBorderLabel}</Text>
-                        ) : null}
+                    <Box height={1} paddingX={1} flexDirection="row">
+                        <Box flexGrow={1} minWidth={0}>
+                            {modelStatus ? (
+                                <Text color="#808791" wrap="truncate-end">{modelStatus}</Text>
+                            ) : null}
+                        </Box>
+                        <Box flexShrink={0}>
+                            {spotifyMode?.enabled ? (
+                                <Text bold color={SPOTIFY_GREEN}>{spotifyModeBorderLabel}</Text>
+                            ) : null}
+                        </Box>
                     </Box>
                 </>
             ) : null}
@@ -1207,8 +1248,7 @@ const InputDock = ({
     );
 };
 
-const ConversationColumn = ({
-    chatItems,
+export const DynamicTail = ({
     input,
     setInput,
     onSubmit,
@@ -1221,6 +1261,7 @@ const ConversationColumn = ({
     spotifyMode,
     spotifySetup,
     authSetup,
+    modelStatus,
     slashSuggestions,
     slashIndex,
     helpPanel,
@@ -1228,14 +1269,8 @@ const ConversationColumn = ({
     languagePanel,
     languagePanelIndex,
     modelPanelIndex,
-    trackPanel,
-    chatScrollOffset,
-    onMaxChatScrollOffsetChange,
-    headerVariant,
     language = "en",
-    fill = false,
 }: {
-    chatItems: ChatItem[];
     input: string;
     setInput: (value: string) => void;
     onSubmit: (value: string) => void;
@@ -1248,6 +1283,7 @@ const ConversationColumn = ({
     spotifyMode: SpotifyModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
+    modelStatus: string | null;
     slashSuggestions: SlashCommandSuggestion[];
     slashIndex: number;
     helpPanel: HelpPanelState;
@@ -1255,12 +1291,7 @@ const ConversationColumn = ({
     languagePanel: LanguagePanelState;
     languagePanelIndex: number;
     modelPanelIndex: number;
-    trackPanel: TrackPanelState;
-    chatScrollOffset: number;
-    onMaxChatScrollOffsetChange: (value: number) => void;
-    headerVariant: ChatHeaderVariant;
     language?: UiLanguage;
-    fill?: boolean;
 }) => {
     const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
     const hasModelPanel = authSetup?.active && authSetup.step === "model";
@@ -1270,15 +1301,7 @@ const ConversationColumn = ({
     const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;
 
     return (
-        <Box flexDirection="column" flexGrow={fill ? 1 : 0} flexShrink={1} minHeight={0} height={fill ? "100%" : undefined}>
-            <ChatPane
-                items={chatItems}
-                scrollOffset={chatScrollOffset}
-                onMaxScrollOffsetChange={onMaxChatScrollOffsetChange}
-                headerVariant={headerVariant}
-                fill={fill}
-                language={language}
-            />
+        <Box flexDirection="column">
             {showMiniMascotStatus ? <MiniMascotStatus /> : null}
             <InputDock
                 input={input}
@@ -1293,6 +1316,7 @@ const ConversationColumn = ({
                 spotifyMode={spotifyMode}
                 spotifySetup={spotifySetup}
                 authSetup={authSetup}
+                modelStatus={modelStatus}
                 slashSuggestions={slashSuggestions}
                 slashIndex={slashIndex}
                 helpPanel={helpPanel}
@@ -1403,100 +1427,6 @@ const SpotifyImmersiveRegion = ({
     );
 };
 
-const ConversationRegion = ({
-    chatItems,
-    input,
-    setInput,
-    onSubmit,
-    inputPlaceholder,
-    inputMask,
-    inputFocus,
-    inputRevision,
-    confirm,
-    confirmIndex,
-    spotifyMode,
-    spotifySetup,
-    authSetup,
-    slashSuggestions,
-    slashIndex,
-    helpPanel,
-    helpPanelIndex,
-    languagePanel,
-    languagePanelIndex,
-    modelPanelIndex,
-    trackPanel,
-    trackPanelIndex,
-    chatScrollOffset,
-    onMaxChatScrollOffsetChange,
-    headerVariant,
-    language = "en",
-}: {
-    chatItems: ChatItem[];
-    statusText: string;
-    input: string;
-    setInput: (value: string) => void;
-    onSubmit: (value: string) => void;
-    inputPlaceholder: string;
-    inputMask?: string;
-    inputFocus: boolean;
-    inputRevision: number;
-    confirm: ConfirmState;
-    confirmIndex: number;
-    spotifyMode: SpotifyModeState;
-    spotifySetup: SpotifySetupState;
-    authSetup: AuthSetupState;
-    slashSuggestions: SlashCommandSuggestion[];
-    slashIndex: number;
-    helpPanel: HelpPanelState;
-    helpPanelIndex: number;
-    languagePanel: LanguagePanelState;
-    languagePanelIndex: number;
-    modelPanelIndex: number;
-    trackPanel: TrackPanelState;
-    trackPanelIndex: number;
-    chatScrollOffset: number;
-    onMaxChatScrollOffsetChange: (value: number) => void;
-    headerVariant: ChatHeaderVariant;
-    language?: UiLanguage;
-}) => {
-    if (trackPanel) {
-        return <TrackPanelOverlay trackPanel={trackPanel} selectedIndex={trackPanelIndex} language={language} />;
-    }
-
-    return (
-        <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
-            <ConversationColumn
-            chatItems={chatItems}
-            input={input}
-            setInput={setInput}
-            onSubmit={onSubmit}
-            inputPlaceholder={inputPlaceholder}
-            inputMask={inputMask}
-            inputFocus={inputFocus}
-            inputRevision={inputRevision}
-            confirm={confirm}
-            confirmIndex={confirmIndex}
-            spotifyMode={spotifyMode}
-            spotifySetup={spotifySetup}
-            authSetup={authSetup}
-            slashSuggestions={slashSuggestions}
-            slashIndex={slashIndex}
-            helpPanel={helpPanel}
-            helpPanelIndex={helpPanelIndex}
-            languagePanel={languagePanel}
-            languagePanelIndex={languagePanelIndex}
-            modelPanelIndex={modelPanelIndex}
-            trackPanel={trackPanel}
-            chatScrollOffset={chatScrollOffset}
-            onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
-            headerVariant={headerVariant}
-            language={language}
-            fill={true}
-            />
-        </Box>
-    );
-};
-
 export const DynamicShell = ({
     input,
     setInput,
@@ -1505,9 +1435,7 @@ export const DynamicShell = ({
     inputMask,
     inputFocus,
     inputRevision,
-    chatItems,
     player,
-    statusText,
     coverUrl,
     coverPattern,
     confirm,
@@ -1515,6 +1443,7 @@ export const DynamicShell = ({
     spotifyMode,
     spotifySetup,
     authSetup,
+    modelStatus,
     slashSuggestions,
     slashIndex,
     helpPanel,
@@ -1528,10 +1457,7 @@ export const DynamicShell = ({
     miniSnapshotRevision,
     miniLayout,
     spotifyImmersiveLayout,
-    chatScrollOffset,
-    onMaxChatScrollOffsetChange,
     terminalSpace,
-    headerVariant,
     language = "en",
 }: {
     input: string;
@@ -1541,9 +1467,7 @@ export const DynamicShell = ({
     inputMask?: string;
     inputFocus: boolean;
     inputRevision: number;
-    chatItems: ChatItem[];
     player: PlayerState;
-    statusText: string;
     coverUrl: string | null;
     coverPattern: CoverPatternPayload | null;
     confirm: ConfirmState;
@@ -1551,6 +1475,7 @@ export const DynamicShell = ({
     spotifyMode: SpotifyModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
+    modelStatus: string | null;
     slashSuggestions: SlashCommandSuggestion[];
     slashIndex: number;
     helpPanel: HelpPanelState;
@@ -1564,10 +1489,7 @@ export const DynamicShell = ({
     miniSnapshotRevision: number;
     miniLayout: MiniPlayerLayout;
     spotifyImmersiveLayout: SpotifyImmersiveLayout;
-    chatScrollOffset: number;
-    onMaxChatScrollOffsetChange: (value: number) => void;
     terminalSpace: TerminalSpace;
-    headerVariant: ChatHeaderVariant;
     language?: UiLanguage;
 }) => {
     if (activeRegion === "miniPlayer") {
@@ -1594,10 +1516,18 @@ export const DynamicShell = ({
         );
     }
 
+    if (activeRegion === "trackPanel" && trackPanel) {
+        return (
+            <TrackPanelOverlay
+                trackPanel={trackPanel}
+                selectedIndex={trackPanelIndex}
+                language={language}
+            />
+        );
+    }
+
     return (
-        <ConversationRegion
-            chatItems={chatItems}
-            statusText={statusText}
+        <DynamicTail
             input={input}
             setInput={setInput}
             onSubmit={onSubmit}
@@ -1610,6 +1540,7 @@ export const DynamicShell = ({
             spotifyMode={spotifyMode}
             spotifySetup={spotifySetup}
             authSetup={authSetup}
+            modelStatus={modelStatus}
             slashSuggestions={slashSuggestions}
             slashIndex={slashIndex}
             helpPanel={helpPanel}
@@ -1617,11 +1548,6 @@ export const DynamicShell = ({
             languagePanel={languagePanel}
             languagePanelIndex={languagePanelIndex}
             modelPanelIndex={modelPanelIndex}
-            trackPanel={trackPanel}
-            trackPanelIndex={trackPanelIndex}
-            chatScrollOffset={chatScrollOffset}
-            onMaxChatScrollOffsetChange={onMaxChatScrollOffsetChange}
-            headerVariant={headerVariant}
             language={language}
         />
     );

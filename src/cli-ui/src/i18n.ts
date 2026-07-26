@@ -7,8 +7,6 @@ type MessageKey =
     | "auth.oauth.return"
     | "auth.oauth.waiting"
     | "chat.empty"
-    | "chat.hiddenAbove"
-    | "chat.hiddenBelow"
     | "command.lang.description"
     | "help.empty"
     | "help.hint"
@@ -46,8 +44,6 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "auth.oauth.return": "Complete the OAuth flow in your browser, then return here.",
         "auth.oauth.waiting": "Waiting for browser authorization...",
         "chat.empty": "No messages yet.",
-        "chat.hiddenAbove": "↑ earlier messages",
-        "chat.hiddenBelow": "↓ newer messages",
         "command.lang.description": "Choose the TUI display language.",
         "help.empty": "No matching commands.",
         "help.hint": "Use Up/Down to choose, Esc to close.",
@@ -84,8 +80,6 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "auth.oauth.return": "在浏览器中完成 OAuth 流程，然后回到这里。",
         "auth.oauth.waiting": "等待浏览器授权...",
         "chat.empty": "还没有消息。",
-        "chat.hiddenAbove": "↑ 更早的消息",
-        "chat.hiddenBelow": "↓ 更新的消息",
         "command.lang.description": "选择 TUI 显示语言。",
         "help.empty": "没有匹配的命令。",
         "help.hint": "使用上下键选择，Esc 关闭。",

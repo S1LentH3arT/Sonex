@@ -20,11 +20,16 @@ export function formatWorkingDirectory(cwd: string, homeDirectory: string = home
     return relative ? `~${separator}${relative}` : "~";
 }
 
-export function createInfoBannerItem(authState: AuthRuntimeState, cwd: string): InfoBannerItem {
+export function createInfoBannerItem(
+    authState: AuthRuntimeState,
+    cwd: string,
+    sessionId: string | null,
+): InfoBannerItem {
     return {
         type: "info_banner",
         authState: { ...authState },
         cwd,
+        sessionId,
     };
 }
 

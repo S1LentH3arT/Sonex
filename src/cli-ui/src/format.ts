@@ -23,7 +23,7 @@ export function formatMiniTrackSubtitle(artist: string, album: string): string {
 }
 
 const MUSIC_CANDIDATE_ARTIST_WIDTH = 24;
-const MUSIC_CANDIDATE_ALBUM_WIDTH = 24;
+const MUSIC_CANDIDATE_ALBUM_WIDTH = 32;
 const ELLIPSIS = "...";
 
 export function fitDisplayWidthWithEllipsis(value: string, width: number): string {

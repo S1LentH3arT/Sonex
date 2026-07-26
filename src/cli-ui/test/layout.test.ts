@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
     resolveChatHeaderVariant,
@@ -9,6 +10,13 @@ import {
     toggleShellRegion,
 } from '../src/layout.js';
 import type { PlayerState } from '../src/types.js';
+
+const layoutSource = readFileSync(new URL('../src/layout.ts', import.meta.url), 'utf8');
+
+assert.match(
+    layoutSource,
+    /export type ShellRegion = 'chat' \| 'miniPlayer' \| 'spotifyImmersive' \| 'trackPanel';/,
+);
 
 const idle: PlayerState = {
     name: '-',
@@ -151,14 +159,34 @@ assert.deepEqual(
     { region: 'chat', sessionActive: false },
 );
 
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'trackPanel',
+        wasSessionActive: true,
+        player: { ...playing, is_playing: false },
+    }),
+    { region: 'trackPanel', sessionActive: true },
+);
+
+assert.deepEqual(
+    resolveRegionAfterPlayerEvent({
+        currentRegion: 'trackPanel',
+        wasSessionActive: true,
+        player: { ...playing, is_playing: false, ended: true },
+    }),
+    { region: 'chat', sessionActive: false },
+);
+
 assert.equal(toggleShellRegion('chat', true), 'miniPlayer');
 assert.equal(toggleShellRegion('chat', true, true), 'spotifyImmersive');
 assert.equal(toggleShellRegion('miniPlayer', true), 'chat');
 assert.equal(toggleShellRegion('spotifyImmersive', true), 'chat');
+assert.equal(toggleShellRegion('trackPanel', true), 'chat');
 assert.equal(toggleShellRegion('chat', false), 'chat');
 assert.equal(toggleShellRegion('chat', false, true), 'chat');
 assert.equal(toggleShellRegion('miniPlayer', false), 'chat');
 assert.equal(toggleShellRegion('spotifyImmersive', false), 'chat');
+assert.equal(toggleShellRegion('trackPanel', false), 'chat');
 
 assert.equal(resolveChatHeaderVariant(71), 'compact');
 assert.equal(resolveChatHeaderVariant(72), 'full');

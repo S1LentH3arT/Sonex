@@ -25,8 +25,8 @@ const chineseCandidate: MusicCandidateDisplay = {
 const englishLabel = formatMusicCandidateDisplayLabel(englishCandidate);
 const chineseLabel = formatMusicCandidateDisplayLabel(chineseCandidate);
 
-assert.equal(titleStartWidth(englishLabel, englishCandidate.title), 50);
-assert.equal(titleStartWidth(chineseLabel, chineseCandidate.title), 50);
+assert.equal(titleStartWidth(englishLabel, englishCandidate.title), 58);
+assert.equal(titleStartWidth(chineseLabel, chineseCandidate.title), 58);
 
 const longChineseLabel = formatMusicCandidateDisplayLabel({
     kind: 'music_candidate',
@@ -36,7 +36,7 @@ const longChineseLabel = formatMusicCandidateDisplayLabel({
 });
 
 assert.match(longChineseLabel, /\.\.\./);
-assert.equal(titleStartWidth(longChineseLabel, '青花瓷'), 50);
+assert.equal(titleStartWidth(longChineseLabel, '青花瓷'), 58);
 
 const wideAlbumLabel = formatMusicCandidateDisplayLabel({
     kind: 'music_candidate',
@@ -45,7 +45,8 @@ const wideAlbumLabel = formatMusicCandidateDisplayLabel({
     title: 'Fortnight',
 });
 
-assert.equal(titleStartWidth(wideAlbumLabel, 'Fortnight'), 50);
+assert.equal(titleStartWidth(wideAlbumLabel, 'Fortnight'), 58);
+assert.match(wideAlbumLabel, /The Tortured Poets Department/);
 
 const truncatedTitleLabel = formatMusicCandidateDisplayLabel({
     kind: 'music_candidate',
@@ -57,9 +58,9 @@ const truncatedTitleLabel = formatMusicCandidateDisplayLabel({
 assert.equal(stringWidth(truncatedTitleLabel), 64);
 assert.match(truncatedTitleLabel, /\.\.\.$/);
 
-const providerAlignedLabel = formatMusicCandidateDisplayLabel(englishCandidate, 94, 'iTunes');
+const providerAlignedLabel = formatMusicCandidateDisplayLabel(englishCandidate, 102, 'iTunes');
 
-assert.equal(stringWidth(providerAlignedLabel), 94);
+assert.equal(stringWidth(providerAlignedLabel), 102);
 assert.match(providerAlignedLabel, /Willow\s{2,}iTunes$/);
 
 const providerAfterLongTitleLabel = formatMusicCandidateDisplayLabel({
@@ -67,9 +68,9 @@ const providerAfterLongTitleLabel = formatMusicCandidateDisplayLabel({
     artist: 'Taylor Swift',
     album: 'The Tortured Poets Department',
     title: 'This Song Title Is Too Long For The Current Candidate Row',
-}, 94, 'iTunes');
+}, 102, 'iTunes');
 
-assert.equal(stringWidth(providerAfterLongTitleLabel), 94);
+assert.equal(stringWidth(providerAfterLongTitleLabel), 102);
 assert.match(providerAfterLongTitleLabel, /\.\.\. iTunes$/);
 
 const providerAfterChineseTitleLabel = formatMusicCandidateDisplayLabel({
@@ -77,7 +78,7 @@ const providerAfterChineseTitleLabel = formatMusicCandidateDisplayLabel({
     artist: '周杰伦',
     album: '我很忙',
     title: '这是一首长度很长很长需要按照终端显示宽度截断的中文歌曲名称',
-}, 94, 'iTunes');
+}, 102, 'iTunes');
 
-assert.equal(stringWidth(providerAfterChineseTitleLabel), 94);
+assert.equal(stringWidth(providerAfterChineseTitleLabel), 102);
 assert.match(providerAfterChineseTitleLabel, /\.\.\. iTunes$/);

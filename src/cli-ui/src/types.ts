@@ -1,5 +1,6 @@
 export type ServerEvent =
-    | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null }
+    | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null }
+    | { type: "session_state"; session_id: string }
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
     | { type: "status"; phase: string; message: string; active?: boolean | null; step?: number; max_steps?: number }
     | { type: "input_state"; disabled: boolean; reason?: "recommendation" | null }
@@ -184,10 +185,14 @@ export type TrackSummary = {
 
 export type ChatTheme = "spotify" | "muted";
 
+export type ChatTone = "system" | "warning" | "error";
+
 export type ChatBubbleProps = {
     role: ChatRole;
     content: string;
+    contentWidth: number;
     theme?: ChatTheme | null;
+    tone?: ChatTone | null;
 };
 
 export type ChatMessageItem = {
@@ -195,14 +200,16 @@ export type ChatMessageItem = {
     role: ChatRole;
     content: string;
     theme?: ChatTheme | null;
+    tone?: ChatTone | null;
 };
 
-export type ChatTranscriptMessage = Omit<ChatMessageItem, "type">;
+export type ChatTranscriptMessage = Pick<ChatMessageItem, "role" | "content" | "theme">;
 
 export type InfoBannerItem = {
     type: "info_banner";
     authState: AuthRuntimeState;
     cwd: string;
+    sessionId: string | null;
 };
 
 export type ChatItem = ChatMessageItem | InfoBannerItem;
@@ -286,11 +293,4 @@ export type SlashCommandSuggestion = {
     description: string;
     needsArgument: boolean;
     aliases?: string[];
-};
-
-export type VisibleChatWindow = {
-    items: ChatItem[];
-    hasHiddenAbove: boolean;
-    hasHiddenBelow: boolean;
-    maxScrollOffset: number;
 };

@@ -6,8 +6,8 @@ export const APP_VERSION = "1.0.1";
 export const FALLBACK_MODEL_NAME = "gpt-5.5";
 export const BORDER_BLUE = "#3b82f6";
 export const BORDER_BLUE_SOFT = "#9fd9ff";
+export const SPOTIFY_GREEN = "#1db954";
 export const APP_TIP_PLACEHOLDER = "Tips: try /random for a free play.";
-export const MAX_CHAT_ITEMS = 80;
 export const MAX_ACTIVITY_ITEMS = 80;
 export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
     { value: "allow_once", label: "Yes" },
@@ -35,9 +35,6 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";
 export const API_NOT_RUNNING_DETAIL = "Start with `sonex`, or run `sonex api` before `sonex tui`.";
-export const CHAT_HEADER_ROWS = 2;
-export const MIN_CHAT_VIEWPORT_ROWS = 1;
-
 type MascotSegment = {
     text: string;
     fg?: string; // 上半部分颜色

@@ -32,8 +32,18 @@ assert.match(typesSource, /type: "track_panel"/);
 assert.match(typesSource, /panel: "queue" \| "playlist"/);
 assert.match(typesSource, /type: "track_panel_action"; action: "queue_add" \| "play"; track: TrackPanelTrack; panel: "queue" \| "playlist"; title: string/);
 
-const chatScrollInput = appSource.match(/useInput\(\(inputKey, key\) => \{[\s\S]*?scrollChat\(-1\);[\s\S]*?\}, \{ isActive: ([\s\S]*?) \}\);/);
-assert.ok(chatScrollInput);
-assert.match(chatScrollInput[1] ?? "", /activeRegion !== "miniPlayer"/);
+assert.doesNotMatch(appSource, /key\.pageUp|key\.pageDown/);
+assert.doesNotMatch(appSource, /scrollChat|chatScrollEnabled|chatScrollOffset/);
+assert.match(appSource, /<CommittedTranscript[\s\S]*records=\{transcript\.records\}/);
+assert.match(appSource, /terminalSurface\.transition\(nextSurface/);
 
 assert.match(typesSource, /type: "internal_command"; text: string/);
+
+const appendKeymapStart = appSource.indexOf('const appendKeymapMessage =');
+const handleKeymapStart = appSource.indexOf('const handleKeymapCommand =', appendKeymapStart);
+const loginChoicesStart = appSource.indexOf('const loginChoices =', handleKeymapStart);
+const appendKeymapSource = appSource.slice(appendKeymapStart, handleKeymapStart);
+const handleKeymapSource = appSource.slice(handleKeymapStart, loginChoicesStart);
+
+assert.match(appendKeymapSource, /tone: "system"/);
+assert.match(handleKeymapSource, /content: t\(language, "keymap\.usage"\),[\s\S]*tone: "warning"/);

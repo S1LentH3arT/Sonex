@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 
-import { hideInputCursor } from '../src/input-cursor.js';
+import { hideInputCursor, INPUT_CURSOR_BLINK_INTERVAL_MS } from '../src/input-cursor.js';
+
+assert.equal(INPUT_CURSOR_BLINK_INTERVAL_MS, 500);
 
 const inverseCursor = `before\u001B[7mX\u001B[27mafter`;
 assert.equal(hideInputCursor(inverseCursor), 'beforeXafter');

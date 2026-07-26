@@ -6,7 +6,8 @@
   "scripts": {
     "build": "tsc --outDir dist",
     "start": "node dist/index.js",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "verify:pty": "python3 ../../scripts/verify_cli_tui_append.py"
   },
   "dependencies": {
     "ink": "^5.0.0",

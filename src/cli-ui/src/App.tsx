@@ -1,23 +1,24 @@
 import React, { useState } from 'react';
-import { Box, useApp, useInput, useStdin, useStdout } from 'ink';
+import { Box, useApp, useInput, useStdin } from 'ink';
 import { upsertActivity } from './activity.js';
 import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands } from './commands.js';
 import { getVisibleConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
-import { DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, MAX_CHAT_ITEMS, wsUrl } from './constants.js';
-import { DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
-import { clamp, trimList } from './chat-window.js';
+import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
+import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
 import { useSonexSocket } from './hooks.js';
-import { chatMessagesForTranscript, createInfoBannerItem, isChatMessageItem } from './info-banner.js';
+import { chatMessagesForTranscript, createInfoBannerItem } from './info-banner.js';
 import { applyLanguageToServerEvent, helpCommandsForLanguage, languageLabel, localizeSlashCommands, t } from './i18n.js';
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, resolveSpotifyImmersiveLayout, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
+import { formatModelStatus } from './model-status.js';
 import { isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
-import { clearTerminalForLayoutSwitch } from './terminal-clear.js';
+import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
+import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer } from './transcript.js';
 import { loadUiLanguage, saveUiLanguage } from './ui-settings.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 
 type InkInputKey = {
     ctrl?: boolean;
@@ -27,15 +28,22 @@ const isTrackPanelQueueShortcut = (inputKey: string, key: InkInputKey): boolean 
     return Boolean(key.ctrl && (inputKey === "\x01" || inputKey.toLowerCase() === "a"));
 };
 
-export const App = () => {
+export const App: React.FC<{
+    terminalSurface: TerminalSurfaceController;
+    terminalStdout: NodeJS.WriteStream;
+}> = ({ terminalSurface, terminalStdout: stdout }) => {
     const { exit } = useApp();
     const { isRawModeSupported } = useStdin();
-    const { stdout } = useStdout();
     const rawModeAvailable = Boolean(isRawModeSupported && typeof process.stdin.setRawMode === "function");
     const [language, setLanguage] = useState<UiLanguage>(() => loadUiLanguage());
     const [input, setInput] = useState("");
     const [inputRevision, setInputRevision] = useState(0);
-    const [chatItems, setChatItems] = useState<ChatItem[]>([]);
+    const [sessionId, setSessionId] = useState<string | null>(null);
+    const [transcript, dispatchTranscript] = React.useReducer(
+        transcriptReducer,
+        undefined,
+        createTranscriptState,
+    );
     const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
     const [queueItems, setQueueItems] = useState<TrackPanelTrack[]>([]);
     const [searchItems, setSearchItems] = useState<TrackSummary[]>([]);
@@ -76,8 +84,6 @@ export const App = () => {
     const [languagePanelIndex, setLanguagePanelIndex] = useState(0);
     const [recommendInputLocked, setRecommendInputLocked] = useState(false);
     const [trackPanelIndex, setTrackPanelIndex] = useState(0);
-    const [chatScrollOffset, setChatScrollOffset] = useState(0);
-    const [maxChatScrollOffset, setMaxChatScrollOffset] = useState(0);
     const [loginSelectionIndex, setLoginSelectionIndex] = useState(0);
     const [loginApiKeyInput, setLoginApiKeyInput] = useState("");
     const activeRegionRef = React.useRef<ShellRegion>("chat");
@@ -89,15 +95,12 @@ export const App = () => {
     const spotifySetupActiveRef = React.useRef(false);
     const authSetupActiveRef = React.useRef(false);
     const slashMenuActiveRef = React.useRef(false);
+    const sessionIdRef = React.useRef<string | null>(null);
     const startupInfoCapturedRef = React.useRef(false);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
     const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
-    const showFixedHeader = activeRegion === "chat" && authInterfaceActive;
-    const conversationChatItems = React.useMemo(
-        () => authInterfaceActive ? chatItems.filter(isChatMessageItem) : chatItems,
-        [authInterfaceActive, chatItems],
-    );
+    const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive;
     const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active
         ? []
         : spotifyMode.enabled
@@ -115,6 +118,16 @@ export const App = () => {
     const miniLayout = React.useMemo(() => resolveMiniPlayerLayout(terminalSize), [terminalSize.columns, terminalSize.rows]);
     const spotifyImmersiveLayout = React.useMemo(() => resolveSpotifyImmersiveLayout(terminalSize), [terminalSize.columns, terminalSize.rows]);
     const headerVariant = resolveChatHeaderVariant(terminalSize.columns);
+    const transcriptContentWidth = Math.max(1, (terminalSize.columns ?? 80) - 4);
+    const dynamicSurfaceHeight = terminalSize.rows === null
+        ? undefined
+        : Math.max(0, terminalSize.rows - 1);
+    const transcriptPresentation = React.useMemo(() => ({
+        contentWidth: transcriptContentWidth,
+        headerVariant,
+        language,
+    }), [headerVariant, language, transcriptContentWidth]);
+    const modelStatus = formatModelStatus(authState);
     const baseLanguageChoices = React.useMemo<UiLanguage[]>(() => ["en", "zh-CN"], []);
     const languageChoices = React.useMemo<UiLanguage[]>(
         () => [language, ...baseLanguageChoices.filter((choice) => choice !== language)],
@@ -158,10 +171,16 @@ export const App = () => {
                     columns: stdout.columns ?? null,
                     rows: stdout.rows ?? null,
                 };
-                setTerminalSize(nextSize);
-                if (activeRegionRef.current === "miniPlayer" && shouldRefreshMiniSnapshot("resize")) {
-                    clearTerminalForLayoutSwitch(stdout);
-                    setMiniSnapshotRevision((prev) => prev + 1);
+                const updateSize = () => {
+                    setTerminalSize(nextSize);
+                    if (activeRegionRef.current === "miniPlayer" && shouldRefreshMiniSnapshot("resize")) {
+                        setMiniSnapshotRevision((prev) => prev + 1);
+                    }
+                };
+                if (activeRegionRef.current === "chat") {
+                    updateSize();
+                } else {
+                    terminalSurface.transition("alternate", updateSize);
                 }
             }, 80);
         };
@@ -179,34 +198,34 @@ export const App = () => {
             if (resizeTimer) clearTimeout(resizeTimer);
             stdout.off("resize", updateTerminalSize);
         };
-    }, [stdout]);
+    }, [stdout, terminalSurface]);
 
-    React.useEffect(() => {
-        setChatScrollOffset((prev) => clamp(prev, 0, maxChatScrollOffset));
-    }, [maxChatScrollOffset]);
-
-    const scrollChat = React.useCallback((delta: number) => {
-        setChatScrollOffset((prev) => clamp(prev + delta, 0, maxChatScrollOffset));
-    }, [maxChatScrollOffset]);
+    const commitItems = React.useCallback((items: ChatItem[]) => {
+        if (items.length === 0) return;
+        dispatchTranscript({ type: "commit", items, presentation: transcriptPresentation });
+    }, [transcriptPresentation]);
 
     const switchRegion = React.useCallback((nextRegion: ShellRegion) => {
         if (activeRegionRef.current === nextRegion) return;
-        clearTerminalForLayoutSwitch(stdout);
-        activeRegionRef.current = nextRegion;
-        setActiveRegion(nextRegion);
-        if (nextRegion === "miniPlayer" && shouldRefreshMiniSnapshot("region")) {
-            setMiniSnapshotRevision((prev) => prev + 1);
-        }
-    }, [stdout]);
+        const nextSurface = nextRegion === "chat" ? "main" : "alternate";
+        terminalSurface.transition(nextSurface, (surface) => {
+            dispatchTranscript({ type: "setSurface", surface });
+            activeRegionRef.current = nextRegion;
+            setActiveRegion(nextRegion);
+            if (nextRegion === "miniPlayer" && shouldRefreshMiniSnapshot("region")) {
+                setMiniSnapshotRevision((prev) => prev + 1);
+            }
+        });
+    }, [terminalSurface]);
 
     usePlaybackProgressWriter({
-        enabled: miniVisible || spotifyImmersiveVisible,
+        enabled: stdout.isTTY === true && (miniVisible || spotifyImmersiveVisible),
         player,
         position: spotifyImmersiveVisible ? spotifyImmersiveLayout.progressSlot : miniLayout.progressSlot,
         stdout,
     });
     usePlaybackStatusIconWriter({
-        enabled: miniVisible,
+        enabled: stdout.isTTY === true && miniVisible,
         player,
         position: miniLayout.statusIconSlot,
         stdout,
@@ -253,14 +272,14 @@ export const App = () => {
 
     const showError = React.useCallback((message: string, detail?: string | null) => {
         const content = detail ? `${message}\n${detail}` : message;
-        setChatItems((prev) => trimList([...prev, {
+        commitItems([{
             type: "message",
             role: "agent",
             content,
             theme: spotifyModeRef.current.enabled ? "spotify" : undefined,
-        }], MAX_CHAT_ITEMS));
-        setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
-    }, []);
+            tone: "error",
+        }]);
+    }, [commitItems]);
 
     const inputPlaceholder = selectedConfirmInput
         ? selectedConfirmInput.placeholder
@@ -278,15 +297,35 @@ export const App = () => {
             : undefined;
     const onEvent = React.useCallback((rawEvent: ServerEvent) => {
         const evt = applyLanguageToServerEvent(rawEvent, language);
+        const transcriptClass = classifyServerEventForTranscript(evt);
+        if (transcriptClass === "chat" && evt.type === "chat") {
+            const item: ChatMessageItem = {
+                type: "message",
+                role: evt.role,
+                content: evt.text,
+                theme: evt.theme,
+                tone: evt.tone,
+            };
+            if (evt.role === "user") {
+                dispatchTranscript({
+                    type: "receiveUser",
+                    item,
+                    presentation: transcriptPresentation,
+                });
+            } else {
+                commitItems([item]);
+            }
+            return;
+        }
+        if (transcriptClass === "error" && evt.type === "error") {
+            showError(evt.message, evt.detail);
+            return;
+        }
+
         switch (evt.type) {
-            case "chat":
-                setChatItems((prev) => trimList([...prev, {
-                    type: "message",
-                    role: evt.role,
-                    content: evt.text,
-                    theme: evt.theme,
-                }], MAX_CHAT_ITEMS));
-                setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
+            case "session_state":
+                sessionIdRef.current = evt.session_id;
+                setSessionId(evt.session_id);
                 break;
             case "activity":
                 setActivityItems((prev) => upsertActivity(prev, evt));
@@ -315,14 +354,14 @@ export const App = () => {
                 break;
             case "track_panel":
                 setLaunchPreparing(false);
-                switchRegion("chat");
-                setTrackPanelIndex(0);
                 setTrackPanel({
                     panel: evt.panel,
                     title: evt.title,
                     hint: evt.hint,
                     tracks: markQueuedTracks(evt.tracks, queueItems),
                 });
+                setTrackPanelIndex(0);
+                switchRegion("trackPanel");
                 setStatusText(evt.title);
                 break;
             case "search_results": {
@@ -386,9 +425,6 @@ export const App = () => {
                     };
                 });
                 break;
-            case "error":
-                showError(evt.message, evt.detail);
-                break;
             case "confirm":
                 setLaunchPreparing(false);
                 setInput("");
@@ -451,15 +487,12 @@ export const App = () => {
                 setAuthState(nextAuthState);
                 if (!startupInfoCapturedRef.current) {
                     startupInfoCapturedRef.current = true;
-                    setChatItems((prev) => trimList([
-                        ...prev,
-                        createInfoBannerItem(nextAuthState, process.cwd()),
-                    ], MAX_CHAT_ITEMS));
-                    setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
+                    commitItems([createInfoBannerItem(nextAuthState, process.cwd(), sessionIdRef.current)]);
                 }
                 break;
             case "help_panel":
                 setLaunchPreparing(false);
+                switchRegion("chat");
                 setHelpPanel({
                     title: evt.title,
                     hint: evt.hint,
@@ -472,6 +505,8 @@ export const App = () => {
                 break;
             case "bye":
                 setLaunchPreparing(false);
+                setIsExiting(true);
+                switchRegion("chat");
                 setHelpPanel(null);
                 setTrackPanel(null);
                 setHelpPanelIndex(0);
@@ -479,7 +514,7 @@ export const App = () => {
                 setTimeout(() => exit(), 80);
                 break;
         }
-    }, [exit, language, queueItems, showError, switchRegion]);
+    }, [commitItems, exit, language, queueItems, showError, switchRegion, transcriptPresentation]);
 
     const { send } = useSonexSocket({
         url: wsUrl,
@@ -527,7 +562,7 @@ export const App = () => {
         if (isExiting) return;
         setIsExiting(true);
         setInput("");
-        setChatScrollOffset(0);
+        switchRegion("chat");
         setSlashMenuDismissedFor(null);
         setHelpPanel(null);
         setTrackPanel(null);
@@ -544,7 +579,8 @@ export const App = () => {
             timestamp: Date.now(),
         }));
 
-        const sent = send({ type: "bye", messages: chatMessagesForTranscript(chatItems), reason });
+        const transcriptItems = allTranscriptItems(transcript);
+        const sent = send({ type: "bye", messages: chatMessagesForTranscript(transcriptItems), reason });
         if (!sent) {
             setIsExiting(false);
             showError(
@@ -552,17 +588,17 @@ export const App = () => {
                 language === "zh-CN" ? "Sonex API 连接未打开。" : "Sonex API connection is not open.",
             );
         }
-    }, [chatItems, isExiting, language, send, showError]);
+    }, [isExiting, language, send, showError, switchRegion, transcript]);
 
     const appendKeymapMessage = React.useCallback((enabled: boolean) => {
         const mode = enabled ? "enabled" : "pure mode";
-        setChatItems((prev) => trimList([...prev, {
+        commitItems([{
             type: "message",
             role: "agent",
             content: language === "zh-CN" ? `迷你播放器快捷键已${enabled ? "启用" : "进入纯净模式"}。` : `Mini-player keymap is ${mode}.`,
-        }], MAX_CHAT_ITEMS));
-        setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
-    }, [language]);
+            tone: "system",
+        }]);
+    }, [commitItems, language]);
 
     const handleKeymapCommand = React.useCallback((args: string) => {
         const value = args.trim().toLowerCase();
@@ -588,12 +624,13 @@ export const App = () => {
             appendKeymapMessage(playbackKeymapEnabledRef.current);
             return;
         }
-        setChatItems((prev) => trimList([...prev, {
+        commitItems([{
             type: "message",
             role: "agent",
             content: t(language, "keymap.usage"),
-        }], MAX_CHAT_ITEMS));
-    }, [appendKeymapMessage, language]);
+            tone: "warning",
+        }]);
+    }, [appendKeymapMessage, commitItems, language]);
 
     const loginChoices = authSetup?.step === "provider"
         ? authSetup.providers ?? []
@@ -602,8 +639,6 @@ export const App = () => {
             : authSetup?.step === "model"
                 ? authSetup.models ?? []
                 : [];
-    const displayStatusText = launchPreparing ? launchPreparingText(launchPreparingFrame, language) : statusText;
-
     const openLanguagePanel = React.useCallback(() => {
         setInput("");
         setSlashMenuDismissedFor(null);
@@ -715,11 +750,7 @@ export const App = () => {
             setTrackPanelIndex(0);
             setLanguagePanel(null);
             setHelpPanelIndex(0);
-            setChatItems((prev) => trimList([
-                ...prev,
-                createInfoBannerItem(authState, process.cwd()),
-            ], MAX_CHAT_ITEMS));
-            setChatScrollOffset((prev) => prev > 0 ? Math.min(prev + 1, MAX_CHAT_ITEMS - 1) : prev);
+            commitItems([createInfoBannerItem(authState, process.cwd(), sessionIdRef.current)]);
             return;
         }
 
@@ -754,9 +785,23 @@ export const App = () => {
         } else if (authSetup?.active) {
             send({ type: "auth_setup_input", value: text });
         } else {
-            send({ type: "user_input", text });
+            const userItem: ChatMessageItem = {
+                type: "message",
+                role: "user",
+                content: text,
+            };
+            dispatchTranscript({
+                type: "submitUser",
+                item: userItem,
+                presentation: transcriptPresentation,
+            });
+            const sent = send({ type: "user_input", text });
+            if (!sent) {
+                dispatchTranscript({ type: "rejectUserSend", content: text });
+                showError(API_NOT_RUNNING_MESSAGE, API_NOT_RUNNING_DETAIL);
+            }
         }
-    }, [applySlashCompletion, authSetup?.active, authState, confirm, handleKeymapCommand, openLanguagePanel, recommendInputLocked, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, spotifySetup?.active, visibleConfirmChoices]);
+    }, [applySlashCompletion, authSetup?.active, authState, commitItems, confirm, handleKeymapCommand, openLanguagePanel, recommendInputLocked, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, spotifySetup?.active, transcriptPresentation, visibleConfirmChoices]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -842,18 +887,6 @@ export const App = () => {
     }, { isActive: rawModeAvailable && (Boolean(spotifySetup && spotifySetup.active === false) || Boolean(authSetup && authSetup.active === false)) });
 
     useInput((inputKey, key) => {
-        if (key.pageUp) {
-            scrollChat(5);
-        } else if (key.pageDown) {
-            scrollChat(-5);
-        } else if (input.trim().length === 0 && key.upArrow) {
-            scrollChat(1);
-        } else if (input.trim().length === 0 && key.downArrow) {
-            scrollChat(-1);
-        }
-    }, { isActive: rawModeAvailable && activeRegion !== "miniPlayer" && activeRegion !== "spotifyImmersive" && !confirm && !helpPanel && !isSlashMenuActive && !isLoginScreenActive && !languagePanel?.active && !isModelPanelActive });
-
-    useInput((inputKey, key) => {
         if (!confirm) return;
 
         if (key.upArrow) {
@@ -900,20 +933,22 @@ export const App = () => {
     }, { isActive: Boolean(helpPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active });
 
     useInput((inputKey, key) => {
-        if (!trackPanel || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
+        if (activeRegion !== "trackPanel" || !trackPanel || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
         const dismissedTrackPanel = trackPanel.panel;
         const selectedTrackPanelTrack = trackPanel.tracks[Math.min(trackPanelIndex, Math.max(0, trackPanel.tracks.length - 1))] ?? null;
         if (key.escape) {
             setTrackPanel(null);
             setTrackPanelIndex(0);
+            switchRegion("chat");
             const hiddenMessage = dismissedTrackPanel === "playlist"
                 ? t(language, "trackPanel.playlistHidden")
                 : t(language, "trackPanel.queueHidden");
-            setChatItems((prev) => [...prev, {
+            commitItems([{
                 type: "message",
                 role: "agent",
                 content: hiddenMessage,
                 theme: "muted",
+                tone: "system",
             }]);
         } else if (isTrackPanelQueueShortcut(inputKey, key) && selectedTrackPanelTrack) {
             send({ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
@@ -927,7 +962,15 @@ export const App = () => {
         } else if (key.downArrow) {
             setTrackPanelIndex((prev) => Math.min(trackPanel.tracks.length - 1, prev + 1));
         }
-    }, { isActive: Boolean(trackPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
+    }, {
+        isActive: activeRegion === "trackPanel"
+            && Boolean(trackPanel)
+            && rawModeAvailable
+            && !confirm
+            && !isSlashMenuActive
+            && !languagePanel?.active
+            && !isModelPanelActive,
+    });
 
     useInput((inputKey, key) => {
         if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
@@ -937,37 +980,44 @@ export const App = () => {
     }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
 
     return (
-        <Box
-            flexDirection="column"
-            width={terminalSize.columns ?? "100%"}
-            height={terminalSize.rows ?? undefined}
-            minHeight={0}
-        >
-            {showFixedHeader ? (
-                <HeaderFrame authState={authState} cwd={process.cwd()} variant={headerVariant} language={language} />
-            ) : null}
-            {isLoginScreenActive ? (
-                <LoginScreen
-                    authSetup={authSetup}
-                    selectedIndex={loginSelectionIndex}
-                    apiKeyInput={loginApiKeyInput}
-                    setApiKeyInput={setLoginApiKeyInput}
-                    onApiKeySubmit={submitLoginApiKey}
-                    language={language}
-                />
-            ) : (
-                <Box flexDirection="column" width="100%" flexGrow={1} flexShrink={1} minHeight={0}>
+        <>
+            <CommittedTranscript
+                records={transcript.records}
+            />
+            <Box
+                flexDirection="column"
+                width={terminalSize.columns ?? "100%"}
+                height={activeRegion === "chat" ? undefined : dynamicSurfaceHeight}
+                minHeight={0}
+            >
+                {showFixedHeader ? (
+                    <HeaderFrame
+                        authState={authState}
+                        cwd={process.cwd()}
+                        sessionId={sessionId}
+                        variant={headerVariant}
+                        language={language}
+                    />
+                ) : null}
+                {isLoginScreenActive ? (
+                    <LoginScreen
+                        authSetup={authSetup}
+                        selectedIndex={loginSelectionIndex}
+                        apiKeyInput={loginApiKeyInput}
+                        setApiKeyInput={setLoginApiKeyInput}
+                        onApiKeySubmit={submitLoginApiKey}
+                        language={language}
+                    />
+                ) : (
                     <DynamicShell
                         input={input}
                         setInput={updateInput}
                         onSubmit={submitInput}
                         inputPlaceholder={inputPlaceholder}
                         inputMask={inputMask}
-                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !helpPanel && !languagePanel?.active && !isModelPanelActive && !recommendInputLocked}
+                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !isExiting && !helpPanel && !languagePanel?.active && !isModelPanelActive && !recommendInputLocked}
                         inputRevision={inputRevision}
-                        chatItems={conversationChatItems}
                         player={player}
-                        statusText={displayStatusText}
                         coverUrl={coverUrl}
                         coverPattern={coverPattern}
                         confirm={confirm}
@@ -975,6 +1025,7 @@ export const App = () => {
                         spotifyMode={spotifyMode}
                         spotifySetup={spotifySetup}
                         authSetup={authSetup}
+                        modelStatus={modelStatus}
                         slashSuggestions={slashSuggestions}
                         slashIndex={slashIndex}
                         helpPanel={helpPanel}
@@ -988,14 +1039,11 @@ export const App = () => {
                         miniSnapshotRevision={miniSnapshotRevision}
                         miniLayout={miniLayout}
                         spotifyImmersiveLayout={spotifyImmersiveLayout}
-                        chatScrollOffset={chatScrollOffset}
-                        onMaxChatScrollOffsetChange={setMaxChatScrollOffset}
                         terminalSpace={terminalSize}
-                        headerVariant={headerVariant}
                         language={language}
                     />
-                </Box>
-            )}
-        </Box>
+                )}
+            </Box>
+        </>
     );
 };

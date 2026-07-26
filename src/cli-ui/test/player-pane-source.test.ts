@@ -5,7 +5,8 @@ const source = readFileSync(new URL('../src/components.tsx', import.meta.url), '
 
 assert.match(source, /const MiniPlayerStaticBody = React\.memo/);
 assert.match(source, /const MiniPlayerRegion =/);
-assert.match(source, /const ConversationRegion =/);
+assert.match(source, /export const DynamicTail =/);
+assert.match(source, /export const DynamicShell =/);
 assert.match(source, /const miniSnapshot = useVisibleSnapshotOnRevision/);
 assert.match(source, /<PlayerPane[\s\S]*variant="compact"[\s\S]*active=\{true\}/);
 assert.equal(source.includes('usePlaybackProgress'), false);
@@ -44,12 +45,12 @@ const playerPane = source.slice(playerPaneStart, compactConfirmStart);
 assert.equal(playerPane.includes('setInterval'), false);
 
 const miniStart = source.indexOf('const MiniPlayerRegion =');
-const conversationStart = source.indexOf('const ConversationRegion =');
+const spotifyImmersiveStart = source.indexOf('const SpotifyImmersiveRegion =');
 assert.ok(miniStart >= 0);
-assert.ok(conversationStart > miniStart);
-const miniRegion = source.slice(miniStart, conversationStart);
+assert.ok(spotifyImmersiveStart > miniStart);
+const miniRegion = source.slice(miniStart, spotifyImmersiveStart);
 assert.match(miniRegion, /padding=\{0\}/);
 assert.equal(miniRegion.includes('borderStyle='), false);
-assert.equal(miniRegion.includes('<ConversationColumn'), false);
+assert.equal(miniRegion.includes('<DynamicTail'), false);
 assert.equal(miniRegion.includes('<InputDock'), false);
 assert.equal(miniRegion.includes('<HeaderFrame'), false);
