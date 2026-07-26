@@ -9,6 +9,7 @@ import unittest
 import tempfile
 import urllib.parse
 from pathlib import Path
+from threading import Barrier, Event
 from unittest.mock import patch
 
 from yt_dlp.utils import DownloadError
@@ -804,11 +805,44 @@ class OnlinePlayTests(unittest.TestCase):
 
         self.assertEqual(
             [call["target"] for call in FakeYoutubeDL.calls],
-            ["ytsearch40:Khalil Fong Beatiful", "ytsearch40:方大同 忘了美丽"],
+            ["ytsearch20:Khalil Fong Beatiful", "ytsearch20:方大同 忘了美丽"],
         )
         self.assertEqual([candidate["cache_id"] for candidate in candidates], ["youtube_same", "youtube_right"])
         self.assertEqual(candidates[0]["identity_match_source"], "provider_metadata")
         self.assertEqual(candidates[1]["identity_match_source"], "original_query")
+
+    def test_youtube_progressively_expands_to_traditional_title_variant(self) -> None:
+        FakeYoutubeDL.responses = [
+            {"entries": []},
+            {
+                "entries": [{
+                    "id": "traditional",
+                    "title": "方大同 - 愛愛愛",
+                    "channel": "Archive",
+                    "uploader": "Archive",
+                    "webpage_url": "https://www.youtube.com/watch?v=traditional",
+                }]
+            },
+            {"entries": []},
+        ]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.search_youtube_songs(
+                "方大同 爱爱爱",
+                playback_metadata={
+                    "metadata_source": "itunes",
+                    "original_query": "爱爱爱",
+                    "youtube_query": "方大同 爱爱爱",
+                    "name": "爱爱爱",
+                    "artist": "方大同",
+                },
+            )
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["traditional"])
+        self.assertEqual(
+            [call["target"] for call in FakeYoutubeDL.calls[:2]],
+            ["ytsearch20:方大同 爱爱爱", "ytsearch20:方大同 愛愛愛"],
+        )
 
     def test_youtube_accepts_official_channel_match_for_selected_cross_language_metadata(self) -> None:
         official_entry = {
@@ -867,6 +901,149 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidates[0]["identity_match_source"], "youtube_title_query")
         self.assertEqual(candidates[0]["source_identity"]["artist"], "")
 
+    def test_youtube_infers_missing_artist_from_traditional_title_without_overwriting_source(self) -> None:
+        FakeYoutubeDL.responses = [{
+            "entries": [{
+                "id": "love",
+                "title": "方大同 - 愛愛愛【動態歌詞Lyrics】",
+                "channel": "Meteor Music",
+                "uploader": "Meteor Music",
+                "duration": 260,
+                "webpage_url": "https://www.youtube.com/watch?v=love",
+            }]
+        }]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.search_youtube_songs(
+                "方大同 爱爱爱",
+                playback_metadata={
+                    "metadata_source": "itunes",
+                    "original_query": "爱爱爱",
+                    "youtube_query": "方大同 爱爱爱",
+                    "name": "爱爱爱",
+                    "artist": "方大同",
+                    "album": "爱爱爱",
+                    "duration_ms": 259000,
+                },
+            )
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["love"])
+        candidate = candidates[0]
+        self.assertEqual(candidate["name"], "爱爱爱")
+        self.assertEqual(candidate["artist"], "方大同")
+        self.assertEqual(
+            candidate["source_identity"],
+            {
+                "title": "方大同 - 愛愛愛【動態歌詞Lyrics】",
+                "artist": "",
+                "album": "",
+            },
+        )
+        self.assertEqual(
+            candidate["inferred_identity"],
+            {
+                "title": "爱爱爱",
+                "artist": "方大同",
+                "album": "爱爱爱",
+                "provenance": "youtube_title",
+            },
+        )
+        self.assertEqual(candidate["identity_match_source"], "youtube_title_query")
+        self.assertEqual(candidate["assessment"]["confidence"], "high")
+        self.assertIn("traditional_simplified_normalized", candidate["assessment"]["evidence"])
+
+    def test_youtube_infers_confirmed_identity_for_reported_regression_titles(self) -> None:
+        cases = (
+            ("公园", "方大同 - 公園"),
+            ("爱爱爱", "方大同 - 愛愛愛"),
+            ("三人游", "方大同 - 三人遊"),
+        )
+
+        for title, source_title in cases:
+            with self.subTest(title=title):
+                candidate = online._normalize_youtube_info(
+                    f"方大同 {title}",
+                    {
+                        "id": title,
+                        "title": source_title,
+                        "channel": "Archive Channel",
+                        "webpage_url": f"https://www.youtube.com/watch?v={title}",
+                    },
+                    playback_metadata={
+                        "metadata_source": "itunes",
+                        "name": title,
+                        "artist": "方大同",
+                    },
+                )
+
+                self.assertEqual(candidate["source_identity"]["title"], source_title)
+                self.assertEqual(candidate["source_identity"]["artist"], "")
+                self.assertEqual(candidate["inferred_identity"]["title"], title)
+                self.assertEqual(candidate["inferred_identity"]["artist"], "方大同")
+                self.assertEqual(candidate["assessment"]["confidence"], "high")
+
+    def test_youtube_returns_title_only_match_for_user_review(self) -> None:
+        FakeYoutubeDL.responses = [
+            {
+                "entries": [{
+                    "id": "review",
+                    "title": "Canonical Song",
+                    "channel": "Archive Channel",
+                    "uploader": "Archive Channel",
+                    "duration": 201,
+                    "webpage_url": "https://www.youtube.com/watch?v=review",
+                }]
+            },
+            {"entries": []},
+        ]
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+            candidates = online.search_youtube_songs(
+                "Canonical Artist Canonical Song",
+                playback_metadata={
+                    "metadata_source": "itunes",
+                    "name": "Canonical Song",
+                    "artist": "Canonical Artist",
+                    "duration_ms": 200000,
+                },
+            )
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["review"])
+        self.assertFalse(candidates[0]["identity_match"])
+        self.assertEqual(candidates[0]["assessment"]["confidence"], "medium")
+        self.assertIn("title_only_weak_evidence", candidates[0]["assessment"]["evidence"])
+
+    def test_search_youtube_filters_low_confidence_even_when_legacy_identity_matches(self) -> None:
+        entry = {"id": "legacy-match", "title": "Legacy Match"}
+        FakeYoutubeDL.responses = [
+            {"entries": [entry]},
+            {"entries": [entry]},
+        ]
+        low_candidate = {
+            "provider": "youtube",
+            "cache_id": "youtube_legacy-match",
+            "identity_match": True,
+            "assessment": {
+                "confidence": "low",
+                "evidence": [],
+                "conflicts": ["artist_mismatch"],
+            },
+        }
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
+             patch("src.tools.online_play._should_keep_candidate", return_value=True), \
+             patch("src.tools.online_play._normalize_youtube_info", return_value=low_candidate), \
+             patch("src.tools.online_play._cached_audio_item", return_value=None):
+            with self.assertRaises(online.AudioIdentityMismatch):
+                online.search_youtube_songs(
+                    "Canonical Artist Canonical Song",
+                    playback_metadata={
+                        "name": "Canonical Song",
+                        "artist": "Canonical Artist",
+                        "youtube_query": "Canonical Artist Canonical Song",
+                    },
+                )
+
     def test_resolve_online_audio_records_missing_config_before_youtube(self) -> None:
         """Verifies that resolve online audio records missing config before youtube behaves as expected.
 
@@ -911,6 +1088,13 @@ class OnlinePlayTests(unittest.TestCase):
                     "credible_count": 0,
                     "message": "Audius is not configured.",
                 },
+                {
+                    "provider": "youtube",
+                    "status": "success",
+                    "candidate_count": 1,
+                    "credible_count": 1,
+                    "message": "YouTube returned 1 credible match.",
+                },
             ],
         )
         self.assertIn("Jamendo is not configured", candidates[0]["fallback_reason"])
@@ -939,18 +1123,55 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertNotIn("ERROR: [youtube]", message)
         self.assertNotIn("wYB9Vu282ZU", message)
 
+    def test_resolve_online_audio_cools_down_youtube_after_rate_limit(self) -> None:
+        config = online.OnlineAudioConfig()
+        online._youtube_search_cooldown_until = 0.0
+        try:
+            with patch(
+                "src.tools.online_play.search_youtube_songs",
+                side_effect=RuntimeError("HTTP Error 429: Too Many Requests"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "temporarily unavailable"):
+                    online.resolve_online_audio_candidates("Artist Song", config=config)
+
+            with patch("src.tools.online_play.search_youtube_songs") as youtube_search:
+                with self.assertRaisesRegex(RuntimeError, "cooling down"):
+                    online.resolve_online_audio_candidates("Artist Song", config=config)
+            youtube_search.assert_not_called()
+        finally:
+            online._youtube_search_cooldown_until = 0.0
+
+    def test_resolve_online_audio_failure_exposes_structured_trace(self) -> None:
+        with patch(
+            "src.tools.online_play.search_youtube_songs",
+            side_effect=online.AudioIdentityMismatch("youtube", 2),
+        ):
+            with self.assertRaises(RuntimeError) as caught:
+                online.resolve_online_audio_candidates(
+                    "Canonical Artist Canonical Song",
+                    config=online.OnlineAudioConfig(),
+                )
+
+        error = caught.exception
+        self.assertEqual(error.search_trace["final_state"], "no_candidate")
+        self.assertEqual(error.search_trace["confidence_counts"]["high"], 0)
+        self.assertEqual(error.source_attempts[-1]["provider"], "youtube")
+        self.assertIn("youtube", error.search_trace["provider_elapsed_ms"])
+
     def test_resolve_online_audio_reports_youtube_identity_mismatch(self) -> None:
-        FakeYoutubeDL.responses = [{
-            "entries": [{
-                "id": "wrong",
-                "track": "Sorry",
-                "artist": "Wrong Artist",
-                "webpage_url": "https://www.youtube.com/watch?v=wrong",
-            }]
-        }]
+        wrong = {
+            "id": "wrong",
+            "track": "Sorry",
+            "artist": "Wrong Artist",
+            "webpage_url": "https://www.youtube.com/watch?v=wrong",
+        }
+        FakeYoutubeDL.responses = [
+            {"entries": [wrong]},
+            {"entries": [wrong]},
+        ]
 
         with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
-            with self.assertRaisesRegex(RuntimeError, "YouTube rejected 1 identity mismatch"):
+            with self.assertRaisesRegex(RuntimeError, "YouTube rejected 2 identity mismatches"):
                 online.resolve_online_audio_candidates(
                     "Fang Datong Sorry",
                     config=online.OnlineAudioConfig(),
@@ -1007,8 +1228,115 @@ class OnlinePlayTests(unittest.TestCase):
                     "credible_count": 0,
                     "message": "Audius is not configured.",
                 },
+                {
+                    "provider": "youtube",
+                    "status": "success",
+                    "candidate_count": 1,
+                    "credible_count": 1,
+                    "message": "YouTube returned 1 credible match.",
+                },
             ],
         )
+
+    def test_resolve_online_audio_unifies_configured_provider_candidates(self) -> None:
+        config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
+        jamendo_candidate = {
+            "provider": "jamendo",
+            "cache_id": "jamendo_jam-1",
+            "id": "jam-1",
+            "name": "Canonical Song",
+            "artist": "Canonical Artist",
+            "quality_label": "official_original",
+            "similarity_score": 100,
+            "identity_match": True,
+            "match_score": {
+                "decision": "accept",
+                "total_score": 85,
+                "reasons": ["title_exact", "artist_exact"],
+                "hard_reject_reasons": [],
+                "components": {"title": 45, "artist": 40},
+            },
+        }
+        youtube_candidate = {
+            "provider": "youtube",
+            "cache_id": "youtube_yt-1",
+            "id": "yt-1",
+            "name": "Canonical Song",
+            "artist": "Canonical Artist",
+            "quality_label": "official_original",
+            "similarity_score": 96,
+            "identity_match": True,
+            "assessment": {"confidence": "high", "evidence": [], "conflicts": []},
+        }
+
+        with patch(
+            "src.tools.online_play.search_jamendo_audio_candidates",
+            return_value=[jamendo_candidate],
+        ) as jamendo_search, patch(
+            "src.tools.online_play.search_youtube_songs",
+            return_value=[youtube_candidate],
+        ) as youtube_search:
+            candidates = online.resolve_online_audio_candidates(
+                "Canonical Artist Canonical Song",
+                config=config,
+            )
+
+        jamendo_search.assert_called_once()
+        youtube_search.assert_called_once()
+        self.assertEqual(
+            [candidate["cache_id"] for candidate in candidates],
+            ["jamendo_jam-1", "youtube_yt-1"],
+        )
+        self.assertTrue(all(candidate.get("source_attempts") for candidate in candidates))
+        trace = candidates[0]["search_trace"]
+        self.assertEqual(trace["id"], candidates[0]["search_trace_id"])
+        self.assertEqual(trace["final_state"], "candidate_found")
+        self.assertEqual(
+            trace["provider_capabilities"],
+            {
+                "jamendo": "configured",
+                "audius": "not_configured",
+                "youtube": "configured",
+            },
+        )
+        self.assertEqual(trace["confidence_counts"]["high"], 2)
+
+    def test_provider_searches_start_concurrently(self) -> None:
+        barrier = Barrier(2)
+
+        def search(provider: str) -> list[dict]:
+            barrier.wait(timeout=1)
+            return [{"provider": provider}]
+
+        results, errors = online._run_online_provider_searches(
+            {
+                "jamendo": lambda: search("jamendo"),
+                "youtube": lambda: search("youtube"),
+            },
+            timeout=1,
+        )
+
+        self.assertEqual(errors, {})
+        self.assertEqual(results["jamendo"], [{"provider": "jamendo"}])
+        self.assertEqual(results["youtube"], [{"provider": "youtube"}])
+
+    def test_provider_search_timeout_returns_without_waiting_for_worker(self) -> None:
+        release = Event()
+
+        def blocked_search() -> list[dict]:
+            release.wait(timeout=1)
+            return []
+
+        try:
+            results, errors = online._run_online_provider_searches(
+                {"youtube": blocked_search},
+                timeout=0.01,
+            )
+        finally:
+            release.set()
+
+        self.assertEqual(results, {})
+        self.assertIsInstance(errors["youtube"], TimeoutError)
 
     def test_resolve_online_audio_returns_provider_aware_youtube_fallback_with_attempt_trace(self) -> None:
         official_entry = {
@@ -1135,7 +1463,7 @@ class OnlinePlayTests(unittest.TestCase):
             candidates = online.resolve_online_audio_candidates("Artist Song", config=config)
 
         self.assertEqual(candidates[0]["cache_id"], "youtube_yt-1")
-        self.assertEqual(candidates[0]["source_attempts"][0]["status"], "error")
+        self.assertEqual(candidates[0]["source_attempts"][0]["status"], "provider_error")
         self.assertIn("Jamendo failed:", candidates[0]["source_attempts"][0]["message"])
         self.assertNotIn("secret=abc123", candidates[0]["source_attempts"][0]["message"])
         self.assertIn("Jamendo failed:", candidates[0]["fallback_reason"])
@@ -1168,6 +1496,29 @@ class OnlinePlayTests(unittest.TestCase):
 
         self.assertEqual([candidate["provider"] for candidate in ranked], ["audius", "jamendo"])
 
+    def test_rank_online_audio_candidates_prefers_high_confidence_over_similarity(self) -> None:
+        high = {
+            "provider": "youtube",
+            "cache_id": "youtube_high",
+            "similarity_score": 80,
+            "quality_label": "clean_audio_match",
+            "assessment": {"confidence": "high", "evidence": [], "conflicts": []},
+        }
+        medium = {
+            "provider": "youtube",
+            "cache_id": "youtube_medium",
+            "similarity_score": 100,
+            "quality_label": "official_original",
+            "assessment": {"confidence": "medium", "evidence": [], "conflicts": []},
+        }
+
+        ranked = online.rank_online_audio_candidates("Canonical Song", [medium, high])
+
+        self.assertEqual(
+            [candidate["cache_id"] for candidate in ranked],
+            ["youtube_high", "youtube_medium"],
+        )
+
     def test_search_youtube_songs_returns_five_candidates_without_downloading(self) -> None:
         """Verifies that search youtube songs returns five candidates without downloading behaves as expected.
 
@@ -1199,7 +1550,7 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(candidates[0]["artist"], "Channel 0")
         self.assertEqual(candidates[0]["duration_ms"], 60000)
         self.assertFalse(candidates[0]["cached"])
-        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch40:Song Artist")
+        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch20:Song Artist")
         self.assertFalse(any(call["download"] for call in FakeYoutubeDL.calls))
 
     def test_search_youtube_songs_uses_confirmed_spotify_metadata_without_spotify_lookup(self) -> None:
@@ -1244,7 +1595,7 @@ class OnlinePlayTests(unittest.TestCase):
             )
 
         spotify_search.assert_not_called()
-        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch40:Canonical Artist Canonical Song")
+        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch20:Canonical Artist Canonical Song")
         self.assertEqual(candidates[0]["name"], "Canonical Song")
         self.assertEqual(candidates[0]["artist"], "Canonical Artist")
         self.assertEqual(candidates[0]["album"], "Canonical Album")
@@ -1519,6 +1870,30 @@ class OnlinePlayTests(unittest.TestCase):
 
         self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["playable"])
 
+    def test_search_youtube_songs_continues_after_result_extraction_error(self) -> None:
+        class ErrorAwareYoutubeDL(FakeYoutubeDL):
+            def extract_info(self, target: str, download: bool = False) -> dict:
+                if not self.options.get("ignoreerrors"):
+                    raise DownloadError("ERROR: [youtube] blocked: This video is not available")
+                return {
+                    "entries": [
+                        None,
+                        {
+                            "id": "playable",
+                            "title": "Song Artist Official Audio",
+                            "artist": "Song Artist",
+                            "channel": "Song Artist",
+                            "availability": "public",
+                            "webpage_url": "https://www.youtube.com/watch?v=playable",
+                        },
+                    ]
+                }
+
+        with patch("src.tools.online_play.yt_dlp.YoutubeDL", ErrorAwareYoutubeDL):
+            candidates = online.search_youtube_songs("Song Artist", limit=5)
+
+        self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["playable"])
+
     def test_download_youtube_candidate_writes_cache_item_and_audio_file(self) -> None:
         """Verifies that download youtube candidate writes cache item and audio file behaves as expected.
 
@@ -1776,6 +2151,61 @@ class OnlinePlayTests(unittest.TestCase):
             self.assertEqual(item["source_identity"]["artist"], "")
             self.assertEqual(Path(item["audio_path"]).suffix, ".m4a")
 
+    def test_download_youtube_candidate_accepts_user_verified_video_container(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            candidate = {
+                "provider": "youtube",
+                "id": "review",
+                "youtube_id": "review",
+                "cache_id": "youtube_review",
+                "query": "Canonical Artist Canonical Song",
+                "original_query": "Canonical Song",
+                "youtube_query": "Canonical Artist Canonical Song",
+                "name": "Canonical Song",
+                "artist": "Canonical Artist",
+                "target_identity": {
+                    "title": "Canonical Song",
+                    "artist": "Canonical Artist",
+                    "album": "Canonical Album",
+                },
+                "source_identity": {
+                    "title": "Canonical Song",
+                    "artist": "",
+                    "album": "",
+                },
+                "assessment": {
+                    "confidence": "medium",
+                    "evidence": ["title_only_weak_evidence"],
+                    "conflicts": [],
+                },
+                "user_verified": True,
+                "user_verified_at": 123.0,
+                "webpage_url": "https://www.youtube.com/watch?v=review",
+            }
+            FakeYoutubeDL.responses = [{
+                "id": "review",
+                "title": "Canonical Song",
+                "uploader": "Archive Channel",
+                "duration": 201,
+                "formats": [{
+                    "url": "https://media.example/video.mp4",
+                    "acodec": "mp4a",
+                    "vcodec": "avc1",
+                }],
+                "webpage_url": "https://www.youtube.com/watch?v=review",
+                "ext": "mp4",
+            }]
+
+            with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL):
+                item = online.download_youtube_candidate(candidate, cache_root=root)
+
+            self.assertTrue(item["identity_match"])
+            self.assertTrue(item["user_verified"])
+            self.assertEqual(item["media"]["kind"], "video_container")
+            self.assertTrue(item["media"]["playable"])
+            self.assertTrue(item["media_fingerprint"])
+
     def test_download_youtube_candidate_ignores_stale_dual_identity_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -1907,6 +2337,27 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(play.call_count, 2)
         self.assertEqual(result["status"], "success")
 
+    def test_play_youtube_song_does_not_auto_play_medium_confidence_candidate(self) -> None:
+        candidate = {
+            "provider": "youtube",
+            "cache_id": "youtube_review",
+            "assessment": {
+                "confidence": "medium",
+                "evidence": ["title_only_weak_evidence"],
+                "conflicts": [],
+            },
+        }
+
+        with patch("src.tools.online_play.online_audio_configured", return_value=False), \
+             patch("src.tools.online_play.search_youtube_songs", return_value=[candidate]), \
+             patch("src.tools.online_play.play_youtube_candidate") as play:
+            result = online.play_youtube_song("Canonical Song")
+
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "ONLINE_AUDIO_REVIEW_REQUIRED")
+        self.assertEqual(result["data"]["candidates"], [candidate])
+        play.assert_not_called()
+
     def test_play_youtube_song_returns_normalized_music_metadata(self) -> None:
         """Verifies that play youtube song returns normalized music metadata behaves as expected.
 
@@ -1919,6 +2370,8 @@ class OnlinePlayTests(unittest.TestCase):
                 "entries": [
                     {
                         "id": "abc123",
+                        "title": "Artist Name - Song Title",
+                        "artist": "Artist Name",
                         "webpage_url": "https://www.youtube.com/watch?v=abc123",
                     }
                 ]
@@ -1936,12 +2389,24 @@ class OnlinePlayTests(unittest.TestCase):
         ]
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
+            with patch("src.tools.online_play.online_audio_configured", return_value=False), \
+                patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
                 patch("src.tools.cover_sources.lookup_cover_art_url", return_value=None), \
                 patch("src.tools.online_play.check_player", return_value=True), \
                 patch("src.tools.online_play.is_player_allowed", return_value=True), \
                 patch("src.tools.online_play.start_local_playback", side_effect=_playback_success):
-                result = online.play_youtube_song("Song Artist", player="mpv", cache_root=Path(tmp))
+                result = online.play_youtube_song(
+                    "Song Artist",
+                    player="mpv",
+                    cache_root=Path(tmp),
+                    playback_metadata={
+                        "name": "Song Title",
+                        "title": "Song Title",
+                        "artist": "Artist Name",
+                        "album": "Album Name",
+                        "duration_ms": 185000,
+                    },
+                )
 
             self.assertEqual(result["status"], "success")
             data = result["data"]
@@ -2004,7 +2469,8 @@ class OnlinePlayTests(unittest.TestCase):
         ]
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("src.tools.spotify_play.spotify_search") as spotify_search, \
+            with patch("src.tools.online_play.online_audio_configured", return_value=False), \
+                patch("src.tools.spotify_play.spotify_search") as spotify_search, \
                 patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
                 patch("src.tools.cover_sources.lookup_cover_art_url", return_value="https://coverartarchive.org/release-group/mbid/front-500") as cover_lookup, \
                 patch("src.tools.online_play.check_player", return_value=True), \
@@ -2019,7 +2485,7 @@ class OnlinePlayTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "success")
         spotify_search.assert_not_called()
-        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch40:Canonical Artist Canonical Song")
+        self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch20:Canonical Artist Canonical Song")
         cover_lookup.assert_called_once_with(name="Canonical Song", artist="Canonical Artist", album="Canonical Album")
         data = result["data"]
         self.assertEqual(data["name"], "Canonical Song")
@@ -2078,7 +2544,8 @@ class OnlinePlayTests(unittest.TestCase):
         ]
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("src.tools.spotify_play.spotify_search") as spotify_search, \
+            with patch("src.tools.online_play.online_audio_configured", return_value=False), \
+                patch("src.tools.spotify_play.spotify_search") as spotify_search, \
                 patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
                 patch("src.tools.cover_sources.lookup_cover_art_url", return_value=None), \
                 patch("src.tools.online_play.check_player", return_value=True), \
@@ -2101,7 +2568,7 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertNotIn("provider_album_cover_url", data)
         self.assertNotIn("official_album_cover_url", data)
 
-    def test_play_youtube_song_does_not_auto_lookup_spotify_and_uses_raw_query(self) -> None:
+    def test_play_youtube_song_raw_query_requires_candidate_review(self) -> None:
         """Verifies that play youtube song does not auto lookup spotify and uses raw query behaves as expected.
 
         Typical use: Use this in automated tests when guarding the play youtube song does not auto lookup spotify and uses raw query behavior against regressions.
@@ -2131,7 +2598,8 @@ class OnlinePlayTests(unittest.TestCase):
         ]
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("src.tools.spotify_play.spotify_search") as spotify_search, \
+            with patch("src.tools.online_play.online_audio_configured", return_value=False), \
+                patch("src.tools.spotify_play.spotify_search") as spotify_search, \
                 patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
                 patch("src.tools.cover_sources.lookup_cover_art_url", return_value=None), \
                 patch("src.tools.online_play.check_player", return_value=True), \
@@ -2139,13 +2607,11 @@ class OnlinePlayTests(unittest.TestCase):
                 patch("src.tools.online_play.start_local_playback", side_effect=_playback_success):
                 result = online.play_youtube_song("raw query", player="mpv", cache_root=Path(tmp))
 
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "fail")
+        self.assertEqual(result["error_code"], "ONLINE_AUDIO_REVIEW_REQUIRED")
         spotify_search.assert_not_called()
         self.assertEqual(FakeYoutubeDL.calls[0]["target"], "ytsearch8:raw query")
-        data = result["data"]
-        self.assertEqual(data["metadata_source"], "query_fallback")
-        self.assertEqual(data["youtube_query"], "raw query")
-        self.assertEqual(data["original_query"], "raw query")
+        self.assertEqual(len(FakeYoutubeDL.calls), 1)
 
     def test_play_youtube_song_falls_back_to_uploader_and_best_audio_format(self) -> None:
         """Verifies that play youtube song falls back to uploader and best audio format behaves as expected.
@@ -2155,10 +2621,16 @@ class OnlinePlayTests(unittest.TestCase):
         Example: test_play_youtube_song_falls_back_to_uploader_and_best_audio_format() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
-            {"entries": [{"id": "def456"}]},
+            {
+                "entries": [{
+                    "id": "def456",
+                    "title": "Uploader Artist - Fallback Song",
+                    "artist": "Uploader Artist",
+                }]
+            },
             {
                 "id": "def456",
-                "title": "Fallback Song",
+                "title": "Uploader Artist - Fallback Song",
                 "uploader": "Uploader Artist",
                 "duration": 12.4,
                 "thumbnails": [
@@ -2174,12 +2646,23 @@ class OnlinePlayTests(unittest.TestCase):
         ]
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
+            with patch("src.tools.online_play.online_audio_configured", return_value=False), \
+                patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
                 patch("src.tools.cover_sources.lookup_cover_art_url", return_value=None), \
                 patch("src.tools.online_play.check_player", return_value=True), \
                 patch("src.tools.online_play.is_player_allowed", return_value=True), \
                 patch("src.tools.online_play.start_local_playback", side_effect=_playback_success):
-                result = online.play_youtube_song("Fallback Song", player="mpv", cache_root=Path(tmp))
+                result = online.play_youtube_song(
+                    "Fallback Song",
+                    player="mpv",
+                    cache_root=Path(tmp),
+                    playback_metadata={
+                        "name": "Fallback Song",
+                        "title": "Fallback Song",
+                        "artist": "Uploader Artist",
+                        "duration_ms": 12400,
+                    },
+                )
 
             data = result["data"]
             self.assertEqual(data["url"], "https://www.youtube.com/watch?v=def456")
@@ -2188,18 +2671,24 @@ class OnlinePlayTests(unittest.TestCase):
             self.assertTrue(Path(data["stream_url"]).exists())
             self.assertEqual(data["duration_ms"], 12400)
 
-    def test_play_youtube_song_returns_failure_when_no_audio_stream_is_available(self) -> None:
-        """Verifies that play youtube song returns failure when no audio stream is available behaves as expected.
+    def test_play_youtube_song_uses_video_container_when_no_audio_only_stream_is_available(self) -> None:
+        """Verifies that playback can fall back to a video container with an audio stream.
 
         Typical use: Use this in automated tests when guarding the play youtube song returns failure when no audio stream is available behavior against regressions.
 
         Example: test_play_youtube_song_returns_failure_when_no_audio_stream_is_available() -> passes without assertion failures when the behavior remains correct.
         """
         FakeYoutubeDL.responses = [
-            {"entries": [{"id": "ghi789"}]},
+            {
+                "entries": [{
+                    "id": "ghi789",
+                    "title": "Test Artist - No Audio",
+                    "artist": "Test Artist",
+                }]
+            },
             {
                 "id": "ghi789",
-                "title": "No Audio",
+                "title": "Test Artist - No Audio",
                 "formats": [
                     {"url": "video.mp4", "acodec": "mp4a", "vcodec": "avc1"},
                 ],
@@ -2207,14 +2696,25 @@ class OnlinePlayTests(unittest.TestCase):
         ]
 
         with tempfile.TemporaryDirectory() as tmp:
-            with patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
+            with patch("src.tools.online_play.online_audio_configured", return_value=False), \
+                patch("src.tools.online_play.yt_dlp.YoutubeDL", FakeYoutubeDL), \
                 patch("src.tools.online_play.check_player", return_value=True), \
-                patch("src.tools.online_play.start_local_playback") as launch:
-                result = online.play_youtube_song("No Audio", player="mpv", cache_root=Path(tmp))
+                patch("src.tools.online_play.is_player_allowed", return_value=True), \
+                patch("src.tools.online_play.start_local_playback", side_effect=_playback_success) as launch:
+                result = online.play_youtube_song(
+                    "No Audio",
+                    player="mpv",
+                    cache_root=Path(tmp),
+                    playback_metadata={
+                        "name": "No Audio",
+                        "title": "No Audio",
+                        "artist": "Test Artist",
+                    },
+                )
 
-        self.assertEqual(result["status"], "fail")
-        self.assertEqual(result["error_code"], "NO_PLAYABLE_AUDIO")
-        launch.assert_not_called()
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["data"]["media"]["kind"], "video_container")
+        launch.assert_called_once()
 
     def test_play_youtube_song_uses_open_audio_trace_before_youtube_unavailable_fallback(self) -> None:
         """Verifies that play youtube song uses open audio trace before youtube unavailable fallback behaves as expected.

@@ -37,8 +37,33 @@ DISPLAY_SUFFIX_RE = re.compile(
     r"(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?)$",
     re.IGNORECASE,
 )
-SIMPLIFIED_TO_TRADITIONAL = str.maketrans({"丽": "麗", "来": "來"})
-TRADITIONAL_TO_SIMPLIFIED = str.maketrans({"麗": "丽", "來": "来"})
+SIMPLIFIED_TRADITIONAL_PAIRS = {
+    "爱": "愛",
+    "动": "動",
+    "发": "發",
+    "国": "國",
+    "后": "後",
+    "来": "來",
+    "乐": "樂",
+    "丽": "麗",
+    "录": "錄",
+    "梦": "夢",
+    "声": "聲",
+    "态": "態",
+    "听": "聽",
+    "万": "萬",
+    "为": "為",
+    "游": "遊",
+    "园": "園",
+    "与": "與",
+    "云": "雲",
+    "词": "詞",
+}
+SIMPLIFIED_TO_TRADITIONAL = str.maketrans(SIMPLIFIED_TRADITIONAL_PAIRS)
+TRADITIONAL_TO_SIMPLIFIED = str.maketrans({
+    traditional: simplified
+    for simplified, traditional in SIMPLIFIED_TRADITIONAL_PAIRS.items()
+})
 
 
 class MatchDecision(StrEnum):

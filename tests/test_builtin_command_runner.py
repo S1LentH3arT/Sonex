@@ -3729,7 +3729,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         online_search.assert_called_once()
         self.assertEqual(online_search.call_args.args[0], "Canonical Artist Canonical Song")
-        self.assertEqual(online_search.call_args.args[1], 1)
+        self.assertEqual(online_search.call_args.args[1], 5)
         metadata = online_search.call_args.kwargs["playback_metadata"]
         self.assertEqual(metadata["name"], "Canonical Song")
         self.assertEqual(metadata["artist"], "Canonical Artist")

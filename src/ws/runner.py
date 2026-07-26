@@ -2360,6 +2360,13 @@ class PlaySelectionSession:
             if candidate is None:
                 await self._finish("Selected online audio candidate expired.", status="error")
                 return
+            assessment = candidate.get("assessment")
+            if isinstance(assessment, dict) and assessment.get("confidence") == "medium":
+                candidate = {
+                    **candidate,
+                    "user_verified": True,
+                    "user_verified_at": time.time(),
+                }
             result = await self._play_online_audio_candidate(candidate)
             if _is_failed_tool_result(result):
                 await self._finish("Online playback failed.", status="error")
@@ -2610,7 +2617,7 @@ class PlaySelectionSession:
             asyncio.to_thread(
                 _search_online_audio_for_runner,
                 query,
-                1,
+                5,
                 playback_metadata=metadata,
             )
         )
@@ -2643,15 +2650,49 @@ class PlaySelectionSession:
 
         candidate = self.online_audio_candidates[0]
         await self._append_source_attempts(candidate.get("source_attempts"))
-        result = await self._play_online_audio_candidate(candidate)
-        data = result.get("data") if isinstance(result, dict) and isinstance(result.get("data"), dict) else {}
-        await self._append_source_attempts(data.get("source_attempts"))
-        if _is_failed_tool_result(result):
-            await self._finish("Online playback failed.", status="error")
-        elif _is_player_confirm_result(result):
+        assessment = candidate.get("assessment")
+        confidence = assessment.get("confidence") if isinstance(assessment, dict) else "high"
+        if confidence == "medium":
+            choices = [
+                self._online_audio_candidate_choice(item)
+                for item in self.online_audio_candidates
+                if isinstance(item.get("assessment"), dict)
+                and item["assessment"].get("confidence") == "medium"
+            ]
+            choices.append(
+                {
+                    "value": "refine_query",
+                    "label": "没有想听的歌曲",
+                    "input": {"placeholder": "试试补充更多信息"},
+                }
+            )
+            await self._ask_confirm(
+                message="选择在线音源候选歌曲",
+                choices=choices,
+                tool_args={"query": query, "stage": "online_audio_candidates"},
+                tool_name="online_audio_candidate",
+            )
             return
-        else:
+        high_confidence_candidates = [
+            item
+            for item in self.online_audio_candidates
+            if not isinstance(item.get("assessment"), dict)
+            or item["assessment"].get("confidence") == "high"
+        ]
+        for index, candidate in enumerate(high_confidence_candidates):
+            result = await self._play_online_audio_candidate(
+                candidate,
+                report_failure=index == len(high_confidence_candidates) - 1,
+            )
+            data = result.get("data") if isinstance(result, dict) and isinstance(result.get("data"), dict) else {}
+            await self._append_source_attempts(data.get("source_attempts"))
+            if _is_failed_tool_result(result):
+                continue
+            if _is_player_confirm_result(result):
+                return
             await self._finish("Online playback selected.")
+            return
+        await self._finish("Online playback failed.", status="error")
 
     async def _send_cover_from_task(self, cover_task: asyncio.Task[dict[str, Any]]) -> None:
         """Prepares send cover from task for an internal Sonex flow.
@@ -2742,6 +2783,9 @@ class PlaySelectionSession:
         views = _compact_count(candidate.get("raw_view_count"))
         if views:
             parts.append(f"{views} views")
+        assessment = candidate.get("assessment")
+        if isinstance(assessment, dict) and assessment.get("confidence") == "medium":
+            parts.append("Needs confirmation")
         parts.extend([duration, cached])
         return {
             "value": f"youtube_candidate:{candidate.get('cache_id')}",
@@ -2832,7 +2876,12 @@ class PlaySelectionSession:
                 pass
         return result
 
-    async def _play_online_audio_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
+    async def _play_online_audio_candidate(
+        self,
+        candidate: dict[str, Any],
+        *,
+        report_failure: bool = True,
+    ) -> dict[str, Any]:
         """Prepares play online audio candidate for an internal Sonex flow.
 
         Typical use: Use this helper when nearby code needs play online audio candidate without duplicating the local rules.
@@ -2859,7 +2908,7 @@ class PlaySelectionSession:
         if _is_player_confirm_result(result):
             await self._ask_player_confirm(result)
             return result
-        if _is_failed_tool_result(result):
+        if _is_failed_tool_result(result) and report_failure:
             message = _friendly_runtime_error_message(result, fallback="Playback failed.")
             await self.ui.append_agent_message(message)
             await self.ui.send_error(message)
