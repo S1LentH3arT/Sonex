@@ -43,6 +43,7 @@ class FakeUI:
         self.events: list[dict[str, object]] = []
         self.statuses: list[object] = []
         self.transcript: list[dict[str, str]] = []
+        self.session_id = "test-session"
 
     async def append_user_message(self, text: str) -> None:
         """Verifies that append user message behaves as expected.
@@ -67,6 +68,17 @@ class FakeUI:
         if isinstance(mode, dict) and mode.get("enabled"):
             event["theme"] = "spotify"
         self.events.append(event)
+
+    async def append_system_message(self, text: str) -> None:
+        self.transcript.append({"role": "agent", "content": text})
+        self.events.append(
+            {
+                "type": "chat",
+                "role": "agent",
+                "tone": "system",
+                "text": text,
+            }
+        )
 
     async def append_activity(self, **kwargs: object) -> str:
         """Verifies that append activity behaves as expected.
@@ -455,11 +467,38 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(hasattr(runner, "_sync_local_playback"))
         with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
-             patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync):
+             patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
+             patch("src.api.ws_runner.create_session_id", return_value="session-1"):
             await runner.handle_ws(ws)  # type: ignore[arg-type]
 
         self.assertTrue(ws.accepted)
-        self.assertEqual(ws.sent[0]["type"], "queue")
+        self.assertEqual(
+            ws.sent[0],
+            {"type": "session_state", "session_id": "session-1"},
+        )
+        self.assertEqual(ws.sent[1]["type"], "queue")
+        self.assertIn("tracks", ws.sent[1])
+
+    async def test_handle_bye_reuses_connection_session_id(self) -> None:
+        runner = WebSocketRunner()
+        ui = AsyncMock()
+        ui.session_id = "session-1"
+
+        with patch(
+            "src.api.ws_runner._save_session_transcript",
+            return_value=Path("/tmp/sessions/session-1/transcript.jsonl"),
+        ) as save_transcript:
+            await runner._handle_bye(
+                ui,
+                messages=[{"role": "user", "content": "hello"}],
+                reason="bye",
+            )
+
+        save_transcript.assert_called_once_with(
+            [{"role": "user", "content": "hello"}],
+            reason="bye",
+            session_id="session-1",
+        )
 
     async def test_recommendation_tool_result_is_saved_for_number_references(self) -> None:
         """Verifies that recommendation tool result is saved for number references behaves as expected.
@@ -1343,6 +1382,10 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertTrue(confirm_events)
         self.assertEqual(confirm_events[-1]["tool_name"], "song_candidate")
+        self.assertEqual(
+            confirm_events[-1]["message"],
+            "Select the version to play",
+        )
         self.assertEqual(confirm_events[-1]["tool_args"]["query"], "1")
         self.assertFalse(any(event.get("tool_args", {}).get("stage") == "method_choice" for event in confirm_events))
 
@@ -3313,6 +3356,18 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         activity_events = [event for event in ui.events if event.get("type") == "activity"]
         self.assertEqual(activity_events[-1]["status"], "success")
         self.assertIn("cvlc", activity_events[-1]["detail"])
+        self.assertTrue(any(
+            event.get("type") == "chat"
+            and event.get("role") == "agent"
+            and event.get("tone") == "system"
+            and event.get("text") == "player: VLC"
+            for event in ui.events
+        ))
+        self.assertFalse(any(
+            event.get("tone") == "system"
+            and str(event.get("text", "")).startswith("on playing:")
+            for event in ui.events
+        ))
 
     async def test_player_backend_confirm_result_from_websocket_invokes_tool(self) -> None:
         runner = WebSocketRunner()
@@ -3353,6 +3408,57 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         invoke.assert_not_called()
         self.assertIsNone(getattr(ui, "_player_backend_selection"))
         self.assertTrue(any("unchanged" in str(event.get("text")) for event in ui.events))
+        self.assertFalse(any(
+            event.get("tone") == "system"
+            and str(event.get("text", "")).startswith("player:")
+            for event in ui.events
+        ))
+
+    async def test_player_backend_invalid_choice_has_no_system_feedback(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/player")
+        session = getattr(ui, "_player_backend_selection")
+        with patch("src.api.ws_runner.registry.invoke") as invoke:
+            await session.handle_choice("not-a-player")
+
+        invoke.assert_not_called()
+        self.assertTrue(any(
+            event.get("type") == "chat"
+            and event.get("text") == "Playback backend unchanged."
+            for event in ui.events
+        ))
+        self.assertFalse(any(
+            event.get("tone") == "system"
+            and str(event.get("text", "")).startswith("player:")
+            for event in ui.events
+        ))
+
+    async def test_player_backend_failure_has_no_system_feedback(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        failure = {
+            "status": "fail",
+            "tool": "local_playback_player",
+            "message": "Backend selection failed.",
+            "error_code": "PLAYBACK_CONTROL_FAILED",
+            "data": {},
+        }
+
+        await runner._handle_user_input(ui, "/player")
+        session = getattr(ui, "_player_backend_selection")
+        with patch(
+            "src.api.ws_runner.registry.invoke",
+            return_value=failure,
+        ):
+            await session.handle_choice("mpv")
+
+        self.assertFalse(any(
+            event.get("tone") == "system"
+            and str(event.get("text", "")).startswith("player:")
+            for event in ui.events
+        ))
 
     async def test_online_play_result_updates_player_and_cover(self) -> None:
         """Verifies that online play result updates player and cover behaves as expected.
@@ -3717,13 +3823,33 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 ],
             },
         }
+        candidate_feedback = (
+            "track: Canonical Song\n"
+            "artist: Canonical Artist\n"
+            "album: Canonical Album\n"
+            "source: iTunes"
+        )
+
+        def play_candidate_with_feedback(
+            candidate: dict[str, object],
+            *,
+            player: str,
+        ) -> dict[str, object]:
+            self.assertTrue(any(
+                event.get("type") == "chat"
+                and event.get("role") == "agent"
+                and event.get("text") == candidate_feedback
+                and event.get("tone") is None
+                for event in ui.events
+            ))
+            return playback_result
 
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'messy query'."), \
              patch("src.api.ws_runner.search_track_metadata_candidates", return_value={"candidates": [song_candidate], "source_attempts": []}):
             await runner._handle_user_input(ui, "play messy query")
         session = getattr(ui, "_play_selection")
         with patch("src.api.ws_runner.search_online_audio_candidates", return_value=[online_candidate]) as online_search, \
-             patch("src.api.ws_runner.play_online_audio_candidate", return_value=playback_result) as play_candidate, \
+             patch("src.api.ws_runner.play_online_audio_candidate", side_effect=play_candidate_with_feedback) as play_candidate, \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await session.handle_choice("song_candidate:0")
 
@@ -3751,6 +3877,289 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             event.get("type") == "error"
             and "Selected YouTube result is not available" in str(event.get("message"))
             for event in ui.events
+        ))
+        chat_events = [
+            event for event in ui.events
+            if event.get("type") == "chat"
+        ]
+        self.assertTrue(any(
+            event.get("role") == "agent"
+            and event.get("text") == candidate_feedback
+            and event.get("tone") is None
+            for event in chat_events
+        ))
+        self.assertFalse(any(
+            event.get("tone") == "system"
+            and str(event.get("text", "")).startswith("on playing:")
+            for event in chat_events
+        ))
+
+    async def test_song_candidate_direct_success_announces_playing_once(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        song_candidate = {
+            "metadata_source": "itunes",
+            "name": "Sorry",
+            "artist": "方大同",
+            "album": "未来",
+        }
+        online_candidate = {
+            "cache_id": "audio-1",
+            "name": "Sorry",
+            "artist": "方大同",
+        }
+        success = {
+            "status": "success",
+            "tool": "play_online_audio",
+            "message": "Playing started.",
+            "data": {
+                "name": "Sorry",
+                "player": "mpv",
+                "is_playing": True,
+            },
+        }
+
+        with patch(
+            "src.api.ws_runner.search_local_file",
+            return_value="No local files found.",
+        ), patch(
+            "src.api.ws_runner.search_track_metadata_candidates",
+            return_value={"candidates": [song_candidate], "source_attempts": []},
+        ), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await runner._handle_user_input(ui, "play Sorry")
+
+        session = getattr(ui, "_play_selection")
+        with patch(
+            "src.api.ws_runner.resolve_online_playback_metadata",
+            return_value={},
+        ), patch(
+            "src.api.ws_runner.search_online_audio_candidates",
+            return_value=[online_candidate],
+        ), patch(
+            "src.api.ws_runner.play_online_audio_candidate",
+            return_value=success,
+        ), patch(
+            "src.api.ws_runner.upsert_cached_song",
+        ), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await session.handle_choice("song_candidate:0")
+
+        chat_events = [
+            event for event in ui.events
+            if event.get("type") == "chat"
+        ]
+        self.assertEqual(
+            [
+                event.get("text")
+                for event in chat_events
+                if str(event.get("text", "")).startswith("track:")
+            ],
+            ["track: Sorry\nartist: 方大同\nalbum: 未来\nsource: iTunes"],
+        )
+        self.assertEqual(
+            [
+                event.get("text")
+                for event in chat_events
+                if event.get("tone") == "system"
+                and str(event.get("text", "")).startswith("on playing:")
+            ],
+            ["on playing: Sorry"],
+        )
+        self.assertFalse(any(
+            str(event.get("text", "")).startswith("player:")
+            for event in chat_events
+        ))
+
+    async def test_song_candidate_player_confirmation_reports_choice_and_playing(
+        self,
+    ) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        pending = {
+            "status": "requires_player_confirm",
+            "tool": "play_online_audio",
+            "message": "Confirm player.",
+            "data": {
+                "name": "Sorry",
+                "player": "auto",
+                "choices": [
+                    {"value": "mpv", "label": "🎧 mpv"},
+                    {"value": "cvlc", "label": "📻 VLC"},
+                    {"value": "deny", "label": "取消"},
+                ],
+            },
+        }
+        success = {
+            "status": "success",
+            "tool": "play_online_audio",
+            "message": "Playing started.",
+            "data": {
+                "name": "Sorry",
+                "player": "mpv",
+                "is_playing": True,
+            },
+        }
+        session = await _start_song_candidate_player_confirmation(
+            runner,
+            ui,
+            pending,
+        )
+
+        with patch(
+            "src.api.ws_runner.complete_player_confirm",
+            return_value=success,
+        ), patch(
+            "src.api.ws_runner.upsert_cached_song",
+        ), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await session.handle_choice("mpv")
+
+        feedback = [
+            (event.get("tone"), event.get("text"))
+            for event in ui.events
+            if event.get("type") == "chat"
+            and (
+                str(event.get("text", "")).startswith("track:")
+                or str(event.get("text", "")).startswith("player:")
+                or str(event.get("text", "")).startswith("on playing:")
+            )
+        ]
+        self.assertEqual(
+            feedback,
+            [
+                (
+                    None,
+                    "track: Sorry\n"
+                    "artist: 方大同\n"
+                    "album: 未来\n"
+                    "source: iTunes",
+                ),
+                (None, "player: mpv"),
+                ("system", "on playing: Sorry"),
+            ],
+        )
+
+    async def test_song_candidate_player_non_success_choices_have_no_feedback(
+        self,
+    ) -> None:
+        pending = {
+            "status": "requires_player_confirm",
+            "tool": "play_online_audio",
+            "message": "Confirm player.",
+            "data": {
+                "name": "Sorry",
+                "player": "auto",
+                "choices": [
+                    {"value": "mpv", "label": "🎧 mpv"},
+                    {"value": "deny", "label": "取消"},
+                ],
+            },
+        }
+
+        for label, decision, expired, expected_detail in (
+            ("deny", "deny", False, "Playback failed."),
+            ("invalid", "not-a-player", False, "Playback failed."),
+            ("expired", "mpv", True, "Player confirmation expired."),
+        ):
+            with self.subTest(label=label):
+                runner = WebSocketRunner()
+                ui = FakeUI()
+                session = await _start_song_candidate_player_confirmation(
+                    runner,
+                    ui,
+                    pending,
+                )
+                if expired:
+                    session.pending_player_confirm_result = None
+
+                with patch(
+                    "src.api.ws_runner.asyncio.to_thread",
+                    side_effect=_to_thread_inline,
+                ):
+                    if expired:
+                        await session._complete_player_confirmation(decision)
+                    else:
+                        await session.handle_choice(decision)
+
+                feedback = [
+                    str(event.get("text", ""))
+                    for event in ui.events
+                    if event.get("type") == "chat"
+                    and (
+                        str(event.get("text", "")).startswith("player:")
+                        or str(event.get("text", "")).startswith("on playing:")
+                    )
+                ]
+                self.assertEqual(feedback, [])
+                self.assertTrue(any(
+                    event.get("type") == "activity"
+                    and event.get("status") == "error"
+                    and event.get("detail") == expected_detail
+                    for event in ui.events
+                ))
+
+    async def test_song_candidate_player_failure_has_no_success_feedback(
+        self,
+    ) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        pending = {
+            "status": "requires_player_confirm",
+            "tool": "play_online_audio",
+            "message": "Confirm player.",
+            "data": {
+                "name": "Sorry",
+                "player": "auto",
+                "choices": [
+                    {"value": "mpv", "label": "🎧 mpv"},
+                    {"value": "deny", "label": "取消"},
+                ],
+            },
+        }
+        failure = {
+            "status": "fail",
+            "tool": "play_online_audio",
+            "message": "Player launch failed.",
+            "error_code": "PLAYBACK_FAILED",
+            "data": {"name": "Sorry"},
+        }
+        session = await _start_song_candidate_player_confirmation(
+            runner,
+            ui,
+            pending,
+        )
+
+        with patch(
+            "src.api.ws_runner.complete_player_confirm",
+            return_value=failure,
+        ), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await session.handle_choice("mpv")
+
+        feedback_text = [
+            str(event.get("text", ""))
+            for event in ui.events
+            if event.get("type") == "chat"
+        ]
+        self.assertIn(
+            "track: Sorry\n"
+            "artist: 方大同\n"
+            "album: 未来\n"
+            "source: iTunes",
+            feedback_text,
+        )
+        self.assertFalse(any(
+            text.startswith("player:") or text.startswith("on playing:")
+            for text in feedback_text
         ))
 
     async def test_song_candidate_cover_lookup_can_complete_when_audio_fails(self) -> None:
@@ -4474,6 +4883,52 @@ def _read_jsonl(path: Path) -> list[dict[str, object]]:
         for line in path.read_text(encoding="utf-8").splitlines()
         if line.strip()
     ]
+
+
+async def _start_song_candidate_player_confirmation(
+    runner: WebSocketRunner,
+    ui: FakeUI,
+    pending: dict[str, object],
+) -> object:
+    song_candidate = {
+        "metadata_source": "itunes",
+        "name": "Sorry",
+        "artist": "方大同",
+        "album": "未来",
+    }
+    online_candidate = {
+        "cache_id": "audio-1",
+        "name": "Sorry",
+        "artist": "方大同",
+    }
+    with patch(
+        "src.api.ws_runner.search_local_file",
+        return_value="No local files found.",
+    ), patch(
+        "src.api.ws_runner.search_track_metadata_candidates",
+        return_value={"candidates": [song_candidate], "source_attempts": []},
+    ), patch(
+        "src.api.ws_runner.asyncio.to_thread",
+        side_effect=_to_thread_inline,
+    ):
+        await runner._handle_user_input(ui, "play Sorry")
+
+    session = getattr(ui, "_play_selection")
+    with patch(
+        "src.api.ws_runner.resolve_online_playback_metadata",
+        return_value={},
+    ), patch(
+        "src.api.ws_runner.search_online_audio_candidates",
+        return_value=[online_candidate],
+    ), patch(
+        "src.api.ws_runner.play_online_audio_candidate",
+        return_value=pending,
+    ), patch(
+        "src.api.ws_runner.asyncio.to_thread",
+        side_effect=_to_thread_inline,
+    ):
+        await session.handle_choice("song_candidate:0")
+    return session
 
 
 async def _to_thread_inline(fn, /, *args, **kwargs):

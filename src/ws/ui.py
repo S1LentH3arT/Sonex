@@ -23,14 +23,15 @@ class WebSocketUIAdapter:
 
     Encapsulates web socket ui adapter data and behavior used by Sonex runtime flows.
     """
-    def __init__(self, ws: WebSocket) -> None:
+    def __init__(self, ws: WebSocket, *, session_id: str) -> None:
         """Prepares init for an internal Sonex flow.
 
         Typical use: Use this helper when nearby code needs init without duplicating the local rules.
 
-        Example: __init__(ws=...) -> returns the value used by the surrounding Sonex flow.
+        Example: __init__(ws=..., session_id=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ws = ws
+        self.session_id = session_id
         self.closed = False
         self.transcript: list[dict[str, str]] = []
 
@@ -47,6 +48,15 @@ class WebSocketUIAdapter:
             await self.ws.send_text(json.dumps(payload, ensure_ascii=False, default=str))
         except (RuntimeError, WebSocketDisconnect):
             self.closed = True
+
+    async def send_session_state(self) -> None:
+        """Send the canonical chat session identity for this connection."""
+        await self._send(
+            {
+                "type": "session_state",
+                "session_id": self.session_id,
+            }
+        )
 
     async def append_user_message(self, text: str) -> None:
         """Coordinates append user message for the current Sonex flow.
@@ -71,6 +81,18 @@ class WebSocketUIAdapter:
         if isinstance(mode, dict) and mode.get("enabled"):
             payload["theme"] = "spotify"
         await self._send(payload)
+
+    async def append_system_message(self, text: str) -> None:
+        """Append a chat message rendered with the existing System subject."""
+        self.transcript.append({"role": "agent", "content": text})
+        await self._send(
+            {
+                "type": "chat",
+                "role": "agent",
+                "tone": "system",
+                "text": text,
+            }
+        )
 
     async def send_error(self, message: str) -> None:
         """Sends error to the active runtime client.

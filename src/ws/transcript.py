@@ -10,6 +10,12 @@ from typing import Any
 from src.log import sonex_home
 
 
+def create_session_id(now: datetime | None = None) -> str:
+    """Return the canonical UTC timestamp identifier for a chat session."""
+    timestamp = now or datetime.now(timezone.utc)
+    return timestamp.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S%fZ")
+
+
 def _coerce_transcript_messages(messages: Any) -> list[dict[str, str]]:
     """Prepares coerce transcript messages for an internal Sonex flow.
 
@@ -35,6 +41,7 @@ def _save_session_transcript(
     messages: list[dict[str, str]],
     *,
     reason: str,
+    session_id: str,
 ) -> Path:
     """Prepares save session transcript for an internal Sonex flow.
 
@@ -43,7 +50,6 @@ def _save_session_transcript(
     Example: _save_session_transcript(messages=..., reason=...) -> returns the value used by the surrounding Sonex flow.
     """
     now = datetime.now(timezone.utc)
-    session_id = now.strftime("%Y%m%d%H%M%S%fZ")
     root = sonex_home() / "sessions" / session_id
     root.mkdir(parents=True, exist_ok=True)
     path = root / "transcript.jsonl"

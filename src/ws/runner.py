@@ -97,6 +97,12 @@ from src.tools.spotify_library_sync import (
     save_spotify_library_sync_state,
 )
 from src.tools.track_search import search_track_metadata_candidates
+from src.ws.playback_feedback import (
+    format_playing_feedback,
+    format_player_feedback,
+    format_song_candidate_feedback,
+    metadata_provider_label as _metadata_provider_label,
+)
 
 
 # Backward-compatible runner patch points; these now resolve the unified online-audio layer.
@@ -270,7 +276,11 @@ from src.ws.constants import (
     SPOTIFY_PLAYBACK_CONTROL_TOOLS,
     SPOTIFY_SETUP_TRIGGERS,
 )
-from src.ws.transcript import _coerce_transcript_messages, _save_session_transcript
+from src.ws.transcript import (
+    _coerce_transcript_messages,
+    _save_session_transcript,
+    create_session_id,
+)
 from src.ws.types import AuthRuntimeState, PlayRequestParse
 from src.ws.ui import WebSocketUIAdapter, _new_event_id, _timestamp_ms
 
@@ -600,22 +610,6 @@ def _duration_text(ms: Any) -> str:
     minutes = total_seconds // 60
     seconds = total_seconds % 60
     return f"{minutes}:{seconds:02d}"
-
-
-def _metadata_provider_label(provider: Any) -> str:
-    """Prepares metadata provider label for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs metadata provider label without duplicating the local rules.
-
-    Example: _metadata_provider_label(provider=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    normalized = str(provider or "").strip().lower()
-    return {
-        "itunes": "iTunes",
-        "deezer": "Deezer",
-        "musicbrainz": "MusicBrainz",
-        "spotify": "Spotify",
-    }.get(normalized, str(provider or "Metadata").title())
 
 
 def _compact_count(value: Any) -> str | None:
@@ -2345,6 +2339,9 @@ class PlaySelectionSession:
             if candidate is None:
                 await self._finish("Selected song metadata candidate expired.", status="error")
                 return
+            await self.ui.append_agent_message(
+                format_song_candidate_feedback(candidate)
+            )
             self.selected_playback_metadata = dict(candidate)
             self.selected_playback_metadata.setdefault("original_query", self.query)
             youtube_query = str(candidate.get("youtube_query") or f"{candidate.get('artist') or ''} {candidate.get('name') or ''}").strip()
@@ -2510,7 +2507,7 @@ class PlaySelectionSession:
             }
         )
         await self._ask_confirm(
-            message="选择歌曲候选",
+            message="Select the version to play",
             choices=choices,
             tool_args={"query": query, "stage": "song_metadata_candidates"},
             tool_name="song_candidate",
@@ -2690,6 +2687,13 @@ class PlaySelectionSession:
                 continue
             if _is_player_confirm_result(result):
                 return
+            if isinstance(result, dict) and result.get("status") == "success":
+                await self.ui.append_system_message(
+                    format_playing_feedback(
+                        result,
+                        self.selected_playback_metadata or {},
+                    )
+                )
             await self._finish("Online playback selected.")
             return
         await self._finish("Online playback failed.", status="error")
@@ -2967,6 +2971,23 @@ class PlaySelectionSession:
                 await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
             except Exception:
                 pass
+        if (
+            isinstance(result, dict)
+            and result.get("status") == "success"
+            and self.selected_playback_metadata is not None
+        ):
+            data = result.get("data")
+            result_data = data if isinstance(data, dict) else {}
+            selected_player = result_data.get("player") or decision
+            await self.ui.append_agent_message(
+                format_player_feedback(selected_player)
+            )
+            await self.ui.append_system_message(
+                format_playing_feedback(
+                    result,
+                    self.selected_playback_metadata,
+                )
+            )
         await self._finish("Online playback selected.")
 
     async def _finish(self, detail: str, *, status: str = "success") -> None:
@@ -3896,6 +3917,13 @@ class PlayerBackendSelectionSession:
                 "data": {},
             }
         await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
+        if isinstance(result, dict) and result.get("status") == "success":
+            data = result.get("data")
+            result_data = data if isinstance(data, dict) else {}
+            selected_backend = result_data.get("backend") or backend
+            await self.ui.append_system_message(
+                format_player_feedback(selected_backend)
+            )
 
 
 class WebSocketRunner:
@@ -3921,7 +3949,8 @@ class WebSocketRunner:
         Example: await handle_ws(ws=...) -> returns the value used by the surrounding Sonex flow.
         """
         await ws.accept()
-        ui = WebSocketUIAdapter(ws)
+        ui = WebSocketUIAdapter(ws, session_id=create_session_id())
+        await ui.send_session_state()
         await ui._send({"type": "queue", "tracks": _queue_payload()})
         await self._handle_startup_auth(ui)
         await self._restore_persistent_spotify_mode(ui)
@@ -5380,7 +5409,11 @@ class WebSocketRunner:
 
         Example: await _handle_bye(ui=..., messages=..., reason=...) -> returns the value used by the surrounding Sonex flow.
         """
-        path = _save_session_transcript(messages, reason=reason)
+        path = _save_session_transcript(
+            messages,
+            reason=reason,
+            session_id=ui.session_id,
+        )
         message = f"Session saved to {path}. Bye."
         await ui.append_activity(
             kind="status",
