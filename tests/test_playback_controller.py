@@ -5,7 +5,13 @@ Contains pytest coverage for the test playback controller behavior.
 
 from __future__ import annotations
 
+import io
+import json
+import os
+import tempfile
+import time
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from src.tools import playback_controller as playback
@@ -98,6 +104,197 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertIn("--cache=yes", command)
         self.assertIn("--demuxer-readahead-secs=30", command)
         self.assertIn("--demuxer-max-bytes=256MiB", command)
+
+    def test_mpv_session_persists_sanitized_process_diagnostics(self) -> None:
+        source_url = "https://user:secret@example.test/audio.webm?token=private"
+        adapter = playback.MpvPlaybackAdapter(
+            source_url=source_url,
+            source="youtube",
+            metadata={"name": "Song"},
+        )
+        expected_state = playback.PlayerState(
+            provider="youtube",
+            source="youtube",
+            player="mpv",
+            session_id=adapter.session_id,
+            name="Song",
+            artist="-",
+            album="-",
+            duration_ms=0,
+            progress_ms=0,
+            timestamp=1,
+            is_playing=True,
+        )
+        process = Mock()
+        process.poll.return_value = None
+        process.stderr = io.BytesIO(
+            f"A: 00:00:01 / 00:03:00 (1%)\nfailed to open {source_url}\n".encode()
+        )
+
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        with patch.dict(os.environ, {"SONEX_HOME": home.name}), \
+                patch.object(playback.shutil, "which", return_value="/usr/bin/mpv"), \
+                patch.object(playback.subprocess, "Popen", return_value=process), \
+                patch.object(playback.os.path, "exists", return_value=True), \
+                patch.object(adapter, "status", return_value=expected_state):
+            adapter.start()
+            deadline = time.monotonic() + 1
+            log_paths: list[Path] = []
+            while time.monotonic() < deadline:
+                log_paths = list((Path(home.name) / "diagnostics" / "mpv").glob("*/mpv.log"))
+                if log_paths and log_paths[0].read_text(encoding="utf-8"):
+                    break
+                time.sleep(0.01)
+
+            self.assertEqual(len(log_paths), 1)
+            content = log_paths[0].read_text(encoding="utf-8")
+            self.assertIn("failed to open <media>", content)
+            self.assertNotIn("A: 00:00:01", content)
+            self.assertNotIn(source_url, content)
+            self.assertNotIn("secret", content)
+
+    def test_mpv_public_status_records_authoritative_health_sample(self) -> None:
+        sample_times = iter([0.0, 1.0, 2.0, 3.0])
+        adapter = playback.MpvPlaybackAdapter(
+            source_url="song.webm",
+            source="youtube",
+            metadata={"name": "Song", "duration_ms": 180000},
+            diagnostic_time_source=lambda: next(sample_times),
+        )
+        started_state = playback.PlayerState(
+            provider="youtube",
+            source="youtube",
+            player="mpv",
+            session_id=adapter.session_id,
+            name="Song",
+            artist="-",
+            album="-",
+            duration_ms=180000,
+            progress_ms=0,
+            timestamp=1,
+            is_playing=True,
+        )
+        process = Mock()
+        process.poll.return_value = None
+        process.stderr = io.BytesIO()
+        properties = {
+            "time-pos": 0.0,
+            "duration": 180.0,
+            "pause": False,
+            "paused-for-cache": False,
+            "current-ao": "pulse",
+        }
+        quit_sent = {"value": False}
+        request_id_types: list[type[object]] = []
+
+        class FakeIpcSocket:
+            def __init__(self) -> None:
+                self.property_name = ""
+                self.request_id = 0
+
+            def __enter__(self) -> "FakeIpcSocket":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def settimeout(self, _timeout: float) -> None:
+                return None
+
+            def connect(self, _path: str) -> None:
+                return None
+
+            def sendall(self, payload: bytes) -> None:
+                request = json.loads(payload)
+                command = request["command"]
+                self.property_name = command[-1] if command[0] == "get_property" else ""
+                self.request_id = request["request_id"]
+                request_id_types.append(type(self.request_id))
+                if command[0] == "quit":
+                    quit_sent["value"] = True
+
+            def recv(self, _size: int) -> bytes:
+                event = json.dumps({"event": "property-change", "name": "idle-active"}) + "\n"
+                property_unavailable = bool(self.property_name and quit_sent["value"])
+                response = json.dumps({
+                    "error": "property unavailable" if property_unavailable else "success",
+                    "data": (
+                        properties[self.property_name]
+                        if self.property_name and not property_unavailable
+                        else None
+                    ),
+                    "request_id": self.request_id,
+                }) + "\n"
+                return (event + response).encode()
+
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        with patch.dict(os.environ, {"SONEX_HOME": home.name}), \
+                patch.object(playback.shutil, "which", return_value="/usr/bin/mpv"), \
+                patch.object(playback.subprocess, "Popen", return_value=process), \
+                patch.object(playback.os.path, "exists", return_value=True), \
+                patch.object(adapter, "status", return_value=started_state):
+            adapter.start()
+
+        with patch.object(playback.socket, "socket", side_effect=lambda *_args, **_kwargs: FakeIpcSocket()):
+            state = adapter.status()
+            properties["time-pos"] = 0.4
+            adapter.status()
+            properties["time-pos"] = 0.8
+            anomaly_state = adapter.status()
+            stopped = adapter.stop()
+
+        self.assertEqual(state.progress_ms, 0)
+        self.assertEqual(anomaly_state.diagnostic_notice, "clock_drift")
+        self.assertTrue(stopped.ended)
+        self.assertIsNone(stopped.diagnostic_notice)
+        events = [
+            json.loads(line)
+            for line in adapter.diagnostics.events_path.read_text(encoding="utf-8").splitlines()
+        ]
+        status = [event for event in events if event["event"] == "status"][-1]
+        self.assertEqual(status["progress_ms"], 800)
+        self.assertEqual(status["current_ao"], "pulse")
+        self.assertTrue(status["ipc_ok"])
+        self.assertTrue(request_id_types)
+        self.assertTrue(all(request_id_type is int for request_id_type in request_id_types))
+        self.assertFalse(any(event["event"] == "audio_output_changed" for event in events))
+        self.assertEqual(events[-1]["event"], "session_closed")
+
+    def test_mpv_startup_sample_does_not_report_transient_time_pos_as_ipc_failure(self) -> None:
+        adapter = playback.MpvPlaybackAdapter(
+            source_url="song.webm",
+            source="youtube",
+            metadata={"name": "Song", "duration_ms": 180000},
+        )
+        adapter.process = Mock()
+        adapter.process.poll.return_value = None
+        adapter.health_monitor = Mock()
+        properties = {
+            "duration": 180.0,
+            "pause": False,
+            "paused-for-cache": False,
+            "current-ao": "pulse",
+        }
+
+        def read_property(name: str) -> object:
+            if name == "time-pos":
+                raise RuntimeError("property unavailable")
+            return properties[name]
+
+        with patch.object(adapter, "_property", side_effect=read_property):
+            state = adapter.status(default_playing=True)
+
+        self.assertEqual(state.progress_ms, 0)
+        self.assertTrue(state.is_playing)
+        adapter.health_monitor.observe.assert_called_once_with(
+            progress_ms=0,
+            is_playing=True,
+            paused_for_cache=False,
+            current_ao="pulse",
+            ipc_ok=True,
+        )
 
     def test_cvlc_start_uses_network_buffering_options(self) -> None:
         """Verifies that cvlc start uses network buffering options behaves as expected.
@@ -295,6 +492,46 @@ class PlaybackControllerTests(unittest.TestCase):
         adapter.set_volume.assert_called_once_with(55)
         adapter.stop.assert_called_once()
         self.assertIsNone(self.controller.current_session_id)
+
+    def test_status_releases_a_naturally_ended_session(self) -> None:
+        adapter = Mock()
+        playing = playback.PlayerState(
+            provider="youtube",
+            source="youtube",
+            player="mpv",
+            session_id="session-1",
+            name="Song",
+            artist="-",
+            album="-",
+            duration_ms=1000,
+            progress_ms=0,
+            timestamp=1,
+            is_playing=True,
+        )
+        ended = playback.PlayerState(
+            **{
+                **playing.to_dict(),
+                "progress_ms": 1000,
+                "timestamp": 2,
+                "is_playing": False,
+                "ended": True,
+            }
+        )
+        adapter.start.return_value = playing
+        adapter.status.return_value = ended
+
+        with patch.object(playback, "MpvPlaybackAdapter", return_value=adapter):
+            self.controller.play(
+                source_url="song.webm",
+                source="youtube",
+                metadata={"name": "Song"},
+            )
+            state = self.controller.status()
+
+        self.assertTrue(state.ended)
+        self.assertIsNone(self.controller.current_session_id)
+        with self.assertRaisesRegex(RuntimeError, "No active local playback session"):
+            self.controller.status()
 
     def test_player_backend_strategy_can_be_changed_for_session(self) -> None:
         """Verifies that player backend strategy can be changed for session behaves as expected.

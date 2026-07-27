@@ -6,6 +6,7 @@ Key public entry points include PlayerState, PlaybackAdapter, MpvPlaybackAdapter
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -13,14 +14,16 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Callable, Literal, Protocol
 
 from src.tools.registry import Params, registry
 from src.tools.result import ToolResult
+from src.tools.mpv_diagnostics import MpvDiagnosticSession, MpvPlaybackHealthMonitor
 
 PlayerName = Literal["mpv", "cvlc"]
 PlayerBackend = Literal["auto", "mpv", "cvlc"]
@@ -65,6 +68,8 @@ class PlayerState:
     progress_ms: int
     timestamp: int
     is_playing: bool
+    paused_for_cache: bool = False
+    diagnostic_notice: str | None = None
     id: str | None = None
     uri: str | None = None
     url: str | None = None
@@ -105,6 +110,8 @@ def _metadata_state(
     progress_ms: int = 0,
     duration_ms: int | None = None,
     is_playing: bool = True,
+    paused_for_cache: bool = False,
+    diagnostic_notice: str | None = None,
     volume_percent: int | None = None,
     ended: bool = False,
 ) -> PlayerState:
@@ -129,6 +136,8 @@ def _metadata_state(
         progress_ms=_coerce_ms(progress_ms),
         timestamp=_timestamp_ms(),
         is_playing=is_playing,
+        paused_for_cache=paused_for_cache,
+        diagnostic_notice=diagnostic_notice,
         uri=metadata.get("uri"),
         url=metadata.get("url"),
         stream_url=metadata.get("stream_url"),
@@ -218,7 +227,14 @@ class MpvPlaybackAdapter:
 
     Encapsulates mpv playback adapter data and behavior used by Sonex runtime flows.
     """
-    def __init__(self, *, source_url: str, source: PlaybackSource, metadata: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        *,
+        source_url: str,
+        source: PlaybackSource,
+        metadata: dict[str, Any],
+        diagnostic_time_source: Callable[[], float] = time.monotonic,
+    ) -> None:
         """Prepares init for an internal Sonex flow.
 
         Typical use: Use this helper when nearby code needs init without duplicating the local rules.
@@ -228,10 +244,16 @@ class MpvPlaybackAdapter:
         self.source_url = source_url
         self.source = source
         self.metadata = metadata
+        self._diagnostic_time_source = diagnostic_time_source
         self.session_id = uuid.uuid4().hex
         self.socket_path = str(Path(tempfile.gettempdir()) / f"sonex-mpv-{self.session_id}.sock")
         self.process: subprocess.Popen[bytes] | None = None
         self.volume_percent: int | None = None
+        self.diagnostics: MpvDiagnosticSession | None = None
+        self.health_monitor: MpvPlaybackHealthMonitor | None = None
+        self._stderr_thread: threading.Thread | None = None
+        self._last_progress_ms = 0
+        self._last_duration_ms: int | None = None
 
     def start(self) -> PlayerState:
         """Coordinates start for the current Sonex flow.
@@ -242,27 +264,54 @@ class MpvPlaybackAdapter:
         """
         if shutil.which("mpv") is None:
             raise RuntimeError("mpv is not installed or not on PATH.")
-        self.process = subprocess.Popen(
-            [
-                "mpv",
-                "--no-video",
-                "--cache=yes",
-                "--demuxer-readahead-secs=30",
-                "--demuxer-max-bytes=256MiB",
-                f"--input-ipc-server={self.socket_path}",
-                self.source_url,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        try:
+            self.diagnostics = MpvDiagnosticSession(
+                session_id=self.session_id,
+                media_location=self.source_url,
+            )
+        except OSError:
+            self.diagnostics = None
+        if self.diagnostics:
+            self.health_monitor = MpvPlaybackHealthMonitor(
+                session=self.diagnostics,
+                burst_sampler=self._diagnostic_probe,
+                time_source=self._diagnostic_time_source,
+            )
+        try:
+            self.process = subprocess.Popen(
+                [
+                    "mpv",
+                    "--no-video",
+                    "--cache=yes",
+                    "--demuxer-readahead-secs=30",
+                    "--demuxer-max-bytes=256MiB",
+                    f"--input-ipc-server={self.socket_path}",
+                    self.source_url,
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE if self.diagnostics else subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as exc:
+            self._close_diagnostics("start_failed", error=str(exc))
+            raise
+        if self.diagnostics and isinstance(self.process.stderr, io.IOBase):
+            self._stderr_thread = threading.Thread(
+                target=self.diagnostics.capture_mpv_stderr,
+                args=(self.process.stderr,),
+                name=f"sonex-mpv-log-{self.session_id[:8]}",
+                daemon=True,
+            )
+            self._stderr_thread.start()
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
+                self._close_diagnostics("start_failed", error="mpv exited before playback started")
                 raise RuntimeError("mpv exited before playback started.")
             if os.path.exists(self.socket_path):
                 return self.status(default_playing=True)
             time.sleep(0.05)
+        self._close_diagnostics("start_failed", error="mpv IPC socket was not ready")
         raise RuntimeError("mpv IPC socket was not ready.")
 
     def _request(self, command: list[Any]) -> Any:
@@ -274,18 +323,32 @@ class MpvPlaybackAdapter:
         """
         if self.process and self.process.poll() is not None:
             raise RuntimeError("mpv process is not running.")
-        payload = json.dumps({"command": command}).encode("utf-8") + b"\n"
+        request_id = uuid.uuid4().int & ((1 << 63) - 1)
+        payload = json.dumps({
+            "command": command,
+            "request_id": request_id,
+        }).encode("utf-8") + b"\n"
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
             client.settimeout(1)
             client.connect(self.socket_path)
             client.sendall(payload)
-            response = client.recv(65536)
-        if not response:
-            return None
-        decoded = json.loads(response.decode("utf-8"))
-        if decoded.get("error") not in (None, "success"):
-            raise RuntimeError(f"mpv IPC failed: {decoded.get('error')}")
-        return decoded.get("data")
+            buffered = b""
+            while True:
+                response = client.recv(65536)
+                if not response:
+                    break
+                buffered += response
+                while b"\n" in buffered:
+                    line, buffered = buffered.split(b"\n", 1)
+                    if not line.strip():
+                        continue
+                    decoded = json.loads(line.decode("utf-8"))
+                    if decoded.get("request_id") != request_id:
+                        continue
+                    if decoded.get("error") not in (None, "success"):
+                        raise RuntimeError(f"mpv IPC failed: {decoded.get('error')}")
+                    return decoded.get("data")
+        raise RuntimeError("mpv IPC returned no matching response.")
 
     def _property(self, name: str) -> Any:
         """Prepares property for an internal Sonex flow.
@@ -296,6 +359,33 @@ class MpvPlaybackAdapter:
         """
         return self._request(["get_property", name])
 
+    def _diagnostic_probe(self) -> dict[str, Any]:
+        """Read one high-frequency diagnostic sample from mpv."""
+        progress_ms = _coerce_ms(float(self._property("time-pos") or 0) * 1000)
+        paused = bool(self._property("pause"))
+        paused_for_cache = bool(self._property("paused-for-cache"))
+        current_ao_value = self._property("current-ao")
+        return {
+            "progress_ms": progress_ms,
+            "is_playing": not paused,
+            "paused_for_cache": paused_for_cache,
+            "current_ao": str(current_ao_value) if current_ao_value else None,
+            "ipc_ok": True,
+        }
+
+    def _close_diagnostics(self, event: str, *, error: str | None = None) -> None:
+        if self.health_monitor:
+            self.health_monitor.close()
+        if self.diagnostics:
+            self.diagnostics.record(
+                event,
+                progress_ms=self._last_progress_ms,
+                is_playing=False,
+                ipc_ok=error is None,
+                error=error,
+            )
+            self.diagnostics.close()
+
     def status(self, *, default_playing: bool | None = None) -> PlayerState:
         """Coordinates status for the current Sonex flow.
 
@@ -303,20 +393,66 @@ class MpvPlaybackAdapter:
 
         Example: status(default_playing=...) -> returns the value used by the surrounding Sonex flow.
         """
+        ended = bool(self.process and self.process.poll() is not None)
+        if ended:
+            self._close_diagnostics("process_ended")
+            return _metadata_state(
+                metadata=self.metadata,
+                source=self.source,
+                player="mpv",
+                session_id=self.session_id,
+                progress_ms=self._last_progress_ms,
+                duration_ms=self._last_duration_ms,
+                is_playing=False,
+                paused_for_cache=False,
+                volume_percent=self.volume_percent,
+                ended=True,
+            )
+
         try:
             progress_ms = _coerce_ms(float(self._property("time-pos") or 0) * 1000)
-        except Exception:
-            progress_ms = 0
+            self._last_progress_ms = progress_ms
+        except Exception as exc:
+            if self.health_monitor and default_playing is None:
+                self.health_monitor.observe(
+                    progress_ms=self._last_progress_ms,
+                    is_playing=bool(default_playing),
+                    paused_for_cache=False,
+                    current_ao=None,
+                    ipc_ok=False,
+                    error=str(exc),
+                )
+            if default_playing is None:
+                raise RuntimeError("mpv progress status is unavailable.") from exc
+            progress_ms = self._last_progress_ms
         try:
             duration_ms = _coerce_ms(float(self._property("duration") or 0) * 1000)
+            self._last_duration_ms = duration_ms
         except Exception:
-            duration_ms = None
+            duration_ms = self._last_duration_ms
         try:
             paused = bool(self._property("pause"))
             is_playing = not paused
         except Exception:
             is_playing = bool(default_playing)
-        ended = bool(self.process and self.process.poll() is not None)
+        try:
+            paused_for_cache = bool(self._property("paused-for-cache"))
+        except Exception:
+            paused_for_cache = False
+        try:
+            current_ao_value = self._property("current-ao")
+            current_ao = str(current_ao_value) if current_ao_value else None
+        except Exception:
+            current_ao = None
+        diagnostic_notice = None
+        if self.health_monitor:
+            diagnostic_notice = self.health_monitor.observe(
+                progress_ms=progress_ms,
+                is_playing=is_playing,
+                paused_for_cache=paused_for_cache,
+                current_ao=current_ao,
+                ipc_ok=True,
+            )
         return _metadata_state(
             metadata=self.metadata,
             source=self.source,
@@ -324,9 +460,11 @@ class MpvPlaybackAdapter:
             session_id=self.session_id,
             progress_ms=progress_ms,
             duration_ms=duration_ms,
-            is_playing=is_playing and not ended,
+            is_playing=is_playing,
+            paused_for_cache=paused_for_cache,
+            diagnostic_notice=diagnostic_notice,
             volume_percent=self.volume_percent,
-            ended=ended,
+            ended=False,
         )
 
     def pause(self) -> PlayerState:
@@ -357,11 +495,27 @@ class MpvPlaybackAdapter:
         Example: stop() -> returns the value used by the surrounding Sonex flow.
         """
         try:
+            final_state = self.status(default_playing=False)
+        except Exception:
+            final_state = _metadata_state(
+                metadata=self.metadata,
+                source=self.source,
+                player="mpv",
+                session_id=self.session_id,
+                progress_ms=self._last_progress_ms,
+                duration_ms=self._last_duration_ms,
+                is_playing=False,
+                volume_percent=self.volume_percent,
+            )
+        try:
             self._request(["quit"])
         except Exception:
             if self.process and self.process.poll() is None:
                 self.process.terminate()
-        return replace(self.status(default_playing=False), is_playing=False, ended=True)
+        try:
+            return replace(final_state, is_playing=False, diagnostic_notice=None, ended=True)
+        finally:
+            self._close_diagnostics("playback_stopped")
 
     def set_volume(self, volume_percent: int) -> PlayerState:
         """Coordinates set volume for the current Sonex flow.
@@ -676,7 +830,11 @@ class LocalPlaybackController:
 
         Example: status() -> returns the value used by the surrounding Sonex flow.
         """
-        return self._require_adapter().status()
+        state = self._require_adapter().status()
+        if state.ended:
+            self._adapter = None
+            self.current_session_id = None
+        return state
 
     def stop(self) -> PlayerState:
         """Coordinates stop for the current Sonex flow.
@@ -742,10 +900,15 @@ def _control_result(tool: str, action: str) -> dict[str, Any]:
     try:
         state = getattr(controller, action)()
     except Exception as exc:
+        error_code = (
+            "PLAYBACK_STATUS_UNAVAILABLE"
+            if action == "status" and controller.current_session_id
+            else "NO_ACTIVE_PLAYBACK"
+        )
         return ToolResult.fail(
             tool=tool,
             message=str(exc),
-            error_code="NO_ACTIVE_PLAYBACK",
+            error_code=error_code,
         ).to_dict()
     messages = {
         "pause": "Playback paused.",
