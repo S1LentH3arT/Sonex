@@ -160,12 +160,16 @@ export type PlayerState = {
     is_playing?: boolean;
     playback_status?: "starting" | "playing" | "paused" | "ended" | string | null;
     progress_source?: "spotify_pending" | "spotify_live" | "local_player" | string | null;
+    progress_sync_lost?: boolean;
+    paused_for_cache?: boolean;
+    diagnostic_notice?: "clock_drift" | "cache_pause" | "ipc_failure" | "audio_output_changed" | string | null;
     provider?: string | null;
     player?: "mpv" | "cvlc" | string | null;
     session_id?: string | null;
     ended?: boolean | null;
     volume_percent?: number | null;
     is_liked?: boolean | null;
+    is_in_playlist?: boolean | null;
     source?: "local" | "youtube" | "spotify" | "apple_music" | string | null;
 };
 

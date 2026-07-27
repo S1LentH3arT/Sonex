@@ -10,6 +10,12 @@ export function isPlaybackStarting(player: PlayerState): boolean {
     return player.playback_status === "starting";
 }
 
+export function isPlaybackProgressFrozen(player: PlayerState): boolean {
+    return isPlaybackStarting(player)
+        || player.progress_sync_lost === true
+        || player.paused_for_cache === true;
+}
+
 /**
  * Coordinates the should use playback progress timer operation for the CLI UI runtime.
  *
@@ -18,7 +24,9 @@ export function isPlaybackStarting(player: PlayerState): boolean {
  * @returns The computed result for the surrounding CLI UI flow.
  */
 export function shouldUsePlaybackProgressTimer(player: PlayerState, active = true): boolean {
-    return active && player.is_playing === true && !isPlaybackStarting(player);
+    return active
+        && player.is_playing === true
+        && !isPlaybackProgressFrozen(player);
 }
 
 /**
@@ -30,7 +38,7 @@ export function shouldUsePlaybackProgressTimer(player: PlayerState, active = tru
  */
 export function playbackProgressAt(player: PlayerState, now: number): number {
     const base = player.progress_ms ?? 0;
-    if (isPlaybackStarting(player)) return base;
+    if (isPlaybackProgressFrozen(player)) return base;
     const reference = player.progress_anchor_ms ?? player.timestamp ?? player.started_at;
     const liveOffset = player.is_playing && reference ? Math.max(0, now - reference) : 0;
     const progress = base + liveOffset;
@@ -55,7 +63,16 @@ export function usePlaybackProgress(player: PlayerState, active = true): number 
 
         const timer = setInterval(() => setNow(Date.now()), PLAYBACK_PROGRESS_INTERVAL_MS);
         return () => clearInterval(timer);
-    }, [active, player.is_playing, player.progress_anchor_ms, player.timestamp, player.started_at, player.progress_ms]);
+    }, [
+        active,
+        player.is_playing,
+        player.paused_for_cache,
+        player.progress_anchor_ms,
+        player.progress_ms,
+        player.progress_sync_lost,
+        player.started_at,
+        player.timestamp,
+    ]);
 
     return playbackProgressAt(player, now);
 }

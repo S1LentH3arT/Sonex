@@ -86,6 +86,7 @@ from src.tools.playlists import (
     list_playlists,
     playlist_choices,
     save_track_to_playlist,
+    track_in_any_playlist,
     track_in_playlist,
     upsert_mirror_playlist,
 )
@@ -243,7 +244,7 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
 from src.tools.player_permission import complete_player_confirm
 from src.tools.apple_music import apple_music_recommend
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
-from src.tools.playback_controller import start_local_playback
+from src.tools.playback_controller import local_playback_status, start_local_playback
 from src.tools.spotify_play import (
     _product_is_known_non_premium,
     remember_recent_track,
@@ -532,6 +533,8 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
             "started_at": timestamp - progress_ms,
             "is_playing": is_playing,
             "playback_status": item.get("playback_status") or ("playing" if is_playing else "paused"),
+            "paused_for_cache": bool(item.get("paused_for_cache")),
+            "diagnostic_notice": item.get("diagnostic_notice"),
             "progress_source": item.get("progress_source"),
             "uri": item.get("uri"),
             "provider": item.get("provider"),
@@ -567,6 +570,17 @@ def _spotify_live_player_state(player_state: dict[str, Any]) -> dict[str, Any]:
     live_state = dict(player_state)
     live_state["progress_source"] = "spotify_live"
     live_state["progress_anchor_ms"] = _timestamp_ms()
+    return live_state
+
+
+def _local_live_player_state(player_state: dict[str, Any]) -> dict[str, Any]:
+    """Anchors an authoritative local-player state to the local clock."""
+    live_state = dict(player_state)
+    live_state["progress_source"] = "local_player"
+    live_state["progress_anchor_ms"] = _timestamp_ms()
+    live_state["progress_sync_lost"] = False
+    if live_state.get("paused_for_cache"):
+        live_state["playback_status"] = "buffering"
     return live_state
 
 
@@ -780,6 +794,7 @@ def _player_sync_signature(state: dict[str, Any]) -> tuple[Any, ...]:
         progress_bucket,
         state.get("volume_percent"),
         state.get("is_liked"),
+        state.get("is_in_playlist"),
     )
 
 
@@ -789,7 +804,11 @@ def _decorate_player_state(state: dict[str, Any]) -> dict[str, Any]:
         is_liked = track_in_playlist(state, playlist_name=LIKES_PLAYLIST)
     except Exception:
         is_liked = False
-    return {**state, "is_liked": is_liked}
+    try:
+        is_in_playlist = is_liked or track_in_any_playlist(state)
+    except Exception:
+        is_in_playlist = False
+    return {**state, "is_liked": is_liked, "is_in_playlist": is_in_playlist}
 
 
 def _remember_actual_playback(player_state: dict[str, Any]) -> None:
@@ -3054,10 +3073,9 @@ class PlaylistSaveSession:
         name = str(result.get("playlist", {}).get("name") or playlist_name or LIKES_PLAYLIST)
         added = bool(result.get("added"))
         message = f"Saved to {name}." if added else f"Already saved in {name}."
-        if name == LIKES_PLAYLIST:
-            player_state = _decorate_player_state(self.track)
-            setattr(self.ui, "_last_player_state", player_state)
-            await self.ui._send({"type": "player", "state": player_state})
+        player_state = _decorate_player_state(self.track)
+        setattr(self.ui, "_last_player_state", player_state)
+        await self.ui._send({"type": "player", "state": player_state})
         await self.ui.append_agent_message(message)
         await self.ui.append_activity(kind="status", title="Playlist save", detail=message, status="success")
         await self.ui._send(_track_panel_payload("playlist", f"Playlist: {name}", playlist_panel_tracks(name)))

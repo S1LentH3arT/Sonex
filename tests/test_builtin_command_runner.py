@@ -2922,14 +2922,18 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "provider": "youtube",
         }
 
-        with patch("src.api.ws_runner.track_in_playlist", return_value=True) as in_playlist:
+        with patch("src.api.ws_runner.track_in_playlist", return_value=True) as in_likes, \
+                patch("src.api.ws_runner.track_in_any_playlist") as in_playlist:
             decorated = _decorate_player_state(state)
 
-        in_playlist.assert_called_once()
+        in_playlist.assert_not_called()
+        in_likes.assert_called_once()
         self.assertIsNot(decorated, state)
         self.assertTrue(decorated["is_liked"])
+        self.assertTrue(decorated["is_in_playlist"])
 
-        with patch("src.api.ws_runner.track_in_playlist", return_value=False):
+        with patch("src.api.ws_runner.track_in_playlist", return_value=False), \
+                patch("src.api.ws_runner.track_in_any_playlist", return_value=False):
             self.assertFalse(_decorate_player_state(state)["is_liked"])
 
     async def test_player_event_includes_likes_membership(self) -> None:
@@ -2957,11 +2961,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         await runner._handle_internal_command(ui, "/player mpv")
         session = getattr(ui, "_player_backend_selection")
         with patch("src.api.ws_runner.registry.invoke", return_value=result), \
-                patch("src.api.ws_runner.track_in_playlist", return_value=True):
+                patch("src.api.ws_runner.track_in_playlist", return_value=True), \
+                patch("src.api.ws_runner.track_in_any_playlist", return_value=True):
             await session.handle_choice("mpv")
 
         player_events = [event for event in ui.events if event.get("type") == "player"]
         self.assertTrue(player_events[-1]["state"]["is_liked"])
+        self.assertTrue(player_events[-1]["state"]["is_in_playlist"])
 
     async def test_playlist_save_to_likes_emits_updated_liked_player_state(self) -> None:
         runner = WebSocketRunner()
@@ -2981,12 +2987,40 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "added": True,
             "playlist": {"name": "likes", "track_count": 1},
             "track": {"name": "Current Song", "artist": "Current Artist"},
-        }), patch("src.api.ws_runner.track_in_playlist", return_value=True):
+        }), patch("src.api.ws_runner.track_in_playlist", return_value=True), \
+                patch("src.api.ws_runner.track_in_any_playlist", return_value=True):
             await session.handle_choice("playlist:likes")
 
         player_events = [event for event in ui.events if event.get("type") == "player"]
         self.assertTrue(player_events)
         self.assertTrue(player_events[-1]["state"]["is_liked"])
+        self.assertTrue(player_events[-1]["state"]["is_in_playlist"])
+
+    async def test_playlist_save_to_named_playlist_emits_updated_membership(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_last_player_state", {
+            "name": "Current Song",
+            "artist": "Current Artist",
+            "album": "-",
+            "duration_ms": 180000,
+            "provider": "youtube",
+            "is_liked": False,
+            "is_in_playlist": False,
+        })
+
+        with patch("src.api.ws_runner.save_track_to_playlist", return_value={
+            "added": True,
+            "playlist": {"name": "road trip", "track_count": 1},
+            "track": {"name": "Current Song", "artist": "Current Artist"},
+        }), patch("src.api.ws_runner.track_in_playlist", return_value=False), \
+                patch("src.api.ws_runner.track_in_any_playlist", return_value=True):
+            await runner._start_playlist_save(ui, "road trip")
+
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertTrue(player_events)
+        self.assertFalse(player_events[-1]["state"]["is_liked"])
+        self.assertTrue(player_events[-1]["state"]["is_in_playlist"])
 
     async def test_pause_command_is_not_user_accessible_from_chat(self) -> None:
         runner = WebSocketRunner()

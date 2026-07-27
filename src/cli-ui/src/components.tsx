@@ -796,7 +796,7 @@ const MiniPlayerStaticBody = React.memo(({
     layout: MiniPlayerLayout;
 }) => {
     const infoInnerWidth = Math.max(0, layout.infoWidth - layout.infoLeftPadding);
-    const statusLine = buildPlaybackStatusIconLine(player, infoInnerWidth);
+    const statusLine = buildPlaybackStatusIconLine(player, infoInnerWidth, Date.now());
 
     return (
         <Box flexDirection="row" width={layout.contentColumns} height={layout.contentRows}>

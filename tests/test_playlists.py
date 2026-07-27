@@ -11,6 +11,7 @@ from src.tools.playlists import (
     list_playlists,
     playlist_choices,
     save_track_to_playlist,
+    track_in_any_playlist,
     track_in_playlist,
     upsert_mirror_playlist,
 )
@@ -175,6 +176,22 @@ class PlaylistStoreTests(unittest.TestCase):
 
             after = {path.name: path.stat().st_mtime_ns for path in root.glob("*.json")}
             self.assertEqual(after, before)
+
+    def test_track_in_any_playlist_matches_writable_playlist_membership(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            track = {
+                "cache_id": "track_1",
+                "name": "Orange Moon",
+                "artist": "Khalil Fong",
+                "album": "Orange Moon",
+                "duration_ms": 240000,
+                "provider": "youtube",
+            }
+            save_track_to_playlist(track, playlist_name="road trip", playlists_root=root, now=10)
+
+            self.assertTrue(track_in_any_playlist(track, playlists_root=root))
+            self.assertFalse(track_in_any_playlist({**track, "cache_id": "track_2", "name": "Blue Moon"}, playlists_root=root))
 
 
 if __name__ == "__main__":

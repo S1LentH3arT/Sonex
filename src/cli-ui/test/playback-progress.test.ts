@@ -50,6 +50,28 @@ assert.equal(playbackProgressAt({
     is_playing: true,
     playback_status: "starting",
 }, 2000), 0);
+assert.equal(playbackProgressAt({
+    name: "Song",
+    artist: "Artist",
+    album: "-",
+    duration_ms: 100000,
+    progress_ms: 42000,
+    progress_anchor_ms: 10000,
+    is_playing: true,
+    playback_status: "syncing",
+    progress_sync_lost: true,
+}, 15000), 42000);
+assert.equal(playbackProgressAt({
+    name: "Song",
+    artist: "Artist",
+    album: "-",
+    duration_ms: 100000,
+    progress_ms: 42000,
+    progress_anchor_ms: 10000,
+    is_playing: true,
+    playback_status: "buffering",
+    paused_for_cache: true,
+}, 15000), 42000);
 assert.equal(shouldUsePlaybackProgressTimer({
     name: "Song",
     artist: "Artist",

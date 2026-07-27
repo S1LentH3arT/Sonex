@@ -381,6 +381,30 @@ def track_in_playlist(
     return any(item.get("key") == key for item in playlist.get("tracks") or [])
 
 
+def track_in_any_playlist(
+    track: dict[str, Any],
+    *,
+    playlists_root: Path | None = None,
+    writable_only: bool = True,
+) -> bool:
+    try:
+        key = _track_key(_track_snapshot(track, saved_at=0))
+    except ValueError:
+        return False
+    for playlist_meta in list_playlists(playlists_root=playlists_root):
+        if writable_only and playlist_meta.get("readonly"):
+            continue
+        playlist = _load_playlist(
+            str(playlist_meta.get("name") or LIKES_PLAYLIST),
+            playlists_root,
+            source_app=str(playlist_meta.get("source_app") or SOURCE_SONEX),
+            external_id=_text(playlist_meta.get("external_id")) or None,
+        )
+        if any(item.get("key") == key for item in playlist.get("tracks") or []):
+            return True
+    return False
+
+
 def list_playlist_tracks(
     playlist_name: str = LIKES_PLAYLIST,
     *,
