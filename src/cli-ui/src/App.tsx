@@ -720,7 +720,7 @@ export const App: React.FC<{
 
         const command = matchingSlashCommand(text);
         const suggestions = slashCommandSuggestions(text);
-        if (!authSetup?.active && !spotifySetup?.active && (command?.name === "bye" || command?.name === "quit")) {
+        if (!authSetup?.active && !spotifySetup?.active && (command?.name === "bye" || command?.name === "exit")) {
             requestSafeExit(command.name);
             return;
         }

@@ -16,7 +16,8 @@ export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
 export const MAX_VISIBLE_SLASH_COMMANDS = 4;
 export const MAX_VISIBLE_MODEL_CHOICES = 3;
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
-    { name: "bye", usage: "/bye", description: "save session and exit", needsArgument: false, aliases: ["exit"] },
+    { name: "bye", usage: "/bye", description: "save session and exit", needsArgument: false },
+    { name: "exit", usage: "/exit", description: "save session and exit", needsArgument: false },
     { name: "help", usage: "/help", description: "show available commands", needsArgument: false },
     { name: "info", usage: "/info", description: "show current runtime information", needsArgument: false },
     { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "toggle mini-player playback shortcuts", needsArgument: false },
@@ -26,7 +27,6 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "player", usage: "/player", description: "choose playback backend from a panel", needsArgument: false },
     { name: "playlist", usage: "/playlist [name]|save [name]", description: "browse or save playlists", needsArgument: false },
     { name: "queue", usage: "/queue", description: "show playback queue", needsArgument: false },
-    { name: "quit", usage: "/quit", description: "save session and exit", needsArgument: false },
     { name: "random", usage: "/random", description: "play from recent songs", needsArgument: false },
     { name: "recommend", usage: "/recommend", description: "recommend songs of preferred music taste", needsArgument: false },
     { name: "resume", usage: "/resume", description: "resume current playback", needsArgument: false },

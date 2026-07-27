@@ -3159,7 +3159,7 @@ SPOTIFY_MODE_AGENT_TOOLS = (
     "search_track",
     "spotify_play",
 )
-SPOTIFY_MODE_COMMANDS = {"bye", "info", "lang", "logout", "model", "playlist", "quit", "queue", "random", "recommend"}
+SPOTIFY_MODE_COMMANDS = {"bye", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS = 5.0
 SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS = 15.0
@@ -4840,7 +4840,7 @@ class WebSocketRunner:
             await self._handle_local_playback_player(ui, args)
             return
 
-        if command_name in {"bye", "quit"}:
+        if command_name in {"bye", "exit"}:
             await self._handle_bye(ui, messages=ui.transcript, reason=command_name)
             return
 

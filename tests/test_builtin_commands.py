@@ -252,33 +252,36 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertEqual(parsed.args, "spotify")
         self.assertTrue(parsed.known)
 
-    def test_bye_command_and_aliases(self) -> None:
-        """Verifies that bye command and aliases behaves as expected.
+    def test_bye_command(self) -> None:
+        """Verifies that the bye command behaves as expected.
 
-        Typical use: Use this in automated tests when guarding the bye command and aliases behavior against regressions.
+        Typical use: Use this in automated tests when guarding the bye command behavior against regressions.
 
-        Example: test_bye_command_and_aliases() -> passes without assertion failures when the behavior remains correct.
+        Example: test_bye_command() -> passes without assertion failures when the behavior remains correct.
         """
-        for text in ("/bye", "/exit"):
-            with self.subTest(text=text):
-                parsed = parse_builtin_command(text)
-                self.assertIsNotNone(parsed)
-                assert parsed is not None
-                self.assertEqual(parsed.command.name, "bye")
-                self.assertTrue(parsed.known)
-
-    def test_quit_command(self) -> None:
-        """Verifies that quit command behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the quit command behavior against regressions.
-
-        Example: test_quit_command() -> passes without assertion failures when the behavior remains correct.
-        """
-        parsed = parse_builtin_command("/quit")
+        parsed = parse_builtin_command("/bye")
         self.assertIsNotNone(parsed)
         assert parsed is not None
-        self.assertEqual(parsed.command.name, "quit")
+        self.assertEqual(parsed.command.name, "bye")
         self.assertTrue(parsed.known)
+
+    def test_exit_replaces_quit_command(self) -> None:
+        """Verifies that exit replaces the retired quit command.
+
+        Typical use: Use this in automated tests when guarding the exit command behavior against regressions.
+
+        Example: test_exit_replaces_quit_command() -> passes without assertion failures when the behavior remains correct.
+        """
+        exit_command = parse_builtin_command("/exit")
+        self.assertIsNotNone(exit_command)
+        assert exit_command is not None
+        self.assertEqual(exit_command.command.name, "exit")
+        self.assertTrue(exit_command.known)
+
+        quit_command = parse_builtin_command("/quit")
+        self.assertIsNotNone(quit_command)
+        assert quit_command is not None
+        self.assertFalse(quit_command.known)
 
     def test_logout_command(self) -> None:
         """Verifies that logout command behaves as expected.
@@ -317,8 +320,9 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertIn("bye", [command.name for command in command_suggestions("/b")])
         self.assertIn("/recommend", format_help("re"))
         self.assertIn("/bye", format_help())
+        self.assertIn("/exit", format_help())
         self.assertIn("/model", format_help())
-        self.assertIn("/quit", format_help())
+        self.assertNotIn("/quit", format_help())
         self.assertEqual([command.name for command in command_suggestions("/log")], ["logout"])
         self.assertIn("/logout", format_help("log"))
 
@@ -357,7 +361,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        for name in ["help", "info", "model", "logout", "setup", "bye", "quit", "player", "keymap", "lang"]:
+        for name in ["help", "info", "model", "logout", "setup", "bye", "exit", "player", "keymap", "lang"]:
             with self.subTest(name=name):
                 self.assertEqual(commands[name].mode, "local")
 

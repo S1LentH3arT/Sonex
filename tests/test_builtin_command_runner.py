@@ -1061,19 +1061,19 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any("Session saved" in str(event.get("text")) for event in ui.events))
 
-    async def test_quit_saves_transcript_and_does_not_trigger_agent(self) -> None:
-        """Verifies that quit saves transcript and does not trigger agent behaves as expected.
+    async def test_exit_saves_transcript_and_does_not_trigger_agent(self) -> None:
+        """Verifies that exit saves transcript and does not trigger agent behaves as expected.
 
-        Typical use: Use this in automated tests when guarding the quit saves transcript and does not trigger agent behavior against regressions.
+        Typical use: Use this in automated tests when guarding the exit saves transcript and does not trigger agent behavior against regressions.
 
-        Example: test_quit_saves_transcript_and_does_not_trigger_agent() -> passes without assertion failures when the behavior remains correct.
+        Example: test_exit_saves_transcript_and_does_not_trigger_agent() -> passes without assertion failures when the behavior remains correct.
         """
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
 
         with tempfile.TemporaryDirectory() as home, patch.dict("os.environ", {"SONEX_HOME": home}):
-            await runner._handle_user_input(ui, "/quit")
+            await runner._handle_user_input(ui, "/exit")
 
             transcripts = list((Path(home) / "sessions").glob("*/transcript.jsonl"))
             self.assertEqual(len(transcripts), 1)
@@ -1081,7 +1081,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(runner._run_agent_turn.called)
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
-        self.assertTrue(all(item["reason"] == "quit" for item in payload))
+        self.assertTrue(all(item["reason"] == "exit" for item in payload))
         self.assertTrue(payload)
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any("Session saved" in str(event.get("text")) for event in ui.events))

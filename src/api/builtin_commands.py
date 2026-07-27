@@ -133,8 +133,8 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         ),
     ),
     BuiltinCommand("setup", "/setup [provider]", "Configure a music provider."),
-    BuiltinCommand("bye", "/bye", "Save the current session and exit safely.", aliases=("exit",)),
-    BuiltinCommand("quit", "/quit", "Save the current session and exit safely."),
+    BuiltinCommand("bye", "/bye", "Save the current session and exit safely."),
+    BuiltinCommand("exit", "/exit", "Save the current session and exit safely."),
 )
 
 _COMMANDS_BY_NAME = {
