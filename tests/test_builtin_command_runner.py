@@ -552,7 +552,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(command.usage == "/recommend [taste]" for command in help_events[0]["commands"]))
         self.assertFalse(any("Available commands" in str(event.get("text")) for event in ui.events))
 
-    async def test_lang_backend_fallback_is_local_and_does_not_trigger_agent(self) -> None:
+    async def test_lang_is_treated_as_an_unknown_command(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
@@ -561,7 +561,10 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(runner._run_agent_turn.called)
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
-        self.assertTrue(any("handled by the TUI" in str(event.get("text")) for event in ui.events))
+        self.assertTrue(any(
+            event.get("text") == "Unknown command: /lang. Type /help to view available commands."
+            for event in ui.events
+        ))
 
     async def test_info_backend_fallback_reports_runtime_without_agent_or_auth_setup(self) -> None:
         runner = WebSocketRunner()
@@ -585,6 +588,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             if event.get("type") == "chat" and event.get("role") == "agent"
         ]
         self.assertEqual(len(info_events), 1)
+        self.assertEqual(info_events[0].get("tone"), "system")
         text = str(info_events[0].get("text"))
         self.assertIn("Model: gpt-info", text)
         self.assertIn("Provider: openai", text)
@@ -841,7 +845,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(spotify_setup_events)
         self.assertEqual(spotify_setup_events[-1]["step"], "oauth")
         messages = [str(event.get("text")) for event in ui.events if event.get("type") == "chat"]
-        self.assertTrue(any("重新授权 Spotify" in message for message in messages))
+        self.assertTrue(any("Spotify authorization must be renewed" in message for message in messages))
         self.assertTrue(any("playlist-read-private" in message for message in messages))
         self.assertTrue(any("playlist-read-collaborative" in message for message in messages))
         self.assertTrue(any("user-library-read" in message for message in messages))
@@ -1038,7 +1042,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         await runner._handle_user_input(ui, "/foo")
 
         self.assertFalse(runner._run_agent_turn.called)
-        self.assertTrue(any("Unknown command" in str(event.get("text")) for event in ui.events))
+        command_messages = [
+            event for event in ui.events
+            if "Unknown command" in str(event.get("text"))
+        ]
+        self.assertTrue(command_messages)
+        self.assertEqual(command_messages[-1].get("tone"), "system")
 
     async def test_bye_saves_transcript_and_does_not_trigger_agent(self) -> None:
         """Verifies that bye saves transcript and does not trigger agent behaves as expected.
@@ -1118,7 +1127,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(store.default_model)
         self.assertTrue(all(item["reason"] == "logout" for item in payload))
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
-        self.assertTrue(any(event.get("text") == "Successfully log out." for event in ui.events))
+        self.assertTrue(any(event.get("text") == "Signed out successfully." for event in ui.events))
 
     async def test_logout_env_credentials_warns_and_exits_without_success_message(self) -> None:
         """Verifies that logout env credentials warns and exits without success message behaves as expected.
@@ -1142,7 +1151,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(item["reason"] == "logout" for item in payload))
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any("Cannot clear environment variable credentials" in str(event.get("text")) for event in ui.events))
-        self.assertFalse(any(event.get("text") == "Successfully log out." for event in ui.events))
+        self.assertFalse(any(event.get("text") == "Signed out successfully." for event in ui.events))
 
     async def test_logout_when_not_logged_in_does_not_exit(self) -> None:
         """Verifies that logout when not logged in does not exit behaves as expected.
@@ -1208,8 +1217,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
         self.assertTrue(any(event.get("type") == "queue" for event in ui.events))
         chat = [event for event in ui.events if event.get("type") == "chat" and event.get("role") == "agent"][-1]
-        self.assertIn("根据“华语女声”推荐 5 首", str(chat.get("text")))
-        self.assertIn("1. 七里香 - 周杰伦：recent match", str(chat.get("text")))
+        self.assertIn('Recommended 5 tracks for "华语女声"', str(chat.get("text")))
+        self.assertIn("1. 七里香 - 周杰伦: recent match", str(chat.get("text")))
         self.assertFalse(any(event.get("type") == "player" for event in ui.events))
 
     async def test_recommend_without_args_uses_empty_query_intro(self) -> None:
@@ -1232,7 +1241,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         spotify_recommend.assert_called_once_with(query="", limit=5, recent_tracks=[])
         chat = [event for event in ui.events if event.get("type") == "chat" and event.get("role") == "agent"][-1]
-        self.assertIn("根据最近播放和 USER.md 推荐 1 首", str(chat.get("text")))
+        self.assertIn("Recommended 1 track based on recent playback and USER.md", str(chat.get("text")))
 
     async def test_recommend_uses_other_provider_when_one_provider_fails(self) -> None:
         runner = WebSocketRunner()
@@ -1256,7 +1265,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         saved = getattr(ui, "_last_recommendation_tracks")
         self.assertEqual([item["name"] for item in saved], ["倒带"])
         self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
-        self.assertTrue(any("根据“R&B”推荐 1 首" in str(event.get("text")) for event in ui.events))
+        self.assertTrue(any('Recommended 1 track for "R&B"' in str(event.get("text")) for event in ui.events))
 
     async def test_recommend_returns_immediately_while_providers_load(self) -> None:
         runner = WebSocketRunner()
@@ -1412,7 +1421,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "play song")
 
             first_confirm = [event for event in ui.events if event.get("type") == "confirm"][-1]
-            self.assertIn("播放本地文件 song.mp3", first_confirm["message"])
+            self.assertIn("Play local file song.mp3", first_confirm["message"])
             self.assertEqual([choice["value"] for choice in first_confirm["choices"]], ["play_local", "skip_local", "cancel"])
 
             session = getattr(ui, "_play_selection")
@@ -2617,7 +2626,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "就刚才第二首")
 
-        self.assertTrue(any("1-1" in str(event.get("text")) for event in ui.events))
+        self.assertTrue(any("from 1 to 1" in str(event.get("text")) for event in ui.events))
         self.assertIsNone(getattr(ui, "_play_selection", None))
 
     async def test_polite_natural_language_playback_starts_selection_session(self) -> None:
@@ -2806,7 +2815,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "/setup apple")
             setup = getattr(ui, "_apple_music_setup")
             auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-            self.assertEqual(auth_events[-1]["title"], "Apple Token setup")
+            self.assertEqual(auth_events[-1]["title"], "Apple Music token setup")
             self.assertIn("developer-token service URL", str(auth_events[-1]["message"]))
             self.assertEqual(auth_events[-1]["prompt"], "Apple token service URL")
             self.assertFalse(auth_events[-1].get("mask", False))
@@ -2821,9 +2830,56 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(store.providers["apple_mode"].base_url, "https://tokens.example.test")
         auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-        self.assertEqual(auth_events[-1]["title"], "Apple Token configured")
+        self.assertEqual(auth_events[-1]["title"], "Apple Music token configured")
         self.assertFalse(auth_events[-1].get("active", True))
         self.assertIsNone(getattr(ui, "_apple_music_setup"))
+
+    async def test_setup_apple_cancel_hides_panel_and_appends_system_message(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
+            await runner._handle_user_input(ui, "/setup apple")
+            setup = getattr(ui, "_apple_music_setup")
+            await setup.handle_input("__cancel__")
+
+        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+        self.assertEqual(auth_events[-1]["step"], "cancelled")
+        self.assertFalse(auth_events[-1].get("active", True))
+        self.assertIsNone(getattr(ui, "_apple_music_setup"))
+
+        system_events = [
+            event
+            for event in ui.events
+            if event.get("type") == "chat" and event.get("tone") == "system"
+        ]
+        self.assertTrue(system_events)
+        self.assertIn("canceled", str(system_events[-1]["text"]).lower())
+        self.assertIn("panel hidden", str(system_events[-1]["text"]).lower())
+
+    async def test_apple_without_token_configuration_opens_terminal_setup_panel(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env({
+            "SONEX_DEFAULT_PROVIDER": "openai",
+            "SONEX_OPENAI_API_KEY": "sk-test",
+            "SONEX_APPLE_TOKEN_BROKER_URL": "",
+        }):
+            await runner._handle_user_input(ui, "/apple")
+
+        setup = getattr(ui, "_apple_music_setup", None)
+        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+        self.assertIsNotNone(setup)
+        self.assertTrue(auth_events)
+        self.assertEqual(auth_events[-1]["title"], "Apple Music token setup")
+        self.assertEqual(auth_events[-1]["prompt"], "Apple token service URL")
+        self.assertIsNot(auth_events[-1].get("active"), False)
+        self.assertFalse(any(
+            "Apple Mode token service is not configured" in str(event.get("text"))
+            for event in ui.events
+            if event.get("type") == "chat"
+        ))
 
     def test_queue_payload_reads_dedicated_playback_queue_snapshot(self) -> None:
         queue_tracks = [
@@ -3513,13 +3569,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             [choice["value"] for choice in confirm_events[-1]["choices"]],
             ["auto", "mpv", "cvlc", "deny"],
         )
-        self.assertEqual([choice["label"] for choice in confirm_events[-1]["choices"]], ["🎧 auto", "🎧 mpv", "📻 VLC", "🚫 取消"])
+        self.assertEqual([choice["label"] for choice in confirm_events[-1]["choices"]], ["🎧 auto", "🎧 mpv", "📻 VLC", "🚫 Cancel"])
         self.assertEqual(
             [choice.get("description") for choice in confirm_events[-1]["choices"]],
             [
-                "默认稳定的 mpv 后端",
-                "明确使用 mpv",
-                "手动诊断后端仅在你明确想使用 VLC 时选择",
+                "use the default stable mpv backend",
+                "use mpv explicitly",
+                "use VLC only for manual diagnostics",
                 None,
             ],
         )
@@ -3885,8 +3941,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Live", confirm_events[-1]["choices"][1]["description"])
         self.assertIn("1.5M views", confirm_events[-1]["choices"][1]["description"])
         self.assertIn("Official", confirm_events[-1]["choices"][0]["description"])
-        self.assertEqual(confirm_events[-1]["choices"][-1]["label"], "没有想听的歌曲")
-        self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "试试补充更多信息")
+        self.assertEqual(confirm_events[-1]["choices"][-1]["label"], "Not found? Type to supplement.")
+        self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "")
         self.assertNotIn("description", confirm_events[-1]["choices"][-1])
 
     async def test_online_play_choice_describes_youtube_fallback_source_attempts(self) -> None:
@@ -3990,7 +4046,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["choices"][0]["label"], f"{'Artist 0'.ljust(24)} {'Album 0'.ljust(24)} Song 0")
         self.assertNotIn("3:00", confirm_events[-1]["choices"][0]["description"])
         self.assertEqual(confirm_events[-1]["choices"][-1]["value"], "refine_song_metadata_query")
-        self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "试试补充更多歌曲信息")
+        self.assertEqual(confirm_events[-1]["choices"][-1]["label"], "Not found? Type to supplement.")
+        self.assertEqual(confirm_events[-1]["choices"][-1]["input"]["placeholder"], "")
         self.assertTrue(any(event.get("type") == "activity" and event.get("title") == "iTunes" for event in ui.events))
 
     async def test_song_candidate_choice_plays_online_audio_with_confirmed_metadata(self) -> None:
@@ -4943,6 +5000,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             [event.get("activity_id") for event in planning_events[:1]] * len(planning_events),
         )
         self.assertEqual(planning_events[-1]["status"], "success")
+        agent_answers = [
+            event for event in ui.events
+            if event.get("type") == "chat" and event.get("text") == "done"
+        ]
+        self.assertEqual(len(agent_answers), 1)
+        self.assertIsNone(agent_answers[0].get("tone"))
 
     async def test_agent_turn_marks_planning_activity_error_when_planner_fails(self) -> None:
         """Verifies that agent turn marks planning activity error when planner fails behaves as expected.

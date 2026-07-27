@@ -42,9 +42,9 @@ APPLE_PLAYBACK_CONTROL_ACTIONS = {
 LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
 
 LOCAL_PLAYBACK_CHOICES = [
-    {"value": "play_local", "label": "播放本地"},
-    {"value": "skip_local", "label": "不播放本地，选择其他方式"},
-    {"value": "cancel", "label": "取消"},
+    {"value": "play_local", "label": "Play local file"},
+    {"value": "skip_local", "label": "Choose another source"},
+    {"value": "cancel", "label": "Cancel"},
 ]
 
 SPOTIFY_SETUP_TRIGGERS = {

@@ -28,6 +28,10 @@ class DeveloperTokenError(RuntimeError):
     """Normalized developer-token acquisition error."""
 
 
+class DeveloperTokenNotConfiguredError(DeveloperTokenError):
+    """Raised when Apple Mode has no developer-token source configured."""
+
+
 @dataclass(frozen=True, slots=True)
 class DeveloperTokenLease:
     token: str
@@ -86,7 +90,7 @@ class HttpDeveloperTokenProvider:
         self.broker_url = normalize_apple_token_broker_url(broker_url) if broker_url.strip() else ""
         self.timeout_seconds = timeout_seconds
         if not self.broker_url:
-            raise DeveloperTokenError(
+            raise DeveloperTokenNotConfiguredError(
                 "Apple Mode token service is not configured. Run /setup apple or set "
                 "SONEX_APPLE_TOKEN_BROKER_URL."
             )

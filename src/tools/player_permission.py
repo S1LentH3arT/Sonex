@@ -15,14 +15,14 @@ PLAYER_CONFIRM_CHOICES = [
     {
         "value": "mpv",
         "label": "🎧 mpv",
-        "description": "default controllable backend for smoother background playback.",
+        "description": "default controllable backend for smooth background playback",
     },
     {
         "value": "cvlc",
         "label": "📻 VLC",
-        "description": "manual diagnostic backend; use only when you explicitly want VLC.",
+        "description": "manual diagnostic fallback when VLC is required",
     },
-    {"value": "deny", "label": "取消"},
+    {"value": "deny", "label": "Cancel"},
 ]
 
 _ALLOWED_PLAYERS: set[str] = set()
@@ -111,14 +111,14 @@ def build_player_confirm_result(
     return {
         "status": "requires_player_confirm",
         "tool": tool,
-        "message": f"Sonex想要打开{label}音乐播放器",
+        "message": f"Sonex needs permission to open {label}.",
         "data": {
             **data,
             "player": player,
             "player_label": label,
             "cmd": cmd,
             "success_message": success_message,
-            "confirm_message": f"Sonex wanna open {label}, confirm?",
+            "confirm_message": f"Allow Sonex to open {label}?",
             "choices": PLAYER_CONFIRM_CHOICES,
         },
         "error_code": None,

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import unittest
 
-from src.api.builtin_commands import command_suggestions, format_help, parse_builtin_command
+from src.api.builtin_commands import BUILTIN_COMMANDS, command_suggestions, format_help, parse_builtin_command
 
 
 class BuiltinCommandParserTests(unittest.TestCase):
@@ -65,7 +65,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
 
         commands = {command.name: command for command in command_suggestions()}
         self.assertEqual(commands["info"].usage, "/info")
-        self.assertEqual(commands["info"].description, "Show current runtime information.")
+        self.assertEqual(commands["info"].description, "show current runtime information")
         self.assertIn("/info", format_help())
 
     def test_recommend_with_args(self) -> None:
@@ -137,7 +137,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
 
         commands = {command.name: command for command in command_suggestions()}
         self.assertEqual(commands["player"].usage, "/player")
-        self.assertEqual(commands["player"].description, "Choose playback backend from a panel.")
+        self.assertEqual(commands["player"].description, "choose a playback backend from the selection panel")
 
     def test_playback_control_commands_are_hidden_from_help_and_suggestions(self) -> None:
         hidden_names = {"pause", "volume", "progress", "stop"}
@@ -167,22 +167,23 @@ class BuiltinCommandParserTests(unittest.TestCase):
 
         commands = {command.name: command for command in command_suggestions()}
         self.assertEqual(commands["keymap"].usage, "/keymap [on|off|toggle|status]")
-        self.assertEqual(commands["keymap"].description, "Toggle mini-player playback shortcuts.")
+        self.assertEqual(commands["keymap"].description, "enable or disable mini-player playback shortcuts")
 
-    def test_lang_is_visible_local_tui_command_metadata(self) -> None:
+    def test_lang_definition_is_retained_but_disabled(self) -> None:
         parsed = parse_builtin_command("/lang zh-CN")
         self.assertIsNotNone(parsed)
         assert parsed is not None
         self.assertEqual(parsed.name, "lang")
         self.assertEqual(parsed.args, "zh-CN")
-        self.assertTrue(parsed.known)
-        self.assertEqual(parsed.command.mode, "local")
-        self.assertTrue(parsed.command.visible)
+        self.assertFalse(parsed.known)
         self.assertIsNone(parsed.command_intent())
 
+        definition = next(command for command in BUILTIN_COMMANDS if command.name == "lang")
+        self.assertFalse(definition.enabled)
+        self.assertTrue(definition.visible)
         commands = {command.name: command for command in command_suggestions()}
-        self.assertEqual(commands["lang"].usage, "/lang")
-        self.assertEqual(commands["lang"].description, "Choose the TUI display language.")
+        self.assertNotIn("lang", commands)
+        self.assertNotIn("/lang", format_help())
 
     def test_playlist_and_queue_are_local_commands(self) -> None:
         playlist = parse_builtin_command("/playlist save likes")
@@ -217,7 +218,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
 
         commands = {command.name: command for command in command_suggestions()}
         self.assertEqual(commands["spotify"].usage, "/spotify [off]")
-        self.assertEqual(commands["spotify"].description, "Enter or exit persistent Spotify mode.")
+        self.assertEqual(commands["spotify"].description, "enter or exit persistent Spotify mode")
 
     def test_random_includes_online_playback_fallback(self) -> None:
         """Verifies that random includes online playback fallback behaves as expected.
@@ -348,7 +349,10 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        self.assertEqual(commands["recommend"].description, "Recommend songs of preferred music taste.")
+        self.assertEqual(commands["recommend"].description, "recommend songs based on a taste hint")
+        for command in commands.values():
+            self.assertEqual(command.description[0], command.description[0].lower())
+            self.assertFalse(command.description.endswith("."))
         self.assertNotIn("play", commands)
         self.assertNotIn("search", commands)
 
@@ -361,7 +365,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        for name in ["help", "info", "model", "logout", "setup", "bye", "exit", "player", "keymap", "lang"]:
+        for name in ["help", "info", "model", "logout", "setup", "bye", "exit", "player", "keymap"]:
             with self.subTest(name=name):
                 self.assertEqual(commands[name].mode, "local")
 

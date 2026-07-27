@@ -24,6 +24,7 @@ class BuiltinCommand:
     intent_prompt: str | None = None
     allowed_tools: tuple[str, ...] = ()
     visible: bool = True
+    enabled: bool = True
 
 
 @dataclass(frozen=True)
@@ -79,28 +80,28 @@ class ParsedCommand:
 
 
 BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
-    BuiltinCommand("help", "/help", "Show available Sonex commands.", aliases=("?",)),
-    BuiltinCommand("info", "/info", "Show current runtime information."),
-    BuiltinCommand("keymap", "/keymap [on|off|toggle|status]", "Toggle mini-player playback shortcuts."),
-    BuiltinCommand("lang", "/lang", "Choose the TUI display language."),
-    BuiltinCommand("model", "/model", "Switch the active model for this session."),
-    BuiltinCommand("logout", "/logout", "Log out current LLM provider and exit."),
-    BuiltinCommand("playlist", "/playlist [name]|save [name]", "Browse playlists or save the current song."),
-    BuiltinCommand("queue", "/queue", "Show the playback queue."),
-    BuiltinCommand("apple", "/apple [off]", "Enter or exit persistent Apple Mode."),
-    BuiltinCommand("spotify", "/spotify [off]", "Enter or exit persistent Spotify mode."),
-    BuiltinCommand("pause", "/pause", "Pause current local playback.", visible=False),
-    BuiltinCommand("resume", "/resume", "Resume current local playback."),
-    BuiltinCommand("stop", "/stop", "Stop current local playback.", visible=False),
-    BuiltinCommand("progress", "/progress", "Show current local playback progress.", visible=False),
-    BuiltinCommand("next", "/next", "Skip to the next provider track.", visible=False),
-    BuiltinCommand("previous", "/previous", "Return to the previous provider track.", visible=False),
-    BuiltinCommand("volume", "/volume <0-100>", "Set current local playback volume.", visible=False),
-    BuiltinCommand("player", "/player", "Choose playback backend from a panel."),
+    BuiltinCommand("help", "/help", "show available Sonex commands", aliases=("?",)),
+    BuiltinCommand("info", "/info", "show current runtime information"),
+    BuiltinCommand("keymap", "/keymap [on|off|toggle|status]", "enable or disable mini-player playback shortcuts"),
+    BuiltinCommand("lang", "/lang", "choose the TUI display language", enabled=False),
+    BuiltinCommand("model", "/model", "switch the active model for this session"),
+    BuiltinCommand("logout", "/logout", "sign out from the current LLM provider and exit"),
+    BuiltinCommand("playlist", "/playlist [name]|save [name]", "browse playlists or save the current song"),
+    BuiltinCommand("queue", "/queue", "show the playback queue"),
+    BuiltinCommand("apple", "/apple [off]", "enter or exit persistent Apple Mode"),
+    BuiltinCommand("spotify", "/spotify [off]", "enter or exit persistent Spotify mode"),
+    BuiltinCommand("pause", "/pause", "pause current local playback", visible=False),
+    BuiltinCommand("resume", "/resume", "resume current local playback"),
+    BuiltinCommand("stop", "/stop", "stop current local playback", visible=False),
+    BuiltinCommand("progress", "/progress", "show current local playback progress", visible=False),
+    BuiltinCommand("next", "/next", "skip to the next provider track", visible=False),
+    BuiltinCommand("previous", "/previous", "return to the previous provider track", visible=False),
+    BuiltinCommand("volume", "/volume <0-100>", "set current local playback volume", visible=False),
+    BuiltinCommand("player", "/player", "choose a playback backend from the selection panel"),
     BuiltinCommand(
         "recommend",
         "/recommend [taste]",
-        "Recommend songs of preferred music taste.",
+        "recommend songs based on a taste hint",
         aliases=("rec",),
         mode="agent",
         intent_prompt=(
@@ -117,7 +118,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand(
         "random",
         "/random",
-        "Play a random song from your recent Sonex queue.",
+        "play a random song from the recent Sonex queue",
         mode="agent",
         intent_prompt=(
             "The user invoked /random. Choose a track from recent listening or cached queue context, "
@@ -130,14 +131,15 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             "play_youtube_song",
         ),
     ),
-    BuiltinCommand("setup", "/setup [provider]", "Configure a music provider."),
-    BuiltinCommand("bye", "/bye", "Save the current session and exit safely."),
-    BuiltinCommand("exit", "/exit", "Save the current session and exit safely."),
+    BuiltinCommand("setup", "/setup [provider]", "configure a music provider"),
+    BuiltinCommand("bye", "/bye", "save the current session and exit safely"),
+    BuiltinCommand("exit", "/exit", "save the current session and exit safely"),
 )
 
 _COMMANDS_BY_NAME = {
     alias: command
     for command in BUILTIN_COMMANDS
+    if command.enabled
     for alias in (command.name, *command.aliases)
 }
 
@@ -175,7 +177,10 @@ def command_suggestions(prefix: str = "") -> list[BuiltinCommand]:
     Example: command_suggestions(prefix=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = prefix.strip().lower().removeprefix("/")
-    commands = sorted((command for command in BUILTIN_COMMANDS if command.visible), key=lambda command: command.name.lower())
+    commands = sorted(
+        (command for command in BUILTIN_COMMANDS if command.enabled and command.visible),
+        key=lambda command: command.name.lower(),
+    )
     if not normalized:
         return list(commands)
     return [

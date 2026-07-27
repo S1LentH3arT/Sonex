@@ -419,6 +419,7 @@ def _run_ink_tui(host: str, port: int) -> int:
     _build_ink_ui_if_needed()
     env = _process_env()
     env["SONEX_WS_URL"] = f"ws://{host}:{port}/ws"
+    env["SONEX_LAUNCH_CWD"] = str(Path.cwd().resolve())
 
     proc = subprocess.run(
         [_node_bin(), str(_dist_entry())],

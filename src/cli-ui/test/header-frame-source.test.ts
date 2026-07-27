@@ -36,7 +36,7 @@ assert.equal(
     2,
 );
 assert.equal(
-    (headerBody.match(/<Text color="#bf98a7"(?: wrap="truncate-end")?>\{displayCwd\}<\/Text>/g) ?? []).length,
+    (headerBody.match(/<Text color="#fff4f6"(?: wrap="truncate-end")?>\{displayCwd\}<\/Text>/g) ?? []).length,
     2,
 );
 assert.doesNotMatch(headerBody, /~\/dev\/sonex/);

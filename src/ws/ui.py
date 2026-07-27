@@ -69,12 +69,7 @@ class WebSocketUIAdapter:
         await self._send({"type": "chat", "role": "user", "text": text})
 
     async def append_agent_message(self, text: str) -> None:
-        """Coordinates append agent message for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs append agent message as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await append_agent_message(text=...) -> returns the value used by the surrounding Sonex flow.
-        """
+        """Append an LLM answer or agent/tool-call explanation."""
         self.transcript.append({"role": "agent", "content": text})
         payload: dict[str, Any] = {"type": "chat", "role": "agent", "text": text}
         mode = getattr(self, "_spotify_mode", None)
@@ -83,7 +78,7 @@ class WebSocketUIAdapter:
         await self._send(payload)
 
     async def append_system_message(self, text: str) -> None:
-        """Append a chat message rendered with the existing System subject."""
+        """Append a runtime or local-command notice rendered with the System subject."""
         self.transcript.append({"role": "agent", "content": text})
         await self._send(
             {

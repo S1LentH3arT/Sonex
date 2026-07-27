@@ -10,7 +10,7 @@ export const SPOTIFY_GREEN = "#1db954";
 export const APPLE_SILVER = "#C7CAD1";
 export const APPLE_PEARL_PINK = "#D8C4CE";
 export const APPLE_BLUSH = "#F0D2DF";
-export const APP_TIP_PLACEHOLDER = "Tips: try /random for a free play.";
+export const APP_TIP_PLACEHOLDER = "Tip: use /random to play a recent song.";
 export const MAX_ACTIVITY_ITEMS = 80;
 export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
     { value: "allow_once", label: "Yes" },
@@ -19,23 +19,23 @@ export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
 export const MAX_VISIBLE_SLASH_COMMANDS = 4;
 export const MAX_VISIBLE_MODEL_CHOICES = 3;
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
-    { name: "bye", usage: "/bye", description: "save session and exit", needsArgument: false },
-    { name: "exit", usage: "/exit", description: "save session and exit", needsArgument: false },
-    { name: "help", usage: "/help", description: "show available commands", needsArgument: false },
-    { name: "info", usage: "/info", description: "show current runtime information", needsArgument: false },
-    { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "toggle mini-player playback shortcuts", needsArgument: false },
-    { name: "lang", usage: "/lang", description: "choose the TUI display language", needsArgument: false },
-    { name: "logout", usage: "/logout", description: "log out current LLM provider and exit", needsArgument: false },
+    { name: "bye", usage: "/bye", description: "save and exit", needsArgument: false },
+    { name: "exit", usage: "/exit", description: "save and exit", needsArgument: false },
+    { name: "help", usage: "/help", description: "show commands", needsArgument: false },
+    { name: "info", usage: "/info", description: "show runtime info", needsArgument: false },
+    { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "toggle playback shortcuts", needsArgument: false },
+    { name: "lang", usage: "/lang", description: "choose display language", needsArgument: false, enabled: false },
+    { name: "logout", usage: "/logout", description: "sign out and exit", needsArgument: false },
     { name: "model", usage: "/model", description: "switch active model", needsArgument: false },
-    { name: "player", usage: "/player", description: "choose playback backend from a panel", needsArgument: false },
+    { name: "player", usage: "/player", description: "choose playback backend", needsArgument: false },
     { name: "playlist", usage: "/playlist [name]|save [name]", description: "browse or save playlists", needsArgument: false },
     { name: "queue", usage: "/queue", description: "show playback queue", needsArgument: false },
-    { name: "random", usage: "/random", description: "play from recent songs", needsArgument: false },
-    { name: "recommend", usage: "/recommend", description: "recommend songs of preferred music taste", needsArgument: false },
-    { name: "resume", usage: "/resume", description: "resume current playback", needsArgument: false },
-    { name: "setup", usage: "/setup", description: "configure a music provider", needsArgument: true },
-    { name: "apple", usage: "/apple [off]", description: "enter or exit persistent Apple Mode", needsArgument: false },
-    { name: "spotify", usage: "/spotify [off]", description: "enter or exit persistent Spotify mode", needsArgument: false },
+    { name: "random", usage: "/random", description: "play a recent song", needsArgument: false },
+    { name: "recommend", usage: "/recommend", description: "recommend songs", needsArgument: false },
+    { name: "resume", usage: "/resume", description: "resume playback", needsArgument: false },
+    { name: "setup", usage: "/setup", description: "configure music provider", needsArgument: true },
+    { name: "apple", usage: "/apple [off]", description: "toggle Apple Mode", needsArgument: false },
+    { name: "spotify", usage: "/spotify [off]", description: "toggle Spotify mode", needsArgument: false },
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";
 export const API_NOT_RUNNING_DETAIL = "Start with `sonex`, or run `sonex api` before `sonex tui`.";

@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
 import { Box, useApp, useInput, useStdin } from 'ink';
 import { upsertActivity } from './activity.js';
-import { appleModeSlashCommands, completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands } from './commands.js';
+import { appleModeSlashCommands, completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands, unknownSlashCommandMessage } from './commands.js';
 import { getVisibleConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
 import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
 import { useSonexSocket } from './hooks.js';
 import { chatMessagesForTranscript, createInfoBannerItem } from './info-banner.js';
-import { applyLanguageToServerEvent, helpCommandsForLanguage, languageLabel, localizeSlashCommands, t } from './i18n.js';
+import { applyLanguageToServerEvent, helpCommandsForLanguage, localizeSlashCommands, OFFICIAL_UI_LANGUAGE, t } from './i18n.js';
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, resolveSpotifyImmersiveLayout, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
@@ -17,12 +17,13 @@ import { isApplePlaybackShortcutSource, isLocalPlaybackShortcutSource, isSpotify
 import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
 import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer } from './transcript.js';
-import { loadUiLanguage, saveUiLanguage } from './ui-settings.js';
 import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, ProviderModeState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 
 type InkInputKey = {
     ctrl?: boolean;
 };
+
+const RUNTIME_WORKING_DIRECTORY = process.env.SONEX_LAUNCH_CWD?.trim() || process.cwd();
 
 const isTrackPanelQueueShortcut = (inputKey: string, key: InkInputKey): boolean => {
     return Boolean(key.ctrl && (inputKey === "\x01" || inputKey.toLowerCase() === "a"));
@@ -35,7 +36,7 @@ export const App: React.FC<{
     const { exit } = useApp();
     const { isRawModeSupported } = useStdin();
     const rawModeAvailable = Boolean(isRawModeSupported && typeof process.stdin.setRawMode === "function");
-    const [language, setLanguage] = useState<UiLanguage>(() => loadUiLanguage());
+    const [language] = useState<UiLanguage>(OFFICIAL_UI_LANGUAGE);
     const [input, setInput] = useState("");
     const [inputRevision, setInputRevision] = useState(0);
     const [sessionId, setSessionId] = useState<string | null>(null);
@@ -49,7 +50,7 @@ export const App: React.FC<{
     const [searchItems, setSearchItems] = useState<TrackSummary[]>([]);
     const [trackPanel, setTrackPanel] = useState<TrackPanelState>(null);
     const [player, setPlayer] = useState<PlayerState>({ name: "-", artist: "-", album: "-", duration_ms: 0, progress_ms: 0, is_playing: false });
-    const [statusText, setStatusText] = useState(() => t(loadUiLanguage(), "status.snoozing"));
+    const [statusText, setStatusText] = useState(() => t(OFFICIAL_UI_LANGUAGE, "status.snoozing"));
     const [launchPreparing, setLaunchPreparing] = useState(false);
     const [launchPreparingFrame, setLaunchPreparingFrame] = useState(0);
     const [coverUrl, setCoverUrl] = useState<string | null>(null);
@@ -100,6 +101,7 @@ export const App: React.FC<{
     const sessionIdRef = React.useRef<string | null>(null);
     const startupInfoCapturedRef = React.useRef(false);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
+    const isAppleTokenSetupActive = authSetup?.active && authSetup.provider === "apple_music";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
     const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
     const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive;
@@ -113,6 +115,20 @@ export const App: React.FC<{
     const slashInput = input.trimStart();
     const isSlashInput = slashInput.startsWith("/");
     const isSlashMenuActive = rawModeAvailable && !confirm && isSlashInput && slashMenuDismissedFor !== input && slashSuggestions.length > 0;
+    const isUnknownSlashInput = (
+        rawModeAvailable
+        && activeRegion === "chat"
+        && !confirm
+        && !authSetup?.active
+        && !spotifySetup?.active
+        && !helpPanel
+        && !languagePanel?.active
+        && !recommendInputLocked
+        && slashInput.length > 1
+        && isSlashInput
+        && slashSuggestions.length === 0
+        && !matchingSlashCommand(input)
+    );
     const selectedSlashCommand = slashSuggestions[Math.min(slashIndex, Math.max(0, slashSuggestions.length - 1))];
     const visibleConfirmChoices = React.useMemo(() => confirm ? getVisibleConfirmChoices(confirm.choices) : [], [confirm]);
     const selectedConfirmChoice = visibleConfirmChoices[Math.min(confirmIndex, Math.max(0, visibleConfirmChoices.length - 1))] ?? null;
@@ -289,6 +305,25 @@ export const App: React.FC<{
         }]);
     }, [commitItems]);
 
+    const appendPanelHiddenNotice = React.useCallback((content: string) => {
+        commitItems([{
+            type: "message",
+            role: "agent",
+            content,
+            theme: "muted",
+            tone: "system",
+        }]);
+    }, [commitItems]);
+
+    const appendUnknownCommandWarning = React.useCallback((value: string) => {
+        commitItems([{
+            type: "message",
+            role: "agent",
+            content: unknownSlashCommandMessage(value),
+            tone: "warning",
+        }]);
+    }, [commitItems]);
+
     const inputPlaceholder = selectedConfirmInput
         ? selectedConfirmInput.placeholder
         : authSetup?.active && authSetup.prompt
@@ -345,7 +380,7 @@ export const App: React.FC<{
                 }
                 break;
             case "status":
-                setLaunchPreparing(rawEvent.type === "status" && rawEvent.active !== false && rawEvent.message === "Launch preparing...");
+                setLaunchPreparing(rawEvent.type === "status" && rawEvent.active !== false && rawEvent.message === "Preparing playback...");
                 setStatusText(evt.message);
                 break;
             case "input_state":
@@ -482,7 +517,16 @@ export const App: React.FC<{
             case "auth_setup":
                 setLaunchPreparing(false);
                 setHelpPanel(null);
-                if (evt.provider === "apple_music" && evt.step === "companion_done" && evt.active === false) {
+                if (
+                    evt.active === false
+                    && (
+                        evt.step === "model"
+                        || (
+                            evt.provider === "apple_music"
+                            && (evt.step === "companion_done" || evt.step === "cancelled")
+                        )
+                    )
+                ) {
                     setAuthSetup(null);
                     break;
                 }
@@ -516,7 +560,7 @@ export const App: React.FC<{
                 setAuthState(nextAuthState);
                 if (!startupInfoCapturedRef.current) {
                     startupInfoCapturedRef.current = true;
-                    commitItems([createInfoBannerItem(nextAuthState, process.cwd(), sessionIdRef.current)]);
+                    commitItems([createInfoBannerItem(nextAuthState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
                 }
                 break;
             case "help_panel":
@@ -620,21 +664,22 @@ export const App: React.FC<{
         if (!sent) {
             setIsExiting(false);
             showError(
-                language === "zh-CN" ? "退出前无法保存会话。" : "Unable to save session before exit.",
-                language === "zh-CN" ? "Sonex API 连接未打开。" : "Sonex API connection is not open.",
+                "Session could not be saved before exit.",
+                "The Sonex API connection is not open.",
             );
         }
     }, [isExiting, language, send, showError, switchRegion, transcript]);
 
     const appendKeymapMessage = React.useCallback((enabled: boolean) => {
-        const mode = enabled ? "enabled" : "pure mode";
         commitItems([{
             type: "message",
             role: "agent",
-            content: language === "zh-CN" ? `迷你播放器快捷键已${enabled ? "启用" : "进入纯净模式"}。` : `Mini-player keymap is ${mode}.`,
+            content: enabled
+                ? "Mini-player shortcuts enabled."
+                : "Mini-player shortcuts disabled.",
             tone: "system",
         }]);
-    }, [commitItems, language]);
+    }, [commitItems]);
 
     const handleKeymapCommand = React.useCallback((args: string) => {
         const value = args.trim().toLowerCase();
@@ -675,32 +720,6 @@ export const App: React.FC<{
             : authSetup?.step === "model"
                 ? authSetup.models ?? []
                 : [];
-    const openLanguagePanel = React.useCallback(() => {
-        setInput("");
-        setSlashMenuDismissedFor(null);
-        setHelpPanel(null);
-        setTrackPanel(null);
-        setTrackPanelIndex(0);
-        setLanguagePanel({ active: true, selected: language });
-        setLanguagePanelIndex(0);
-        setStatusText(t(language, "language.title"));
-    }, [language]);
-
-    const chooseLanguage = React.useCallback((nextLanguage: UiLanguage) => {
-        let saveError: string | null = null;
-        try {
-            saveUiLanguage(nextLanguage);
-        } catch {
-            saveError = t(nextLanguage, "language.saveError");
-        }
-        setLanguage(nextLanguage);
-        setLanguagePanel(saveError ? { active: true, selected: nextLanguage, saveError } : null);
-        setStatusText(t(nextLanguage, "language.saved", { language: languageLabel(nextLanguage) }));
-        if (saveError) {
-            showError(saveError);
-        }
-    }, [showError]);
-
     const submitLoginChoice = React.useCallback(() => {
         if (!authSetup?.active) return;
         const choices = authSetup.step === "provider"
@@ -755,14 +774,9 @@ export const App: React.FC<{
         }
 
         const command = matchingSlashCommand(text);
-        const suggestions = slashCommandSuggestions(text);
+        const suggestions = slashSuggestions;
         if (!authSetup?.active && !spotifySetup?.active && (command?.name === "bye" || command?.name === "exit")) {
             requestSafeExit(command.name);
-            return;
-        }
-
-        if (!authSetup?.active && !spotifySetup?.active && command?.name === "lang") {
-            openLanguagePanel();
             return;
         }
 
@@ -786,7 +800,7 @@ export const App: React.FC<{
             setTrackPanelIndex(0);
             setLanguagePanel(null);
             setHelpPanelIndex(0);
-            commitItems([createInfoBannerItem(authState, process.cwd(), sessionIdRef.current)]);
+            commitItems([createInfoBannerItem(authState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
             return;
         }
 
@@ -795,6 +809,10 @@ export const App: React.FC<{
             if (first) {
                 applySlashCompletion(first);
                 setSlashIndex(0);
+            } else {
+                setInput("");
+                setSlashMenuDismissedFor(null);
+                appendUnknownCommandWarning(text);
             }
             return;
         }
@@ -837,13 +855,20 @@ export const App: React.FC<{
                 showError(API_NOT_RUNNING_MESSAGE, API_NOT_RUNNING_DETAIL);
             }
         }
-    }, [applySlashCompletion, authSetup?.active, authState, commitItems, confirm, handleKeymapCommand, openLanguagePanel, recommendInputLocked, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, spotifySetup?.active, transcriptPresentation, visibleConfirmChoices]);
+    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation, visibleConfirmChoices]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
             requestSafeExit("ctrl_c");
         }
     }, { isActive: rawModeAvailable });
+
+    useInput((_inputKey, key) => {
+        if (!isAppleTokenSetupActive || !key.escape) return;
+        setAuthSetup(null);
+        setInput("");
+        send({ type: "auth_setup_input", value: "__cancel__" });
+    }, { isActive: rawModeAvailable && Boolean(isAppleTokenSetupActive) });
 
     useInput((inputKey, key) => {
         if (!isLoginScreenActive || authSetup?.step === "api_key") return;
@@ -875,6 +900,7 @@ export const App: React.FC<{
         } else if (key.escape) {
             setAuthSetup(null);
             setLoginSelectionIndex(0);
+            appendPanelHiddenNotice(t(language, "panel.modelHidden"));
             send({ type: "auth_setup_input", value: "__cancel__" });
         }
     }, { isActive: rawModeAvailable && Boolean(isModelPanelActive) });
@@ -899,26 +925,28 @@ export const App: React.FC<{
     }, { isActive: isSlashMenuActive });
 
     useInput((inputKey, key) => {
+        if (!isUnknownSlashInput) return;
+        if (key.tab || inputKey === "\t") {
+            appendUnknownCommandWarning(input);
+        }
+    }, { isActive: isUnknownSlashInput });
+
+    useInput((inputKey, key) => {
         if (!languagePanel?.active) return;
 
-        if (key.upArrow) {
-            setLanguagePanelIndex((prev) => (prev - 1 + languageChoices.length) % languageChoices.length);
-        } else if (key.downArrow) {
-            setLanguagePanelIndex((prev) => (prev + 1) % languageChoices.length);
-        } else if (key.return) {
-            const selected = languageChoices[Math.min(languagePanelIndex, languageChoices.length - 1)] ?? "en";
-            chooseLanguage(selected);
-        } else if (key.escape) {
+        if (key.escape) {
             setLanguagePanel(null);
+            appendPanelHiddenNotice(t(language, "panel.languageHidden"));
         }
     }, { isActive: Boolean(languagePanel?.active) && rawModeAvailable });
 
     useInput((inputKey, key) => {
         if (spotifySetup && spotifySetup.active === false && key.escape) {
             setSpotifySetup(null);
-        }
-        if (authSetup && authSetup.active === false && key.escape) {
+            appendPanelHiddenNotice(t(language, "panel.spotifySetupHidden"));
+        } else if (authSetup && authSetup.active === false && key.escape) {
             setAuthSetup(null);
+            appendPanelHiddenNotice(t(language, "panel.setupHidden"));
         }
     }, { isActive: rawModeAvailable && (Boolean(spotifySetup && spotifySetup.active === false) || Boolean(authSetup && authSetup.active === false)) });
 
@@ -943,6 +971,7 @@ export const App: React.FC<{
         } else if (key.escape) {
             send({ type: "confirm_result", id: confirm.id, decision: "deny" });
             setConfirm(null);
+            appendPanelHiddenNotice(t(language, "panel.confirmHidden"));
         }
     }, { isActive: Boolean(confirm) && rawModeAvailable });
 
@@ -965,6 +994,7 @@ export const App: React.FC<{
         } else if (key.escape) {
             setHelpPanel(null);
             setHelpPanelIndex(0);
+            appendPanelHiddenNotice(t(language, "panel.helpHidden"));
         }
     }, { isActive: Boolean(helpPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active });
 
@@ -979,13 +1009,7 @@ export const App: React.FC<{
             const hiddenMessage = dismissedTrackPanel === "playlist"
                 ? t(language, "trackPanel.playlistHidden")
                 : t(language, "trackPanel.queueHidden");
-            commitItems([{
-                type: "message",
-                role: "agent",
-                content: hiddenMessage,
-                theme: "muted",
-                tone: "system",
-            }]);
+            appendPanelHiddenNotice(hiddenMessage);
         } else if (isTrackPanelQueueShortcut(inputKey, key) && selectedTrackPanelTrack) {
             send({ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
         } else if (key.return && selectedTrackPanelTrack) {
@@ -1034,7 +1058,7 @@ export const App: React.FC<{
                 {showFixedHeader ? (
                     <HeaderFrame
                         authState={authState}
-                        cwd={process.cwd()}
+                        cwd={RUNTIME_WORKING_DIRECTORY}
                         sessionId={sessionId}
                         variant={headerVariant}
                         language={language}

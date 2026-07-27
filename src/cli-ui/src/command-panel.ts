@@ -45,6 +45,7 @@ export function selectedHelpPanelCommand<T>(commands: T[], selectedIndex: number
  */
 export function helpPanelCommands(commands: HelpCommand[]): CommandPanelCommand[] {
     return [...commands]
+        .filter((command) => command.enabled !== false)
         .sort((a, b) => a.name.localeCompare(b.name))
         .map((command) => ({
             name: command.name,

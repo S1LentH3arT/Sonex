@@ -7,6 +7,8 @@ import {
     createIncrementalStdout,
     INK_CLEAR_SCREEN,
     IncrementalTerminalFrameWriter,
+    trailingRowBackgroundMarker,
+    withTrueColorBackground,
 } from '../src/terminal-frame-writer.js';
 
 test('keeps the first full-screen frame intact', () => {
@@ -95,6 +97,33 @@ test('non-TTY stdout strips terminal controls without replaying plain text', () 
     incremental.write('\u001B[2K\u001B[1A\u001B[G\u001B[31mplain\u001B[0m');
 
     assert.deepEqual(writes, ['plain']);
+});
+
+test('fills one trailing cursor row without adding another newline', () => {
+    const writes: string[] = [];
+    const stdout = {
+        columns: 4,
+        rows: 24,
+        isTTY: true,
+        write: (chunk: string) => {
+            writes.push(chunk);
+            return true;
+        },
+    } as unknown as NodeJS.WriteStream;
+    const incremental = createIncrementalStdout(stdout);
+
+    incremental.write(`input${trailingRowBackgroundMarker("#48273e")}\n`);
+
+    assert.deepEqual(writes, [
+        "input\n\u001B[48;2;72;39;62m    \u001B[49m\r",
+    ]);
+});
+
+test('uses the trailing row true-color background for ordinary panel rows', () => {
+    assert.equal(
+        withTrueColorBackground("row", "#48273e"),
+        "\u001B[48;2;72;39;62mrow\u001B[49m",
+    );
 });
 
 test('CLI entrypoint gives Ink the incremental stdout adapter', () => {

@@ -230,6 +230,7 @@ export type HelpCommand = {
     name: string;
     usage: string;
     description: string;
+    enabled?: boolean;
 };
 
 export type HelpPanelState = {
@@ -283,6 +284,9 @@ export type PromptInputProps = {
     placeholder: string;
     mask?: string;
     inputRevision?: number;
+    backgroundColor?: string;
+    backgroundWidth?: number;
+    backgroundPaddingX?: number;
 };
 
 export type LoginScreenProps = {
@@ -305,4 +309,5 @@ export type SlashCommandSuggestion = {
     description: string;
     needsArgument: boolean;
     aliases?: string[];
+    enabled?: boolean;
 };

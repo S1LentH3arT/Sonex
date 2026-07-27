@@ -84,6 +84,10 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertEqual(run.call_args.kwargs["cwd"], Path(home).resolve())
             self.assertEqual(run.call_args.kwargs["env"]["SONEX_WS_URL"], "ws://127.0.0.1:9001/ws")
+            self.assertEqual(
+                run.call_args.kwargs["env"]["SONEX_LAUNCH_CWD"],
+                str(Path.cwd().resolve()),
+            )
 
     def test_api_process_runs_from_user_workspace_with_project_pythonpath(self) -> None:
         """Verifies that api process runs from user workspace with project pythonpath behaves as expected.

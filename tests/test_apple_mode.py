@@ -118,6 +118,17 @@ class FakeModeUI:
     async def append_agent_message(self, text: str) -> None:
         self.transcript.append({"role": "agent", "content": text})
 
+    async def append_system_message(self, text: str) -> None:
+        self.transcript.append({"role": "agent", "content": text})
+        self.events.append(
+            {
+                "type": "chat",
+                "role": "agent",
+                "tone": "system",
+                "text": text,
+            }
+        )
+
     async def send_cover(self, url: str) -> None:
         self.events.append({"type": "cover", "url": url})
 
@@ -386,6 +397,7 @@ class AppleModeRunnerLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(runner._spotify_mode_enabled(ui))
         self.assertFalse(runner._apple_mode_enabled(ui))
         self.assertIn("broker unavailable", ui.transcript[-1]["content"])
+        self.assertEqual(ui.events[-1].get("tone"), "system")
 
     async def test_switch_to_apple_pauses_spotify_only_after_target_ready(self) -> None:
         runner = WebSocketRunner()

@@ -6,19 +6,33 @@ import {
     helpCommandsForLanguage,
     languageLabel,
     localizeSlashCommands,
+    OFFICIAL_UI_LANGUAGE,
     t,
 } from '../src/i18n.js';
 
-assert.equal(t("en", "status.snoozing"), "Snoozing...");
+assert.equal(OFFICIAL_UI_LANGUAGE, "en");
+assert.equal(t("en", "status.snoozing"), "Idle...");
 assert.equal(t("zh-CN", "status.snoozing"), "休眠中...");
 assert.equal(t("zh-CN", "tips.placeholder"), "提示：试试 /random 随机播放。");
 assert.equal(t("zh-CN", "input.placeholder"), "和 Sonex 说点什么。");
 assert.equal(t("en", "input.recommendPending"), "Waiting for recommendations...");
 assert.equal(t("zh-CN", "input.recommendPending"), "等待Sonex推荐中...");
-assert.equal(t("en", "trackPanel.playlistHidden"), "Playlist dialog hided");
-assert.equal(t("en", "trackPanel.queueHidden"), "Queue dialog hided");
-assert.equal(t("zh-CN", "trackPanel.playlistHidden"), "歌单面板已收起");
-assert.equal(t("zh-CN", "trackPanel.queueHidden"), "播放队列已收起");
+assert.equal(t("en", "panel.confirmHidden"), "Confirmation panel hidden.");
+assert.equal(t("zh-CN", "panel.confirmHidden"), "确认面板已收起。");
+assert.equal(t("en", "panel.helpHidden"), "Help panel hidden.");
+assert.equal(t("zh-CN", "panel.helpHidden"), "帮助面板已收起。");
+assert.equal(t("en", "panel.languageHidden"), "Language panel hidden.");
+assert.equal(t("zh-CN", "panel.languageHidden"), "语言面板已收起。");
+assert.equal(t("en", "panel.modelHidden"), "Model selection panel hidden.");
+assert.equal(t("zh-CN", "panel.modelHidden"), "模型选择面板已收起。");
+assert.equal(t("en", "panel.setupHidden"), "Setup panel hidden.");
+assert.equal(t("zh-CN", "panel.setupHidden"), "配置面板已收起。");
+assert.equal(t("en", "panel.spotifySetupHidden"), "Spotify setup panel hidden.");
+assert.equal(t("zh-CN", "panel.spotifySetupHidden"), "Spotify 配置面板已收起。");
+assert.equal(t("en", "trackPanel.playlistHidden"), "Playlist panel hidden.");
+assert.equal(t("en", "trackPanel.queueHidden"), "Queue panel hidden.");
+assert.equal(t("zh-CN", "trackPanel.playlistHidden"), "歌单面板已收起。");
+assert.equal(t("zh-CN", "trackPanel.queueHidden"), "播放队列已收起。");
 assert.equal(languageLabel("zh-CN"), "简体中文");
 
 const zhSlashCommands = localizeSlashCommands(SLASH_COMMANDS, "zh-CN");
@@ -32,6 +46,10 @@ assert.equal(infoCommand?.description, "显示当前运行信息");
 assert.equal(zhSlashCommands.find((command) => command.name === "play"), undefined);
 assert.equal(zhSlashCommands.find((command) => command.name === "search"), undefined);
 
+const englishShortHelp = localizeSlashCommands(SLASH_COMMANDS, "en")
+    .find((command) => command.name === "help");
+assert.equal(englishShortHelp?.description, "show commands");
+
 const helpCommands = helpCommandsForLanguage([
     { name: "help", usage: "/help", description: "Show available Sonex commands." },
     { name: "setup", usage: "/setup [provider]", description: "Configure a music provider." },
@@ -40,6 +58,11 @@ assert.equal(helpCommands[0]?.usage, "/help");
 assert.equal(helpCommands[0]?.description, "显示可用的 Sonex 命令");
 assert.equal(helpCommands[1]?.usage, "/setup [provider]");
 assert.equal(helpCommands[1]?.description, "配置音乐服务");
+
+const englishLongHelp = helpCommandsForLanguage([
+    { name: "help", usage: "/help", description: "placeholder" },
+], "en");
+assert.equal(englishLongHelp[0]?.description, "show available Sonex commands");
 
 const statusEvent = applyLanguageToServerEvent({
     type: "status",
@@ -129,7 +152,7 @@ const englishPlayerConfirm = applyLanguageToServerEvent({
     ],
 }, "en");
 assert.equal(englishPlayerConfirm.choices?.[0]?.label, "🎧 mpv");
-assert.equal(englishPlayerConfirm.choices?.[0]?.description, "default playback backend with smooth experience");
+assert.equal(englishPlayerConfirm.choices?.[0]?.description, "default backend for smooth background playback");
 assert.equal(englishPlayerConfirm.choices?.[1]?.label, "📻 VLC");
-assert.equal(englishPlayerConfirm.choices?.[1]?.description, "only choose it as fallback when mpv is not available");
+assert.equal(englishPlayerConfirm.choices?.[1]?.description, "diagnostic fallback when mpv is unavailable");
 assert.equal(englishPlayerConfirm.choices?.[2]?.label, "🚫 Cancel");

@@ -3,217 +3,170 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const panelSource = readFileSync(new URL('../src/panel-frame.tsx', import.meta.url), 'utf8');
 const constantsSource = readFileSync(new URL('../src/constants.ts', import.meta.url), 'utf8');
 
-assert.match(source, /type ChoicePanelRow =/);
-assert.match(
-    source,
-    /const ChoicePanel = \(\{ rows, selectedIndex, visibleLimit, selectedBackgroundColor, showSelectionMarker = true, boldSelected = false, marginTop = 1 \}/,
-);
-assert.match(
-    source,
-    /<Box flexDirection="column" marginTop=\{marginTop\}>/,
-);
-assert.match(
-    source,
-    /<Text key=\{row\.key\} backgroundColor=\{rowBackgroundColor\} bold=\{boldSelected && selected\}>/,
-);
-assert.match(
-    source,
-    /\{showSelectionMarker \? \([\s\S]*\{selected \? "> " : "  "\}[\s\S]*\) : null\}/,
-);
 assert.match(constantsSource, /export const SPOTIFY_GREEN = "#1db954"/);
-assert.match(source, /import \{[\s\S]*SPOTIFY_GREEN[\s\S]*\} from '\.\/constants\.js'/);
-assert.match(source, /const CONFIRM_CHOICE_LABEL_WIDTH = 18/);
-assert.match(source, /const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 102/);
-assert.match(source, /const PLAYLIST_BROWSE_NAME_WIDTH = 32/);
-assert.match(source, /const formatChoicePanelLabel = \(row: ChoicePanelRow\): string =>/);
-assert.match(source, /stringWidth\(row\.label\)/);
-assert.match(source, /formatMusicCandidateDisplayLabel\(row\.display, CONFIRM_CHOICE_ROW_LABEL_WIDTH, row\.description\)/);
-assert.match(source, /row\.label \+ " "\.repeat\(Math\.max\(0, row\.labelWidth - stringWidth\(row\.label\)\)\)/);
-assert.match(source, /<Text color=\{rowColor\} backgroundColor=\{rowBackgroundColor\} wrap="truncate-end">\{formatChoicePanelLabel\(row\)\}<\/Text>/);
-assert.match(source, /row\.description && row\.display\?\.kind !== "music_candidate"/);
-assert.match(source, /selectedBackgroundColor/);
-assert.match(source, /backgroundColor=\{rowBackgroundColor\}/);
-assert.doesNotMatch(source, /<Text color=\{rowColor\}> - <\/Text>/);
-assert.match(source, /<Text color=\{rowColor\} backgroundColor=\{rowBackgroundColor\}>\{row\.description\}<\/Text>/);
-assert.match(source, /const SPOTIFY_SELECTED_TEXT = "#06140c"/);
-assert.match(source, /const MODEL_PANEL_LABEL_WIDTH = 20/);
-assert.match(source, /modelIdFromChoice\(model\)\.padEnd\(MODEL_PANEL_LABEL_WIDTH, " "\)/);
+assert.match(panelSource, /export const PANEL_BACKGROUND = "#48273e"/);
+assert.match(panelSource, /export const PANEL_TITLE = "#c8a6ff"/);
+assert.match(panelSource, /export const PANEL_PRIMARY = "#fff4f6"/);
+assert.match(panelSource, /export const PANEL_SECONDARY = "#808791"/);
+assert.match(
+    source,
+    /import \{ PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem \} from '\.\/panel-frame\.js'/,
+);
 
+// The shared formal-panel frame owns the top/title/body/bottom rhythm.
+assert.match(
+    panelSource,
+    /<PanelEmptyRow width=\{boundedWidth\} \/>[\s\S]*color: PANEL_TITLE, bold: true[\s\S]*\{children\}[\s\S]*<PanelEmptyRow width=\{boundedWidth\} \/>/,
+);
+assert.match(panelSource, /withTrueColorBackground\(value, PANEL_BACKGROUND\)/);
+assert.equal((panelSource.match(/<Transform transform=\{withPanelBackground\}>/g) ?? []).length, 2);
+assert.match(
+    panelSource,
+    /color: spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE,[\s\S]*bold: true/,
+);
+assert.doesNotMatch(panelSource, /borderStyle=|selectedBackground|backgroundColor=/);
+assert.doesNotMatch(panelSource, /selected \? "> "|showSelectionMarker/);
+
+const loginStart = source.indexOf('const LoginChoiceList =');
+const slashStart = source.indexOf('const SlashCommandList =');
+const helpStart = source.indexOf('const HelpPanel =');
 const compactConfirmStart = source.indexOf('const CompactConfirm =');
-const languagePanelStart = source.indexOf('const LanguagePanel =');
+const languageStart = source.indexOf('const LanguagePanel =');
 const compactSetupStart = source.indexOf('const CompactSetup =');
 const inputDockStart = source.indexOf('const InputDock =');
-const slashCommandListStart = source.indexOf('const SlashCommandList =');
-const helpPanelStart = source.indexOf('const HelpPanel =');
-assert.ok(compactConfirmStart >= 0);
-assert.ok(languagePanelStart > compactConfirmStart);
-assert.ok(compactSetupStart > languagePanelStart);
-assert.ok(inputDockStart > languagePanelStart);
-assert.ok(slashCommandListStart >= 0);
-assert.ok(helpPanelStart > slashCommandListStart);
+const dynamicTailStart = source.indexOf('export const DynamicTail =');
 
-const compactConfirmBody = source.slice(compactConfirmStart, languagePanelStart);
-const languagePanelBody = source.slice(languagePanelStart, inputDockStart);
+assert.ok(loginStart >= 0);
+assert.ok(slashStart > loginStart);
+assert.ok(helpStart > slashStart);
+assert.ok(compactConfirmStart > helpStart);
+assert.ok(languageStart > compactConfirmStart);
+assert.ok(compactSetupStart > languageStart);
+assert.ok(inputDockStart > compactSetupStart);
+assert.ok(dynamicTailStart > inputDockStart);
+
+const loginBody = source.slice(loginStart, slashStart);
+const slashBody = source.slice(slashStart, helpStart);
+const helpBody = source.slice(helpStart, source.indexOf('const ChatBubble =', helpStart));
+const compactConfirmBody = source.slice(compactConfirmStart, languageStart);
+const languageBody = source.slice(languageStart, compactSetupStart);
 const compactSetupBody = source.slice(compactSetupStart, inputDockStart);
-const inputDockBody = source.slice(inputDockStart, source.indexOf('export const DynamicTail =', inputDockStart));
-const slashCommandListBody = source.slice(slashCommandListStart, helpPanelStart);
-const songCandidateBranch = compactConfirmBody.slice(
+const inputDockBody = source.slice(inputDockStart, dynamicTailStart);
+const songCandidateBody = compactConfirmBody.slice(
     compactConfirmBody.indexOf('if (isSongCandidateConfirm)'),
-    compactConfirmBody.indexOf('if (confirm.tool_name === "playlist_browse")'),
+    compactConfirmBody.indexOf('const choiceItems:'),
 );
 
+// Login is a formal panel; its API-key input is embedded directly in the frame.
+assert.match(loginBody, /<PanelChoiceList/);
+assert.match(loginBody, /<PanelFrame width=\{74\} paddingX=\{2\} title=\{authSetup\.title\} hint=\{displayMessage\}>/);
 assert.match(
-    slashCommandListBody,
+    loginBody,
+    /<PromptInput[\s\S]*mask="\*"[\s\S]*backgroundColor=\{PANEL_BACKGROUND\}[\s\S]*backgroundWidth=\{74\}[\s\S]*backgroundPaddingX=\{2\}/,
+);
+assert.doesNotMatch(loginBody, /borderStyle=|selectedBackground|selected \? "> "/);
+
+// Slash suggestions are intentionally a pseudo-panel and keep their compact layout.
+assert.match(slashBody, /<Box flexDirection="column">/);
+assert.match(
+    slashBody,
     /const commandColor = selected \? \(spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE\) : "#fff4f6";/,
 );
-assert.match(
-    slashCommandListBody,
-    /<Text key=\{command\.name\} color=\{commandColor\} bold=\{selected\} wrap="truncate-end">/,
-);
-assert.match(slashCommandListBody, /\{formatCommandListLabel\(command\)\}/);
-assert.match(
-    slashCommandListBody,
-    /const descriptionColor = selected \? commandColor : "#808791";/,
-);
-assert.match(
-    slashCommandListBody,
-    /<Text color=\{descriptionColor\}>\{command\.description\}<\/Text>/,
-);
-assert.doesNotMatch(slashCommandListBody, /color="#9d7787">\{command\.description\}/);
-assert.doesNotMatch(slashCommandListBody, /rowBackgroundColor/);
-assert.doesNotMatch(slashCommandListBody, /rowFill/);
-assert.doesNotMatch(slashCommandListBody, /backgroundColor=/);
-assert.doesNotMatch(slashCommandListBody, /selected \? "> " : "  "/);
-assert.doesNotMatch(slashCommandListBody, /SPOTIFY_SELECTED_TEXT/);
-assert.match(slashCommandListBody, /<Box flexDirection="column">/);
-assert.doesNotMatch(slashCommandListBody, /paddingX=/);
-assert.match(
-    inputDockBody,
-    /<Box flexDirection="column" flexShrink=\{0\} paddingX=\{1\}>[\s\S]*<SlashCommandList/,
-);
-assert.match(
-    inputDockBody,
-    /borderStyle="single" borderColor="#808791"[\s\S]*paddingX=\{1\} paddingTop=\{0\}/,
-);
+assert.match(slashBody, /<Text key=\{command\.name\} color=\{commandColor\} bold=\{selected\}/);
+assert.doesNotMatch(slashBody, /PanelFrame|PanelChoiceList|backgroundColor=|selected \? "> "/);
 
-assert.match(compactConfirmBody, /<ChoicePanel/);
-assert.match(compactConfirmBody, /const visibleChoices = getVisibleConfirmChoices\(confirm\.choices\);/);
-assert.match(compactConfirmBody, /spotifyTheme = false/);
+// /help is a real panel and therefore uses the shared frame and list.
+assert.match(helpBody, /<PanelFrame width=\{width\} title=\{panel\.title\} hint=\{panel\.hint\}>/);
+assert.match(helpBody, /<PanelChoiceList[\s\S]*visibleLimit=\{HELP_PANEL_VISIBLE_COMMANDS\}/);
+assert.match(helpBody, /color: PANEL_PRIMARY/);
+assert.match(helpBody, /color: PANEL_SECONDARY/);
+assert.doesNotMatch(helpBody, /borderStyle=|selectedBackground|selected \? "> "/);
+
+// Song candidates keep the special in-place supplement input and one-row gap.
+assert.match(compactConfirmBody, /const isSongCandidateConfirm = confirm\.tool_name === "song_candidate"/);
+assert.match(songCandidateBody, /<PanelFrame width=\{panelWidth\} title=\{confirm\.message\} hint="press Esc to cancel">/);
+assert.match(songCandidateBody, /const isSupplementChoice = Boolean\(choice\.input\)/);
+assert.match(songCandidateBody, /\{isSupplementChoice \? \(\s*<PanelEmptyRow width=\{panelWidth\} \/>/);
+assert.match(
+    songCandidateBody,
+    /\{isSupplementChoice && selected \? \([\s\S]*<PromptInput[\s\S]*focus=\{selected && inputFocus\}[\s\S]*placeholder=""[\s\S]*backgroundColor=\{PANEL_BACKGROUND\}[\s\S]*backgroundWidth=\{panelWidth\}[\s\S]*backgroundPaddingX=\{1\}/,
+);
+assert.match(songCandidateBody, /unselectedBold: isSupplementChoice/);
+assert.match(songCandidateBody, /color: isSupplementChoice \? PANEL_SECONDARY : PANEL_PRIMARY/);
+assert.match(songCandidateBody, /resolvePanelChoiceSegments\(item, selected, false\)/);
+assert.doesNotMatch(songCandidateBody, /borderStyle=|selectedBackground|trailingRowBackgroundMarker|selected \? "> "/);
+
+// Playlist and generic confirms share the same frame while retaining domain formatting.
 assert.match(compactConfirmBody, /const isSpotifyConfirm = spotifyTheme \|\| confirm\.tool_name === "spotify_device"/);
+assert.match(compactConfirmBody, /if \(confirm\.tool_name === "playlist_browse"\)/);
+assert.match(compactConfirmBody, /formatPlaylistBrowseName\(choice\.label\)/);
+assert.match(compactConfirmBody, /playlistBrowseTrackCount\(choice\)/);
+assert.equal((compactConfirmBody.match(/<PanelFrame /g) ?? []).length, 3);
+assert.equal((compactConfirmBody.match(/<PanelChoiceList/g) ?? []).length, 2);
+assert.match(compactConfirmBody, /spotifyTheme=\{isSpotifyConfirm\}/);
+assert.doesNotMatch(compactConfirmBody, /borderStyle=|selectedBackgroundColor=|<ChoicePanel|selected \? "> "/);
+
+assert.match(languageBody, /orderedLanguageChoices\(panel\.selected\)/);
+assert.match(languageBody, /<PanelFrame width=\{width\} title=\{t\(language, "language\.title"\)\} hint=\{t\(language, "language\.hint"\)\}>/);
+assert.match(languageBody, /<PanelChoiceList/);
+assert.match(languageBody, /choice === panel\.selected \? `\* \$\{languageLabel\(choice\)\}`/);
+assert.doesNotMatch(languageBody, /borderStyle=|<ChoicePanel|selected \? "> "/);
+
+// Spotify and Apple setup flows now share the visual frame; provider behavior stays local.
+assert.match(compactSetupBody, /const isAppleTokenSetup = "provider" in setupPanel && setupPanel\.provider === "apple_music"/);
 assert.match(
-    source,
-    /import \{ CHAT_SYSTEM_MARKER_COLOR,[\s\S]*\} from '\.\/chat-message\.js'/,
+    compactSetupBody,
+    /<PanelFrame[\s\S]*width=\{panelWidth\}[\s\S]*title=\{setupPanel\.title\}[\s\S]*hint=\{isAppleTokenSetup && setupPanel\.active \? "press Esc to cancel" : null\}/,
 );
+assert.match(compactSetupBody, /setupMessageColor\(setupPanel\)/);
+assert.match(compactSetupBody, /setupDoneHint\(setupPanel, language\)/);
 assert.match(
-    compactConfirmBody,
-    /const isSongCandidateConfirm = confirm\.tool_name === "song_candidate";/,
+    compactSetupBody,
+    /<PromptInput[\s\S]*placeholder=\{setupPanel\.prompt \?\? inputPlaceholder\}[\s\S]*backgroundColor=\{PANEL_BACKGROUND\}[\s\S]*backgroundWidth=\{panelWidth\}/,
 );
+assert.doesNotMatch(compactSetupBody, /borderStyle=|selectedBackground|trailingRowBackgroundMarker|\{"> "\}/);
+
+// Model selection is a formal panel, while InputDock itself remains excluded.
+assert.match(inputDockBody, /const insetPanelWidth = Math\.max\(3, Math\.floor\(terminalColumns \?\? 80\) - 2\)/);
 assert.match(
-    songCandidateBranch,
-    /if \(isSongCandidateConfirm\) \{[\s\S]*<Box flexDirection="column" paddingLeft=\{1\} paddingRight=\{0\} borderStyle="round" borderColor="#808791">/,
+    inputDockBody,
+    /<PanelFrame width=\{insetPanelWidth\} title=\{modelPanel\.title\} hint=\{modelPanel\.hint\}>[\s\S]*<PanelChoiceList[\s\S]*visibleLimit=\{MAX_VISIBLE_MODEL_CHOICES\}/,
 );
-assert.match(
-    songCandidateBranch,
-    /<Text bold color=\{CHAT_SYSTEM_MARKER_COLOR\}>Select the version to play<\/Text>/,
-);
-assert.match(
-    songCandidateBranch,
-    /<Text color="#7f5d6b">press Esc to cancel<\/Text>/,
-);
-assert.match(
-    songCandidateBranch,
-    /press Esc to cancel<\/Text>\s*<Box height=\{1\} \/>\s*<ChoicePanel/,
-);
-assert.match(
-    songCandidateBranch,
-    /<ChoicePanel[\s\S]*showSelectionMarker=\{false\}[\s\S]*boldSelected=\{true\}[\s\S]*marginTop=\{0\}[\s\S]*\/>\s*<\/Box>/,
-);
-assert.doesNotMatch(songCandidateBranch, /selectedBackgroundColor=/);
-assert.doesNotMatch(songCandidateBranch, /confirmCancelHint/);
-assert.doesNotMatch(songCandidateBranch, /backgroundColor=|SONG_CANDIDATE_PANEL_BACKGROUND|rowWidth=|rowPaddingX=/);
-assert.doesNotMatch(songCandidateBranch, /paddingBottom=\{1\}|paddingY=\{1\}/);
-assert.doesNotMatch(songCandidateBranch, /borderTop=\{true\}/);
-assert.doesNotMatch(songCandidateBranch, /border(?:Top|Bottom|Left|Right)=\{false\}/);
-assert.match(compactConfirmBody, /if \(confirm\.tool_name === "playlist_browse"\) \{/);
-assert.match(compactConfirmBody, /<PlaylistBrowsePanel choices=\{visibleChoices\} selectedIndex=\{confirmIndex\} spotifyTheme=\{isSpotifyConfirm\} \/>/);
-assert.match(compactConfirmBody, /borderColor=\{isSpotifyConfirm \? SPOTIFY_GREEN : BORDER_BLUE\}/);
-assert.match(compactConfirmBody, /<Text color="#7f5d6b">\{confirmCancelHint\(confirm\.choices\)\}<\/Text>/);
-assert.match(compactConfirmBody, /labelWidth: CONFIRM_CHOICE_LABEL_WIDTH,/);
-assert.match(compactConfirmBody, /display: choice\.display,/);
-assert.match(compactConfirmBody, /selectedBackgroundColor=\{isSpotifyConfirm \? SPOTIFY_GREEN : undefined\}/);
-assert.match(source, /const PlaylistBrowsePanel = \(\{ choices, selectedIndex, spotifyTheme = false \}/);
-assert.match(source, /formatPlaylistBrowseName\(choice\.label\)/);
-assert.match(source, /PLAYLIST_BROWSE_NAME_WIDTH/);
-assert.match(source, /playlistBrowseTrackCount\(choice\)/);
-assert.doesNotMatch(source, /tool_name: "playlist_browse"[\s\S]*labelWidth: CONFIRM_CHOICE_LABEL_WIDTH/);
-assert.match(languagePanelBody, /<ChoicePanel/);
-assert.match(languagePanelBody, /orderedLanguageChoices\(panel\.selected\)/);
-assert.match(languagePanelBody, /label: choice === panel\.selected \? `\* \$\{languageLabel\(choice\)\}` : languageLabel\(choice\)/);
-assert.doesNotMatch(languagePanelBody, /description: choice === panel\.selected \? "current" : choice/);
-assert.match(compactSetupBody, /spotifyTheme = false/);
-assert.match(compactSetupBody, /borderColor=\{spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE\}/);
-assert.match(compactSetupBody, /<Text color=\{spotifyTheme \? SPOTIFY_GREEN : "#fff4f6"\}>\{setupPanel\.title\}<\/Text>/);
-assert.match(compactSetupBody, /<Text color=\{spotifyTheme \? SPOTIFY_GREEN : "#7f5d6b"\}>\{"> "\}<\/Text>/);
-assert.match(inputDockBody, /modelPanel/);
-assert.match(inputDockBody, /formatModelPanelLabel\(model\)/);
-assert.match(inputDockBody, /<ChoicePanel[\s\S]*rows=\{modelPanel\.rows\}/);
-assert.match(inputDockBody, /const setupPanel = spotifySetup \?\? \(authSetup && authSetup\.step !== "model" \? authSetup : null\);/);
-assert.match(inputDockBody, /const spotifyTheme = Boolean\(spotifyMode\?\.enabled \|\| spotifySetup\);/);
+assert.match(inputDockBody, /const spotifyTheme = Boolean\(spotifyMode\?\.enabled \|\| spotifySetup\)/);
 assert.match(inputDockBody, /<SlashCommandList suggestions=\{slashSuggestions\} selectedIndex=\{slashIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
-assert.match(inputDockBody, /const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
-assert.match(inputDockBody, /<CompactConfirm confirm=\{confirm\} confirmIndex=\{confirmIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
-assert.match(inputDockBody, /spotifyTheme=\{Boolean\(spotifySetup\)\}/);
-assert.match(inputDockBody, /const spotifyModeBorderLabel = " 🎧 Spotify Mode ";/);
-assert.match(inputDockBody, /borderTop=\{true\}/);
-assert.match(inputDockBody, /borderBottom=\{true\}/);
-assert.match(inputDockBody, /borderLeft=\{false\}/);
-assert.match(inputDockBody, /borderRight=\{false\}/);
 assert.match(inputDockBody, /borderStyle="single" borderColor="#808791"/);
-assert.match(inputDockBody, /<Text color="#7f5d6b">/);
-assert.doesNotMatch(inputDockBody, /borderColor=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN/);
-assert.doesNotMatch(inputDockBody, /<Text color=\{spotifyMode\?\.enabled \? SPOTIFY_GREEN/);
-assert.match(inputDockBody, /\{minimal && switchHint \? `\$\{switchHint\} · ` : ""\}/);
-assert.doesNotMatch(inputDockBody, /`\$\{switchHint\} · > `/);
-assert.doesNotMatch(inputDockBody, /: "> "/);
-assert.doesNotMatch(inputDockBody, /paddingBottom=\{1\}/);
-assert.match(inputDockBody, /minHeight=\{3\}/);
-assert.doesNotMatch(inputDockBody, /minHeight=\{minimal \? 3 : 4\}/);
-assert.match(inputDockBody, /<PromptInput[\s\S]*\/>\s*<\/Box>\s*<\/Box>\s*<Box height=\{1\} paddingX=\{1\} flexDirection="row">/);
+assert.match(inputDockBody, /const spotifyModeBorderLabel = " 🎧 Spotify Mode "/);
+assert.match(inputDockBody, /<Text bold color=\{SPOTIFY_GREEN\}>\{spotifyModeBorderLabel\}<\/Text>/);
+assert.doesNotMatch(inputDockBody, /`\$\{switchHint\} · > `|: "> "/);
 
-const modeRowStart = inputDockBody.indexOf('<Box height={1} paddingX={1} flexDirection="row">');
-const modeRowEnd = inputDockBody.indexOf('                </>', modeRowStart);
-assert.ok(modeRowStart >= 0);
-assert.ok(modeRowEnd > modeRowStart);
-
-const modeRowBody = inputDockBody.slice(modeRowStart, modeRowEnd);
-assert.match(modeRowBody, /spotifyMode\?\.enabled \? \(/);
-assert.match(modeRowBody, /<Text bold color=\{SPOTIFY_GREEN\}>\{spotifyModeBorderLabel\}<\/Text>/);
-assert.doesNotMatch(modeRowBody, /backgroundColor=/);
-assert.doesNotMatch(modeRowBody, /SPOTIFY_SELECTED_TEXT/);
-assert.doesNotMatch(inputDockBody, /----Spotify Mode----/);
-assert.match(inputDockBody, /<CompactSetup[\s\S]*input=\{input\}[\s\S]*onSubmit=\{onSubmit\}/);
+// Existing visibility, focus and submission routing remain unchanged.
+assert.match(
+    inputDockBody,
+    /const showInput = !setupPanel[\s\S]*&& \(!confirm \|\| Boolean\(selectedChoice\?\.input\) && !isSongCandidateConfirm\)/,
+);
+assert.match(
+    inputDockBody,
+    /<CompactConfirm[\s\S]*input=\{input\}[\s\S]*inputFocus=\{inputFocus\}[\s\S]*panelWidth=/,
+);
 assert.match(inputDockBody, /setupPanel \? <CompactSetup/);
-assert.match(source, /setupDoneHint\(setupPanel, language\)/);
-assert.match(source, /setupMessageColor\(setupPanel\)/);
-assert.match(source, /language === "zh-CN" \? "按Esc键隐藏" : "press Esc to hide"/);
-assert.match(source, /text\.includes\("failed"\) \|\| text\.includes\("失败"\)/);
-assert.match(source, /text\.includes\("connected"\) \|\| text\.includes\("success"\) \|\| text\.includes\("成功"\)/);
-assert.match(source, /PromptInput[\s\S]*placeholder=\{setupPanel\.prompt \?\? inputPlaceholder\}/);
 
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
-assert.match(appSource, /const \[spotifyMode, setSpotifyMode\] = useState<SpotifyModeState>/);
-assert.match(appSource, /spotifyMode\.enabled\s*\?\s*spotifyModeSlashCommands\(input, language\)\s*:\s*slashCommandSuggestions\(input, language\)/);
-assert.match(appSource, /const visibleConfirmChoices = React\.useMemo\(\(\) => confirm \? getVisibleConfirmChoices\(confirm\.choices\) : \[\], \[confirm\]\);/);
-assert.match(appSource, /const selectedConfirmChoice = visibleConfirmChoices\[Math\.min\(confirmIndex, Math\.max\(0, visibleConfirmChoices\.length - 1\)\)\] \?\? null;/);
-assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, visibleConfirmChoices\);/);
-assert.match(appSource, /setConfirmIndex\(\(prev\) => visibleConfirmChoices\.length > 0 \? Math\.min\(visibleConfirmChoices\.length - 1, prev \+ 1\) : 0\);/);
+assert.match(appSource, /const isAppleTokenSetupActive = authSetup\?\.active && authSetup\.provider === "apple_music"/);
+assert.match(
+    appSource,
+    /if \(!isAppleTokenSetupActive \|\| !key\.escape\) return;[\s\S]*setAuthSetup\(null\);[\s\S]*setInput\(""\);[\s\S]*send\(\{ type: "auth_setup_input", value: "__cancel__" \}\);/,
+);
+assert.match(
+    appSource,
+    /evt\.active === false[\s\S]*evt\.step === "model"[\s\S]*evt\.provider === "apple_music"[\s\S]*evt\.step === "companion_done" \|\| evt\.step === "cancelled"[\s\S]*setAuthSetup\(null\)/,
+);
+assert.match(appSource, /const visibleConfirmChoices = React\.useMemo\(\(\) => confirm \? getVisibleConfirmChoices\(confirm\.choices\) : \[\], \[confirm\]\)/);
+assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, visibleConfirmChoices\)/);
+assert.match(appSource, /setConfirmIndex\(\(prev\) => visibleConfirmChoices\.length > 0 \? Math\.min\(visibleConfirmChoices\.length - 1, prev \+ 1\) : 0\)/);
 assert.match(appSource, /const isLoginScreenActive = isGenericAuthSetup\(authSetup\) && !isModelPanelActive/);
-assert.match(appSource, /\[language,[\s\S]*filter\(\(choice\) => choice !== language\)/);
-assert.match(appSource, /setLanguagePanelIndex\(0\);/);
 assert.match(appSource, /completeSlashCommand\(selectedHelpCommand\)/);
-assert.match(appSource, /send\(\{ type: "auth_setup_input", value: "__cancel__" \}\)/);
 assert.match(appSource, /case "spotify_mode":/);
-assert.match(appSource, /setSpotifyMode\(\{ enabled: evt\.enabled, device_id: evt\.device_id, device_name: evt\.device_name \}\);/);
-assert.match(appSource, /if \(spotifySetup && spotifySetup\.active === false && key\.escape\) \{\s*setSpotifySetup\(null\);/);
+assert.match(appSource, /setSpotifyMode\(\{ enabled: evt\.enabled, device_id: evt\.device_id, device_name: evt\.device_name \}\)/);

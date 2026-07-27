@@ -4,6 +4,8 @@ export const INK_CLEAR_SCREEN = '\u001B[2J\u001B[3J\u001B[H';
 const SAVE_CURSOR = '\u001B7';
 const RESTORE_CURSOR = '\u001B8';
 const ERASE_LINE = '\u001B[2K';
+const TRAILING_ROW_BACKGROUND_MARKER =
+    /\u001B\]777;sonex-fill-trailing-row=([0-9a-fA-F]{6})\u0007/;
 const TERMINAL_CONTROL_SEQUENCE =
     /\u001B(?:\][^\u0007]*(?:\u0007|\u001B\\)|\[[0-?]*[ -/]*[@-~]|[()][0-2A-Z]|[=>78])/g;
 
@@ -14,6 +16,32 @@ export type TerminalDimensions = {
 
 export type IncrementalStdout = NodeJS.WriteStream & {
     reset: () => void;
+};
+
+const normalizeTrueColor = (color: string): string => (
+    /^#?([0-9a-fA-F]{6})$/.exec(color)?.[1] ?? "000000"
+);
+
+export const withTrueColorBackground = (value: string, color: string): string => {
+    const normalized = normalizeTrueColor(color);
+    const red = Number.parseInt(normalized.slice(0, 2), 16);
+    const green = Number.parseInt(normalized.slice(2, 4), 16);
+    const blue = Number.parseInt(normalized.slice(4, 6), 16);
+    return `\u001B[48;2;${red};${green};${blue}m${value}\u001B[49m`;
+};
+
+export const trailingRowBackgroundMarker = (color: string): string => {
+    const normalized = normalizeTrueColor(color);
+    return `\u001B]777;sonex-fill-trailing-row=${normalized}\u0007`;
+};
+
+const fillTrailingRowBackground = (chunk: string, columns?: number): string => {
+    const color = TRAILING_ROW_BACKGROUND_MARKER.exec(chunk)?.[1];
+    const output = chunk.replace(TRAILING_ROW_BACKGROUND_MARKER, "");
+    const width = Math.max(0, Math.floor(columns ?? 0));
+    if (!color || width === 0 || !output.endsWith("\n")) return output;
+
+    return `${output}${withTrueColorBackground(" ".repeat(width), color)}\r`;
 };
 
 const sameDimensions = (
@@ -121,7 +149,7 @@ export const createIncrementalStdout = (stdout: NodeJS.WriteStream): Incremental
         }
 
         const safeChunk = stdout.isTTY === true
-            ? chunk
+            ? fillTrailingRowBackground(chunk, stdout.columns)
             : stripTerminalControlSequences(chunk);
         const output = frameWriter.transform(safeChunk);
         if (output === null) {

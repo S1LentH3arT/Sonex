@@ -7,16 +7,18 @@ export const APPLE_MODE_COMMAND_NAMES = ["apple", "bye", "exit", "info", "lang",
 
 const SPOTIFY_MODE_COMMANDS = SPOTIFY_MODE_COMMAND_NAMES.map((name) => (
     SLASH_COMMANDS.find((command) => command.name === name)
-)).filter((command): command is SlashCommandSuggestion => Boolean(command));
+)).filter((command): command is SlashCommandSuggestion => Boolean(command?.enabled !== false));
 const APPLE_MODE_COMMANDS = APPLE_MODE_COMMAND_NAMES.map((name) => (
     SLASH_COMMANDS.find((command) => command.name === name)
-)).filter((command): command is SlashCommandSuggestion => Boolean(command));
+)).filter((command): command is SlashCommandSuggestion => Boolean(command?.enabled !== false));
 
 function commandSuggestionsFrom(commands: SlashCommandSuggestion[], input: string, language: UiLanguage): SlashCommandSuggestion[] {
     const trimmed = input.trimStart();
     if (!trimmed.startsWith("/")) return [];
     const token = trimmed.slice(1).split(/\s+/, 1)[0]?.toLowerCase() ?? "";
-    return localizeSlashCommands(commands.filter((command) => command.name.startsWith(token)), language);
+    return localizeSlashCommands(commands.filter(
+        (command) => command.enabled !== false && command.name.startsWith(token),
+    ), language);
 }
 
 /**
@@ -57,7 +59,10 @@ export function slashCommandToken(input: string): string {
  */
 export function matchingSlashCommand(input: string): SlashCommandSuggestion | undefined {
     const token = slashCommandToken(input);
-    return SLASH_COMMANDS.find((command) => command.name === token || command.aliases?.includes(token));
+    return SLASH_COMMANDS.find(
+        (command) => command.enabled !== false
+            && (command.name === token || command.aliases?.includes(token)),
+    );
 }
 
 /**
@@ -80,4 +85,9 @@ export function hasSlashCommandArguments(input: string): boolean {
  */
 export function completeSlashCommand(command: SlashCommandSuggestion): string {
     return command.needsArgument ? `/${command.name} ` : `/${command.name}`;
+}
+
+export function unknownSlashCommandMessage(input: string): string {
+    const command = input.trimStart().split(/\s+/, 1)[0] || "/";
+    return `Unknown command: ${command}. Type /help to view available commands.`;
 }

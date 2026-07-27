@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
-import { CHAT_SYSTEM_MARKER_COLOR, resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent } from './chat-message.js';
+import { resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent } from './chat-message.js';
 import { APPLE_BLUSH, APPLE_PEARL_PINK, APPLE_SILVER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices } from './confirm-choice.js';
@@ -15,7 +15,9 @@ import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js'
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
-import { formatTrackPanelLine } from './track-panel.js';
+import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem } from './panel-frame.js';
+import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
+import { withTrueColorBackground } from './terminal-frame-writer.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
 import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
@@ -56,7 +58,7 @@ export const formatAuthLabel = (state: AuthRuntimeState): string => {
         return "local";
     }
     if (!state.ready) {
-        return "login required";
+        return "sign-in required";
     }
     if (state.auth_type === "api_key") {
         return "API billing";
@@ -82,7 +84,7 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
                 <Text color="#d8bcc7" wrap="truncate-end">{identity}</Text>
-                <Text color="#bf98a7" wrap="truncate-end">{displayCwd}</Text>
+                <Text color="#fff4f6" wrap="truncate-end">{displayCwd}</Text>
                 {sessionId ? (
                     <>
                         <Text color="#808791">session id:</Text>
@@ -100,7 +102,7 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
                 <Text color="#d8bcc7">{identity}</Text>
-                <Text color="#bf98a7">{displayCwd}</Text>
+                <Text color="#fff4f6">{displayCwd}</Text>
                 {sessionId ? (
                     <>
                         <Text color="#808791">session id:</Text>
@@ -122,28 +124,20 @@ const LoginChoiceList = ({ choices, selectedIndex, visibleLimit }: {
     selectedIndex: number;
     visibleLimit?: number;
 }) => {
-    const boundedIndex = Math.min(Math.max(selectedIndex, 0), Math.max(0, choices.length - 1));
-    const limit = Math.min(visibleLimit ?? choices.length, choices.length);
-    const maxStart = Math.max(0, choices.length - limit);
-    const startIndex = Math.min(Math.max(0, boundedIndex - limit + 1), maxStart);
-    const visibleChoices = choices.slice(startIndex, startIndex + limit);
-
     return (
-        <Box flexDirection="column" marginTop={1}>
-            {visibleChoices.map((choice, index) => {
-                const absoluteIndex = startIndex + index;
-                return (
-                    <Text key={choice.value} color={absoluteIndex === boundedIndex ? "#fff4f6" : "#bf98a7"}>
-                        <Text color={absoluteIndex === boundedIndex ? BORDER_BLUE_SOFT : "#7f5d6b"}>
-                            {absoluteIndex === boundedIndex ? "> " : "  "}
-                        </Text>
-                        {choice.label}
-                        <Text color="#7f5d6b">  </Text>
-                        <Text color="#9d7787">{choice.provider ?? choice.value}</Text>
-                    </Text>
-                );
-            })}
-        </Box>
+        <PanelChoiceList
+            items={choices.map((choice) => ({
+                key: choice.value,
+                segments: [
+                    { text: choice.label, color: PANEL_PRIMARY },
+                    { text: `  ${choice.provider ?? choice.value}`, color: PANEL_SECONDARY },
+                ],
+            }))}
+            selectedIndex={selectedIndex}
+            visibleLimit={visibleLimit}
+            width={74}
+            paddingX={2}
+        />
     );
 };
 
@@ -171,51 +165,89 @@ export const LoginScreen = ({
         : authSetup.message;
 
     return (
-        <Box width={74} minHeight={18} paddingX={1} paddingY={1} borderStyle="single" borderColor={BORDER_BLUE} flexDirection="column">
-            <Box flexDirection="column" marginTop={1} paddingX={1}>
-                <Text color="#fff4f6">{authSetup.title}</Text>
-                <Text color="#bf98a7">{displayMessage}</Text>
+        <PanelFrame width={74} paddingX={2} title={authSetup.title} hint={displayMessage}>
+            {(isProviderStep || isMethodStep || isModelStep) ? (
+                <>
+                    <LoginChoiceList
+                        choices={choices}
+                        selectedIndex={selectedIndex}
+                        visibleLimit={isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
+                    />
+                    <PanelRow
+                        width={74}
+                        paddingX={2}
+                        segments={[{ text: t(language, "login.continue"), color: PANEL_SECONDARY }]}
+                    />
+                </>
+            ) : null}
 
-                {(isProviderStep || isMethodStep || isModelStep) ? (
-                    <>
-                        <LoginChoiceList
-                            choices={choices}
-                            selectedIndex={selectedIndex}
-                            visibleLimit={isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
-                        />
-                        <Text color="#7f5d6b">{t(language, "login.continue")}</Text>
-                    </>
-                ) : null}
+            {isApiKeyStep ? (
+                <>
+                    <PanelRow
+                        width={74}
+                        paddingX={2}
+                        segments={[{ text: authSetup.prompt ?? "API key", color: PANEL_SECONDARY }]}
+                    />
+                    <PromptInput
+                        input={apiKeyInput}
+                        setInput={setApiKeyInput}
+                        onSubmit={onApiKeySubmit}
+                        focus={true}
+                        placeholder={authSetup.prompt ?? "API key"}
+                        mask="*"
+                        backgroundColor={PANEL_BACKGROUND}
+                        backgroundWidth={74}
+                        backgroundPaddingX={2}
+                    />
+                </>
+            ) : null}
 
-                {isApiKeyStep ? (
-                    <Box flexDirection="column" marginTop={1}>
-                        <Text color="#9d7787">{authSetup.prompt ?? "API key"}</Text>
-                        <Box>
-                            <Text color="#7f5d6b">{"> "}</Text>
-                            <PromptInput
-                                input={apiKeyInput}
-                                setInput={setApiKeyInput}
-                                onSubmit={onApiKeySubmit}
-                                focus={true}
-                                placeholder={authSetup.prompt ?? "API key"}
-                                mask="*"
-                            />
-                        </Box>
-                    </Box>
-                ) : null}
-
-                {isOauthWait ? (
-                    <Box flexDirection="column" marginTop={1}>
-                        <Text color={BORDER_BLUE_SOFT}>{t(language, "auth.oauth.waiting")}</Text>
-                        <Text color="#7f5d6b">{t(language, "auth.oauth.return")}</Text>
-                    </Box>
-                ) : null}
-            </Box>
-        </Box>
+            {isOauthWait ? (
+                <>
+                    <PanelRow
+                        width={74}
+                        paddingX={2}
+                        segments={[{ text: t(language, "auth.oauth.waiting"), color: BORDER_BLUE_SOFT }]}
+                    />
+                    <PanelRow
+                        width={74}
+                        paddingX={2}
+                        segments={[{ text: t(language, "auth.oauth.return"), color: PANEL_SECONDARY }]}
+                    />
+                </>
+            ) : null}
+        </PanelFrame>
     );
 };
 
-const PromptInput = ({ input, setInput, onSubmit, focus, placeholder, mask, inputRevision }: PromptInputProps) => {
+const fillPromptInputBackground = (
+    output: string,
+    backgroundWidth?: number,
+    backgroundPaddingX = 0,
+): string => {
+    if (!backgroundWidth) return output;
+    const width = Math.max(1, Math.floor(backgroundWidth));
+    const paddingX = Math.max(0, Math.min(Math.floor(backgroundPaddingX), Math.floor(width / 2)));
+    return output.split("\n").map((line) => (
+        `${" ".repeat(paddingX)}${line}${" ".repeat(Math.max(
+            paddingX,
+            width - paddingX - stringWidth(line),
+        ))}`
+    )).join("\n");
+};
+
+const PromptInput = ({
+    input,
+    setInput,
+    onSubmit,
+    focus,
+    placeholder,
+    mask,
+    inputRevision,
+    backgroundColor,
+    backgroundWidth,
+    backgroundPaddingX = 0,
+}: PromptInputProps) => {
     const [cursorVisible, setCursorVisible] = React.useState(true);
 
     React.useEffect(() => {
@@ -227,23 +259,33 @@ const PromptInput = ({ input, setInput, onSubmit, focus, placeholder, mask, inpu
     }, [focus, input, inputRevision]);
 
     return (
-        <Transform transform={(output) => focus && cursorVisible
-            ? output
-            : hideInputCursor(output)}>
-            <TextInput
-                key={inputRevision}
-                value={input}
-                onChange={setInput}
-                onSubmit={onSubmit}
-                focus={focus}
-                placeholder={placeholder}
-                mask={mask}
-            />
-        </Transform>
+        <Text>
+            <Transform transform={(output) => {
+                const visibleOutput = focus && cursorVisible ? output : hideInputCursor(output);
+                const filledOutput = fillPromptInputBackground(
+                    visibleOutput,
+                    backgroundWidth,
+                    backgroundPaddingX,
+                );
+                return backgroundColor
+                    ? withTrueColorBackground(filledOutput, backgroundColor)
+                    : filledOutput;
+            }}>
+                <TextInput
+                    key={inputRevision}
+                    value={input}
+                    onChange={setInput}
+                    onSubmit={onSubmit}
+                    focus={focus}
+                    placeholder={placeholder}
+                    mask={mask}
+                />
+            </Transform>
+        </Text>
     );
 };
 
-type ChoicePanelRow = {
+type ConfirmChoiceLabel = {
     key: string;
     label: string;
     description?: string | null;
@@ -256,7 +298,6 @@ const CONFIRM_CHOICE_LABEL_WIDTH = 18;
 const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 102;
 const MODEL_PANEL_LABEL_WIDTH = 20;
 const PLAYLIST_BROWSE_NAME_WIDTH = 32;
-const SPOTIFY_SELECTED_TEXT = "#06140c";
 const TRACK_PANEL_ROW_WIDTH = 96;
 
 const truncateDisplayWidth = (value: string, width: number): string => {
@@ -299,58 +340,13 @@ const playlistBrowseTrackCount = (choice: ConfirmChoice): string => {
     return `${count} track${count === 1 ? "" : "s"}`;
 };
 
-const formatChoicePanelLabel = (row: ChoicePanelRow): string => (
+const formatConfirmChoiceLabel = (row: ConfirmChoiceLabel): string => (
     row.display?.kind === "music_candidate"
         ? formatMusicCandidateDisplayLabel(row.display, CONFIRM_CHOICE_ROW_LABEL_WIDTH, row.description)
         : row.labelWidth
         ? row.label + " ".repeat(Math.max(0, row.labelWidth - stringWidth(row.label)))
         : row.label
 );
-
-const ChoicePanel = ({ rows, selectedIndex, visibleLimit, selectedBackgroundColor, showSelectionMarker = true, boldSelected = false, marginTop = 1 }: {
-    rows: ChoicePanelRow[];
-    selectedIndex: number;
-    visibleLimit?: number;
-    selectedBackgroundColor?: string;
-    showSelectionMarker?: boolean;
-    boldSelected?: boolean;
-    marginTop?: number;
-}) => {
-    if (rows.length === 0) return null;
-    const { items: visibleRows, boundedIndex, startIndex } = visibleCommandWindow(
-        rows,
-        selectedIndex,
-        visibleLimit ?? rows.length,
-    );
-
-    return (
-        <Box flexDirection="column" marginTop={marginTop}>
-            {visibleRows.map((row, index) => {
-                const absoluteIndex = startIndex + index;
-                const selected = absoluteIndex === boundedIndex;
-                const rowBackgroundColor = selected ? selectedBackgroundColor : undefined;
-                const rowColor = selectedBackgroundColor && selected
-                    ? "#06140c"
-                    : selected
-                    ? BORDER_BLUE
-                    : "#fff4f6";
-                return (
-                    <Text key={row.key} backgroundColor={rowBackgroundColor} bold={boldSelected && selected}>
-                        {showSelectionMarker ? (
-                            <Text color={rowColor} backgroundColor={rowBackgroundColor}>
-                                {selected ? "> " : "  "}
-                            </Text>
-                        ) : null}
-                        <Text color={rowColor} backgroundColor={rowBackgroundColor} wrap="truncate-end">{formatChoicePanelLabel(row)}</Text>
-                        {row.description && row.display?.kind !== "music_candidate" ? (
-                            <Text color={rowColor} backgroundColor={rowBackgroundColor}>{row.description}</Text>
-                        ) : null}
-                    </Text>
-                );
-            })}
-        </Box>
-    );
-};
 
 const SlashCommandList = ({ suggestions, selectedIndex, spotifyTheme = false }: {
     suggestions: SlashCommandSuggestion[];
@@ -383,40 +379,38 @@ const SlashCommandList = ({ suggestions, selectedIndex, spotifyTheme = false }: 
     );
 };
 
-const HelpPanel = ({ panel, selectedIndex, language = "en" }: { panel: HelpPanelState; selectedIndex: number; language?: UiLanguage }) => {
+const HelpPanel = ({ panel, selectedIndex, width, language = "en" }: {
+    panel: HelpPanelState;
+    selectedIndex: number;
+    width: number;
+    language?: UiLanguage;
+}) => {
     if (!panel) return null;
     const commands = helpPanelCommands(panel.commands);
-    const { items: visibleCommands, boundedIndex, startIndex } = visibleCommandWindow(
-        commands,
-        selectedIndex,
-        HELP_PANEL_VISIBLE_COMMANDS,
-    );
+    const items: PanelChoiceItem[] = commands.map((command) => ({
+        key: command.name,
+        segments: [
+            { text: formatCommandListLabel(command), color: PANEL_PRIMARY },
+            { text: command.description, color: PANEL_SECONDARY },
+        ],
+    }));
 
     return (
-        <Box flexDirection="column" paddingX={1} paddingBottom={1} borderStyle="single" borderColor={BORDER_BLUE}>
-            <Text>
-                <Text bold color="#fff4f6">{panel.title}</Text>
-                <Text color="#7f5d6b"> - </Text>
-                <Text color="#9d7787">{panel.hint}</Text>
-            </Text>
+        <PanelFrame width={width} title={panel.title} hint={panel.hint}>
             {panel.commands.length === 0 ? (
-                <Text color="#7f5d6b">{t(language, "help.empty")}</Text>
+                <PanelRow
+                    width={width}
+                    segments={[{ text: t(language, "help.empty"), color: PANEL_SECONDARY }]}
+                />
             ) : (
-                <Box flexDirection="column" marginTop={1}>
-                    {visibleCommands.map((command, index) => {
-                        const absoluteIndex = startIndex + index;
-                        const commandColor = absoluteIndex === boundedIndex ? BORDER_BLUE : "#fff4f6";
-                        return (
-                            <Text key={command.name}>
-                                <Text color={commandColor}>{absoluteIndex === boundedIndex ? "> " : "  "}</Text>
-                                <Text color={commandColor}>{formatCommandListLabel(command)}</Text>
-                                <Text color={commandColor}>{command.description}</Text>
-                            </Text>
-                        );
-                    })}
-                </Box>
+                <PanelChoiceList
+                    items={items}
+                    selectedIndex={selectedIndex}
+                    visibleLimit={HELP_PANEL_VISIBLE_COMMANDS}
+                    width={width}
+                />
             )}
-        </Box>
+        </PanelFrame>
     );
 };
 
@@ -501,10 +495,19 @@ const trackPanelEmptyText = (panel: NonNullable<TrackPanelState>, language: UiLa
 
 const TRACK_PANEL_MIN_VISIBLE_ROWS = 4;
 
-const TrackPanel = ({ panel, expanded = false, selectedIndex = 0, language = "en" }: {
+const TrackPanel = ({
+    panel,
+    panelWidth,
+    expanded = false,
+    selectedIndex = 0,
+    spotifyTheme = false,
+    language = "en",
+}: {
     panel: TrackPanelState;
+    panelWidth: number;
     expanded?: boolean;
     selectedIndex?: number;
+    spotifyTheme?: boolean;
     language?: UiLanguage;
 }) => {
     if (!panel) return null;
@@ -521,8 +524,6 @@ const TrackPanel = ({ panel, expanded = false, selectedIndex = 0, language = "en
     });
 
     const panelTitle = localizeTrackPanelTitle(panel, language);
-    const isSpotifyThemePanel = panel.panel === "playlist" || panel.panel === "queue";
-
     const titleRows = 1;
     const hintRows = panel.hint ? 1 : 0;
     const paddingRows = 1;
@@ -531,11 +532,17 @@ const TrackPanel = ({ panel, expanded = false, selectedIndex = 0, language = "en
         panelHeight > 0 ? panelHeight - titleRows - hintRows - paddingRows - 2 : TRACK_PANEL_MIN_VISIBLE_ROWS,
     );
 
-    const { items: rows, boundedIndex, startIndex } = visibleCommandWindow(
-        panel.tracks,
-        selectedIndex,
-        availableRows,
-    );
+    const visibleRowCount = panel.tracks.length === 0
+        ? 1
+        : Math.min(panel.tracks.length, availableRows);
+    const fillerRowCount = Math.max(0, availableRows - visibleRowCount);
+    const items: PanelChoiceItem[] = panel.tracks.map((track) => ({
+        key: `${track.index}-${trackPanelTrackKey(track)}`,
+        segments: [{
+            text: formatTrackPanelLine(track, TRACK_PANEL_ROW_WIDTH),
+            color: PANEL_PRIMARY,
+        }],
+    }));
 
     return (
         <Box
@@ -545,68 +552,59 @@ const TrackPanel = ({ panel, expanded = false, selectedIndex = 0, language = "en
             flexShrink={0}
             minHeight={0}
             height={expanded ? "100%" : undefined}
-            paddingX={2}
-            borderStyle="single"
-            borderColor={isSpotifyThemePanel ? SPOTIFY_GREEN : BORDER_BLUE}
         >
-            <Box>
-                <Text bold color={isSpotifyThemePanel ? SPOTIFY_GREEN : "#f3b2c6"}>
-                    {panelTitle}
-                </Text>
-                {panel.hint ? <Text color="#7f5d6b"> - {panel.hint}; Esc to hide</Text> : null}
-            </Box>
-
-            <Box flexDirection="column" paddingTop={2} flexGrow={0} flexShrink={0} minHeight={0}>
-                {rows.length === 0 ? (
-                    <Text color={isSpotifyThemePanel ? SPOTIFY_GREEN : "#7f5d6b"}>
-                        {trackPanelEmptyText(panel, language)}
-                    </Text>
-                ) : rows.map((track, idx) => {
-                    const absoluteIndex = startIndex + idx;
-                    const selected = absoluteIndex === boundedIndex;
-                    const selectedBackground = isSpotifyThemePanel && selected ? SPOTIFY_GREEN : undefined;
-                    const rowColor = selectedBackground
-                        ? SPOTIFY_SELECTED_TEXT
-                        : isSpotifyThemePanel
-                            ? "#ffffff"
-                            : selected
-                                ? "#f3b2c6"
-                                : "#fff4f6";
-                    const marker = selected ? "> " : "  ";
-                    const spotifyLine = formatTrackPanelLine(track, TRACK_PANEL_ROW_WIDTH);
-                    const rowBackgroundColor = selected ? (isSpotifyThemePanel ? SPOTIFY_GREEN : "#4b2f3a") : undefined;
-                    const rowFill = rowBackgroundColor ? " ".repeat(Math.max(0, TRACK_PANEL_ROW_WIDTH - stringWidth(
-                            isSpotifyThemePanel ? `${spotifyLine}` : `${marker}${track.index}${spotifyLine}`
-                    ))) : "";
-
-                    return (
-                        <Text backgroundColor={rowBackgroundColor} wrap="truncate-end">
-                            {isSpotifyThemePanel ? (
-                                <Text color={rowColor} backgroundColor={rowBackgroundColor}>
-                                    {spotifyLine}{rowFill}
-                                </Text>
-                            ) : (
-                                <>
-                                    <Text color={rowColor} backgroundColor={rowBackgroundColor}>{marker}</Text>
-                                    <Text color="#bf98a7" backgroundColor={rowBackgroundColor}>{track.index}</Text>
-                                    <Text color={rowColor} backgroundColor={rowBackgroundColor}>{spotifyLine}{rowFill}</Text>
-                                </>
-                            )}
-                        </Text>
-                    );
-                })}
-            </Box>
+            <PanelFrame
+                width={panelWidth}
+                paddingX={2}
+                title={panelTitle}
+                hint={panel.hint ? `${panel.hint}; Esc to hide` : null}
+            >
+                {panel.tracks.length === 0 ? (
+                    <PanelRow
+                        width={panelWidth}
+                        paddingX={2}
+                        segments={[{ text: trackPanelEmptyText(panel, language), color: PANEL_SECONDARY }]}
+                    />
+                ) : (
+                    <PanelChoiceList
+                        items={items}
+                        selectedIndex={selectedIndex}
+                        visibleLimit={availableRows}
+                        width={panelWidth}
+                        paddingX={2}
+                        spotifyTheme={spotifyTheme}
+                    />
+                )}
+                {Array.from({ length: fillerRowCount }, (_unused, index) => (
+                    <PanelEmptyRow key={`track-panel-filler-${index}`} width={panelWidth} />
+                ))}
+            </PanelFrame>
         </Box>
     );
 };
 
-const TrackPanelOverlay = ({ trackPanel, selectedIndex = 0, language = "en" }: {
+const TrackPanelOverlay = ({
+    trackPanel,
+    selectedIndex = 0,
+    panelWidth,
+    spotifyTheme = false,
+    language = "en",
+}: {
     trackPanel: TrackPanelState;
     selectedIndex?: number;
+    panelWidth: number;
+    spotifyTheme?: boolean;
     language?: UiLanguage;
 }) => (
     <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
-        <TrackPanel panel={trackPanel} expanded={true} selectedIndex={selectedIndex} language={language} />
+        <TrackPanel
+            panel={trackPanel}
+            panelWidth={panelWidth}
+            expanded={true}
+            selectedIndex={selectedIndex}
+            spotifyTheme={spotifyTheme}
+            language={language}
+        />
     </Box>
 );
 
@@ -896,7 +894,7 @@ const PlayerPane = ({ player, coverUrl, coverPattern, terminalSpace, miniLayout,
         <Box flexDirection="column" flexGrow={compact ? 1 : 1} flexShrink={1} minHeight={compact ? 8 : 20} padding={1} paddingX={compact ? 1 : 2}>
             {!compact ? (
                 <Box marginBottom={1}>
-                    <Text bold color={visual.accent}>Now Playing Stage</Text>
+                    <Text bold color={visual.accent}>Now playing</Text>
                 </Box>
             ) : null}
             <Box marginTop={compact ? 0 : 1}>
@@ -919,45 +917,30 @@ const orderedLanguageChoices = (current: UiLanguage): UiLanguage[] => [
 ];
 
 const confirmCancelHint = (choices: ConfirmChoice[]): string => (
-    choices.some((choice) => choice.label.includes("取消"))
-        ? "按Esc退出"
-        : "press Esc to cancel"
+    choices.some((choice) => choice.value === "deny" || choice.value === "cancel")
+        ? "press Esc to cancel"
+        : "press Esc to close"
 );
 
-const PlaylistBrowsePanel = ({ choices, selectedIndex, spotifyTheme = false }: {
-    choices: ConfirmChoice[];
-    selectedIndex: number;
-    spotifyTheme?: boolean;
-}) => {
-    if (choices.length === 0) return null;
-    const { items: visibleChoices, boundedIndex, startIndex } = visibleCommandWindow(
-        choices,
-        selectedIndex,
-        choices.length,
-    );
-
-    return (
-        <Box flexDirection="column" marginTop={1}>
-            {visibleChoices.map((choice, index) => {
-                const absoluteIndex = startIndex + index;
-                const selected = absoluteIndex === boundedIndex;
-                const rowBackgroundColor = spotifyTheme && selected ? SPOTIFY_GREEN : undefined;
-                const rowColor = rowBackgroundColor ? SPOTIFY_SELECTED_TEXT : selected ? BORDER_BLUE : "#fff4f6";
-                const rowText = `${formatPlaylistBrowseName(choice.label)} ${playlistBrowseTrackCount(choice)}`;
-                return (
-                    <Text key={choice.value} backgroundColor={rowBackgroundColor} wrap="truncate-end">
-                        <Text color={rowColor} backgroundColor={rowBackgroundColor}>{selected ? "> " : "  "}</Text>
-                        <Text color={rowColor} backgroundColor={rowBackgroundColor}>{rowText}</Text>
-                    </Text>
-                );
-            })}
-        </Box>
-    );
-};
-
-const CompactConfirm = ({ confirm, confirmIndex, spotifyTheme = false }: {
+const CompactConfirm = ({
+    confirm,
+    confirmIndex,
+    input,
+    setInput,
+    onSubmit,
+    inputFocus,
+    inputRevision,
+    panelWidth,
+    spotifyTheme = false,
+}: {
     confirm: ConfirmState;
     confirmIndex: number;
+    input: string;
+    setInput: (value: string) => void;
+    onSubmit: (value: string) => void;
+    inputFocus: boolean;
+    inputRevision: number;
+    panelWidth: number;
     spotifyTheme?: boolean;
 }) => {
     if (!confirm) return null;
@@ -966,86 +949,139 @@ const CompactConfirm = ({ confirm, confirmIndex, spotifyTheme = false }: {
     const isSongCandidateConfirm = confirm.tool_name === "song_candidate";
 
     if (isSongCandidateConfirm) {
+        const contentWidth = Math.max(1, panelWidth - 2);
+        const boundedIndex = Math.min(Math.max(confirmIndex, 0), Math.max(0, visibleChoices.length - 1));
+
         return (
-            <Box flexDirection="column" paddingLeft={1} paddingRight={0} borderStyle="round" borderColor="#808791">
-                <Text bold color={CHAT_SYSTEM_MARKER_COLOR}>Select the version to play</Text>
-                <Text color="#7f5d6b">press Esc to cancel</Text>
-                <Box height={1} />
-                <ChoicePanel
-                    rows={visibleChoices.map((choice) => ({
+            <PanelFrame width={panelWidth} title={confirm.message} hint="press Esc to cancel">
+                {visibleChoices.map((choice, index) => {
+                    const selected = index === boundedIndex;
+                    const isSupplementChoice = Boolean(choice.input);
+                    const label = formatConfirmChoiceLabel({
                         key: choice.value,
                         label: choice.label,
                         description: choice.description,
                         display: choice.display,
                         labelWidth: CONFIRM_CHOICE_LABEL_WIDTH,
-                    }))}
-                    selectedIndex={confirmIndex}
-                    showSelectionMarker={false}
-                    boldSelected={true}
-                    marginTop={0}
-                />
-            </Box>
+                    });
+                    const visibleLabel = truncateDisplayWidth(label, contentWidth);
+                    const item: PanelChoiceItem = {
+                        key: choice.value,
+                        segments: [{
+                            text: visibleLabel,
+                            color: isSupplementChoice ? PANEL_SECONDARY : PANEL_PRIMARY,
+                        }],
+                        unselectedBold: isSupplementChoice,
+                    };
+                    return (
+                        <React.Fragment key={choice.value}>
+                            {isSupplementChoice ? (
+                                <PanelEmptyRow width={panelWidth} />
+                            ) : null}
+                            {isSupplementChoice && selected ? (
+                                <PromptInput
+                                    input={input}
+                                    setInput={setInput}
+                                    onSubmit={onSubmit}
+                                    focus={selected && inputFocus}
+                                    placeholder=""
+                                    inputRevision={inputRevision}
+                                    backgroundColor={PANEL_BACKGROUND}
+                                    backgroundWidth={panelWidth}
+                                    backgroundPaddingX={1}
+                                />
+                            ) : (
+                                <PanelRow
+                                    width={panelWidth}
+                                    segments={resolvePanelChoiceSegments(item, selected, false)}
+                                />
+                            )}
+                        </React.Fragment>
+                    );
+                })}
+            </PanelFrame>
         );
     }
 
+    const choiceItems: PanelChoiceItem[] = visibleChoices.map((choice) => ({
+        key: choice.value,
+        segments: choice.display?.kind === "music_candidate"
+            ? [{ text: formatMusicCandidateDisplayLabel(choice.display, CONFIRM_CHOICE_ROW_LABEL_WIDTH, choice.description), color: PANEL_PRIMARY }]
+            : [
+                {
+                    text: choice.label + " ".repeat(Math.max(0, CONFIRM_CHOICE_LABEL_WIDTH - stringWidth(choice.label))),
+                    color: PANEL_PRIMARY,
+                },
+                ...(choice.description ? [{ text: choice.description, color: PANEL_SECONDARY }] : []),
+            ],
+    }));
+
     if (confirm.tool_name === "playlist_browse") {
+        const playlistItems: PanelChoiceItem[] = visibleChoices.map((choice) => ({
+            key: choice.value,
+            segments: [
+                { text: formatPlaylistBrowseName(choice.label), color: PANEL_PRIMARY },
+                { text: ` ${playlistBrowseTrackCount(choice)}`, color: PANEL_SECONDARY },
+            ],
+        }));
         return (
-            <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={isSpotifyConfirm ? SPOTIFY_GREEN : BORDER_BLUE}>
-                <Text color="#fff4f6">{confirm.message}</Text>
-                <Text color="#7f5d6b">{confirmCancelHint(confirm.choices)}</Text>
-                <PlaylistBrowsePanel choices={visibleChoices} selectedIndex={confirmIndex} spotifyTheme={isSpotifyConfirm} />
-            </Box>
+            <PanelFrame width={panelWidth} title={confirm.message} hint={confirmCancelHint(confirm.choices)}>
+                <PanelChoiceList
+                    items={playlistItems}
+                    selectedIndex={confirmIndex}
+                    width={panelWidth}
+                    spotifyTheme={isSpotifyConfirm}
+                />
+            </PanelFrame>
         );
     }
 
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={isSpotifyConfirm ? SPOTIFY_GREEN : BORDER_BLUE}>
-            <Text color="#fff4f6">{confirm.message}</Text>
-            <Text color="#7f5d6b">{confirmCancelHint(confirm.choices)}</Text>
-            <ChoicePanel
-                rows={visibleChoices.map((choice) => ({
-                    key: choice.value,
-                    label: choice.label,
-                    description: choice.description,
-                    display: choice.display,
-                    labelWidth: CONFIRM_CHOICE_LABEL_WIDTH,
-                }))}
+        <PanelFrame width={panelWidth} title={confirm.message} hint={confirmCancelHint(confirm.choices)}>
+            <PanelChoiceList
+                items={choiceItems}
                 selectedIndex={confirmIndex}
-                selectedBackgroundColor={isSpotifyConfirm ? SPOTIFY_GREEN : undefined}
+                width={panelWidth}
+                spotifyTheme={isSpotifyConfirm}
             />
-        </Box>
+        </PanelFrame>
     );
 };
 
-const LanguagePanel = ({ panel, selectedIndex, language = "en" }: {
+const LanguagePanel = ({ panel, selectedIndex, width, language = "en" }: {
     panel: LanguagePanelState;
     selectedIndex: number;
+    width: number;
     language?: UiLanguage;
 }) => {
     if (!panel) return null;
     const choices = orderedLanguageChoices(panel.selected);
     const boundedIndex = Math.min(Math.max(selectedIndex, 0), choices.length - 1);
     return (
-        <Box flexDirection="column" marginBottom={1} paddingX={1} borderStyle="single" borderColor={BORDER_BLUE_SOFT}>
-            <Text color="#fff4f6">{t(language, "language.title")}</Text>
-            <Text color="#bf98a7">{t(language, "language.hint")}</Text>
-            <ChoicePanel
-                rows={choices.map((choice) => ({
+        <PanelFrame width={width} title={t(language, "language.title")} hint={t(language, "language.hint")}>
+            <PanelChoiceList
+                items={choices.map((choice) => ({
                     key: choice,
-                    label: choice === panel.selected ? `* ${languageLabel(choice)}` : languageLabel(choice),
+                    segments: [{
+                        text: choice === panel.selected ? `* ${languageLabel(choice)}` : languageLabel(choice),
+                        color: PANEL_PRIMARY,
+                    }],
                 }))}
                 selectedIndex={boundedIndex}
+                width={width}
             />
-            {panel.saveError ? <Text color="#ff9c9c">{panel.saveError}</Text> : null}
-        </Box>
+            {panel.saveError ? (
+                <PanelRow width={width} segments={[{ text: panel.saveError, color: "#ff9c9c" }]} />
+            ) : null}
+        </PanelFrame>
     );
 };
 
 type CompactSetupPanel = NonNullable<SpotifySetupState | AuthSetupState>;
 
-const setupDoneHint = (setupPanel: CompactSetupPanel, language: UiLanguage): string | null => {
+const setupDoneHint = (setupPanel: CompactSetupPanel, _language: UiLanguage): string | null => {
     if (setupPanel.active) return null;
-    return language === "zh-CN" ? "按Esc键隐藏" : "press Esc to hide";
+    return "press Esc to hide";
 };
 
 const setupMessageColor = (setupPanel: CompactSetupPanel): string => {
@@ -1064,8 +1100,8 @@ const CompactSetup = ({
     inputMask,
     inputFocus,
     inputRevision,
+    terminalColumns,
     language = "en",
-    spotifyTheme = false,
 }: {
     setupPanel: CompactSetupPanel | null;
     input: string;
@@ -1075,41 +1111,71 @@ const CompactSetup = ({
     inputMask?: string;
     inputFocus: boolean;
     inputRevision: number;
+    terminalColumns: number | null;
     language?: UiLanguage;
-    spotifyTheme?: boolean;
 }) => {
     if (!setupPanel) return null;
 
+    const isAppleTokenSetup = "provider" in setupPanel && setupPanel.provider === "apple_music";
+    const panelWidth = Math.max(3, Math.floor(terminalColumns ?? 80));
+    const contentWidth = Math.max(1, panelWidth - 2);
+    const messageRows = wrapChatMessageContent(setupPanel.message, contentWidth);
+
     return (
-        <Box flexDirection="column" paddingX={1} paddingY={1} borderTop={true} borderStyle="single" borderColor={spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE} flexShrink={0}>
-            <Text color={spotifyTheme ? SPOTIFY_GREEN : "#fff4f6"}>{setupPanel.title}</Text>
-            <Text color={setupMessageColor(setupPanel)}>{setupPanel.message}</Text>
-            {setupDoneHint(setupPanel, language) ? <Text color="#7f5d6b">{setupDoneHint(setupPanel, language)}</Text> : null}
+        <PanelFrame
+            width={panelWidth}
+            title={setupPanel.title}
+            hint={isAppleTokenSetup && setupPanel.active ? "press Esc to cancel" : null}
+        >
+            {messageRows.map((row, index) => (
+                <PanelRow
+                    key={`setup-message-${index}`}
+                    width={panelWidth}
+                    segments={[{
+                        text: row,
+                        color: isAppleTokenSetup ? PANEL_PRIMARY : setupMessageColor(setupPanel),
+                    }]}
+                />
+            ))}
+            {setupDoneHint(setupPanel, language) ? (
+                <PanelRow
+                    width={panelWidth}
+                    segments={[{ text: setupDoneHint(setupPanel, language) ?? "", color: PANEL_SECONDARY }]}
+                />
+            ) : null}
             {"provider" in setupPanel && setupPanel.providers && setupPanel.providers.length > 0 ? (
-                <Text color="#9d7787">
-                    {t(language, "providers.label")}: {setupPanel.providers.map((provider) => provider.value).join(" / ")}
-                </Text>
+                <PanelRow
+                    width={panelWidth}
+                    segments={[{
+                        text: `${t(language, "providers.label")}: ${setupPanel.providers.map((provider) => provider.value).join(" / ")}`,
+                        color: PANEL_SECONDARY,
+                    }]}
+                />
             ) : null}
             {"provider" in setupPanel && setupPanel.methods && setupPanel.methods.length > 0 ? (
-                <Text color="#9d7787">
-                    {t(language, "methods.label")}: {setupPanel.methods.map((method) => method.value).join(" / ")}
-                </Text>
+                <PanelRow
+                    width={panelWidth}
+                    segments={[{
+                        text: `${t(language, "methods.label")}: ${setupPanel.methods.map((method) => method.value).join(" / ")}`,
+                        color: PANEL_SECONDARY,
+                    }]}
+                />
             ) : null}
             {setupPanel.active && setupPanel.prompt ? (
-                <Box flexDirection="row" marginTop={1}>
-                    <Text color={spotifyTheme ? SPOTIFY_GREEN : "#7f5d6b"}>{"> "}</Text>
-                    <PromptInput
-                        input={input}
-                        setInput={setInput}
-                        onSubmit={onSubmit}
-                        focus={inputFocus}
-                        placeholder={setupPanel.prompt ?? inputPlaceholder}
-                        mask={setupPanel.mask ? "*" : inputMask}
-                        inputRevision={inputRevision}
-                    />
-                </Box>
+                <PromptInput
+                    input={input}
+                    setInput={setInput}
+                    onSubmit={onSubmit}
+                    focus={inputFocus}
+                    placeholder={setupPanel.prompt ?? inputPlaceholder}
+                    mask={setupPanel.mask ? "*" : inputMask}
+                    inputRevision={inputRevision}
+                    backgroundColor={PANEL_BACKGROUND}
+                    backgroundWidth={panelWidth}
+                    backgroundPaddingX={1}
+                />
             ) : null}
-        </Box>
+        </PanelFrame>
     );
 };
 
@@ -1135,6 +1201,7 @@ const InputDock = ({
     languagePanel,
     languagePanelIndex,
     modelPanelIndex,
+    terminalColumns,
     minimal = false,
     switchHint = null,
     language = "en",
@@ -1160,6 +1227,7 @@ const InputDock = ({
     languagePanel: LanguagePanelState;
     languagePanelIndex: number;
     modelPanelIndex: number;
+    terminalColumns: number | null;
     minimal?: boolean;
     switchHint?: string | null;
     language?: UiLanguage;
@@ -1167,18 +1235,26 @@ const InputDock = ({
     const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
     const setupPanel = spotifySetup ?? (authSetup && authSetup.step !== "model" ? authSetup : null);
     const spotifyTheme = Boolean(spotifyMode?.enabled || spotifySetup);
+    const isSongCandidateConfirm = confirm?.tool_name === "song_candidate";
+    const insetPanelWidth = Math.max(3, Math.floor(terminalColumns ?? 80) - 2);
     const modelPanel = authSetup?.active && authSetup.step === "model"
         ? {
             title: authSetup.title,
             hint: authSetup.message,
-            rows: (authSetup.models ?? []).map((model) => ({
+            items: (authSetup.models ?? []).map((model) => ({
                 key: model.value,
-                label: formatModelPanelLabel(model),
-                description: model.provider ?? model.value,
+                segments: [
+                    { text: formatModelPanelLabel(model), color: PANEL_PRIMARY },
+                    { text: model.provider ?? model.value, color: PANEL_SECONDARY },
+                ],
             })),
         }
         : null;
-    const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && (!confirm || Boolean(selectedChoice?.input));
+    const showInput = !setupPanel
+        && !helpPanel
+        && !languagePanel
+        && !modelPanel
+        && (!confirm || Boolean(selectedChoice?.input) && !isSongCandidateConfirm);
     const spotifyModeBorderLabel = " 🎧 Spotify Mode ";
     const appleModeEnabled = providerMode.enabled && providerMode.provider === "apple";
 
@@ -1186,20 +1262,50 @@ const InputDock = ({
         <Box flexDirection="column">
             {!minimal ? (
                 <Box flexDirection="column" flexShrink={0} paddingX={1}>
-                    <HelpPanel panel={helpPanel} selectedIndex={helpPanelIndex} language={language} />
+                    <HelpPanel panel={helpPanel} selectedIndex={helpPanelIndex} width={insetPanelWidth} language={language} />
                     <SlashCommandList suggestions={slashSuggestions} selectedIndex={slashIndex} spotifyTheme={spotifyTheme} />
-                    <CompactConfirm confirm={confirm} confirmIndex={confirmIndex} spotifyTheme={spotifyTheme} />
-                    <LanguagePanel panel={languagePanel} selectedIndex={languagePanelIndex} language={language} />
+                    {!isSongCandidateConfirm ? (
+                        <CompactConfirm
+                            confirm={confirm}
+                            confirmIndex={confirmIndex}
+                            input={input}
+                            setInput={setInput}
+                            onSubmit={onSubmit}
+                            inputFocus={inputFocus}
+                            inputRevision={inputRevision}
+                            panelWidth={insetPanelWidth}
+                            spotifyTheme={spotifyTheme}
+                        />
+                    ) : null}
+                    <LanguagePanel panel={languagePanel} selectedIndex={languagePanelIndex} width={insetPanelWidth} language={language} />
                     {modelPanel ? (
-                        <Box flexDirection="column" marginBottom={1} paddingX={1} borderStyle="single" borderColor={BORDER_BLUE_SOFT}>
-                            <Text color="#fff4f6">{modelPanel.title}</Text>
-                            <Text color="#bf98a7">{modelPanel.hint}</Text>
-                            <ChoicePanel rows={modelPanel.rows} selectedIndex={modelPanelIndex} visibleLimit={MAX_VISIBLE_MODEL_CHOICES} />
-                        </Box>
+                        <PanelFrame width={insetPanelWidth} title={modelPanel.title} hint={modelPanel.hint}>
+                            <PanelChoiceList
+                                items={modelPanel.items}
+                                selectedIndex={modelPanelIndex}
+                                visibleLimit={MAX_VISIBLE_MODEL_CHOICES}
+                                width={insetPanelWidth}
+                                spotifyTheme={spotifyTheme}
+                            />
+                        </PanelFrame>
                     ) : null}
                 </Box>
             ) : null}
-            {minimal ? <CompactConfirm confirm={confirm} confirmIndex={confirmIndex} spotifyTheme={spotifyTheme} /> : null}
+            {isSongCandidateConfirm || minimal ? (
+                <CompactConfirm
+                    confirm={confirm}
+                    confirmIndex={confirmIndex}
+                    input={input}
+                    setInput={setInput}
+                    onSubmit={onSubmit}
+                    inputFocus={inputFocus}
+                    inputRevision={inputRevision}
+                    panelWidth={isSongCandidateConfirm
+                        ? Math.max(3, Math.floor(terminalColumns ?? 80))
+                        : insetPanelWidth}
+                    spotifyTheme={spotifyTheme}
+                />
+            ) : null}
             {setupPanel ? <CompactSetup
                 setupPanel={setupPanel}
                 input={input}
@@ -1209,8 +1315,8 @@ const InputDock = ({
                 inputMask={inputMask}
                 inputFocus={inputFocus}
                 inputRevision={inputRevision}
+                terminalColumns={terminalColumns}
                 language={language}
-                spotifyTheme={Boolean(spotifySetup)}
             /> : null}
             {showInput ? (
                 <>
@@ -1275,6 +1381,7 @@ export const DynamicTail = ({
     languagePanel,
     languagePanelIndex,
     modelPanelIndex,
+    terminalColumns,
     language = "en",
 }: {
     input: string;
@@ -1298,6 +1405,7 @@ export const DynamicTail = ({
     languagePanel: LanguagePanelState;
     languagePanelIndex: number;
     modelPanelIndex: number;
+    terminalColumns: number | null;
     language?: UiLanguage;
 }) => {
     const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
@@ -1332,6 +1440,7 @@ export const DynamicTail = ({
                 languagePanel={languagePanel}
                 languagePanelIndex={languagePanelIndex}
                 modelPanelIndex={modelPanelIndex}
+                terminalColumns={terminalColumns}
                 language={language}
             />
         </Box>
@@ -1556,6 +1665,8 @@ export const DynamicShell = ({
             <TrackPanelOverlay
                 trackPanel={trackPanel}
                 selectedIndex={trackPanelIndex}
+                panelWidth={Math.max(3, Math.floor(terminalSpace.columns ?? 80))}
+                spotifyTheme={spotifyMode.enabled}
                 language={language}
             />
         );
@@ -1584,6 +1695,7 @@ export const DynamicShell = ({
             languagePanel={languagePanel}
             languagePanelIndex={languagePanelIndex}
             modelPanelIndex={modelPanelIndex}
+            terminalColumns={terminalSpace.columns}
             language={language}
         />
     );

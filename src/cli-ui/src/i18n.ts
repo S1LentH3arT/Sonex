@@ -1,5 +1,7 @@
 import type { ConfirmChoice, HelpCommand, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 
+export const OFFICIAL_UI_LANGUAGE: UiLanguage = "en";
+
 type MessageKey =
     | "activity.empty"
     | "api.notRunning.detail"
@@ -25,6 +27,12 @@ type MessageKey =
     | "login.continue"
     | "login.warmup"
     | "methods.label"
+    | "panel.confirmHidden"
+    | "panel.helpHidden"
+    | "panel.languageHidden"
+    | "panel.modelHidden"
+    | "panel.setupHidden"
+    | "panel.spotifySetupHidden"
     | "providers.label"
     | "status.saving"
     | "status.snoozing"
@@ -49,7 +57,7 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "help.hint": "Use Up/Down to choose, Esc to close.",
         "help.title": "Sonex commands",
         "input.label": "Input",
-        "input.placeholder": "Say something to awake Sonex.",
+        "input.placeholder": "Ask Sonex anything.",
         "input.recommendPending": "Waiting for recommendations...",
         "keymap.usage": "Usage: /keymap [on|off|toggle|status]",
         "language.english": "English",
@@ -58,19 +66,25 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "language.saved": "Language set to {language}.",
         "language.simplifiedChinese": "简体中文",
         "language.title": "Language",
-        "launch.preparing": "Launch preparing",
+        "launch.preparing": "Preparing playback",
         "login.continue": "Use Up/Down to choose, Enter to continue.",
-        "login.warmup": "A little warm-up before we get started.",
+        "login.warmup": "Complete setup to continue.",
         "methods.label": "Methods",
+        "panel.confirmHidden": "Confirmation panel hidden.",
+        "panel.helpHidden": "Help panel hidden.",
+        "panel.languageHidden": "Language panel hidden.",
+        "panel.modelHidden": "Model selection panel hidden.",
+        "panel.setupHidden": "Setup panel hidden.",
+        "panel.spotifySetupHidden": "Spotify setup panel hidden.",
         "providers.label": "Providers",
         "status.saving": "Saving session...",
-        "status.snoozing": "Snoozing...",
-        "tips.placeholder": "Tips: try /random for a free play.",
+        "status.snoozing": "Idle...",
+        "tips.placeholder": "Tip: use /random to play a recent song.",
         "trackPanel.playlist": "Playlist",
-        "trackPanel.playlistHidden": "Playlist dialog hided",
+        "trackPanel.playlistHidden": "Playlist panel hidden.",
         "trackPanel.playlistEmpty": "Playlist is empty.",
         "trackPanel.queue": "Queue",
-        "trackPanel.queueHidden": "Queue dialog hided",
+        "trackPanel.queueHidden": "Queue panel hidden.",
         "trackPanel.queueEmpty": "Queue is empty.",
     },
     "zh-CN": {
@@ -98,45 +112,72 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "login.continue": "使用上下键选择，Enter 继续。",
         "login.warmup": "开始前先完成一个小设置。",
         "methods.label": "方式",
+        "panel.confirmHidden": "确认面板已收起。",
+        "panel.helpHidden": "帮助面板已收起。",
+        "panel.languageHidden": "语言面板已收起。",
+        "panel.modelHidden": "模型选择面板已收起。",
+        "panel.setupHidden": "配置面板已收起。",
+        "panel.spotifySetupHidden": "Spotify 配置面板已收起。",
         "providers.label": "服务",
         "status.saving": "正在保存会话...",
         "status.snoozing": "休眠中...",
         "tips.placeholder": "提示：试试 /random 随机播放。",
         "trackPanel.playlist": "歌单",
-        "trackPanel.playlistHidden": "歌单面板已收起",
+        "trackPanel.playlistHidden": "歌单面板已收起。",
         "trackPanel.playlistEmpty": "歌单为空。",
         "trackPanel.queue": "播放队列",
-        "trackPanel.queueHidden": "播放队列已收起",
+        "trackPanel.queueHidden": "播放队列已收起。",
         "trackPanel.queueEmpty": "播放队列为空。",
     },
 };
 
-const commandDescriptions: Record<string, Record<UiLanguage, string>> = {
-    bye: { en: "save session and exit", "zh-CN": "保存会话并退出" },
-    help: { en: "show available commands", "zh-CN": "显示可用的 Sonex 命令" },
-    info: { en: "show current runtime information", "zh-CN": "显示当前运行信息" },
-    keymap: { en: "toggle mini-player playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
-    lang: { en: "choose the TUI display language", "zh-CN": "选择 TUI 显示语言" },
-    logout: { en: "log out current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
+const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
+    bye: { en: "save and exit", "zh-CN": "保存会话并退出" },
+    help: { en: "show commands", "zh-CN": "显示可用的 Sonex 命令" },
+    info: { en: "show runtime info", "zh-CN": "显示当前运行信息" },
+    keymap: { en: "toggle playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
+    lang: { en: "choose display language", "zh-CN": "选择 TUI 显示语言" },
+    logout: { en: "sign out and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
     model: { en: "switch active model", "zh-CN": "切换当前模型" },
-    player: { en: "choose playback backend from a panel", "zh-CN": "打开播放后端选择面板" },
+    player: { en: "choose playback backend", "zh-CN": "打开播放后端选择面板" },
     playlist: { en: "browse or save playlists", "zh-CN": "浏览或保存播放列表" },
     queue: { en: "show playback queue", "zh-CN": "显示播放队列" },
-    quit: { en: "save session and exit", "zh-CN": "保存会话并退出" },
-    random: { en: "play from recent songs", "zh-CN": "从最近歌曲中播放" },
-    recommend: { en: "recommend songs of preferred music taste", "zh-CN": "按偏好的音乐口味推荐歌曲" },
-    resume: { en: "resume current playback", "zh-CN": "继续当前播放" },
+    quit: { en: "save and exit", "zh-CN": "保存会话并退出" },
+    random: { en: "play a recent song", "zh-CN": "从最近歌曲中播放" },
+    recommend: { en: "recommend songs", "zh-CN": "按偏好的音乐口味推荐歌曲" },
+    resume: { en: "resume playback", "zh-CN": "继续当前播放" },
+    setup: { en: "configure music provider", "zh-CN": "配置音乐服务" },
+    apple: { en: "toggle Apple Mode", "zh-CN": "进入或退出持久化 Apple 模式" },
+    spotify: { en: "toggle Spotify mode", "zh-CN": "进入或退出持久化 Spotify 模式" },
+};
+
+const helpCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
+    bye: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
+    exit: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
+    help: { en: "show available Sonex commands", "zh-CN": "显示可用的 Sonex 命令" },
+    info: { en: "show current runtime information", "zh-CN": "显示当前运行信息" },
+    keymap: { en: "enable or disable mini-player playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
+    lang: { en: "choose the TUI display language", "zh-CN": "选择 TUI 显示语言" },
+    logout: { en: "sign out from the current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
+    model: { en: "switch the active model for this session", "zh-CN": "切换当前模型" },
+    player: { en: "choose a playback backend from the selection panel", "zh-CN": "打开播放后端选择面板" },
+    playlist: { en: "browse playlists or save the current song", "zh-CN": "浏览或保存播放列表" },
+    queue: { en: "show the playback queue", "zh-CN": "显示播放队列" },
+    random: { en: "play a random song from the recent Sonex queue", "zh-CN": "从最近歌曲中播放" },
+    recommend: { en: "recommend songs based on a taste hint", "zh-CN": "按偏好的音乐口味推荐歌曲" },
+    resume: { en: "resume current local playback", "zh-CN": "继续当前播放" },
     setup: { en: "configure a music provider", "zh-CN": "配置音乐服务" },
+    apple: { en: "enter or exit persistent Apple Mode", "zh-CN": "进入或退出持久化 Apple 模式" },
     spotify: { en: "enter or exit persistent Spotify mode", "zh-CN": "进入或退出持久化 Spotify 模式" },
 };
 
 const knownText: Record<string, Record<UiLanguage, string>> = {
     "Snoozing...": {
-        en: "Snoozing...",
+        en: "Idle...",
         "zh-CN": "休眠中...",
     },
     "Launch preparing...": {
-        en: "Launch preparing...",
+        en: "Preparing playback...",
         "zh-CN": "启动准备中...",
     },
     "Sonex commands": {
@@ -168,7 +209,7 @@ const knownText: Record<string, Record<UiLanguage, string>> = {
         "zh-CN": "/lang 命令由本次 TUI 会话处理。",
     },
     "Sonex wanna open auto local player (mpv default), confirm?": {
-        en: "Sonex wanna open auto local player (mpv default), confirm?",
+        en: "Allow Sonex to open the automatic local player (mpv by default)?",
         "zh-CN": "Sonex 想打开 auto 本地播放器（mpv 默认），是否确认？",
     },
     "Sonex wants to open auto local player (mpv default).": {
@@ -183,11 +224,11 @@ const knownText: Record<string, Record<UiLanguage, string>> = {
 
 const playerConfirmChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {
     mpv: {
-        en: { label: "🎧 mpv", description: "default playback backend with smooth experience" },
+        en: { label: "🎧 mpv", description: "default backend for smooth background playback" },
         "zh-CN": { label: "🎧 mpv", description: "默认播放后端，提供更丝滑的播放体验" },
     },
     cvlc: {
-        en: { label: "📻 VLC", description: "only choose it as fallback when mpv is not available" },
+        en: { label: "📻 VLC", description: "diagnostic fallback when mpv is unavailable" },
         "zh-CN": { label: "📻 VLC", description: "备用播放后台，适配性较差，通常不建议选择" },
     },
     deny: {
@@ -211,14 +252,14 @@ export function languageLabel(language: UiLanguage): string {
 export function localizeSlashCommands(commands: SlashCommandSuggestion[], language: UiLanguage): SlashCommandSuggestion[] {
     return commands.map((command) => ({
         ...command,
-        description: commandDescriptions[command.name]?.[language] ?? command.description,
+        description: shortcutCommandDescriptions[command.name]?.[language] ?? command.description,
     }));
 }
 
 export function helpCommandsForLanguage(commands: HelpCommand[], language: UiLanguage): HelpCommand[] {
     return commands.map((command) => ({
         ...command,
-        description: commandDescriptions[command.name]?.[language] ?? command.description,
+        description: helpCommandDescriptions[command.name]?.[language] ?? command.description,
     }));
 }
 

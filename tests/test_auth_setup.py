@@ -539,13 +539,12 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             ):
                 await runner._handle_user_input(ui, "/model")
                 setup = getattr(ui, "_model_setup")
+                auth_event_count = len([event for event in ui.events if event.get("type") == "auth_setup"])
                 await setup.handle_input("__cancel__")
 
             self.assertIsNone(getattr(ui, "_model_setup"))
             auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-            self.assertEqual(auth_events[-1]["step"], "done")
-            self.assertFalse(auth_events[-1]["active"])
-            self.assertIn("cancel", str(auth_events[-1]["message"]).lower())
+            self.assertEqual(len(auth_events), auth_event_count)
 
     def _isolated_auth_env(self, extra: dict[str, str] | None = None):
         """Verifies that isolated auth env behaves as expected.

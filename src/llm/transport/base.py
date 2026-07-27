@@ -22,6 +22,10 @@ _SECRET_PATTERNS = (
     re.compile(r"(?i)(api[_-]?key|token|authorization|bearer)\s*[:=]\s*([^\s,;]+)"),
     re.compile(r"(?i)bearer\s+([^\s,;]+)"),
 )
+_URL_PRIVATE_SUFFIX_PATTERN = re.compile(
+    r"(https?://[^\s?#)\]}]+)(?:(?:\?[^ \t\r\n#)\]}]*)(?:#[^ \t\r\n)\]}]*)?|(?:#[^ \t\r\n)\]}]*))",
+    re.IGNORECASE,
+)
 
 
 def sanitize_error_message(error: Any, *, limit: int = 500) -> str:
@@ -35,6 +39,7 @@ def sanitize_error_message(error: Any, *, limit: int = 500) -> str:
     text = " ".join(text.split())
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub(lambda match: match.group(0).replace(match.group(match.lastindex), "[redacted]"), text)
+    text = _URL_PRIVATE_SUFFIX_PATTERN.sub(r"\1?[redacted]", text)
     if len(text) > limit:
         text = f"{text[: limit - 1]}..."
     return text

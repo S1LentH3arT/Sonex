@@ -19,8 +19,5 @@ assert.match(escapeBranch, /t\(language, "trackPanel\.queueHidden"\)/);
 assert.match(escapeBranch, /setTrackPanel\(null\)/);
 assert.match(escapeBranch, /setTrackPanelIndex\(0\)/);
 assert.match(escapeBranch, /switchRegion\("chat"\)/);
-assert.match(
-    escapeBranch,
-    /commitItems\(\[\{[\s\S]*type: "message",[\s\S]*role: "agent",[\s\S]*content: hiddenMessage,[\s\S]*theme: "muted",[\s\S]*tone: "system",[\s\S]*\}\]\)/,
-);
+assert.match(escapeBranch, /appendPanelHiddenNotice\(hiddenMessage\)/);
 assert.equal(enterBranch.includes('Hidden'), false);

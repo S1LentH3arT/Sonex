@@ -5,7 +5,7 @@ const source = readFileSync(new URL('../src/components.tsx', import.meta.url), '
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const cursorSource = readFileSync(new URL('../src/input-cursor.ts', import.meta.url), 'utf8');
 const promptStart = source.indexOf('const PromptInput =');
-const promptEnd = source.indexOf('\ntype ChoicePanelRow =', promptStart);
+const promptEnd = source.indexOf('\ntype ConfirmChoiceLabel =', promptStart);
 assert.ok(promptStart >= 0);
 assert.ok(promptEnd > promptStart);
 
@@ -27,7 +27,12 @@ assert.match(promptBody, /return \(\) => clearInterval\(timer\)/);
 assert.match(promptBody, /\[focus, input, inputRevision\]/);
 assert.match(
     promptBody,
-    /<Transform transform=\{\(output\) => focus && cursorVisible\s*\?\s*output\s*:\s*hideInputCursor\(output\)\}>/,
+    /const visibleOutput = focus && cursorVisible \? output : hideInputCursor\(output\)/,
+);
+assert.match(source, /const fillPromptInputBackground = \(/);
+assert.match(
+    promptBody,
+    /backgroundColor\s*\?\s*withTrueColorBackground\(filledOutput, backgroundColor\)\s*:\s*filledOutput/,
 );
 assert.match(promptBody, /focus=\{focus\}/);
 assert.doesNotMatch(promptBody, /showCursor=/);

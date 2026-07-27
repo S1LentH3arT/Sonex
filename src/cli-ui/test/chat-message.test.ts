@@ -37,4 +37,4 @@ assert.equal(resolveChatSubject('user', 'error'), 'User');
 assert.equal(resolveChatSubject('agent', null), 'Agent');
 assert.equal(resolveChatSubject('agent', 'system'), 'System');
 assert.equal(resolveChatSubject('agent', 'warning'), 'Warning');
-assert.equal(resolveChatSubject('agent', 'error'), 'Caution');
+assert.equal(resolveChatSubject('agent', 'error'), 'Error');
