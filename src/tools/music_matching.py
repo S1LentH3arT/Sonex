@@ -26,8 +26,6 @@ VERSION_TAGS = {
     "acoustic",
     "instrumental",
     "demo",
-    "remaster",
-    "remastered",
     "现场",
     "翻唱",
     "伴奏",
@@ -491,7 +489,7 @@ def _title_matches(resolver: AliasResolver, left: str, right: str) -> bool:
 
 
 def _display_title(value: str) -> str:
-    text = normalize_music_text(value)
+    text = normalize_music_text(FEAT_RE.split(str(value or ""), maxsplit=1)[0])
     previous = None
     while text and text != previous:
         previous = text

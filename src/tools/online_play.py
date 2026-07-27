@@ -47,7 +47,17 @@ from src.tools.music_matching import (
     simplified_traditional_variants,
 )
 
-LIVE_TERMS = ("live", "concert", "session", "现场", "演唱会")
+LIVE_TERMS = (
+    "live",
+    "concert",
+    "session",
+    "现场",
+    "現場",
+    "演唱会",
+    "演唱會",
+    "剧场",
+    "劇場",
+)
 LOW_RELEVANCE_TERMS = ("cover", "tutorial", "reaction", "karaoke", "翻唱", "教程", "伴奏")
 OFFICIAL_TERMS = ("official audio", "official music video", "official video", "official mv")
 NOISY_MEDIA_TERMS = (
@@ -60,8 +70,13 @@ NOISY_MEDIA_TERMS = (
     "karaoke",
     "tutorial",
     "综艺",
+    "綜藝",
     "电视",
+    "電視",
+    "卫视",
+    "衛視",
     "节目",
+    "節目",
     "访谈",
     "教程",
     "伴奏",
@@ -74,6 +89,10 @@ IGNORABLE_TITLE_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 FEATURED_ARTIST_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring)\s+.*$", re.IGNORECASE)
+FEATURED_TITLE_RE = re.compile(
+    r"\s*(?:[\[(（【]\s*)?(?:feat\.?|ft\.?|featuring)\s+.*$",
+    re.IGNORECASE,
+)
 AGE_RESTRICTED_MESSAGE = (
     "Selected YouTube result requires age verification. "
     "Choose another candidate or refine the search."
@@ -87,6 +106,14 @@ ONLINE_AUDIO_SETUP_MESSAGE = (
     "Run /setup jamendo or /setup audius first."
 )
 ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS = 12.0
+OPEN_AUDIO_SEARCH_TIMEOUT_SECONDS = 4.0
+YOUTUBE_FALLBACK_SEARCH_TIMEOUT_SECONDS = 8.0
+MAX_AUTOMATIC_PLAY_ATTEMPTS = 2
+AUDIUS_API_BASE_URL = "https://api.audius.co/v1"
+AUDIUS_REQUEST_HEADERS = {
+    "Accept": "application/json",
+    "User-Agent": "Sonex/1.0",
+}
 YOUTUBE_SEARCH_COOLDOWN_SECONDS = 60.0
 _youtube_search_cooldown_until = 0.0
 _youtube_search_cooldown_lock = Lock()
@@ -497,6 +524,7 @@ def _mostly_latin(value: Any) -> bool:
 
 def _identity_title(value: Any) -> str:
     text = unicodedata.normalize("NFKC", str(value or "")).strip()
+    text = FEATURED_TITLE_RE.sub("", text).strip()
     previous = None
     while text and text != previous:
         previous = text
@@ -553,9 +581,14 @@ def _identity_matches(target: dict[str, Any] | None, source: dict[str, Any] | No
         return True
     if not _complete_identity(source):
         return False
+    resolver = AliasResolver.load()
     return (
-        _identity_title_text(target) == _identity_title_text(source)
-        and _identity_artist_text(target.get("artist")) == _identity_artist_text(source.get("artist"))
+        resolver.matches("track", _identity_title_text(target), _identity_title_text(source))
+        and resolver.matches(
+            "artist",
+            _identity_artist_text(target.get("artist")),
+            _identity_artist_text(source.get("artist")),
+        )
     )
 
 
@@ -784,14 +817,32 @@ def _infer_youtube_title_identity(
     }, evidence
 
 
+def _youtube_has_official_channel_evidence(candidate: dict[str, Any]) -> bool:
+    if candidate.get("channel_is_verified") is True:
+        return True
+    channel = " ".join(
+        str(candidate.get(key) or "")
+        for key in ("channel", "uploader")
+    ).casefold()
+    return bool(
+        " - topic" in channel
+        or channel.endswith(" topic")
+        or "official artist channel" in channel
+        or "official" in channel
+        or "vevo" in channel
+    )
+
+
 def _candidate_assessment(
     candidate: dict[str, Any],
     inferred_identity: dict[str, str] | None,
     evidence: list[str],
 ) -> dict[str, Any]:
+    provider = str(candidate.get("provider") or "")
     match_score = candidate.get("match_score")
     hard_conflicts = list(match_score.get("hard_reject_reasons") or []) if isinstance(match_score, dict) else []
     match_decision = match_score.get("decision") if isinstance(match_score, dict) else None
+    match_components = match_score.get("components") if isinstance(match_score, dict) else {}
     if isinstance(match_score, dict):
         evidence.extend(str(reason) for reason in match_score.get("reasons") or [])
     identity_source = candidate.get("identity_match_source")
@@ -801,9 +852,67 @@ def _candidate_assessment(
             for reason in hard_conflicts
             if reason not in {"artist_mismatch", "insufficient_evidence"}
         ]
+    audius_title_only = bool(
+        provider == "audius"
+        and isinstance(match_components, dict)
+        and match_components.get("title")
+        and not match_components.get("artist")
+        and set(hard_conflicts).issubset({"artist_mismatch", "insufficient_evidence"})
+    )
+    if audius_title_only:
+        hard_conflicts = []
+        evidence.append("audius_title_only")
+    source_identity = candidate.get("source_identity")
+    youtube_structured_match = bool(
+        provider == "youtube"
+        and candidate.get("provider_identity_match") is True
+        and _complete_identity(candidate.get("target_identity"))
+        and isinstance(source_identity, dict)
+        and _identity_artist_text(source_identity.get("artist"))
+    )
+    if youtube_structured_match:
+        hard_conflicts = [
+            reason
+            for reason in hard_conflicts
+            if reason != "insufficient_evidence"
+        ]
+        evidence.append("youtube_structured_metadata")
+    youtube_title_inference = bool(
+        provider == "youtube"
+        and (inferred_identity or identity_source == "youtube_title_query")
+    )
+    youtube_official = bool(
+        youtube_title_inference
+        and _youtube_has_official_channel_evidence(candidate)
+    )
+    if youtube_official:
+        evidence.append("youtube_official_channel")
+    elif youtube_title_inference:
+        evidence.append("youtube_unverified_channel")
+    quality = str(candidate.get("quality_label") or "")
+    variant = str(candidate.get("variant_type") or "")
+    candidate_query = str(candidate.get("query") or "")
+    unrequested_version = bool(
+        (variant == "live" and not _contains_any(candidate_query, LIVE_TERMS))
+        or (
+            quality in {"cover_like", "noisy_media"}
+            and not _contains_any(
+                candidate_query,
+                LOW_RELEVANCE_TERMS + NOISY_MEDIA_TERMS,
+            )
+        )
+    )
+    if unrequested_version:
+        hard_conflicts.append("unrequested_version")
     if hard_conflicts:
         confidence = "low"
-    elif inferred_identity or identity_source in {"original_query", "youtube_title_query"} or match_decision == MatchDecision.ACCEPT.value:
+    elif audius_title_only:
+        confidence = "medium"
+    elif youtube_structured_match:
+        confidence = "high"
+    elif youtube_title_inference:
+        confidence = "high" if youtube_official else "medium"
+    elif identity_source == "original_query" or match_decision == MatchDecision.ACCEPT.value:
         confidence = "high"
     elif match_decision == MatchDecision.REVIEW.value:
         confidence = "medium"
@@ -1075,12 +1184,12 @@ def _quality_label(query: str, info: dict[str, Any], variant: str, similarity: i
     live_requested = _contains_any(query, LIVE_TERMS)
     if variant == "live":
         return "live"
-    if variant == "official_original":
-        return "official_original"
     if not live_requested and _contains_any(combined, COVER_TERMS):
         return "cover_like"
     if not live_requested and _contains_any(combined, NOISY_MEDIA_TERMS):
         return "noisy_media"
+    if variant == "official_original":
+        return "official_original"
     if _clean_title_match(query, info, similarity):
         return "clean_audio_match"
     return "other"
@@ -1668,6 +1777,7 @@ def _normalize_youtube_info(
         "album": album or "-",
         "channel": channel,
         "uploader": uploader,
+        "channel_is_verified": info.get("channel_is_verified"),
         "duration_ms": _duration_ms(info.get("duration")),
         "album_cover_url": cover_url,
         "cover_url": cover_url,
@@ -1730,7 +1840,7 @@ def _rank_youtube_candidates(query: str, candidates: list[dict[str, Any]]) -> li
             "noisy_media": -1,
         }
 
-    def score(pair: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int, int]:
+    def score(pair: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int, int, int, int]:
         """Coordinates score for the current Sonex flow.
 
         Typical use: Use this function when runtime code needs score as part of a Sonex command, playback, auth, llm, or ui path.
@@ -1785,11 +1895,21 @@ def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -
         index, candidate = pair
         assessment = candidate.get("assessment")
         confidence = assessment.get("confidence") if isinstance(assessment, dict) else "high"
+        match_score = candidate.get("match_score")
+        match_total = int(match_score.get("total_score") or 0) if isinstance(match_score, dict) else 0
+        identity_strength = max(match_total, int(candidate.get("similarity_score") or 0))
+        provider = str(candidate.get("provider") or "")
+        metadata_completeness = sum(
+            bool(candidate.get(key) and candidate.get(key) != "-")
+            for key in ("duration_ms", "album", "cover_url")
+        )
         return (
             confidence_priority.get(str(confidence or "high"), 0),
-            int(candidate.get("similarity_score") or 0),
+            identity_strength,
             quality_priority.get(str(candidate.get("quality_label") or "other"), 0),
-            provider_priority.get(str(candidate.get("provider") or ""), 0),
+            1 if provider in {"jamendo", "audius"} else 0,
+            metadata_completeness,
+            provider_priority.get(provider, 0),
             -index,
         )
 
@@ -1807,6 +1927,9 @@ def _credible_online_audio_candidates(candidates: list[dict[str, Any]]) -> list[
     """
     credible: list[dict[str, Any]] = []
     for candidate in candidates:
+        assessment = candidate.get("assessment")
+        if isinstance(assessment, dict) and assessment.get("confidence") != "high":
+            continue
         match_score = candidate.get("match_score")
         if isinstance(match_score, dict) and match_score.get("decision") != MatchDecision.ACCEPT.value:
             continue
@@ -1861,6 +1984,8 @@ def _source_attempt(
             message = f"{label} failed."
         elif status == "identity_mismatch":
             message = f"{label} rejected {rejected_count} identity mismatch{'es' if rejected_count != 1 else ''}."
+        elif status == "skipped_high_confidence":
+            message = f"{label} was skipped because open audio returned a high-confidence match."
         else:
             message = f"{label} returned no credible matches."
     attempt = {
@@ -1960,14 +2085,6 @@ def _playback_search_fields(playback_metadata: dict[str, Any] | None = None) -> 
     return artist, title, album
 
 
-def _audio_query_variants(query: str, playback_metadata: dict[str, Any] | None = None) -> list[tuple[str, str]]:
-    context = _identity_context(query, playback_metadata)
-    variants = [("provider_metadata", context.provider_query)]
-    if context.language_conflict and context.original_query and context.original_query != context.provider_query:
-        variants.append(("original_query", context.original_query))
-    return variants
-
-
 def _progressive_audio_query_variants(
     query: str,
     playback_metadata: dict[str, Any],
@@ -1979,15 +2096,16 @@ def _progressive_audio_query_variants(
         if clean and clean not in {item[1] for item in variants} and len(variants) < 3:
             variants.append((kind, clean))
 
-    for kind, value in _audio_query_variants(query, playback_metadata):
-        add(kind, value)
-
     canonical = canonical_track_from_metadata(playback_metadata)
     if not canonical.title or not canonical.artist:
+        add("raw_query", query)
         return variants
+    add("media_hint", f"{canonical.artist} {canonical.title} official audio")
+    add("original_query", _identity_context(query, playback_metadata).original_query)
+
     title_variants = sorted(
         simplified_traditional_variants(canonical.title),
-        key=lambda value: (value != canonical.title, value),
+        key=lambda value: (value == canonical.title, value),
     )
     for title in title_variants:
         add("localized_title", f"{canonical.artist} {title}")
@@ -1997,7 +2115,35 @@ def _progressive_audio_query_variants(
         for title in resolver.aliases_for("track", canonical.title):
             add("localized_alias", f"{artist} {title}")
 
-    add("media_hint", f"{canonical.artist} {canonical.title} official audio")
+    return variants
+
+
+def _audius_query_variants(
+    query: str,
+    playback_metadata: dict[str, Any] | None,
+) -> list[str]:
+    variants: list[str] = []
+
+    def add(value: str) -> None:
+        clean = " ".join(str(value or "").split())
+        if clean and clean not in variants and len(variants) < 3:
+            variants.append(clean)
+
+    artist, title, _ = _playback_search_fields(playback_metadata)
+    add(f"{artist} {title}" if artist and title else query)
+    add(_identity_context(query, playback_metadata).original_query)
+
+    canonical = canonical_track_from_metadata(playback_metadata)
+    if canonical.title and canonical.artist:
+        for localized_title in sorted(
+            simplified_traditional_variants(canonical.title),
+            key=lambda value: (value == canonical.title, value),
+        ):
+            add(f"{canonical.artist} {localized_title}")
+        resolver = AliasResolver.load()
+        for localized_artist in resolver.aliases_for("artist", canonical.artist):
+            for localized_title in resolver.aliases_for("track", canonical.title):
+                add(f"{localized_artist} {localized_title}")
     return variants
 
 
@@ -2044,13 +2190,11 @@ def search_jamendo_audio_candidates(
                 "order": "relevance",
             }, query),
         ]
-        for variant, variant_query in _audio_query_variants(query, playback_metadata):
-            if variant == "original_query":
-                query_stages.append(({**base_params, "search": variant_query}, variant_query))
     else:
         query_stages = [({**base_params, "search": query}, query)]
 
     candidates: list[dict[str, Any]] = []
+    seen_cache_ids: set[str] = set()
     rejected_count = 0
     for stage, stage_query in query_stages:
         params = urllib.parse.urlencode(stage)
@@ -2067,25 +2211,38 @@ def search_jamendo_audio_candidates(
             candidate.get("assessment", {}).get("confidence") == "low"
             for candidate in normalized
         )
-        candidates = [
+        accepted = [
             candidate
             for candidate in normalized
             if candidate.get("assessment", {}).get("confidence") != "low"
         ]
-        if candidates or not (artist and title):
+        for candidate in accepted:
+            cache_id = str(candidate.get("cache_id") or "")
+            if cache_id and cache_id in seen_cache_ids:
+                continue
+            if cache_id:
+                seen_cache_ids.add(cache_id)
+            candidates.append(candidate)
+        if any(_candidate_confidence(candidate) == "high" for candidate in accepted) or not (artist and title):
             break
     ranked = rank_online_audio_candidates(query, candidates)[: max(1, min(10, int(limit or 5)))]
     return IdentityCandidateList(ranked, rejected_count=rejected_count)
 
 
-def _audius_stream_url(track_id: str) -> str:
+def _audius_stream_url(track_id: str, *, api_key: str | None = None) -> str:
     """Prepares audius stream url for an internal Sonex flow.
 
     Typical use: Use this helper when nearby code needs audius stream url without duplicating the local rules.
 
     Example: _audius_stream_url(track_id=...) -> returns the value used by the surrounding Sonex flow.
     """
-    return f"https://discoveryprovider.audius.co/v1/tracks/{urllib.parse.quote(track_id)}/stream?app_name=Sonex"
+    params = {"app_name": "Sonex"}
+    if _text(api_key):
+        params["api_key"] = str(api_key)
+    return (
+        f"{AUDIUS_API_BASE_URL}/tracks/{urllib.parse.quote(track_id, safe='')}/stream"
+        f"?{urllib.parse.urlencode(params)}"
+    )
 
 
 def search_audius_audio_candidates(
@@ -2101,31 +2258,22 @@ def search_audius_audio_candidates(
 
     Example: search_audius_audio_candidates(query=..., api_key=..., limit=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
-    artist, title, album = _playback_search_fields(playback_metadata)
-
-    search_queries: list[str]
-    if artist and title:
-        search_query = f"{artist} {title}"
-        if album:
-            search_query = f"{artist} {title} {album}"
-        search_queries = [search_query]
-        for variant, variant_query in _audio_query_variants(query, playback_metadata):
-            if variant == "original_query":
-                search_queries.append(variant_query)
-    else:
-        search_queries = [query]
-
-    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-    candidates = []
-    for search_query in search_queries:
-        params = urllib.parse.urlencode(
-            {
-                "query": search_query,
-                "limit": max(1, min(20, int(limit or 5))),
-                "app_name": "Sonex",
-            }
+    candidates: list[dict[str, Any]] = []
+    seen_cache_ids: set[str] = set()
+    rejected_count = 0
+    for search_query in _audius_query_variants(query, playback_metadata):
+        query_params = {
+            "query": search_query,
+            "limit": max(1, min(20, int(limit or 5))),
+            "app_name": "Sonex",
+        }
+        if _text(api_key):
+            query_params["api_key"] = api_key
+        params = urllib.parse.urlencode(query_params)
+        payload = _json_get(
+            f"{AUDIUS_API_BASE_URL}/tracks/search?{params}",
+            headers=dict(AUDIUS_REQUEST_HEADERS),
         )
-        payload = _json_get(f"https://discoveryprovider.audius.co/v1/tracks/search?{params}", headers=headers)
         data = payload.get("data") or []
         for item in data:
             if not isinstance(item, dict):
@@ -2136,20 +2284,22 @@ def search_audius_audio_candidates(
             candidate = normalize_audius_track(
                 item,
                 query=search_query,
-                stream_url=_audius_stream_url(track_id),
+                stream_url=_audius_stream_url(track_id, api_key=api_key),
                 playback_metadata=playback_metadata,
             )
-            if candidate:
-                candidates.append(candidate)
-    rejected_count = sum(
-        candidate.get("assessment", {}).get("confidence") == "low"
-        for candidate in candidates
-    )
-    candidates = [
-        candidate
-        for candidate in candidates
-        if candidate.get("assessment", {}).get("confidence") != "low"
-    ]
+            if not candidate:
+                continue
+            if _candidate_confidence(candidate) == "low":
+                rejected_count += 1
+                continue
+            cache_id = str(candidate.get("cache_id") or "")
+            if cache_id and cache_id in seen_cache_ids:
+                continue
+            if cache_id:
+                seen_cache_ids.add(cache_id)
+            candidates.append(candidate)
+        if any(_candidate_confidence(candidate) == "high" for candidate in candidates):
+            break
     ranked = rank_online_audio_candidates(query, candidates)[: max(1, min(10, int(limit or 5)))]
     return IdentityCandidateList(ranked, rejected_count=rejected_count)
 
@@ -2160,6 +2310,8 @@ def _provider_failure_code(error: Exception) -> str:
         return "provider_timeout"
     if "429" in message or "too many requests" in message or "rate limit" in message:
         return "provider_rate_limited"
+    if _is_age_verification_error(message):
+        return "candidate_unplayable"
     if "not a bot" in message or "sign in to confirm" in message:
         return "provider_temporarily_unavailable"
     if _is_unavailable_error(message):
@@ -2217,6 +2369,29 @@ def _run_online_provider_searches(
     return results, errors
 
 
+def _timed_provider_search_jobs(
+    jobs: dict[str, Callable[[], list[dict[str, Any]]]],
+    provider_elapsed_ms: dict[str, int],
+) -> dict[str, Callable[[], list[dict[str, Any]]]]:
+    elapsed_lock = Lock()
+    timed_jobs: dict[str, Callable[[], list[dict[str, Any]]]] = {}
+    for provider, search in jobs.items():
+        def timed_search(
+            provider_name: str = provider,
+            provider_search: Callable[[], list[dict[str, Any]]] = search,
+        ) -> list[dict[str, Any]]:
+            provider_started_at = time.monotonic()
+            try:
+                return provider_search()
+            finally:
+                elapsed = round((time.monotonic() - provider_started_at) * 1000)
+                with elapsed_lock:
+                    provider_elapsed_ms[provider_name] = elapsed
+
+        timed_jobs[provider] = timed_search
+    return timed_jobs
+
+
 def _build_online_search_trace(
     *,
     trace_id: str,
@@ -2272,56 +2447,37 @@ def resolve_online_audio_candidates(
     search_query = str(resolved_metadata.get("youtube_query") or query).strip() or query
     trace_id = f"audio-{uuid.uuid4().hex[:12]}"
     started_at = time.monotonic()
-    youtube_cooldown = _youtube_search_cooldown_remaining()
-    jobs: dict[str, Callable[[], list[dict[str, Any]]]] = {}
-    if youtube_cooldown <= 0:
-        jobs["youtube"] = lambda: search_youtube_songs(
-            search_query,
-            limit=limit,
-            cache_root=cache_root,
-            playback_metadata=resolved_metadata,
-        )
+    provider_elapsed_ms: dict[str, int] = {}
+
+    open_jobs: dict[str, Callable[[], list[dict[str, Any]]]] = {}
     if resolved_config.jamendo_client_id:
-        jobs["jamendo"] = lambda: search_jamendo_audio_candidates(
+        open_jobs["jamendo"] = lambda: search_jamendo_audio_candidates(
             search_query,
             client_id=str(resolved_config.jamendo_client_id),
             limit=limit,
             playback_metadata=resolved_metadata,
         )
     if resolved_config.audius_api_key:
-        jobs["audius"] = lambda: search_audius_audio_candidates(
+        open_jobs["audius"] = lambda: search_audius_audio_candidates(
             search_query,
             api_key=str(resolved_config.audius_api_key),
             limit=limit,
             playback_metadata=resolved_metadata,
         )
 
-    provider_elapsed_ms: dict[str, int] = {}
-    provider_elapsed_lock = Lock()
-    timed_jobs: dict[str, Callable[[], list[dict[str, Any]]]] = {}
-    for provider, search in jobs.items():
-        def timed_search(
-            provider_name: str = provider,
-            provider_search: Callable[[], list[dict[str, Any]]] = search,
-        ) -> list[dict[str, Any]]:
-            provider_started_at = time.monotonic()
-            try:
-                return provider_search()
-            finally:
-                elapsed = round((time.monotonic() - provider_started_at) * 1000)
-                with provider_elapsed_lock:
-                    provider_elapsed_ms[provider_name] = elapsed
-
-        timed_jobs[provider] = timed_search
-
-    provider_results, provider_errors = _run_online_provider_searches(timed_jobs)
-    orchestration_elapsed_ms = round((time.monotonic() - started_at) * 1000)
-    for provider in jobs:
-        provider_elapsed_ms.setdefault(provider, orchestration_elapsed_ms)
-    if youtube_cooldown > 0:
-        provider_errors["youtube"] = RuntimeError(
-            f"YouTube is cooling down for {math.ceil(youtube_cooldown)} seconds."
+    provider_results: dict[str, list[dict[str, Any]]] = {}
+    provider_errors: dict[str, Exception] = {}
+    if open_jobs:
+        open_results, open_errors = _run_online_provider_searches(
+            _timed_provider_search_jobs(open_jobs, provider_elapsed_ms),
+            timeout=OPEN_AUDIO_SEARCH_TIMEOUT_SECONDS,
         )
+        provider_results.update(open_results)
+        provider_errors.update(open_errors)
+        open_elapsed_ms = round((time.monotonic() - started_at) * 1000)
+        for provider in open_jobs:
+            provider_elapsed_ms.setdefault(provider, open_elapsed_ms)
+
     candidates: list[dict[str, Any]] = []
     source_attempts: list[dict[str, Any]] = []
     for provider, configured in (
@@ -2346,8 +2502,7 @@ def resolve_online_audio_candidates(
         review_candidates = [
             candidate
             for candidate in provider_candidates
-            if isinstance(candidate.get("assessment"), dict)
-            and candidate["assessment"].get("confidence") == "medium"
+            if _candidate_confidence(candidate) == "medium"
         ]
         rejected_count = int(getattr(provider_candidates, "rejected_count", 0) or 0)
         source_attempts.append(
@@ -2362,48 +2517,98 @@ def resolve_online_audio_candidates(
         candidates.extend(credible)
         candidates.extend(review_candidates)
 
-    open_audio_count = len(candidates)
-    youtube_error = provider_errors.get("youtube")
-    if youtube_error is not None:
-        if isinstance(youtube_error, AudioIdentityMismatch):
-            source_attempts.append(
-                _source_attempt(
-                    "youtube",
-                    status="identity_mismatch",
-                    candidate_count=youtube_error.rejected_count,
-                    rejected_count=youtube_error.rejected_count,
-                )
+    open_high_candidates = [
+        candidate
+        for candidate in candidates
+        if _candidate_confidence(candidate) == "high"
+    ]
+    youtube_error: Exception | None = None
+    youtube_searched = False
+    if open_high_candidates:
+        candidates = open_high_candidates
+        source_attempts.append(_source_attempt("youtube", status="skipped_high_confidence"))
+        provider_elapsed_ms["youtube"] = 0
+    else:
+        youtube_cooldown = _youtube_search_cooldown_remaining()
+        if youtube_cooldown > 0:
+            youtube_error = RuntimeError(
+                f"YouTube is cooling down for {math.ceil(youtube_cooldown)} seconds."
             )
         else:
-            failure_code = _provider_failure_code(youtube_error)
-            if failure_code in {"provider_rate_limited", "provider_temporarily_unavailable"}:
-                _activate_youtube_search_cooldown()
-                failure_message = "YouTube is temporarily unavailable; search is cooling down."
-            elif "cooling down" in str(youtube_error).casefold():
-                failure_code = "provider_temporarily_unavailable"
-                failure_message = str(youtube_error)
+            total_elapsed = time.monotonic() - started_at
+            youtube_timeout = min(
+                YOUTUBE_FALLBACK_SEARCH_TIMEOUT_SECONDS,
+                max(0.0, ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS - total_elapsed),
+            )
+            if youtube_timeout <= 0:
+                youtube_error = TimeoutError(
+                    f"YouTube search exceeded the {ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS:g}-second total budget."
+                )
             else:
-                failure_message = _friendly_youtube_failure_message(str(youtube_error))
+                youtube_searched = True
+                youtube_jobs = {
+                    "youtube": lambda: search_youtube_songs(
+                        search_query,
+                        limit=limit,
+                        cache_root=cache_root,
+                        playback_metadata=resolved_metadata,
+                    )
+                }
+                youtube_results, youtube_errors = _run_online_provider_searches(
+                    _timed_provider_search_jobs(youtube_jobs, provider_elapsed_ms),
+                    timeout=youtube_timeout,
+                )
+                provider_results.update(youtube_results)
+                provider_errors.update(youtube_errors)
+                youtube_error = youtube_errors.get("youtube")
+                provider_elapsed_ms.setdefault(
+                    "youtube",
+                    round((time.monotonic() - started_at) * 1000),
+                )
+
+        if youtube_error is not None:
+            if isinstance(youtube_error, AudioIdentityMismatch):
+                source_attempts.append(
+                    _source_attempt(
+                        "youtube",
+                        status="identity_mismatch",
+                        candidate_count=youtube_error.rejected_count,
+                        rejected_count=youtube_error.rejected_count,
+                    )
+                )
+            else:
+                failure_code = _provider_failure_code(youtube_error)
+                if failure_code in {"provider_rate_limited", "provider_temporarily_unavailable"}:
+                    _activate_youtube_search_cooldown()
+                    failure_message = "YouTube is temporarily unavailable; search is cooling down."
+                elif "cooling down" in str(youtube_error).casefold():
+                    failure_code = "provider_temporarily_unavailable"
+                    failure_message = str(youtube_error)
+                else:
+                    failure_message = _friendly_youtube_failure_message(str(youtube_error))
+                source_attempts.append(
+                    _source_attempt(
+                        "youtube",
+                        status=failure_code,
+                        message=f"YouTube failed: {failure_message}",
+                    )
+                )
+        else:
+            youtube_candidates = provider_results.get("youtube", [])
+            youtube_rejected = int(getattr(youtube_candidates, "rejected_count", 0) or 0)
             source_attempts.append(
                 _source_attempt(
                     "youtube",
-                    status=failure_code,
-                    message=f"YouTube failed: {failure_message}",
+                    status="success" if youtube_candidates else ("identity_mismatch" if youtube_rejected else "no_credible_matches"),
+                    candidate_count=len(youtube_candidates) + youtube_rejected,
+                    credible_count=sum(
+                        _candidate_confidence(candidate) == "high"
+                        for candidate in youtube_candidates
+                    ),
+                    rejected_count=youtube_rejected,
                 )
             )
-    else:
-        youtube_candidates = provider_results.get("youtube", [])
-        youtube_rejected = int(getattr(youtube_candidates, "rejected_count", 0) or 0)
-        source_attempts.append(
-            _source_attempt(
-                "youtube",
-                status="success" if youtube_candidates else ("identity_mismatch" if youtube_rejected else "no_credible_matches"),
-                candidate_count=len(youtube_candidates) + youtube_rejected,
-                credible_count=len(youtube_candidates),
-                rejected_count=youtube_rejected,
-            )
-        )
-        candidates.extend(youtube_candidates)
+            candidates.extend(youtube_candidates)
 
     if not candidates:
         message = _fallback_reason(source_attempts)
@@ -2448,7 +2653,7 @@ def resolve_online_audio_candidates(
         candidate["search_trace_id"] = trace_id
         candidate["search_elapsed_ms"] = elapsed_ms
         candidate["search_trace"] = dict(search_trace)
-        if candidate.get("provider") == "youtube" and not open_audio_count:
+        if candidate.get("provider") == "youtube" and youtube_searched:
             candidate["fallback_provider"] = "youtube"
             candidate["fallback_reason"] = _fallback_reason(source_attempts[:-1])
     ranked = rank_online_audio_candidates(search_query, candidates)
@@ -2492,8 +2697,7 @@ def search_youtube_songs(
     """
     playback_metadata = resolve_online_playback_metadata(query, playback_metadata)
     query_variants = _progressive_audio_query_variants(query, playback_metadata)
-    required_variant_count = len(_audio_query_variants(query, playback_metadata))
-    youtube_query = query_variants[0][1]
+    youtube_query = _identity_context(query, playback_metadata).provider_query or query
     bounded_limit = max(1, min(10, int(limit or 5)))
     search_limit = min(20, max(8, bounded_limit * 4))
     options = {
@@ -2509,7 +2713,7 @@ def search_youtube_songs(
     seen_cache_ids: set[str] = set()
     rejected_count = 0
     with yt_dlp.YoutubeDL(options) as ydl:
-        for variant_index, (_, variant_query) in enumerate(query_variants):
+        for _, variant_query in query_variants:
             payload = ydl.extract_info(f"ytsearch{search_limit}:{variant_query}", download=False)
 
             if not isinstance(payload, dict):
@@ -2558,10 +2762,7 @@ def search_youtube_songs(
                 if isinstance(candidate.get("assessment"), dict)
                 and candidate["assessment"].get("confidence") == "high"
             )
-            if (
-                variant_index + 1 >= required_variant_count
-                and high_confidence_count >= 1
-            ):
+            if high_confidence_count >= 1:
                 break
     if not candidates:
         if rejected_count:
@@ -2885,7 +3086,12 @@ def play_youtube_candidate(
         data = download_youtube_candidate(candidate, cache_root=cache_root)
     except Exception as exc:
         message = str(exc)
-        if "identity does not match" in message.casefold():
+        failure_code = _provider_failure_code(exc)
+        if failure_code in {"provider_rate_limited", "provider_temporarily_unavailable"}:
+            _activate_youtube_search_cooldown()
+            message = "YouTube is temporarily unavailable; playback is cooling down."
+            error_code = "YOUTUBE_TEMPORARILY_UNAVAILABLE"
+        elif "identity does not match" in message.casefold():
             error_code = "ONLINE_AUDIO_IDENTITY_MISMATCH"
         elif _is_age_verification_error(message):
             message = AGE_RESTRICTED_MESSAGE
@@ -3038,6 +3244,40 @@ def _candidate_confidence(candidate: dict[str, Any]) -> str:
     return confidence if confidence in {"high", "medium", "low"} else "low"
 
 
+def _play_automatic_candidates(
+    candidates: list[dict[str, Any]],
+    play_candidate: Callable[[dict[str, Any]], dict[str, Any]],
+) -> dict[str, Any] | None:
+    retryable_error_codes = {
+        "ONLINE_AUDIO_IDENTITY_MISMATCH",
+        "ONLINE_AUDIO_RESOLVE_FAILED",
+        "YOUTUBE_AGE_RESTRICTED",
+        "YOUTUBE_UNAVAILABLE",
+        "YOUTUBE_RESOLVE_FAILED",
+        "NO_PLAYABLE_AUDIO",
+    }
+    result: dict[str, Any] | None = None
+    for candidate in candidates[:MAX_AUTOMATIC_PLAY_ATTEMPTS]:
+        result = play_candidate(candidate)
+        error_code = str(result.get("error_code") or "")
+        if not error_code:
+            return result
+
+        message = str(result.get("message") or "")
+        provider_failure = _provider_failure_code(RuntimeError(message))
+        provider = str(candidate.get("provider") or "")
+        if (
+            error_code == "YOUTUBE_TEMPORARILY_UNAVAILABLE"
+            or provider_failure in {"provider_rate_limited", "provider_temporarily_unavailable"}
+        ):
+            if provider == "youtube":
+                _activate_youtube_search_cooldown()
+            return result
+        if error_code not in retryable_error_codes:
+            return result
+    return result
+
+
 def _review_required_result(
     *,
     tool: str,
@@ -3107,15 +3347,18 @@ def play_youtube_song(
                 player=player,
                 candidates=candidates,
             )
-        result: dict[str, Any] | None = None
-        for candidate in automatic_candidates:
-            result = play_online_audio_candidate(candidate, player=player, cache_root=cache_root)
-            if result.get("error_code") != "ONLINE_AUDIO_IDENTITY_MISMATCH":
-                return result
+        result = _play_automatic_candidates(
+            automatic_candidates,
+            lambda candidate: play_online_audio_candidate(
+                candidate,
+                player=player,
+                cache_root=cache_root,
+            ),
+        )
         return result or ToolResult.fail(
             tool="play_online_audio",
-            message="No identity-verified online audio candidate could be played.",
-            error_code="ONLINE_AUDIO_IDENTITY_MISMATCH",
+            message="No high-confidence online audio candidate could be played.",
+            error_code="ONLINE_AUDIO_RESOLVE_FAILED",
         ).to_dict()
 
     try:
@@ -3146,15 +3389,18 @@ def play_youtube_song(
             player=player,
             candidates=candidates,
         )
-    result = None
-    for candidate in automatic_candidates:
-        result = play_youtube_candidate(candidate, player=player, cache_root=cache_root)
-        if result.get("error_code") != "ONLINE_AUDIO_IDENTITY_MISMATCH":
-            return result
+    result = _play_automatic_candidates(
+        automatic_candidates,
+        lambda candidate: play_youtube_candidate(
+            candidate,
+            player=player,
+            cache_root=cache_root,
+        ),
+    )
     return result or ToolResult.fail(
         tool="play_youtube_song",
-        message="No identity-verified YouTube candidate could be played.",
-        error_code="ONLINE_AUDIO_IDENTITY_MISMATCH",
+        message="No high-confidence YouTube candidate could be played.",
+        error_code="YOUTUBE_RESOLVE_FAILED",
     ).to_dict()
 
 registry.register(
