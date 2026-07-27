@@ -15,7 +15,7 @@ const layoutSource = readFileSync(new URL('../src/layout.ts', import.meta.url), 
 
 assert.match(
     layoutSource,
-    /export type ShellRegion = 'chat' \| 'miniPlayer' \| 'spotifyImmersive' \| 'trackPanel';/,
+    /export type ShellRegion = 'chat' \| 'miniPlayer' \| 'providerImmersive' \| 'spotifyImmersive' \| 'trackPanel';/,
 );
 
 const idle: PlayerState = {
@@ -179,8 +179,10 @@ assert.deepEqual(
 
 assert.equal(toggleShellRegion('chat', true), 'miniPlayer');
 assert.equal(toggleShellRegion('chat', true, true), 'spotifyImmersive');
+assert.equal(toggleShellRegion('chat', true, false, true), 'providerImmersive');
 assert.equal(toggleShellRegion('miniPlayer', true), 'chat');
 assert.equal(toggleShellRegion('spotifyImmersive', true), 'chat');
+assert.equal(toggleShellRegion('providerImmersive', true), 'chat');
 assert.equal(toggleShellRegion('trackPanel', true), 'chat');
 assert.equal(toggleShellRegion('chat', false), 'chat');
 assert.equal(toggleShellRegion('chat', false, true), 'chat');

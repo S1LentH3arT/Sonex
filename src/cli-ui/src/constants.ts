@@ -7,6 +7,9 @@ export const FALLBACK_MODEL_NAME = "gpt-5.5";
 export const BORDER_BLUE = "#3b82f6";
 export const BORDER_BLUE_SOFT = "#9fd9ff";
 export const SPOTIFY_GREEN = "#1db954";
+export const APPLE_SILVER = "#C7CAD1";
+export const APPLE_PEARL_PINK = "#D8C4CE";
+export const APPLE_BLUSH = "#F0D2DF";
 export const APP_TIP_PLACEHOLDER = "Tips: try /random for a free play.";
 export const MAX_ACTIVITY_ITEMS = 80;
 export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
@@ -31,6 +34,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "recommend", usage: "/recommend", description: "recommend songs of preferred music taste", needsArgument: false },
     { name: "resume", usage: "/resume", description: "resume current playback", needsArgument: false },
     { name: "setup", usage: "/setup", description: "configure a music provider", needsArgument: true },
+    { name: "apple", usage: "/apple [off]", description: "enter or exit persistent Apple Mode", needsArgument: false },
     { name: "spotify", usage: "/spotify [off]", description: "enter or exit persistent Spotify mode", needsArgument: false },
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";

@@ -393,6 +393,7 @@ class DisconnectingWebSocket:
         self.sent.append(json.loads(text))
 
     async def receive_text(self) -> str:
+        await asyncio.sleep(0)
         raise WebSocketDisconnect()
 
 
@@ -457,7 +458,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             append_user_message=False,
         )
 
-    async def test_websocket_does_not_start_local_playback_probe_task(self) -> None:
+    async def test_websocket_starts_local_playback_sync_task(self) -> None:
         runner = WebSocketRunner()
         ws = DisconnectingWebSocket()
 
@@ -465,13 +466,16 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             while True:
                 await asyncio.sleep(60)
 
-        self.assertFalse(hasattr(runner, "_sync_local_playback"))
+        spotify_sync = AsyncMock(side_effect=idle_sync)
+        local_sync = AsyncMock(side_effect=idle_sync)
         with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
-             patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
+             patch.object(runner, "_sync_spotify_playback", new=spotify_sync), \
+             patch.object(runner, "_sync_local_playback", new=local_sync), \
              patch("src.api.ws_runner.create_session_id", return_value="session-1"):
             await runner.handle_ws(ws)  # type: ignore[arg-type]
 
         self.assertTrue(ws.accepted)
+        self.assertEqual(local_sync.await_count, 1)
         self.assertEqual(
             ws.sent[0],
             {"type": "session_state", "session_id": "session-1"},
@@ -1769,7 +1773,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         recent.assert_not_called()
         intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
         self.assertIn("spotify_recent_tracks", intent.allowed_tools)
-        self.assertIn("apple_music_recent_tracks", intent.allowed_tools)
+        self.assertNotIn("apple_music_recent_tracks", intent.allowed_tools)
+        self.assertNotIn("apple_music_play", intent.allowed_tools)
         self.assertIn("play_youtube_song", intent.allowed_tools)
 
     async def test_spotify_mode_rejects_non_spotify_mode_command_in_chat(self) -> None:
@@ -2793,6 +2798,33 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.providers["audius"].api_key, "audius-api-key")
         self.assertFalse(auth_events[-1].get("active", True))
 
+    async def test_setup_apple_stores_token_service_url_from_terminal_panel(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
+            await runner._handle_user_input(ui, "/setup apple")
+            setup = getattr(ui, "_apple_music_setup")
+            auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+            self.assertEqual(auth_events[-1]["title"], "Apple Token setup")
+            self.assertIn("developer-token service URL", str(auth_events[-1]["message"]))
+            self.assertEqual(auth_events[-1]["prompt"], "Apple token service URL")
+            self.assertFalse(auth_events[-1].get("mask", False))
+
+            await setup.handle_input("not-a-url")
+            self.assertIn("must be an http(s) URL", str(
+                [event for event in ui.events if event.get("type") == "auth_setup"][-1]["message"]
+            ))
+
+            await setup.handle_input("https://tokens.example.test/")
+            store = load_auth_store()
+
+        self.assertEqual(store.providers["apple_mode"].base_url, "https://tokens.example.test")
+        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+        self.assertEqual(auth_events[-1]["title"], "Apple Token configured")
+        self.assertFalse(auth_events[-1].get("active", True))
+        self.assertIsNone(getattr(ui, "_apple_music_setup"))
+
     def test_queue_payload_reads_dedicated_playback_queue_snapshot(self) -> None:
         queue_tracks = [
             {"name": f"Queued {idx}", "artist": "Artist", "duration_ms": 60_000}
@@ -3238,6 +3270,154 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         state = player_events[-1]["state"]
         self.assertEqual(state["progress_source"], "spotify_live")
         self.assertEqual(state["progress_anchor_ms"], 200000)
+
+    async def test_local_playback_sync_emits_authoritative_anchored_progress(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        ui.closed = False
+        playback = {
+            "status": "success",
+            "data": {
+                "provider": "youtube",
+                "source": "youtube",
+                "player": "mpv",
+                "session_id": "local-session",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration_ms": 180000,
+                "progress_ms": 42000,
+                "timestamp": 123456,
+                "is_playing": True,
+                "diagnostic_notice": "clock_drift",
+            },
+        }
+
+        async def stop_after_first_wait(_ui: object, seconds: float) -> None:
+            self.assertEqual(seconds, ws_runner.LOCAL_PLAYBACK_POLL_SECONDS)
+            ui.closed = True
+
+        async def call_inline(func: object, *args: object, **kwargs: object) -> object:
+            return func(*args, **kwargs)  # type: ignore[operator]
+
+        with patch("src.api.ws_runner.local_playback_status", return_value=playback), \
+                patch("src.api.ws_runner._timestamp_ms", return_value=200000), \
+                patch("src.api.ws_runner.asyncio.to_thread", side_effect=call_inline), \
+                patch("src.api.ws_runner._wait_for_local_playback_sync", side_effect=stop_after_first_wait):
+            await runner._sync_local_playback(ui)
+
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertEqual(len(player_events), 1)
+        state = player_events[0]["state"]
+        self.assertEqual(state["progress_ms"], 42000)
+        self.assertEqual(state["progress_source"], "local_player")
+        self.assertEqual(state["progress_anchor_ms"], 200000)
+        self.assertFalse(state["progress_sync_lost"])
+        self.assertEqual(state["diagnostic_notice"], "clock_drift")
+
+    async def test_local_playback_sync_marks_cache_pause_as_buffering(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        ui.closed = False
+        playback = {
+            "status": "success",
+            "data": {
+                "provider": "youtube",
+                "source": "youtube",
+                "player": "mpv",
+                "session_id": "local-session",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration_ms": 180000,
+                "progress_ms": 42000,
+                "timestamp": 123456,
+                "is_playing": True,
+                "paused_for_cache": True,
+            },
+        }
+
+        async def stop_after_first_wait(_ui: object, _seconds: float) -> None:
+            ui.closed = True
+
+        async def call_inline(func: object, *args: object, **kwargs: object) -> object:
+            return func(*args, **kwargs)  # type: ignore[operator]
+
+        with patch("src.api.ws_runner.local_playback_status", return_value=playback), \
+                patch("src.api.ws_runner.asyncio.to_thread", side_effect=call_inline), \
+                patch("src.api.ws_runner._wait_for_local_playback_sync", side_effect=stop_after_first_wait):
+            await runner._sync_local_playback(ui)
+
+        state = [event for event in ui.events if event.get("type") == "player"][-1]["state"]
+        self.assertTrue(state["paused_for_cache"])
+        self.assertEqual(state["playback_status"], "buffering")
+
+    async def test_local_playback_sync_freezes_once_when_authoritative_status_is_lost(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        ui.closed = False
+        playing = {
+            "status": "success",
+            "data": {
+                "provider": "youtube",
+                "source": "youtube",
+                "player": "mpv",
+                "session_id": "local-session",
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "duration_ms": 180000,
+                "progress_ms": 42000,
+                "timestamp": 123456,
+                "is_playing": True,
+            },
+        }
+        unavailable = {
+            "status": "fail",
+            "error_code": "PLAYBACK_STATUS_UNAVAILABLE",
+            "message": "mpv IPC failed",
+        }
+        wait_count = 0
+
+        async def stop_after_third_wait(_ui: object, _seconds: float) -> None:
+            nonlocal wait_count
+            wait_count += 1
+            if wait_count == 3:
+                ui.closed = True
+
+        async def call_inline(func: object, *args: object, **kwargs: object) -> object:
+            return func(*args, **kwargs)  # type: ignore[operator]
+
+        with patch("src.api.ws_runner.local_playback_status", side_effect=[playing, unavailable, unavailable]), \
+                patch("src.api.ws_runner._timestamp_ms", return_value=200000), \
+                patch("src.api.ws_runner.asyncio.to_thread", side_effect=call_inline), \
+                patch("src.api.ws_runner._wait_for_local_playback_sync", side_effect=stop_after_third_wait):
+            await runner._sync_local_playback(ui)
+
+        player_events = [event for event in ui.events if event.get("type") == "player"]
+        self.assertEqual(len(player_events), 2)
+        frozen = player_events[-1]["state"]
+        self.assertEqual(frozen["progress_ms"], 42000)
+        self.assertTrue(frozen["is_playing"])
+        self.assertTrue(frozen["progress_sync_lost"])
+        self.assertEqual(frozen["playback_status"], "syncing")
+        self.assertFalse(any(event.get("type") == "chat" for event in ui.events))
+
+    async def test_local_playback_sync_does_not_overwrite_spotify_mode(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        ui.closed = False
+        setattr(ui, "_spotify_mode", {"enabled": True, "device_id": "desktop"})
+
+        async def stop_after_first_wait(_ui: object, _seconds: float) -> None:
+            ui.closed = True
+
+        with patch("src.api.ws_runner.local_playback_status") as playback, \
+                patch("src.api.ws_runner._wait_for_local_playback_sync", side_effect=stop_after_first_wait):
+            await runner._sync_local_playback(ui)
+
+        playback.assert_not_called()
+        self.assertFalse(any(event.get("type") == "player" for event in ui.events))
 
     async def test_volume_command_is_not_user_accessible_from_chat(self) -> None:
         runner = WebSocketRunner()

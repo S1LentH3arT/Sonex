@@ -275,14 +275,25 @@ the current chat so you can grant the updated permissions.
 
 ### 🍎 Apple Music
 
-Apple Music setup uses developer credentials plus a Music User Token:
+Apple Mode obtains short-lived developer tokens from a token service. Configure
+the service URL from the terminal, then enter Apple Mode:
 
-```bash
-sonex auth set-key apple_music --api-key '<json-or-path>'
-sonex auth login apple_music --access-token <music-user-token>
+```text
+/setup apple
+/apple
 ```
 
-Apple Music playback requires Sonex's local MusicKit bridge.
+The environment variable remains available and takes precedence over the saved
+terminal configuration:
+
+```bash
+export SONEX_APPLE_TOKEN_BROKER_URL=https://tokens.example.com
+```
+
+Developer tokens remain in memory, while MusicKit keeps the Music User Token in
+the local browser companion. Advanced local development can explicitly select
+the local signer with `SONEX_APPLE_TOKEN_SOURCE=local` and configure signing
+credentials with `sonex auth set-key apple_music --api-key '<json-or-path>'`.
 
 ### 📁 Local And YouTube Playback
 
@@ -295,7 +306,7 @@ playback does not use these local players.
 
 In normal mode, Sonex uses local files first and then resolves selected songs
 through online audio sources. Spotify playback belongs to Spotify Mode; Apple
-Music playback will belong to its own mode. Configure at least one online audio
+Music playback belongs to Apple Mode. Configure at least one online audio
 provider:
 
 ```text

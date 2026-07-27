@@ -77,7 +77,7 @@ class AppleMusicAuthTests(unittest.TestCase):
         self.assertEqual(sign.call_count, 1)
         header, payload, signature = token.split(".")
         self.assertEqual(_decode_jwt_part(header), {"alg": "ES256", "kid": "KEY123", "typ": "JWT"})
-        self.assertEqual(_decode_jwt_part(payload), {"exp": 2593000, "iat": 1000, "iss": "TEAM123"})
+        self.assertEqual(_decode_jwt_part(payload), {"exp": 1900, "iat": 1000, "iss": "TEAM123"})
         self.assertTrue(signature)
 
     def test_credentials_preserve_music_user_token(self) -> None:

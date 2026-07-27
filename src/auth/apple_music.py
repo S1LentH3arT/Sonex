@@ -18,7 +18,7 @@ from src.auth.providers import normalize_provider
 from src.auth.store import get_provider_auth, load_auth_store, set_api_key, set_oauth_token
 
 APPLE_MUSIC_PROVIDER = "apple_music"
-APPLE_MUSIC_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 30
+APPLE_MUSIC_TOKEN_TTL_SECONDS = 15 * 60
 _DEVELOPER_TOKEN_CACHE: dict[str, tuple[str, int]] = {}
 
 
@@ -292,10 +292,9 @@ def apple_music_setup_message() -> str:
     Example: apple_music_setup_message() -> returns the value used by the surrounding Sonex flow.
     """
     return (
-        "Create an Apple Media ID and Media Services private key in Apple Developer, then run "
-        "`sonex auth set-key apple_music --api-key '<json-or-path>'` with team_id, key_id, media_id, "
-        "and private_key_path. Import a Music User Token with "
-        "`sonex auth login apple_music --access-token <music-user-token>` for user library and playback capabilities."
+        "Run /apple to authorize Apple Music in Sonex's local MusicKit companion. "
+        "The Music User Token stays in that browser and must not be imported into Sonex. "
+        "Advanced development can set SONEX_APPLE_TOKEN_SOURCE=local and configure local signing credentials."
     )
 
 

@@ -45,7 +45,7 @@ const playerPane = source.slice(playerPaneStart, compactConfirmStart);
 assert.equal(playerPane.includes('setInterval'), false);
 
 const miniStart = source.indexOf('const MiniPlayerRegion =');
-const spotifyImmersiveStart = source.indexOf('const SpotifyImmersiveRegion =');
+const spotifyImmersiveStart = source.indexOf('const ProviderImmersiveRegion =');
 assert.ok(miniStart >= 0);
 assert.ok(spotifyImmersiveStart > miniStart);
 const miniRegion = source.slice(miniStart, spotifyImmersiveStart);

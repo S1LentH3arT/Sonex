@@ -1,6 +1,6 @@
 import type { PlayerState } from './types.js';
 
-export type ShellRegion = 'chat' | 'miniPlayer' | 'spotifyImmersive' | 'trackPanel';
+export type ShellRegion = 'chat' | 'miniPlayer' | 'providerImmersive' | 'spotifyImmersive' | 'trackPanel';
 
 export type PlayerRegionTransition = {
     region: ShellRegion;
@@ -163,15 +163,20 @@ export function resolveRegionAfterPlayerEvent({
     wasSessionActive,
     player,
     spotifyModeEnabled = false,
+    providerMode = null,
 }: {
     currentRegion: ShellRegion;
     wasSessionActive: boolean;
     player: PlayerState;
     spotifyModeEnabled?: boolean;
+    providerMode?: "spotify" | "apple" | null;
 }): PlayerRegionTransition {
     const sessionActive = hasActivePlaybackSession(player, wasSessionActive);
     if (!sessionActive) {
         return { region: 'chat', sessionActive: false };
+    }
+    if (providerMode && !wasSessionActive) {
+        return { region: 'providerImmersive', sessionActive: true };
     }
     if (spotifyModeEnabled && !wasSessionActive) {
         return { region: 'spotifyImmersive', sessionActive: true };
@@ -182,9 +187,16 @@ export function resolveRegionAfterPlayerEvent({
     return { region: currentRegion, sessionActive: true };
 }
 
-export function toggleShellRegion(currentRegion: ShellRegion, sessionActive: boolean, spotifyModeEnabled = false): ShellRegion {
+export function toggleShellRegion(
+    currentRegion: ShellRegion,
+    sessionActive: boolean,
+    spotifyModeEnabled = false,
+    providerModeEnabled = false,
+): ShellRegion {
     if (!sessionActive) return 'chat';
+    if (currentRegion === 'providerImmersive') return 'chat';
     if (currentRegion === 'spotifyImmersive') return 'chat';
+    if (providerModeEnabled && currentRegion === 'chat') return 'providerImmersive';
     if (spotifyModeEnabled && currentRegion === 'chat') return 'spotifyImmersive';
     return currentRegion === 'chat' ? 'miniPlayer' : 'chat';
 }

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, useApp, useInput, useStdin } from 'ink';
 import { upsertActivity } from './activity.js';
-import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands } from './commands.js';
+import { appleModeSlashCommands, completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands } from './commands.js';
 import { getVisibleConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
@@ -13,12 +13,12 @@ import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPre
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, resolveSpotifyImmersiveLayout, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { formatModelStatus } from './model-status.js';
-import { isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
+import { isApplePlaybackShortcutSource, isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
 import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer } from './transcript.js';
 import { loadUiLanguage, saveUiLanguage } from './ui-settings.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, ProviderModeState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 
 type InkInputKey = {
     ctrl?: boolean;
@@ -58,6 +58,7 @@ export const App: React.FC<{
     const [confirm, setConfirm] = useState<ConfirmState>(null);
     const [confirmIndex, setConfirmIndex] = useState(0); // 0=Yes, 1=No
     const [spotifyMode, setSpotifyMode] = useState<SpotifyModeState>({ enabled: false });
+    const [providerMode, setProviderMode] = useState<ProviderModeState>({ provider: "normal", enabled: false });
     const [spotifySetup, setSpotifySetup] = useState<SpotifySetupState>(null);
     const [authSetup, setAuthSetup] = useState<AuthSetupState>(null);
     const [authState, setAuthState] = useState<AuthRuntimeState>({
@@ -92,6 +93,7 @@ export const App: React.FC<{
     const playerRef = React.useRef<PlayerState>(player);
     const confirmRef = React.useRef<ConfirmState>(null);
     const spotifyModeRef = React.useRef<SpotifyModeState>(spotifyMode);
+    const providerModeRef = React.useRef<ProviderModeState>(providerMode);
     const spotifySetupActiveRef = React.useRef(false);
     const authSetupActiveRef = React.useRef(false);
     const slashMenuActiveRef = React.useRef(false);
@@ -103,6 +105,8 @@ export const App: React.FC<{
     const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive;
     const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active
         ? []
+        : providerMode.provider === "apple" && providerMode.enabled
+            ? appleModeSlashCommands(input, language)
         : spotifyMode.enabled
             ? spotifyModeSlashCommands(input, language)
             : slashCommandSuggestions(input, language);
@@ -114,7 +118,7 @@ export const App: React.FC<{
     const selectedConfirmChoice = visibleConfirmChoices[Math.min(confirmIndex, Math.max(0, visibleConfirmChoices.length - 1))] ?? null;
     const selectedConfirmInput = selectedConfirmChoice?.input ?? null;
     const miniVisible = activeRegion === "miniPlayer";
-    const spotifyImmersiveVisible = activeRegion === "spotifyImmersive";
+    const spotifyImmersiveVisible = activeRegion === "spotifyImmersive" || activeRegion === "providerImmersive";
     const miniLayout = React.useMemo(() => resolveMiniPlayerLayout(terminalSize), [terminalSize.columns, terminalSize.rows]);
     const spotifyImmersiveLayout = React.useMemo(() => resolveSpotifyImmersiveLayout(terminalSize), [terminalSize.columns, terminalSize.rows]);
     const headerVariant = resolveChatHeaderVariant(terminalSize.columns);
@@ -149,6 +153,10 @@ export const App: React.FC<{
     React.useEffect(() => {
         spotifyModeRef.current = spotifyMode;
     }, [spotifyMode]);
+
+    React.useEffect(() => {
+        providerModeRef.current = providerMode;
+    }, [providerMode]);
 
     React.useEffect(() => {
         spotifySetupActiveRef.current = Boolean(spotifySetup?.active);
@@ -389,7 +397,10 @@ export const App: React.FC<{
                     currentRegion: activeRegionRef.current,
                     wasSessionActive: playbackSessionActiveRef.current,
                     player: evt.state,
-                    spotifyModeEnabled: spotifyModeRef.current.enabled,
+                    spotifyModeEnabled: false,
+                    providerMode: providerModeRef.current.enabled && providerModeRef.current.provider !== "normal"
+                        ? providerModeRef.current.provider
+                        : null,
                 });
                 playbackSessionActiveRef.current = transition.sessionActive;
                 setPlaybackSessionActive(transition.sessionActive);
@@ -402,6 +413,20 @@ export const App: React.FC<{
                     switchRegion("chat");
                 }
                 break;
+            case "provider_mode": {
+                const nextMode: ProviderModeState = {
+                    provider: evt.provider,
+                    enabled: evt.enabled,
+                    storefront: evt.storefront,
+                    connection_status: evt.connection_status,
+                };
+                providerModeRef.current = nextMode;
+                setProviderMode(nextMode);
+                if (!evt.enabled && activeRegionRef.current === "providerImmersive") {
+                    switchRegion("chat");
+                }
+                break;
+            }
             case "cover":
                 coverUrlRef.current = evt.url;
                 setCoverUrl(evt.url);
@@ -457,6 +482,10 @@ export const App: React.FC<{
             case "auth_setup":
                 setLaunchPreparing(false);
                 setHelpPanel(null);
+                if (evt.provider === "apple_music" && evt.step === "companion_done" && evt.active === false) {
+                    setAuthSetup(null);
+                    break;
+                }
                 if (evt.active !== false) {
                     switchRegion("chat");
                 }
@@ -546,7 +575,14 @@ export const App: React.FC<{
                 && spotifyModeRef.current.enabled
                 && action === "togglePlayback"
                 && isSpotifyPlaybackShortcutSource(playerRef.current);
-            if (!localShortcut && !spotifyShortcut) return;
+            const providerShortcut = activeRegionRef.current === "providerImmersive"
+                && providerModeRef.current.enabled
+                && action === "togglePlayback"
+                && (
+                    (providerModeRef.current.provider === "spotify" && isSpotifyPlaybackShortcutSource(playerRef.current))
+                    || (providerModeRef.current.provider === "apple" && isApplePlaybackShortcutSource(playerRef.current))
+                );
+            if (!localShortcut && !spotifyShortcut && !providerShortcut) return;
 
             const command = playbackCommandForShortcut(action, playerRef.current);
             send({ type: "internal_command", text: command });
@@ -975,7 +1011,12 @@ export const App: React.FC<{
     useInput((inputKey, key) => {
         if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
         if (key.tab || inputKey === "\t") {
-            switchRegion(toggleShellRegion(activeRegionRef.current, playbackSessionActiveRef.current, spotifyModeRef.current.enabled));
+            switchRegion(toggleShellRegion(
+                activeRegionRef.current,
+                playbackSessionActiveRef.current,
+                false,
+                providerModeRef.current.enabled,
+            ));
         }
     }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
 
@@ -1023,6 +1064,7 @@ export const App: React.FC<{
                         confirm={confirm}
                         confirmIndex={confirmIndex}
                         spotifyMode={spotifyMode}
+                        providerMode={providerMode}
                         spotifySetup={spotifySetup}
                         authSetup={authSetup}
                         modelStatus={modelStatus}

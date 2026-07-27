@@ -233,9 +233,9 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertIsNotNone(intent)
         assert intent is not None
         self.assertIn("spotify_recent_tracks", intent.allowed_tools)
-        self.assertIn("apple_music_recent_tracks", intent.allowed_tools)
+        self.assertNotIn("apple_music_recent_tracks", intent.allowed_tools)
         self.assertIn("spotify_play", intent.allowed_tools)
-        self.assertIn("apple_music_play", intent.allowed_tools)
+        self.assertNotIn("apple_music_play", intent.allowed_tools)
         self.assertIn("play_youtube_song", intent.allowed_tools)
 
     def test_setup_provider(self) -> None:

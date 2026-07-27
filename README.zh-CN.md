@@ -257,14 +257,23 @@ Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你�
 
 ### 🍎 Apple Music
 
-Apple Music 需要 developer credentials 和 Music User Token：
+Apple Mode 通过 token 服务获取短期 developer token。可以直接在终端内配置服务
+URL，然后进入 Apple Mode：
 
-```bash
-sonex auth set-key apple_music --api-key '<json-or-path>'
-sonex auth login apple_music --access-token <music-user-token>
+```text
+/setup apple
+/apple
 ```
 
-Apple Music 播放需要 Sonex 的本地 MusicKit bridge。
+环境变量配置仍然保留，并且优先于终端保存的配置：
+
+```bash
+export SONEX_APPLE_TOKEN_BROKER_URL=https://tokens.example.com
+```
+
+developer token 只保留在内存中，Music User Token 则由本地浏览器 companion 中的
+MusicKit 管理。高级本地开发可以显式设置 `SONEX_APPLE_TOKEN_SOURCE=local`，并用
+`sonex auth set-key apple_music --api-key '<json-or-path>'` 配置本地签名凭据。
 
 ### 📁 本地和 YouTube 播放
 
@@ -275,7 +284,7 @@ Connect 播放不使用这些本地播放器。
 ### 🌐 在线音频 fallback
 
 普通模式会优先使用本地文件，随后通过在线音频源解析选中的歌曲。Spotify 播放归属
-Spotify Mode；Apple Music 播放后续将归属独立模式。至少配置一个在线音频 provider：
+Spotify Mode；Apple Music 播放归属 Apple Mode。至少配置一个在线音频 provider：
 
 ```text
 /setup jamendo

@@ -9,6 +9,7 @@ export type ServerEvent =
     | { type: "search_results"; tracks: TrackSummary[] }
     | { type: "player"; state: PlayerState }
     | { type: "spotify_mode"; enabled: boolean; device_id?: string | null; device_name?: string | null }
+    | { type: "provider_mode"; provider: "normal" | "spotify" | "apple"; enabled: boolean; storefront?: string | null; connection_status?: string | null }
     | { type: "cover"; url: string }
     | CoverPatternEvent
     | CoverPatternUnavailableEvent
@@ -103,6 +104,13 @@ export type SpotifyModeState = {
     enabled: boolean;
     device_id?: string | null;
     device_name?: string | null;
+};
+
+export type ProviderModeState = {
+    provider: "normal" | "spotify" | "apple";
+    enabled: boolean;
+    storefront?: string | null;
+    connection_status?: string | null;
 };
 
 export type AuthMethodChoice = {

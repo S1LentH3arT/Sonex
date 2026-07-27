@@ -243,15 +243,10 @@ def login(
         return
 
     if name == "apple_music" and selected_method in {"auto", "oauth"}:
-        if not access_token:
-            console.print(f"[yellow]{apple_music_setup_message()}[/yellow]")
-            console.print(
-                "[dim]Apple Music does not use Spotify-style client_id/client_secret OAuth in Sonex. "
-                "Pass --access-token with a Music User Token to import user access.[/dim]"
-            )
-            return
-        path = save_apple_music_user_token(access_token)
-        _print_auth_store_path(path)
+        console.print(f"[yellow]{apple_music_setup_message()}[/yellow]")
+        if access_token:
+            console.print("[red]Refusing to persist a Music User Token. Authorize through /apple instead.[/red]")
+            raise typer.Exit(1)
         return
 
     if selected_method == "oauth" or (

@@ -64,3 +64,9 @@ export function isSpotifyPlaybackShortcutSource(player: Pick<PlayerState, "sourc
     const provider = typeof player.provider === "string" ? player.provider.toLowerCase() : "";
     return source === "spotify" || provider === "spotify";
 }
+
+export function isApplePlaybackShortcutSource(player: Pick<PlayerState, "source" | "provider">): boolean {
+    const source = typeof player.source === "string" ? player.source.toLowerCase() : "";
+    const provider = typeof player.provider === "string" ? player.provider.toLowerCase() : "";
+    return source === "apple_music" || provider === "apple_music";
+}

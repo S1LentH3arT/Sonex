@@ -87,11 +87,14 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("logout", "/logout", "Log out current LLM provider and exit."),
     BuiltinCommand("playlist", "/playlist [name]|save [name]", "Browse playlists or save the current song."),
     BuiltinCommand("queue", "/queue", "Show the playback queue."),
+    BuiltinCommand("apple", "/apple [off]", "Enter or exit persistent Apple Mode."),
     BuiltinCommand("spotify", "/spotify [off]", "Enter or exit persistent Spotify mode."),
     BuiltinCommand("pause", "/pause", "Pause current local playback.", visible=False),
     BuiltinCommand("resume", "/resume", "Resume current local playback."),
     BuiltinCommand("stop", "/stop", "Stop current local playback.", visible=False),
     BuiltinCommand("progress", "/progress", "Show current local playback progress.", visible=False),
+    BuiltinCommand("next", "/next", "Skip to the next provider track.", visible=False),
+    BuiltinCommand("previous", "/previous", "Return to the previous provider track.", visible=False),
     BuiltinCommand("volume", "/volume <0-100>", "Set current local playback volume.", visible=False),
     BuiltinCommand("player", "/player", "Choose playback backend from a panel."),
     BuiltinCommand(
@@ -107,11 +110,8 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         ),
         allowed_tools=(
             "spotify_recommend",
-            "apple_music_recommend",
             "spotify_recent_tracks",
-            "apple_music_recent_tracks",
             "spotify_search",
-            "apple_music_search",
         ),
     ),
     BuiltinCommand(
@@ -126,9 +126,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         ),
         allowed_tools=(
             "spotify_recent_tracks",
-            "apple_music_recent_tracks",
             "spotify_play",
-            "apple_music_play",
             "play_youtube_song",
         ),
     ),

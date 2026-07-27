@@ -3,7 +3,7 @@ import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
 import { CHAT_SYSTEM_MARKER_COLOR, resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent } from './chat-message.js';
-import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN } from './constants.js';
+import { APPLE_BLUSH, APPLE_PEARL_PINK, APPLE_SILVER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
@@ -17,7 +17,7 @@ import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout,
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import { formatTrackPanelLine } from './track-panel.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -1124,6 +1124,7 @@ const InputDock = ({
     confirm,
     confirmIndex,
     spotifyMode,
+    providerMode,
     spotifySetup,
     authSetup,
     modelStatus,
@@ -1148,6 +1149,7 @@ const InputDock = ({
     confirm: ConfirmState;
     confirmIndex: number;
     spotifyMode: SpotifyModeState;
+    providerMode: ProviderModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
     modelStatus: string | null;
@@ -1178,6 +1180,7 @@ const InputDock = ({
         : null;
     const showInput = !setupPanel && !helpPanel && !languagePanel && !modelPanel && (!confirm || Boolean(selectedChoice?.input));
     const spotifyModeBorderLabel = " 🎧 Spotify Mode ";
+    const appleModeEnabled = providerMode.enabled && providerMode.provider === "apple";
 
     return (
         <Box flexDirection="column">
@@ -1239,6 +1242,8 @@ const InputDock = ({
                         <Box flexShrink={0}>
                             {spotifyMode?.enabled ? (
                                 <Text bold color={SPOTIFY_GREEN}>{spotifyModeBorderLabel}</Text>
+                            ) : appleModeEnabled ? (
+                                <AppleModeLabel padded={true} />
                             ) : null}
                         </Box>
                     </Box>
@@ -1259,6 +1264,7 @@ export const DynamicTail = ({
     confirm,
     confirmIndex,
     spotifyMode,
+    providerMode,
     spotifySetup,
     authSetup,
     modelStatus,
@@ -1281,6 +1287,7 @@ export const DynamicTail = ({
     confirm: ConfirmState;
     confirmIndex: number;
     spotifyMode: SpotifyModeState;
+    providerMode: ProviderModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
     modelStatus: string | null;
@@ -1314,6 +1321,7 @@ export const DynamicTail = ({
                 confirm={confirm}
                 confirmIndex={confirmIndex}
                 spotifyMode={spotifyMode}
+                providerMode={providerMode}
                 spotifySetup={spotifySetup}
                 authSetup={authSetup}
                 modelStatus={modelStatus}
@@ -1390,18 +1398,41 @@ const MiniPlayerRegion = ({
     );
 };
 
-const SpotifyImmersiveRegion = ({
+const hasTrueColor = (): boolean => {
+    const colorTerm = String(process.env.COLORTERM || "").toLowerCase();
+    return colorTerm.includes("truecolor") || colorTerm.includes("24bit");
+};
+
+const AppleModeLabel = ({ padded = false }: { padded?: boolean }) => {
+    const colors = hasTrueColor()
+        ? [APPLE_SILVER, APPLE_PEARL_PINK, APPLE_BLUSH]
+        : [APPLE_PEARL_PINK, APPLE_PEARL_PINK, APPLE_PEARL_PINK];
+    return (
+        <Text bold>
+            {padded ? <Text color={colors[0]}> 🎧 </Text> : null}
+            <Text color={colors[0]}>Apple</Text>
+            <Text color={colors[1]}> Mo</Text>
+            <Text color={colors[2]}>de</Text>
+            {padded ? <Text color={colors[2]}> </Text> : null}
+        </Text>
+    );
+};
+
+const ProviderImmersiveRegion = ({
     player,
     spotifyMode,
-    terminalSpace,
+    providerMode,
     spotifyImmersiveLayout,
 }: {
     player: PlayerState;
     spotifyMode: SpotifyModeState;
-    terminalSpace: TerminalSpace;
+    providerMode: ProviderModeState;
     spotifyImmersiveLayout: SpotifyImmersiveLayout;
 }) => {
-    const deviceName = spotifyMode.device_name ?? "Spotify Connect";
+    const isApple = providerMode.provider === "apple";
+    const deviceName = isApple
+        ? `MusicKit · ${(providerMode.storefront || "storefront").toUpperCase()}`
+        : spotifyMode.device_name ?? "Spotify Connect";
     const deviceStatus = player.is_playing ? "playing" : "paused";
     const topPadding = spotifyImmersiveLayout.topPadding;
     const deviceWidth = spotifyImmersiveLayout.deviceSlot.width;
@@ -1409,7 +1440,7 @@ const SpotifyImmersiveRegion = ({
     return (
         <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingX={2} paddingTop={topPadding}>
             <Box justifyContent="center">
-                <Text bold color={SPOTIFY_GREEN}>Spotify Mode</Text>
+                {isApple ? <AppleModeLabel /> : <Text bold color={SPOTIFY_GREEN}>Spotify Mode</Text>}
             </Box>
             <Box justifyContent="center" marginTop={1}>
                 <Text color="#fff4f6" wrap="truncate-end">{player.name}</Text>
@@ -1420,7 +1451,9 @@ const SpotifyImmersiveRegion = ({
             <Box height={1} marginTop={1} />
             <Box justifyContent="center">
                 <Box width={deviceWidth > 0 ? deviceWidth : undefined} justifyContent="center">
-                    <Text color={SPOTIFY_GREEN} wrap="truncate-end">{deviceStatus} on {deviceName}</Text>
+                    <Text color={isApple ? APPLE_PEARL_PINK : SPOTIFY_GREEN} wrap="truncate-end">
+                        {providerMode.connection_status === "disconnected" ? "reconnecting" : `${deviceStatus} on ${deviceName}`}
+                    </Text>
                 </Box>
             </Box>
         </Box>
@@ -1441,6 +1474,7 @@ export const DynamicShell = ({
     confirm,
     confirmIndex,
     spotifyMode,
+    providerMode,
     spotifySetup,
     authSetup,
     modelStatus,
@@ -1473,6 +1507,7 @@ export const DynamicShell = ({
     confirm: ConfirmState;
     confirmIndex: number;
     spotifyMode: SpotifyModeState;
+    providerMode: ProviderModeState;
     spotifySetup: SpotifySetupState;
     authSetup: AuthSetupState;
     modelStatus: string | null;
@@ -1505,12 +1540,12 @@ export const DynamicShell = ({
         );
     }
 
-    if (activeRegion === "spotifyImmersive") {
+    if (activeRegion === "spotifyImmersive" || activeRegion === "providerImmersive") {
         return (
-            <SpotifyImmersiveRegion
+            <ProviderImmersiveRegion
                 player={player}
                 spotifyMode={spotifyMode}
-                terminalSpace={terminalSpace}
+                providerMode={providerMode}
                 spotifyImmersiveLayout={spotifyImmersiveLayout}
             />
         );
@@ -1538,6 +1573,7 @@ export const DynamicShell = ({
             confirm={confirm}
             confirmIndex={confirmIndex}
             spotifyMode={spotifyMode}
+            providerMode={providerMode}
             spotifySetup={spotifySetup}
             authSetup={authSetup}
             modelStatus={modelStatus}

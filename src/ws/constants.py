@@ -13,11 +13,8 @@ PLAYBACK_ROUTER_TOOLS = {"request_playback_selection"}
 
 RECOMMEND_AGENT_TOOLS = (
     "spotify_recommend",
-    "apple_music_recommend",
     "spotify_recent_tracks",
-    "apple_music_recent_tracks",
     "spotify_search",
-    "apple_music_search",
     "search_track",
     "search_memory",
     "search_context",
@@ -33,6 +30,13 @@ LOCAL_PLAYBACK_CONTROL_TOOLS = {
 SPOTIFY_PLAYBACK_CONTROL_TOOLS = {
     "pause": "spotify_pause",
     "resume": "spotify_resume",
+}
+
+APPLE_PLAYBACK_CONTROL_ACTIONS = {
+    "pause": "pause",
+    "resume": "resume",
+    "next": "next",
+    "previous": "previous",
 }
 
 LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}

@@ -30,6 +30,18 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from src.agent.core import agent_loop
 from src.agent.events import RunnerEvent, UiStatus
+from src.apple_mode import (
+    AppleCandidateDecision,
+    AppleCompanionError,
+    AppleModeService,
+    ProviderMode,
+    ProviderModeCoordinator,
+    ProviderModeState,
+    clear_provider_mode_intent,
+    load_provider_mode_intent,
+    save_provider_mode_intent,
+)
+from src.apple_mode.matching import parse_apple_query
 from src.api.builtin_commands import CommandIntent, command_suggestions, format_help, parse_builtin_command
 from src.api.music_intent import (
     MusicIntentDecision,
@@ -38,12 +50,11 @@ from src.api.music_intent import (
     classify_music_intent_fast,
 )
 from src.api.music_query import build_music_search_query_plan
-from src.auth.apple_music import (
-    apple_music_setup_message,
-    load_apple_music_user_token,
-    save_apple_music_credentials,
-    save_apple_music_user_token,
+from src.apple_mode.token_provider import (
+    DeveloperTokenError,
+    save_apple_token_broker_url,
 )
+from src.auth.apple_music import load_apple_music_user_token
 from src.auth.browser_oauth import (
     BrowserOAuthConfigError,
     browser_oauth_requirements,
@@ -263,6 +274,7 @@ from src.tools.spotify_play import (
 )
 from src.tools.song_cache import find_best_cached_song, upsert_cached_song
 from src.ws.constants import (
+    APPLE_PLAYBACK_CONTROL_ACTIONS,
     APPLE_MUSIC_SETUP_TRIGGERS,
     LLM_AUTH_PROVIDER_CHOICES,
     LLM_AUTH_PROVIDER_VALUES,
@@ -840,6 +852,21 @@ def _is_apple_music_setup_request(text: str) -> bool:
     """
     normalized = " ".join(text.strip().lower().split())
     return normalized in APPLE_MUSIC_SETUP_TRIGGERS
+
+
+def _apple_queue_add_query(text: str) -> str | None:
+    value = " ".join(text.strip().split())
+    patterns = (
+        r"^add\s+(.+?)\s+to\s+(?:the\s+)?queue$",
+        r"^(?:把)?(.+?)(?:加入|添加到|加到)(?:播放)?队列$",
+        r"^(?:把)?(.+?)(?:加入|添加到|加到)(?:播放)?佇列$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, value, flags=re.IGNORECASE)
+        if match:
+            query = match.group(1).strip()
+            return query or None
+    return None
 
 
 def _rule_parse_play_request(text: str) -> PlayRequestParse:
@@ -1521,7 +1548,7 @@ class AppleMusicSetupSession:
         Example: __init__(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
         self.ui = ui
-        self.step = "credentials"
+        self.step = "token_service_url"
 
     async def start(self) -> None:
         """Coordinates start for the current Sonex flow.
@@ -1531,21 +1558,23 @@ class AppleMusicSetupSession:
         Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         message = (
-            f"{apple_music_setup_message()} Paste the Apple Music credentials JSON or a path to that JSON below."
+            "Enter the Apple developer-token service URL used by Apple Mode. "
+            "Sonex stores only this URL; short-lived developer tokens remain in memory. "
+            "SONEX_APPLE_TOKEN_BROKER_URL remains available and takes precedence when set."
         )
         await self.ui.append_activity(
             kind="status",
-            title="Apple Music setup",
+            title="Apple Token setup",
             detail=message,
             status="pending",
         )
         await self.ui.send_auth_setup(
             provider="apple_music",
-            step="credentials",
-            title="Apple Music setup",
+            step=self.step,
+            title="Apple Token setup",
             message=message,
-            prompt="Apple Music credentials JSON or path",
-            mask=True,
+            prompt="Apple token service URL",
+            mask=False,
         )
 
     async def handle_input(self, value: str) -> None:
@@ -1559,65 +1588,25 @@ class AppleMusicSetupSession:
         if not value:
             await self._repeat("Input cannot be empty.")
             return
-
-        if self.step == "credentials":
-            try:
-                save_apple_music_credentials(value)
-            except Exception as exc:
-                await self._repeat(sanitize_error_message(exc))
-                return
-            self.step = "user_token"
-            await self.ui.append_activity(
-                kind="status",
-                title="Apple Music credentials saved",
-                detail="Developer token credentials are saved. Music User Token is optional but required for user data and playback.",
-                status="success",
-            )
-            await self.ui.send_auth_setup(
-                provider="apple_music",
-                step="user_token",
-                title="Apple Music user token",
-                message="Paste a Music User Token, or type skip to finish catalog-only setup.",
-                prompt="Music User Token or skip",
-                mask=True,
-            )
+        try:
+            save_apple_token_broker_url(value)
+        except DeveloperTokenError as exc:
+            await self._repeat(sanitize_error_message(exc))
             return
-
-        if self.step == "user_token":
-            if value.lower() == "skip":
-                await self._finish("Apple Music catalog search is configured.")
-                return
-            try:
-                save_apple_music_user_token(value)
-            except Exception as exc:
-                await self._repeat(sanitize_error_message(exc))
-                return
-            await self._finish("Apple Music developer credentials and user token are configured.")
+        except Exception as exc:
+            await self._repeat(sanitize_error_message(exc))
+            return
+        await self._finish("Apple Mode token service URL saved.")
 
     async def _repeat(self, message: str) -> None:
-        """Prepares repeat for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs repeat without duplicating the local rules.
-
-        Example: await _repeat(message=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        if self.step == "user_token":
-            await self.ui.send_auth_setup(
-                provider="apple_music",
-                step="user_token",
-                title="Apple Music user token",
-                message=message,
-                prompt="Music User Token or skip",
-                mask=True,
-            )
-            return
+        """Keep the Apple token URL prompt active after invalid input."""
         await self.ui.send_auth_setup(
             provider="apple_music",
-            step="credentials",
-            title="Apple Music setup",
+            step=self.step,
+            title="Apple Token setup",
             message=message,
-            prompt="Apple Music credentials JSON or path",
-            mask=True,
+            prompt="Apple token service URL",
+            mask=False,
         )
 
     async def _finish(self, message: str) -> None:
@@ -1629,14 +1618,14 @@ class AppleMusicSetupSession:
         """
         await self.ui.append_activity(
             kind="status",
-            title="Apple Music connected",
+            title="Apple Token configured",
             detail=message,
             status="success",
         )
         await self.ui.send_auth_setup(
             provider="apple_music",
             step="done",
-            title="Apple Music connected",
+            title="Apple Token configured",
             message=message,
             active=False,
         )
@@ -3159,15 +3148,56 @@ SPOTIFY_MODE_AGENT_TOOLS = (
     "search_track",
     "spotify_play",
 )
-SPOTIFY_MODE_COMMANDS = {"bye", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend"}
+SPOTIFY_MODE_COMMANDS = {"apple", "bye", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend"}
+APPLE_MODE_COMMANDS = {"apple", "bye", "exit", "info", "lang", "logout", "model", "queue", "spotify"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS = 5.0
 SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS = 15.0
+LOCAL_PLAYBACK_POLL_SECONDS = 1.0
 SPOTIFY_SEARCH_CACHE_TTL_SECONDS = 120.0
 SPOTIFY_QUEUE_CACHE_TTL_SECONDS = 5.0
 SPOTIFY_RECENT_CACHE_TTL_SECONDS = 300.0
 RECOMMEND_COMMAND_TIMEOUT_SECONDS = 60.0
 SPOTIFY_MODE_STATE_VERSION = 1
+
+
+async def _send_provider_mode(
+    ui: WebSocketUIAdapter,
+    provider: ProviderMode,
+    *,
+    storefront: str | None = None,
+    connection_status: str | None = None,
+) -> None:
+    await ui._send(
+        {
+            "type": "provider_mode",
+            "provider": provider.value,
+            "enabled": provider is not ProviderMode.NORMAL,
+            "storefront": storefront,
+            "connection_status": connection_status or ("ready" if provider is not ProviderMode.NORMAL else "off"),
+        }
+    )
+
+
+def _apple_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for index, track in enumerate(tracks, start=1):
+        name = str(track.get("name") or track.get("title") or "-")
+        rows.append(
+            {
+                **track,
+                "index": str(index),
+                "title": name,
+                "name": name,
+                "artist": str(track.get("artist") or "-"),
+                "duration": _duration_text(track.get("duration_ms")),
+                "duration_ms": int(track.get("duration_ms") or 0),
+                "provider": "apple_music",
+                "source": "apple_music",
+                "source_app": "Apple Music",
+            }
+        )
+    return rows
 
 
 @dataclass
@@ -3261,6 +3291,11 @@ def _spotify_sync_event(ui: WebSocketUIAdapter) -> asyncio.Event:
 def _request_spotify_sync(ui: WebSocketUIAdapter) -> None:
     """Wake the adaptive playback synchronizer after a Spotify state change."""
     _spotify_sync_event(ui).set()
+
+
+async def _wait_for_local_playback_sync(_ui: WebSocketUIAdapter, timeout_seconds: float) -> None:
+    """Wait until the next local-player status sample."""
+    await asyncio.sleep(max(0.0, timeout_seconds))
 
 
 async def _wait_for_spotify_sync(ui: WebSocketUIAdapter, timeout_seconds: float) -> None:
@@ -3595,9 +3630,15 @@ def _spotify_playlist_choice(index: int, playlist: dict[str, Any]) -> dict[str, 
 class SpotifyDeviceSelectionSession:
     """Owns the Spotify Connect device picker for mode entry."""
 
-    def __init__(self, ui: WebSocketUIAdapter, devices: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        devices: list[dict[str, Any]],
+        on_selected: Any | None = None,
+    ) -> None:
         self.ui = ui
         self.devices = devices
+        self.on_selected = on_selected
         self.confirm_id = _new_event_id("spotify_device")
 
     async def start(self) -> None:
@@ -3643,6 +3684,9 @@ class SpotifyDeviceSelectionSession:
             message = "Selected Spotify device is no longer available."
             await self.ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
             await self.ui.append_agent_message(message)
+            return
+        if self.on_selected is not None:
+            await self.on_selected(device)
             return
         mode = _spotify_mode_state(device)
         setattr(self.ui, "_spotify_mode", mode)
@@ -3726,6 +3770,92 @@ class SpotifyPlaySelectionSession:
         else:
             await self.ui.append_activity(kind="status", title="Spotify playback", detail="Spotify playback selected.", status="success")
         setattr(self.ui, "_spotify_play_selection", None)
+
+
+class ApplePlaySelectionSession:
+    """Owns ambiguous or medium-confidence Apple catalog selection."""
+
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        runner: "WebSocketRunner",
+        query: str,
+        tracks: list[dict[str, Any]],
+        *,
+        queue_add: bool = False,
+        require_confirmation: bool = False,
+    ) -> None:
+        self.ui = ui
+        self.runner = runner
+        self.query = query
+        self.tracks = tracks[:5]
+        self.queue_add = queue_add
+        self.require_confirmation = require_confirmation
+        self.confirm_id = _new_event_id("apple_track")
+
+    async def start(self) -> None:
+        choices = [
+            {
+                "value": f"apple_track:{index}",
+                "label": format_music_candidate_label(
+                    track.get("artist"),
+                    track.get("album"),
+                    track.get("name") or track.get("title"),
+                ),
+                "display": music_candidate_display(
+                    track.get("artist"),
+                    track.get("album"),
+                    track.get("name") or track.get("title"),
+                ),
+                "description": "Confirm medium-confidence match" if self.require_confirmation else "",
+            }
+            for index, track in enumerate(self.tracks)
+        ]
+        choices.append({"value": "cancel", "label": "Cancel"})
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Apple Music tracks",
+            detail=f"Choose an Apple Music result for {self.query}.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "apple_music_track",
+                "tool_args": {
+                    "query": self.query,
+                    "stage": "apple_track_candidates",
+                    "queue_add": self.queue_add,
+                },
+                "message": "Choose Apple Music track",
+                "choices": choices,
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        setattr(self.ui, "_apple_play_selection", None)
+        value = str(decision or "cancel")
+        if value in {"cancel", "deny", "false"}:
+            await self.ui.append_activity(
+                kind="status",
+                title="Apple playback",
+                detail="Playback cancelled.",
+                status="success",
+            )
+            return
+        try:
+            index = int(value.removeprefix("apple_track:"))
+        except ValueError:
+            index = -1
+        track = self.tracks[index] if 0 <= index < len(self.tracks) else None
+        if not track:
+            await self.ui.append_agent_message("Selected Apple Music track is no longer available.")
+            return
+        await self.runner._play_apple_track(self.ui, track, queue_add=self.queue_add)
 
 
 class SpotifyPlaylistSelectionSession:
@@ -3958,6 +4088,8 @@ class WebSocketRunner:
         self.memory_store = memory_store
         self._running_task: asyncio.Task[None] | None = None
         self._confirm_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+        self.apple_mode = AppleModeService()
+        self.provider_modes = ProviderModeCoordinator()
 
     async def handle_ws(self, ws: WebSocket) -> None:
         """Coordinates handle ws for the current Sonex flow.
@@ -3972,7 +4104,10 @@ class WebSocketRunner:
         await ui._send({"type": "queue", "tracks": _queue_payload()})
         await self._handle_startup_auth(ui)
         await self._restore_persistent_spotify_mode(ui)
+        await self._restore_provider_mode(ui)
         playback_sync_task = asyncio.create_task(self._sync_spotify_playback(ui))
+        local_playback_sync_task = asyncio.create_task(self._sync_local_playback(ui))
+        apple_playback_sync_task = asyncio.create_task(self._sync_apple_playback(ui))
 
         try:
             while True:
@@ -4041,6 +4176,10 @@ class WebSocketRunner:
                     if spotify_play and spotify_play.owns_confirm(confirm_id):
                         await spotify_play.handle_choice(decision)
                         continue
+                    apple_play = getattr(ui, "_apple_play_selection", None)
+                    if apple_play and apple_play.owns_confirm(confirm_id):
+                        await apple_play.handle_choice(decision)
+                        continue
                     spotify_playlist = getattr(ui, "_spotify_playlist_selection", None)
                     if spotify_playlist and spotify_playlist.owns_confirm(confirm_id):
                         await spotify_playlist.handle_choice(decision)
@@ -4068,6 +4207,8 @@ class WebSocketRunner:
                 auth_setup.oauth_task.cancel()
             apple_music_setup = getattr(ui, "_apple_music_setup", None)
             playback_sync_task.cancel()
+            local_playback_sync_task.cancel()
+            apple_playback_sync_task.cancel()
             with suppress(asyncio.CancelledError):
                 if spotify_setup and spotify_setup.oauth_task:
                     await spotify_setup.oauth_task
@@ -4076,6 +4217,10 @@ class WebSocketRunner:
                     await auth_setup.oauth_task
             with suppress(asyncio.CancelledError):
                 await playback_sync_task
+            with suppress(asyncio.CancelledError):
+                await local_playback_sync_task
+            with suppress(asyncio.CancelledError):
+                await apple_playback_sync_task
             self._confirm_queue.put(("", False))
 
     async def _handle_confirm_result(self, ui: WebSocketUIAdapter, confirm_id: str, decision: Any) -> bool:
@@ -4168,6 +4313,48 @@ class WebSocketRunner:
             cooldown = spotify_api_cooldown_remaining()
             await _wait_for_spotify_sync(ui, max(poll_seconds, cooldown))
 
+    async def _sync_local_playback(self, ui: WebSocketUIAdapter) -> None:
+        """Continuously publish authoritative local-player progress."""
+        last_player_state: dict[str, Any] | None = None
+        sync_lost = False
+        while not ui.closed:
+            if self._spotify_mode_enabled(ui) or self._apple_mode_enabled(ui):
+                last_player_state = None
+                sync_lost = False
+                await _wait_for_local_playback_sync(ui, LOCAL_PLAYBACK_POLL_SECONDS)
+                continue
+            try:
+                result = await asyncio.to_thread(local_playback_status)
+                if isinstance(result, dict) and result.get("status") == "success":
+                    player_state, _cover_url = _extract_music_state(result)
+                    if player_state:
+                        player_state = _local_live_player_state(player_state)
+                        player_state = _decorate_player_state(player_state)
+                        last_player_state = player_state
+                        sync_lost = False
+                        setattr(ui, "_last_player_state", player_state)
+                        await ui._send({"type": "player", "state": player_state})
+                elif (
+                    isinstance(result, dict)
+                    and result.get("error_code") == "PLAYBACK_STATUS_UNAVAILABLE"
+                    and last_player_state
+                    and not sync_lost
+                ):
+                    frozen_state = {
+                        **last_player_state,
+                        "playback_status": "syncing",
+                        "progress_sync_lost": True,
+                    }
+                    setattr(ui, "_last_player_state", frozen_state)
+                    await ui._send({"type": "player", "state": frozen_state})
+                    sync_lost = True
+                elif isinstance(result, dict) and result.get("error_code") == "NO_ACTIVE_PLAYBACK":
+                    last_player_state = None
+                    sync_lost = False
+            except Exception:
+                pass
+            await _wait_for_local_playback_sync(ui, LOCAL_PLAYBACK_POLL_SECONDS)
+
     async def _handle_user_input(
         self,
         ui: WebSocketUIAdapter,
@@ -4201,6 +4388,15 @@ class WebSocketRunner:
             if self._spotify_mode_enabled(ui) and parsed_command.command and parsed_command.command.name not in SPOTIFY_MODE_COMMANDS:
                 message = f"Command '/{parsed_command.command.name}' is not available in Spotify mode."
                 await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
+                await ui.append_agent_message(message)
+                return
+
+            if self._apple_mode_enabled(ui) and parsed_command.command and parsed_command.command.name not in APPLE_MODE_COMMANDS:
+                if parsed_command.command.name in APPLE_PLAYBACK_CONTROL_ACTIONS:
+                    await self._handle_playback_control(ui, parsed_command.command.name)
+                    return
+                message = f"Command '/{parsed_command.command.name}' is not available in Apple Mode."
+                await ui.append_activity(kind="error", title="Apple Mode", detail=message, status="error")
                 await ui.append_agent_message(message)
                 return
 
@@ -4278,6 +4474,10 @@ class WebSocketRunner:
             await self._handle_spotify_mode_input(ui, user_input)
             return
 
+        if self._apple_mode_enabled(ui):
+            await self._handle_apple_mode_input(ui, user_input)
+            return
+
         if self._running_task and not self._running_task.done():
             ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
             return
@@ -4317,6 +4517,237 @@ class WebSocketRunner:
     def _spotify_mode_enabled(self, ui: WebSocketUIAdapter) -> bool:
         mode = getattr(ui, "_spotify_mode", None)
         return isinstance(mode, dict) and bool(mode.get("enabled"))
+
+    def _apple_mode_enabled(self, ui: WebSocketUIAdapter) -> bool:
+        mode = getattr(ui, "_apple_mode", None)
+        return isinstance(mode, dict) and bool(mode.get("enabled"))
+
+    async def _restore_provider_mode(self, ui: WebSocketUIAdapter) -> None:
+        intent = load_provider_mode_intent()
+        if intent.provider is ProviderMode.SPOTIFY and self._spotify_mode_enabled(ui):
+            await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.SPOTIFY))
+            await _send_provider_mode(ui, ProviderMode.SPOTIFY)
+            return
+        if intent.provider is ProviderMode.APPLE:
+            snapshot = self.apple_mode.snapshot
+            if snapshot.connected and snapshot.authorized and snapshot.can_play and snapshot.storefront:
+                setattr(
+                    ui,
+                    "_apple_mode",
+                    {
+                        "enabled": True,
+                        "storefront": snapshot.storefront,
+                        "connection_status": snapshot.connection_status,
+                    },
+                )
+                setattr(ui, "_spotify_mode", None)
+                await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.APPLE))
+                await _send_spotify_mode(ui, None)
+                await _send_provider_mode(
+                    ui,
+                    ProviderMode.APPLE,
+                    storefront=snapshot.storefront,
+                    connection_status=snapshot.connection_status,
+                )
+                return
+            clear_provider_mode_intent()
+            setattr(ui, "_apple_mode", None)
+            await ui._send(
+                {
+                    "type": "chat",
+                    "role": "agent",
+                    "text": "Apple Mode was not restored because its local companion is unavailable. Run /apple to reconnect.",
+                    "theme": "muted",
+                    "tone": "system",
+                }
+            )
+        restored_provider = ProviderMode.SPOTIFY if self._spotify_mode_enabled(ui) else ProviderMode.NORMAL
+        await self.provider_modes.restore(ProviderModeState(provider=restored_provider))
+        await _send_provider_mode(
+            ui,
+            restored_provider,
+        )
+
+    async def _sync_apple_playback(self, ui: WebSocketUIAdapter) -> None:
+        last_signature: tuple[Any, ...] | None = None
+        last_status = ""
+        while not ui.closed:
+            if not self._apple_mode_enabled(ui):
+                await asyncio.sleep(1)
+                continue
+            snapshot = self.apple_mode.snapshot
+            status = snapshot.connection_status
+            if status != last_status:
+                mode = getattr(ui, "_apple_mode", {}) or {}
+                mode["connection_status"] = status
+                setattr(ui, "_apple_mode", mode)
+                await _send_provider_mode(
+                    ui,
+                    ProviderMode.APPLE,
+                    storefront=snapshot.storefront,
+                    connection_status=status,
+                )
+                last_status = status
+            if not snapshot.connected:
+                if self.apple_mode.companion.disconnected_seconds > 10:
+                    await self._exit_apple_mode(
+                        ui,
+                        message="Apple Mode exited because the MusicKit companion did not reconnect.",
+                    )
+                    continue
+                await asyncio.sleep(0.5)
+                continue
+            with suppress(Exception):
+                await self.apple_mode.refresh_developer_token()
+            mode = getattr(ui, "_apple_mode", {}) or {}
+            entered_storefront = str(mode.get("storefront") or "")
+            if snapshot.authorized and not snapshot.can_play:
+                await self._exit_apple_mode(
+                    ui,
+                    message="Apple Mode exited because subscription playback is no longer available.",
+                )
+                continue
+            if entered_storefront and snapshot.storefront and snapshot.storefront != entered_storefront:
+                with suppress(Exception):
+                    await self.apple_mode.clear_queue()
+                await self._exit_apple_mode(
+                    ui,
+                    message="Apple Mode exited because the Apple Music storefront changed. Re-enter with /apple.",
+                )
+                continue
+            player_state = self.apple_mode.player_state()
+            if player_state:
+                player_state = _decorate_player_state(player_state)
+                signature = _player_sync_signature(player_state)
+                if signature != last_signature:
+                    setattr(ui, "_last_player_state", player_state)
+                    await ui._send({"type": "player", "state": player_state})
+                    await ui._send({"type": "queue", "tracks": _apple_track_panel_tracks(self.apple_mode.queue_tracks())})
+                    last_signature = signature
+            await asyncio.sleep(0.5)
+
+    async def _handle_apple_mode_input(self, ui: WebSocketUIAdapter, user_input: str) -> None:
+        if self._running_task and not self._running_task.done():
+            ui.set_status(UiStatus(phase="Busy", message="Remixing..."))
+            return
+        normalized = " ".join(user_input.strip().casefold().split())
+        control_phrases = {
+            "pause": {"pause", "暂停", "暫停"},
+            "resume": {"resume", "继续播放", "繼續播放"},
+            "next": {"next", "下一首", "下一曲"},
+            "previous": {"previous", "上一首", "上一曲"},
+        }
+        for action, phrases in control_phrases.items():
+            if normalized in phrases:
+                await self._handle_apple_control(ui, action)
+                return
+
+        queue_query = _apple_queue_add_query(user_input)
+        if queue_query:
+            await self._start_apple_track_selection(ui, queue_query, queue_add=True)
+            return
+        parsed_play = _rule_parse_play_request(user_input)
+        if parsed_play.is_play_request and parsed_play.query:
+            await self._start_apple_track_selection(ui, parsed_play.query)
+            return
+        decision = classify_music_intent_fast(user_input)
+        if decision is None:
+            decision = await asyncio.to_thread(classify_music_intent, user_input)
+        if decision.route in {MusicIntentRoute.EXPLICIT_PLAY, MusicIntentRoute.CONFIRM_TRACK_PLAY}:
+            query = await self._resolve_music_query(ui, decision)
+            if query:
+                await self._start_apple_track_selection(ui, query)
+            return
+        await ui.append_agent_message(
+            "Apple Mode only routes playback, queue, and transport requests to Apple Music in this release."
+        )
+
+    async def _start_apple_track_selection(
+        self,
+        ui: WebSocketUIAdapter,
+        query: str,
+        *,
+        queue_add: bool = False,
+    ) -> None:
+        fields = parse_apple_query(query)
+        catalog_query = " ".join(
+            part for part in (fields.get("title"), fields.get("artist"), fields.get("album")) if part
+        ).strip() or query.strip()
+        await ui.append_activity(
+            kind="tool",
+            title="Searching Apple Music",
+            detail="Finding tracks in your Apple Music storefront.",
+            status="pending",
+        )
+        try:
+            ranked = await asyncio.wait_for(
+                self.apple_mode.search(catalog_query, 10, match_query=query),
+                timeout=8,
+            )
+        except (AppleCompanionError, TimeoutError, OSError) as exc:
+            message = sanitize_error_message(exc)
+            await ui.append_activity(kind="error", title="Apple Music search", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        if ranked.decision is AppleCandidateDecision.REJECT or not ranked.candidates:
+            message = f"No safe Apple Music match found for '{query}'."
+            await ui.append_activity(kind="error", title="Apple Music search", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        if ranked.decision is AppleCandidateDecision.AUTO:
+            await self._play_apple_track(ui, dict(ranked.candidates[0]), queue_add=queue_add)
+            return
+        session = ApplePlaySelectionSession(
+            ui,
+            self,
+            query,
+            list(ranked.candidates),
+            queue_add=queue_add,
+            require_confirmation=ranked.decision is AppleCandidateDecision.CONFIRM,
+        )
+        setattr(ui, "_apple_play_selection", session)
+        await session.start()
+
+    async def _play_apple_track(
+        self,
+        ui: WebSocketUIAdapter,
+        track: dict[str, Any],
+        *,
+        queue_add: bool = False,
+    ) -> None:
+        action = "queue add" if queue_add else "play"
+        await ui.append_activity(
+            kind="tool",
+            title="Apple playback",
+            detail=f"Waiting for MusicKit to confirm {action}.",
+            status="pending",
+        )
+        try:
+            snapshot = await (
+                self.apple_mode.queue_add(track)
+                if queue_add
+                else self.apple_mode.play(track)
+            )
+        except AppleCompanionError as exc:
+            message = sanitize_error_message(exc)
+            await ui.append_activity(kind="error", title="Apple playback", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        await self._publish_apple_snapshot(ui, snapshot)
+        title = str(track.get("name") or track.get("title") or "selected track")
+        detail = f"Added to Apple Music queue: {title}." if queue_add else f"Playing on Apple Music: {title}."
+        await ui.append_activity(kind="status", title="Apple playback", detail=detail, status="success")
+
+    async def _publish_apple_snapshot(self, ui: WebSocketUIAdapter, snapshot: Any) -> None:
+        player_state = self.apple_mode.player_state()
+        if player_state:
+            player_state = _decorate_player_state(player_state)
+            setattr(ui, "_last_player_state", player_state)
+            await ui._send({"type": "player", "state": player_state})
+            cover = str(player_state.get("album_cover_url") or "")
+            if cover:
+                await ui.send_cover(cover)
+        await ui._send({"type": "queue", "tracks": _apple_track_panel_tracks(self.apple_mode.queue_tracks())})
 
     async def _restore_persistent_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
         mode = _load_persistent_spotify_mode()
@@ -4796,6 +5227,12 @@ class WebSocketRunner:
             return
 
         if command_name == "queue":
+            if self._apple_mode_enabled(ui):
+                tracks = _apple_track_panel_tracks(self.apple_mode.queue_tracks())
+                await ui._send(_track_panel_payload("queue", "Apple Music Queue", tracks))
+                detail = "Showing Apple Music queue." if tracks else "Apple Music queue is empty."
+                await ui.append_activity(kind="status", title="Apple Music queue", detail=detail, status="success")
+                return
             if self._spotify_mode_enabled(ui):
                 await self._show_spotify_queue(ui)
                 return
@@ -4805,6 +5242,10 @@ class WebSocketRunner:
 
         if command_name == "spotify":
             await self._handle_spotify_mode_command(ui, args)
+            return
+
+        if command_name == "apple":
+            await self._handle_apple_mode_command(ui, args)
             return
 
         if command_name == "playlist":
@@ -4825,10 +5266,10 @@ class WebSocketRunner:
             return
 
         if command_name == "logout":
-            await self._handle_logout(ui)
+            await self._handle_logout(ui, args)
             return
 
-        if command_name in LOCAL_PLAYBACK_CONTROL_TOOLS:
+        if command_name in LOCAL_PLAYBACK_CONTROL_TOOLS or command_name in {"next", "previous"}:
             await self._handle_playback_control(ui, command_name)
             return
 
@@ -4874,6 +5315,13 @@ class WebSocketRunner:
             await ui.append_activity(kind="error", title="Track panel", detail=message, status="error")
             await ui.send_error(message)
             return
+        if self._apple_mode_enabled(ui) and str(track.get("provider") or "") == "apple_music":
+            if action == "queue_add":
+                await self._play_apple_track(ui, track, queue_add=True)
+                return
+            if action == "play":
+                await self._play_apple_track(ui, track)
+                return
         if action == "queue_add":
             remember_playback_track(track)
             await ui._send({"type": "queue", "tracks": _queue_payload()})
@@ -4930,18 +5378,189 @@ class WebSocketRunner:
         await ui.append_activity(kind="error", title="Track panel", detail=message, status="error")
         await ui.send_error(message)
 
+    async def _handle_apple_mode_command(self, ui: WebSocketUIAdapter, args: str) -> None:
+        action = args.strip().casefold()
+        if action == "off" or (not action and self._apple_mode_enabled(ui)):
+            await self._exit_apple_mode(ui, message="Apple Mode off.")
+            return
+        if action:
+            message = "Usage: /apple or /apple off."
+            await ui.append_activity(kind="error", title="Apple Mode", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+
+        previous_spotify = self._spotify_mode_enabled(ui)
+        await ui.append_activity(
+            kind="tool",
+            title="Apple Mode",
+            detail="Starting the secure MusicKit companion.",
+            status="pending",
+        )
+        try:
+            entry = await self.apple_mode.begin_entry(open_browser=True)
+        except Exception as exc:
+            message = sanitize_error_message(exc)
+            await ui.append_activity(kind="error", title="Apple Mode", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        if not entry.already_ready:
+            browser_detail = (
+                "Authorize Apple Music in the browser window."
+                if entry.browser_opened
+                else f"Open this local URL in a desktop browser: {entry.url}"
+            )
+            await ui.send_auth_setup(
+                provider="apple_music",
+                step="companion_wait",
+                title="Apple Mode authorization",
+                message=browser_detail,
+                active=True,
+            )
+        try:
+            snapshot = await self.apple_mode.complete_entry()
+        except Exception as exc:
+            await ui.send_auth_setup(
+                provider="apple_music",
+                step="companion_done",
+                title="Apple Mode authorization",
+                message="Apple Mode authorization did not complete.",
+                active=False,
+            )
+            message = sanitize_error_message(exc)
+            await ui.append_activity(kind="error", title="Apple Mode", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        await ui.send_auth_setup(
+            provider="apple_music",
+            step="companion_done",
+            title="Apple Mode authorization",
+            message="Apple Music authorization complete.",
+            active=False,
+        )
+
+        if previous_spotify and self.provider_modes.state.provider is not ProviderMode.SPOTIFY:
+            await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.SPOTIFY))
+
+        async def prepare_apple() -> None:
+            return None
+
+        async def pause_previous(provider: ProviderMode) -> None:
+            if provider is not ProviderMode.SPOTIFY:
+                return
+            mode = getattr(ui, "_spotify_mode", {}) or {}
+            device_id = str(mode.get("device_id") or "")
+            result = await _run_spotify_mode_call(
+                ui,
+                func=lambda: registry.invoke("spotify_pause", {"device_id": device_id} if device_id else {}),
+                pending_detail="Pausing Spotify before switching providers.",
+                timeout_message="Could not pause Spotify; Apple Mode was not activated.",
+                failure_title="Provider switch",
+            )
+            if result is None or _is_failed_tool_result(result):
+                raise RuntimeError("Spotify did not confirm pause.")
+
+        async def commit_apple(_provider: ProviderMode) -> None:
+            setattr(ui, "_spotify_mode", None)
+            setattr(
+                ui,
+                "_apple_mode",
+                {
+                    "enabled": True,
+                    "storefront": snapshot.storefront,
+                    "connection_status": snapshot.connection_status,
+                },
+            )
+            _clear_persistent_spotify_mode()
+            await _send_spotify_mode(ui, None)
+            save_provider_mode_intent(ProviderModeState(provider=ProviderMode.APPLE))
+            await _send_provider_mode(
+                ui,
+                ProviderMode.APPLE,
+                storefront=snapshot.storefront,
+                connection_status=snapshot.connection_status,
+            )
+
+        try:
+            await self.provider_modes.switch(
+                ProviderMode.APPLE,
+                prepare=prepare_apple,
+                pause_previous=pause_previous,
+                commit=commit_apple,
+            )
+        except Exception as exc:
+            with suppress(Exception):
+                await self.apple_mode.exit_mode()
+            message = sanitize_error_message(exc)
+            await ui.append_activity(kind="error", title="Provider switch", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        if not previous_spotify:
+            with suppress(Exception):
+                await asyncio.to_thread(registry.invoke, "local_playback_pause", {})
+        await self._publish_apple_snapshot(ui, snapshot)
+        message = f"Apple Mode on · storefront {snapshot.storefront.upper()}."
+        await ui.append_activity(kind="status", title="Apple Mode", detail=message, status="success")
+        await ui.append_agent_message(message)
+
+    async def _exit_apple_mode(self, ui: WebSocketUIAdapter, *, message: str) -> None:
+        if self._apple_mode_enabled(ui) and self.provider_modes.state.provider is not ProviderMode.APPLE:
+            await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.APPLE))
+
+        async def pause_current(_provider: ProviderMode) -> None:
+            await self.apple_mode.exit_mode()
+
+        async def commit_normal(_provider: ProviderMode) -> None:
+            setattr(ui, "_apple_mode", None)
+            setattr(ui, "_apple_play_selection", None)
+            clear_provider_mode_intent()
+            await _send_provider_mode(ui, ProviderMode.NORMAL)
+            await ui._send({"type": "queue", "tracks": _queue_payload()})
+
+        try:
+            await self.provider_modes.exit(
+                pause_current=pause_current,
+                commit=commit_normal,
+            )
+        except Exception as exc:
+            await ui.append_activity(
+                kind="error",
+                title="Apple Mode",
+                detail=sanitize_error_message(exc),
+                status="error",
+            )
+            return
+        await ui.append_activity(kind="status", title="Apple Mode", detail=message, status="success")
+        await ui.append_agent_message(message)
+
+    async def _handle_apple_control(self, ui: WebSocketUIAdapter, action: str) -> None:
+        if not self._apple_mode_enabled(ui):
+            await ui.append_agent_message("Apple Mode is not active.")
+            return
+        await ui.append_activity(
+            kind="tool",
+            title="Apple playback",
+            detail=f"Waiting for MusicKit to confirm {action}.",
+            status="pending",
+        )
+        try:
+            snapshot = await self.apple_mode.control(action)
+        except AppleCompanionError as exc:
+            message = sanitize_error_message(exc)
+            await ui.append_activity(kind="error", title="Apple playback", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        await self._publish_apple_snapshot(ui, snapshot)
+        await ui.append_activity(
+            kind="status",
+            title="Apple playback",
+            detail=f"Apple Music {action} confirmed.",
+            status="success",
+        )
+
     async def _handle_spotify_mode_command(self, ui: WebSocketUIAdapter, args: str) -> None:
         action = args.strip().casefold()
         if action == "off" or (not action and self._spotify_mode_enabled(ui)):
-            setattr(ui, "_spotify_mode", None)
-            setattr(ui, "_spotify_library_synced", False)
-            setattr(ui, "_spotify_device_selection", None)
-            setattr(ui, "_spotify_play_selection", None)
-            _clear_persistent_spotify_mode()
-            await _send_spotify_mode(ui, None)
-            message = "Spotify mode off."
-            await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
-            await ui.append_agent_message(message)
+            await self._exit_spotify_mode(ui)
             return
         if action:
             message = "Usage: /spotify or /spotify off."
@@ -5024,17 +5643,99 @@ class WebSocketRunner:
             return
         active_device = next((device for device in usable_devices if device.get("is_active")), None)
         if active_device:
-            mode = _spotify_mode_state(active_device, scopes)
-            setattr(ui, "_spotify_mode", mode)
-            _persist_spotify_mode(mode)
-            await _send_spotify_mode(ui, mode)
-            message = f"Spotify mode on: {active_device.get('name') or 'active device'}."
-            await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
-            await ui.append_agent_message(message)
+            await self._commit_spotify_mode(ui, active_device, scopes)
             return
-        session = SpotifyDeviceSelectionSession(ui, usable_devices)
+        session = SpotifyDeviceSelectionSession(
+            ui,
+            usable_devices,
+            on_selected=lambda device: self._commit_spotify_mode(ui, device, scopes),
+        )
         setattr(ui, "_spotify_device_selection", session)
         await session.start()
+
+    async def _commit_spotify_mode(
+        self,
+        ui: WebSocketUIAdapter,
+        device: dict[str, Any],
+        scopes: set[str] | list[str] | None = None,
+    ) -> None:
+        mode = _spotify_mode_state(device, scopes)
+        if self._apple_mode_enabled(ui) and self.provider_modes.state.provider is not ProviderMode.APPLE:
+            await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.APPLE))
+
+        async def prepare_spotify() -> None:
+            return None
+
+        async def pause_previous(provider: ProviderMode) -> None:
+            if provider is ProviderMode.APPLE:
+                await self.apple_mode.exit_mode()
+
+        async def commit_spotify(_provider: ProviderMode) -> None:
+            setattr(ui, "_apple_mode", None)
+            setattr(ui, "_apple_play_selection", None)
+            setattr(ui, "_spotify_mode", mode)
+            setattr(ui, "_spotify_library_synced", False)
+            _persist_spotify_mode(mode)
+            save_provider_mode_intent(ProviderModeState(provider=ProviderMode.SPOTIFY))
+            await _send_spotify_mode(ui, mode)
+            await _send_provider_mode(ui, ProviderMode.SPOTIFY)
+
+        try:
+            await self.provider_modes.switch(
+                ProviderMode.SPOTIFY,
+                prepare=prepare_spotify,
+                pause_previous=pause_previous,
+                commit=commit_spotify,
+            )
+        except Exception as exc:
+            message = f"Spotify mode was not activated. {sanitize_error_message(exc)}"
+            await ui.append_activity(kind="error", title="Provider switch", detail=message, status="error")
+            await ui.append_agent_message(message)
+            return
+        message = f"Spotify mode on: {device.get('name') or 'selected device'}."
+        await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
+        await ui.append_agent_message(message)
+
+    async def _exit_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
+        if self._spotify_mode_enabled(ui) and self.provider_modes.state.provider is not ProviderMode.SPOTIFY:
+            await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.SPOTIFY))
+        mode = getattr(ui, "_spotify_mode", {}) or {}
+        device_id = str(mode.get("device_id") or "")
+
+        async def pause_current(_provider: ProviderMode) -> None:
+            result = await _run_spotify_mode_call(
+                ui,
+                func=lambda: registry.invoke("spotify_pause", {"device_id": device_id} if device_id else {}),
+                pending_detail="Pausing Spotify before leaving Spotify mode.",
+                timeout_message="Could not pause Spotify; Spotify mode remains active.",
+                failure_title="Spotify mode",
+            )
+            if result is None or _is_failed_tool_result(result):
+                raise RuntimeError("Spotify did not confirm pause.")
+
+        async def commit_normal(_provider: ProviderMode) -> None:
+            setattr(ui, "_spotify_mode", None)
+            setattr(ui, "_spotify_library_synced", False)
+            setattr(ui, "_spotify_device_selection", None)
+            setattr(ui, "_spotify_play_selection", None)
+            _clear_persistent_spotify_mode()
+            clear_provider_mode_intent()
+            await _send_spotify_mode(ui, None)
+            await _send_provider_mode(ui, ProviderMode.NORMAL)
+
+        try:
+            await self.provider_modes.exit(
+                pause_current=pause_current,
+                commit=commit_normal,
+            )
+        except Exception as exc:
+            detail = sanitize_error_message(exc)
+            await ui.append_activity(kind="error", title="Spotify mode", detail=detail, status="error")
+            await ui.append_agent_message(detail)
+            return
+        message = "Spotify mode off."
+        await ui.append_activity(kind="status", title="Spotify mode", detail=message, status="success")
+        await ui.append_agent_message(message)
 
     async def _start_spotify_reauthorization(self, ui: WebSocketUIAdapter, missing_scopes: list[str]) -> None:
         setup = SpotifySetupSession(ui)
@@ -5296,6 +5997,10 @@ class WebSocketRunner:
         Spotify pause/resume calls run off the event loop and target the mode's selected device.
         Other playback controls keep using the local playback controller.
         """
+        if self._apple_mode_enabled(ui) and command_name in APPLE_PLAYBACK_CONTROL_ACTIONS:
+            await self._handle_apple_control(ui, APPLE_PLAYBACK_CONTROL_ACTIONS[command_name])
+            return
+
         if self._spotify_mode_enabled(ui) and command_name in SPOTIFY_PLAYBACK_CONTROL_TOOLS:
             tool_name = SPOTIFY_PLAYBACK_CONTROL_TOOLS[command_name]
             mode = getattr(ui, "_spotify_mode", None)
@@ -5315,7 +6020,10 @@ class WebSocketRunner:
                 _request_spotify_sync(ui)
             return
 
-        tool_name = LOCAL_PLAYBACK_CONTROL_TOOLS[command_name]
+        tool_name = LOCAL_PLAYBACK_CONTROL_TOOLS.get(command_name)
+        if tool_name is None:
+            await ui.append_agent_message(f"/{command_name} is only available in a provider mode.")
+            return
         try:
             result = registry.invoke(tool_name, {})
         except Exception as exc:
@@ -5369,13 +6077,45 @@ class WebSocketRunner:
         setattr(ui, "_player_backend_selection", session)
         await session.start()
 
-    async def _handle_logout(self, ui: WebSocketUIAdapter) -> None:
+    async def _handle_logout(self, ui: WebSocketUIAdapter, args: str = "") -> None:
         """Prepares handle logout for an internal Sonex flow.
 
         Typical use: Use this helper when nearby code needs handle logout without duplicating the local rules.
 
         Example: await _handle_logout(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
+        target = args.strip().casefold().replace("_", " ")
+        if target in {"apple", "apple music"}:
+            was_connected = self.apple_mode.snapshot.connected
+            try:
+                await self.apple_mode.logout()
+            except Exception as exc:
+                message = sanitize_error_message(exc)
+                await ui.append_activity(kind="error", title="Apple logout", detail=message, status="error")
+                await ui.append_agent_message(
+                    "Sonex cleared Apple Mode state, but the offline companion could not confirm MusicKit unauthorize. "
+                    "Revoke the website authorization from Apple account settings if needed."
+                )
+            setattr(ui, "_apple_mode", None)
+            setattr(ui, "_apple_play_selection", None)
+            with suppress(Exception):
+                remove_provider("apple_music")
+            clear_provider_mode_intent()
+            await self.provider_modes.restore(ProviderModeState())
+            await _send_provider_mode(ui, ProviderMode.NORMAL)
+            await ui._send({"type": "queue", "tracks": _queue_payload()})
+            detail = (
+                "Apple Music was unauthorized in the companion and Apple Mode state was cleared."
+                if was_connected
+                else "Apple Mode state was cleared; no companion was online to confirm MusicKit unauthorize."
+            )
+            await ui.append_activity(kind="status", title="Apple logout", detail=detail, status="success")
+            await ui.append_agent_message(detail)
+            return
+        if target:
+            await ui.append_agent_message("Usage: /logout or /logout apple.")
+            return
+
         state = _llm_auth_state()
         if not state.ready:
             await ui.append_agent_message("You are not logged in.")
