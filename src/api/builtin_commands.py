@@ -89,6 +89,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("playlist", "/playlist [name]|save [name]", "browse playlists or save the current song"),
     BuiltinCommand("queue", "/queue", "show the playback queue"),
     BuiltinCommand("apple", "/apple [off]", "enter or exit persistent Apple Mode"),
+    BuiltinCommand("connect", "/connect", "connect a supported music account"),
     BuiltinCommand("spotify", "/spotify [off]", "enter or exit persistent Spotify mode"),
     BuiltinCommand("pause", "/pause", "pause current local playback", visible=False),
     BuiltinCommand("resume", "/resume", "resume current local playback"),
@@ -97,7 +98,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("next", "/next", "skip to the next provider track", visible=False),
     BuiltinCommand("previous", "/previous", "return to the previous provider track", visible=False),
     BuiltinCommand("volume", "/volume <0-100>", "set current local playback volume", visible=False),
-    BuiltinCommand("player", "/player", "choose a playback backend from the selection panel"),
+    BuiltinCommand("player", "/player", "detect available players and set the device default"),
     BuiltinCommand(
         "recommend",
         "/recommend [taste]",

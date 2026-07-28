@@ -19,6 +19,23 @@ export function getVisibleConfirmChoices(choices: ConfirmChoice[]): ConfirmChoic
     return choices.filter((choice) => !isCancelConfirmChoice(choice));
 }
 
+export function getSelectableConfirmChoices(choices: ConfirmChoice[]): ConfirmChoice[] {
+    return getVisibleConfirmChoices(choices).filter((choice) => !choice.disabled);
+}
+
+export function resolveConfirmChoiceDisplayIndex(
+    choices: ConfirmChoice[],
+    selectableIndex: number,
+): number {
+    const visibleChoices = getVisibleConfirmChoices(choices);
+    const selectableChoices = getSelectableConfirmChoices(choices);
+    const selectedChoice = selectableChoices[
+        Math.min(Math.max(selectableIndex, 0), Math.max(0, selectableChoices.length - 1))
+    ];
+    if (!selectedChoice) return -1;
+    return Math.max(0, visibleChoices.findIndex((choice) => choice.value === selectedChoice.value));
+}
+
 /**
  * Coordinates the resolve confirm decision from input operation for the CLI UI runtime.
  *
@@ -27,16 +44,16 @@ export function getVisibleConfirmChoices(choices: ConfirmChoice[]): ConfirmChoic
  * @returns The computed result for the surrounding CLI UI flow.
  */
 export function resolveConfirmDecisionFromInput(input: string, choices: ConfirmChoice[]): string | null {
-    const visibleChoices = getVisibleConfirmChoices(choices);
+    const selectableChoices = getSelectableConfirmChoices(choices);
     const normalized = normalize(input);
     if (!normalized) return null;
 
     const numeric = Number.parseInt(normalized, 10);
     if (Number.isInteger(numeric) && String(numeric) === normalized) {
-        return visibleChoices[numeric - 1]?.value ?? null;
+        return selectableChoices[numeric - 1]?.value ?? null;
     }
 
-    for (const choice of visibleChoices) {
+    for (const choice of selectableChoices) {
         if (normalize(choice.value) === normalized || normalize(choice.label) === normalized) {
             return choice.value;
         }

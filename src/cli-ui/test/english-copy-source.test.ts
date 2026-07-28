@@ -29,7 +29,7 @@ for (const text of retiredVisibleCopy) {
 
 assert.match(runnerSource, /"label": "Not found\? Type to supplement\."/);
 assert.match(runnerSource, /"input": \{"placeholder": ""\}/);
-assert.match(runnerSource, /"message": "Choose a playback backend"/);
+assert.match(runnerSource, /"message": "Choose the default player"/);
 assert.match(playerPermissionSource, /"confirm_message": f"Allow Sonex to open \{label\}\?"/);
 
 // Multilingual understanding remains intentional and outside the display-copy audit.

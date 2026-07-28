@@ -133,13 +133,14 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
 
 const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     bye: { en: "save and exit", "zh-CN": "保存会话并退出" },
+    connect: { en: "connect a music account", "zh-CN": "连接音乐账号" },
     help: { en: "show commands", "zh-CN": "显示可用的 Sonex 命令" },
     info: { en: "show runtime info", "zh-CN": "显示当前运行信息" },
     keymap: { en: "toggle playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
     lang: { en: "choose display language", "zh-CN": "选择 TUI 显示语言" },
     logout: { en: "sign out and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
     model: { en: "switch active model", "zh-CN": "切换当前模型" },
-    player: { en: "choose playback backend", "zh-CN": "打开播放后端选择面板" },
+    player: { en: "detect and set default player", "zh-CN": "检测并设置默认播放器" },
     playlist: { en: "browse or save playlists", "zh-CN": "浏览或保存播放列表" },
     queue: { en: "show playback queue", "zh-CN": "显示播放队列" },
     quit: { en: "save and exit", "zh-CN": "保存会话并退出" },
@@ -153,6 +154,7 @@ const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = 
 
 const helpCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     bye: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
+    connect: { en: "connect a supported music account", "zh-CN": "连接支持的音乐账号" },
     exit: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
     help: { en: "show available Sonex commands", "zh-CN": "显示可用的 Sonex 命令" },
     info: { en: "show current runtime information", "zh-CN": "显示当前运行信息" },
@@ -160,7 +162,7 @@ const helpCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     lang: { en: "choose the TUI display language", "zh-CN": "选择 TUI 显示语言" },
     logout: { en: "sign out from the current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
     model: { en: "switch the active model for this session", "zh-CN": "切换当前模型" },
-    player: { en: "choose a playback backend from the selection panel", "zh-CN": "打开播放后端选择面板" },
+    player: { en: "detect available players and set the device default", "zh-CN": "检测可用播放器并设置设备默认值" },
     playlist: { en: "browse playlists or save the current song", "zh-CN": "浏览或保存播放列表" },
     queue: { en: "show the playback queue", "zh-CN": "显示播放队列" },
     random: { en: "play a random song from the recent Sonex queue", "zh-CN": "从最近歌曲中播放" },
@@ -220,20 +222,47 @@ const knownText: Record<string, Record<UiLanguage, string>> = {
         en: "Confirm player launch.",
         "zh-CN": "确认启动播放器。",
     },
+    "Default player": {
+        en: "Default player",
+        "zh-CN": "默认播放器",
+    },
+    "Choose the default player": {
+        en: "Choose the default player",
+        "zh-CN": "选择默认播放器",
+    },
+    "Choose the default player for this session.": {
+        en: "Choose the default player for this session.",
+        "zh-CN": "选择本会话的默认播放器。",
+    },
 };
 
 const playerConfirmChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {
     mpv: {
-        en: { label: "🎧 mpv", description: "default backend for smooth background playback" },
-        "zh-CN": { label: "🎧 mpv", description: "默认播放后端，提供更丝滑的播放体验" },
+        en: { label: "mpv", description: "default backend for smooth background playback" },
+        "zh-CN": { label: "mpv", description: "默认播放后端，提供更丝滑的播放体验" },
     },
     cvlc: {
-        en: { label: "📻 VLC", description: "diagnostic fallback when mpv is unavailable" },
-        "zh-CN": { label: "📻 VLC", description: "备用播放后台，适配性较差，通常不建议选择" },
+        en: { label: "VLC", description: "diagnostic fallback when mpv is unavailable" },
+        "zh-CN": { label: "VLC", description: "备用播放后台，适配性较差，通常不建议选择" },
     },
     deny: {
-        en: { label: "🚫 Cancel" },
-        "zh-CN": { label: "🚫 取消" },
+        en: { label: "Cancel" },
+        "zh-CN": { label: "取消" },
+    },
+};
+
+const defaultPlayerChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {
+    mpv: {
+        en: { label: "mpv", description: "Controllable local player for stable background playback." },
+        "zh-CN": { label: "mpv", description: "可控制的本地播放器，适合稳定的后台播放。" },
+    },
+    cvlc: {
+        en: { label: "VLC", description: "Controllable VLC playback through its RC interface." },
+        "zh-CN": { label: "VLC", description: "通过 RC 接口进行可控制的 VLC 播放。" },
+    },
+    deny: {
+        en: { label: "Cancel" },
+        "zh-CN": { label: "取消" },
     },
 };
 
@@ -270,7 +299,13 @@ function translateKnown(value: string | null | undefined, language: UiLanguage):
 
 function localizeConfirmChoice(choice: ConfirmChoice, stage: unknown, language: UiLanguage): ConfirmChoice {
     const value = String(choice.value || "");
-    const table = stage === "player_confirm" ? playerConfirmChoices : null;
+    const table = (
+        stage === "player_confirm"
+            ? playerConfirmChoices
+            : stage === "player_backend_selection"
+                ? defaultPlayerChoices
+                : null
+    );
     const mapped = table?.[value]?.[language];
     if (!mapped) return choice;
     return {

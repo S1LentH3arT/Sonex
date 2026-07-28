@@ -137,7 +137,22 @@ class BuiltinCommandParserTests(unittest.TestCase):
 
         commands = {command.name: command for command in command_suggestions()}
         self.assertEqual(commands["player"].usage, "/player")
-        self.assertEqual(commands["player"].description, "choose a playback backend from the selection panel")
+        self.assertEqual(commands["player"].description, "detect available players and set the device default")
+
+    def test_connect_is_a_visible_interactive_local_command(self) -> None:
+        parsed = parse_builtin_command("/connect spotify")
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertTrue(parsed.known)
+        self.assertEqual(parsed.args, "spotify")
+        self.assertIsNone(parsed.command_intent())
+        commands = {command.name: command for command in command_suggestions()}
+        self.assertEqual(commands["connect"].usage, "/connect")
+        self.assertEqual(
+            commands["connect"].description,
+            "connect a supported music account",
+        )
 
     def test_playback_control_commands_are_hidden_from_help_and_suggestions(self) -> None:
         hidden_names = {"pause", "volume", "progress", "stop"}

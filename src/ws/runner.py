@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import parse_qs, urlparse
 from urllib.parse import unquote
 
@@ -77,6 +77,9 @@ from src.llm.models import model_choices_for_provider
 from src.llm.transport import ChatRequest, sanitize_error_message
 from src.log import sonex_home
 from src.memory.memory import memory_store
+from src.music.connections import MusicConnectionManager
+from src.music.player_sink_runtime import build_player_sink_manager
+from src.music.player_sinks import PlayerSinkManager, PlayerSinkOption
 from src.thinking.config import ThinkingConfig
 from src.tools import registry
 from src.tools.local_play import search_local_file
@@ -257,7 +260,11 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
 from src.tools.player_permission import complete_player_confirm
 from src.tools.apple_music import apple_music_recommend
 from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
-from src.tools.playback_controller import local_playback_status, start_local_playback
+from src.tools.playback_controller import (
+    available_local_playback_backends,
+    local_playback_status,
+    start_local_playback,
+)
 from src.tools.spotify_play import (
     _product_is_known_non_premium,
     remember_recent_track,
@@ -1349,7 +1356,12 @@ class SpotifySetupSession:
 
     Encapsulates spotify setup session data and behavior used by Sonex runtime flows.
     """
-    def __init__(self, ui: WebSocketUIAdapter) -> None:
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        *,
+        on_connected: Callable[[dict[str, Any]], Any] | None = None,
+    ) -> None:
         """Prepares init for an internal Sonex flow.
 
         Typical use: Use this helper when nearby code needs init without duplicating the local rules.
@@ -1360,6 +1372,7 @@ class SpotifySetupSession:
         self.client_id: str | None = None
         self.step = "client_id"
         self.oauth_task: asyncio.Task[None] | None = None
+        self.on_connected = on_connected
 
     async def start(self) -> None:
         """Coordinates start for the current Sonex flow.
@@ -1533,6 +1546,10 @@ class SpotifySetupSession:
 
         data = account.get("data") if isinstance(account, dict) else {}
         product = data.get("product") if isinstance(data, dict) else "unknown"
+        if self.on_connected is not None and isinstance(data, dict):
+            callback_result = self.on_connected(data)
+            if asyncio.iscoroutine(callback_result):
+                await callback_result
         await self.ui.append_activity(
             kind="status",
             title="Spotify connected",
@@ -1552,7 +1569,12 @@ class AppleMusicSetupSession:
 
     Encapsulates apple music setup session data and behavior used by Sonex runtime flows.
     """
-    def __init__(self, ui: WebSocketUIAdapter) -> None:
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        *,
+        on_configured: Callable[[], Any] | None = None,
+    ) -> None:
         """Prepares init for an internal Sonex flow.
 
         Typical use: Use this helper when nearby code needs init without duplicating the local rules.
@@ -1561,6 +1583,7 @@ class AppleMusicSetupSession:
         """
         self.ui = ui
         self.step = "token_service_url"
+        self.on_configured = on_configured
 
     async def start(self) -> None:
         """Coordinates start for the current Sonex flow.
@@ -1658,6 +1681,10 @@ class AppleMusicSetupSession:
             active=False,
         )
         setattr(self.ui, "_apple_music_setup", None)
+        if self.on_configured is not None:
+            callback_result = self.on_configured()
+            if asyncio.iscoroutine(callback_result):
+                await callback_result
 
 
 class OpenAudioSetupSession:
@@ -3169,8 +3196,8 @@ SPOTIFY_MODE_AGENT_TOOLS = (
     "search_track",
     "spotify_play",
 )
-SPOTIFY_MODE_COMMANDS = {"apple", "bye", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend"}
-APPLE_MODE_COMMANDS = {"apple", "bye", "exit", "info", "lang", "logout", "model", "queue", "spotify"}
+SPOTIFY_MODE_COMMANDS = {"apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend"}
+APPLE_MODE_COMMANDS = {"apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "queue", "spotify"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS = 5.0
 SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS = 15.0
@@ -3938,49 +3965,46 @@ class SpotifyPlaylistSelectionSession:
 
 
 class PlayerBackendSelectionSession:
-    """Represents player backend selection session."""
+    """Render Player Sink options and delegate selection to the manager."""
 
-    def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner") -> None:
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        manager: PlayerSinkManager,
+        options: tuple[PlayerSinkOption, ...],
+    ) -> None:
         self.ui = ui
-        self.runner = runner
+        self.manager = manager
+        self.options = options
         self.confirm_id = _new_event_id("player_backend")
 
     async def start(self) -> None:
         await self.ui.append_activity(
             kind="confirm",
-            title="Player backend",
-            detail="Choose a playback backend.",
+            title="Default player",
+            detail="Choose the device default player.",
             status="pending",
             activity_id=self.confirm_id,
         )
+        choices = [
+            {
+                "value": item.sink_id,
+                "label": item.label,
+                "description": item.description,
+                "disabled": item.disabled,
+                "disabled_reason": item.disabled_reason,
+            }
+            for item in self.options
+        ]
+        choices.append({"value": "deny", "label": "Cancel"})
         await self.ui.ask_confirm(
             {
                 "type": "confirm",
                 "id": self.confirm_id,
                 "tool_name": "local_playback_player",
                 "tool_args": {"stage": "player_backend_selection"},
-                "message": "Choose a playback backend",
-                "choices": [
-                    {
-                        "value": "auto",
-                        "label": "🎧 auto",
-                        "description": "use the default stable mpv backend",
-                    },
-                    {
-                        "value": "mpv",
-                        "label": "🎧 mpv",
-                        "description": "use mpv explicitly",
-                    },
-                    {
-                        "value": "cvlc",
-                        "label": "📻 VLC",
-                        "description": "use VLC only for manual diagnostics",
-                    },
-                    {
-                        "value": "deny",
-                        "label": "🚫 Cancel",
-                    },
-                ],
+                "message": "Choose the default player",
+                "choices": choices,
             }
         )
 
@@ -3989,110 +4013,130 @@ class PlayerBackendSelectionSession:
 
     async def handle_choice(self, decision: Any) -> None:
         setattr(self.ui, "_player_backend_selection", None)
-        backend = str(decision or "deny").strip().lower()
-        if backend == "deny":
-            message = "Playback backend unchanged."
+        sink_id = str(decision or "deny").strip().casefold()
+        option = next((item for item in self.options if item.sink_id == sink_id), None)
+        if sink_id == "deny" or option is None or option.disabled:
+            message = "Default player unchanged."
             await self.ui.append_system_message(message)
-            await self.ui.append_activity(kind="status", title="Player backend", detail=message, status="success")
-            return
-        if backend not in LOCAL_PLAYBACK_BACKENDS:
-            message = "Playback backend unchanged."
-            await self.ui.append_system_message(message)
-            await self.ui.append_activity(kind="status", title="Player backend", detail=message, status="success")
+            await self.ui.append_activity(kind="status", title="Default player", detail=message, status="success")
             return
 
-        tool_name = "local_playback_player"
         try:
-            result = registry.invoke(tool_name, {"backend": backend})
+            result = await self.manager.select(sink_id)
         except Exception as exc:
-            result = {
-                "status": "fail",
-                "tool": tool_name,
-                "message": sanitize_error_message(exc),
-                "error_code": "PLAYBACK_CONTROL_FAILED",
-                "data": {},
-            }
-        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
-
-
-class PlayerBackendSelectionSession:
-    """Owns the local playback backend picker."""
-
-    def __init__(self, ui: WebSocketUIAdapter, runner: "WebSocketRunner") -> None:
-        self.ui = ui
-        self.runner = runner
-        self.confirm_id = _new_event_id("player_backend")
-
-    async def start(self) -> None:
-        await self.ui.append_activity(
-            kind="confirm",
-            title="Player backend",
-            detail="Choose playback backend.",
-            status="pending",
-            activity_id=self.confirm_id,
-        )
-        await self.ui.ask_confirm(
-            {
-                "type": "confirm",
-                "id": self.confirm_id,
-                "tool_name": "local_playback_player",
-                "tool_args": {"stage": "player_backend_selection"},
-                "message": "Choose a playback backend",
-                "choices": [
-                    {
-                        "value": "auto",
-                        "label": "🎧 auto",
-                        "description": "use the default stable mpv backend",
-                    },
-                    {
-                        "value": "mpv",
-                        "label": "🎧 mpv",
-                        "description": "use mpv explicitly",
-                    },
-                    {
-                        "value": "cvlc",
-                        "label": "📻 VLC",
-                        "description": "use VLC only for manual diagnostics",
-                    },
-                    {
-                        "value": "deny",
-                        "label": "🚫 Cancel",
-                    },
-                ],
-            }
-        )
-
-    def owns_confirm(self, confirm_id: str) -> bool:
-        return confirm_id == self.confirm_id
-
-    async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_player_backend_selection", None)
-        backend = str(decision or "deny").strip().lower()
-        if backend == "deny" or backend not in LOCAL_PLAYBACK_BACKENDS:
-            message = "Playback backend unchanged."
-            await self.ui.append_system_message(message)
-            await self.ui.append_activity(kind="status", title="Player backend", detail=message, status="success")
-            return
-
-        tool_name = "local_playback_player"
-        try:
-            result = registry.invoke(tool_name, {"backend": backend})
-        except Exception as exc:
-            result = {
-                "status": "fail",
-                "tool": tool_name,
-                "message": sanitize_error_message(exc),
-                "error_code": "PLAYBACK_CONTROL_FAILED",
-                "data": {},
-            }
-        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
-        if isinstance(result, dict) and result.get("status") == "success":
-            data = result.get("data")
-            result_data = data if isinstance(data, dict) else {}
-            selected_backend = result_data.get("backend") or backend
-            await self.ui.append_system_message(
-                format_player_feedback(selected_backend)
+            message = sanitize_error_message(exc)
+            await self.ui.append_activity(
+                kind="error",
+                title="Default player",
+                detail=message,
+                status="error",
             )
+            await self.ui.append_system_message(message)
+            return
+        if result.status == "failed":
+            await self.ui.append_activity(
+                kind="error",
+                title="Default player",
+                detail=result.message,
+                status="error",
+            )
+            await self.ui.append_system_message(result.message)
+            return
+        await self.ui.append_activity(
+            kind="status",
+            title="Default player",
+            detail=result.message,
+            status="success",
+        )
+        if result.status == "deferred":
+            await self.ui.append_system_message(result.message)
+            return
+        await self.ui.append_system_message(format_player_feedback(option.label))
+
+
+class ConnectionSelectionSession:
+    """Own the interactive `/connect` provider chooser."""
+
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        runner: "WebSocketRunner",
+        manager: MusicConnectionManager,
+    ) -> None:
+        self.ui = ui
+        self.runner = runner
+        self.manager = manager
+        self.confirm_id = _new_event_id("music_connection")
+
+    async def start(self) -> None:
+        choices: list[dict[str, object]] = []
+        for provider_id, label, base_description in (
+            ("spotify", "Spotify", "Connect a Spotify account with official OAuth."),
+            (
+                "apple_music",
+                "Apple Music",
+                "Connect Apple Music through the secure MusicKit companion.",
+            ),
+        ):
+            record = self.manager.record(provider_id)
+            description = base_description
+            if record is not None:
+                account = f" · {record.account_label}" if record.account_label else ""
+                status = "Connected" if record.status == "connected" else "Unavailable"
+                description = f"{status}{account}. Select to check the connection."
+            choices.append(
+                {
+                    "value": provider_id,
+                    "label": label,
+                    "description": description,
+                }
+            )
+        choices.append({"value": "deny", "label": "Cancel"})
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Music connections",
+            detail="Choose a music account to connect or check.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "type": "confirm",
+                "id": self.confirm_id,
+                "tool_name": "music_connection",
+                "tool_args": {"stage": "music_connection_selection"},
+                "message": "Choose a music account",
+                "choices": choices,
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        setattr(self.ui, "_music_connection_selection", None)
+        provider_id = str(decision or "deny").strip().casefold()
+        if provider_id == "deny":
+            message = "Music connections unchanged."
+            await self.ui.append_system_message(message)
+            await self.ui.append_activity(
+                kind="status",
+                title="Music connections",
+                detail=message,
+                status="success",
+            )
+            return
+        if provider_id not in {"spotify", "apple_music"}:
+            message = "Selected music connection is not available."
+            await self.ui.append_system_message(message)
+            await self.ui.append_activity(
+                kind="error",
+                title="Music connections",
+                detail=message,
+                status="error",
+            )
+            return
+        await self.runner._connect_music_provider(self.ui, provider_id)
 
 
 class WebSocketRunner:
@@ -4100,7 +4144,12 @@ class WebSocketRunner:
 
     Encapsulates web socket runner data and behavior used by Sonex runtime flows.
     """
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        player_sink_manager_factory: Callable[[], PlayerSinkManager] | None = None,
+        music_connection_manager_factory: Callable[[], MusicConnectionManager] = MusicConnectionManager,
+    ) -> None:
         """Init for web socket runner.
 
         Coordinates the init method behavior while preserving web socket runner state and contracts.
@@ -4111,6 +4160,17 @@ class WebSocketRunner:
         self._confirm_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.apple_mode = AppleModeService()
         self.provider_modes = ProviderModeCoordinator()
+        self._player_sink_manager_factory = (
+            player_sink_manager_factory
+            or (
+                lambda: build_player_sink_manager(
+                    available_managed=tuple(available_local_playback_backends())
+                )
+            )
+        )
+        self._player_sink_manager_instance: PlayerSinkManager | None = None
+        self._music_connection_manager_factory = music_connection_manager_factory
+        self._music_connection_manager_instance: MusicConnectionManager | None = None
 
     async def handle_ws(self, ws: WebSocket) -> None:
         """Coordinates handle ws for the current Sonex flow.
@@ -4264,6 +4324,10 @@ class WebSocketRunner:
         player_backend = getattr(ui, "_player_backend_selection", None)
         if player_backend and player_backend.owns_confirm(confirm_id):
             await player_backend.handle_choice(decision)
+            return True
+        music_connection = getattr(ui, "_music_connection_selection", None)
+        if music_connection and music_connection.owns_confirm(confirm_id):
+            await music_connection.handle_choice(decision)
             return True
         return False
 
@@ -5265,6 +5329,10 @@ class WebSocketRunner:
             await self._handle_spotify_mode_command(ui, args)
             return
 
+        if command_name == "connect":
+            await self._handle_music_connect(ui)
+            return
+
         if command_name == "apple":
             await self._handle_apple_mode_command(ui, args)
             return
@@ -6097,9 +6165,192 @@ class WebSocketRunner:
 
         Example: await _handle_local_playback_player(ui=..., args=...) -> returns the value used by the surrounding Sonex flow.
         """
-        session = PlayerBackendSelectionSession(ui, self)
+        if self._player_sink_manager_instance is None:
+            self._player_sink_manager_instance = self._player_sink_manager_factory()
+        manager = self._player_sink_manager_instance
+        options = await manager.options()
+        if not options:
+            message = "No supported player was found. Install mpv, VLC, Clementine, Rhythmbox, or Audacious, then run /player again."
+            await ui.append_activity(
+                kind="error",
+                title="Default player",
+                detail=message,
+                status="error",
+            )
+            await ui.append_system_message(message)
+            return
+        session = PlayerBackendSelectionSession(ui, manager, options)
         setattr(ui, "_player_backend_selection", session)
         await session.start()
+
+    async def _handle_music_connect(self, ui: WebSocketUIAdapter) -> None:
+        if self._music_connection_manager_instance is None:
+            self._music_connection_manager_instance = self._music_connection_manager_factory()
+        session = ConnectionSelectionSession(
+            ui,
+            self,
+            self._music_connection_manager_instance,
+        )
+        setattr(ui, "_music_connection_selection", session)
+        await session.start()
+
+    async def _connect_music_provider(
+        self,
+        ui: WebSocketUIAdapter,
+        provider_id: str,
+    ) -> None:
+        if self._music_connection_manager_instance is None:
+            self._music_connection_manager_instance = self._music_connection_manager_factory()
+        manager = self._music_connection_manager_instance
+        if provider_id == "spotify":
+            try:
+                token = load_spotify_token()
+            except Exception:
+                token = None
+            if token is None:
+                async def remember_spotify(data: dict[str, Any]) -> None:
+                    account_label = str(
+                        data.get("display_name")
+                        or data.get("email")
+                        or data.get("id")
+                        or "Spotify account"
+                    )
+                    manager.mark_connected("spotify", account_label=account_label)
+
+                setup = SpotifySetupSession(ui, on_connected=remember_spotify)
+                setattr(ui, "_spotify_setup", setup)
+                await setup.start()
+                return
+            account = await asyncio.to_thread(spotify_account, requests_timeout=1.5)
+            if _is_failed_tool_result(account):
+                message = _friendly_runtime_error_message(
+                    account,
+                    fallback="Spotify account check failed.",
+                )
+                if manager.record("spotify") is not None:
+                    manager.mark_unavailable("spotify", reason=message)
+                await ui.append_activity(
+                    kind="error",
+                    title="Spotify connection",
+                    detail=message,
+                    status="error",
+                )
+                await ui.append_system_message(message)
+                return
+            data = account.get("data") if isinstance(account, dict) else {}
+            if not isinstance(data, dict) or not data.get("logged_in"):
+                setup = SpotifySetupSession(ui)
+                setattr(ui, "_spotify_setup", setup)
+                await setup.start()
+                return
+            account_label = str(
+                data.get("display_name")
+                or data.get("email")
+                or data.get("id")
+                or "Spotify account"
+            )
+            manager.mark_connected("spotify", account_label=account_label)
+            message = f"Spotify connected · {account_label}."
+            await ui.append_activity(
+                kind="status",
+                title="Spotify connection",
+                detail=message,
+                status="success",
+            )
+            await ui.append_system_message(message)
+            return
+
+        if provider_id != "apple_music":
+            message = "Selected music connection is not available."
+            await ui.append_activity(
+                kind="error",
+                title="Music connections",
+                detail=message,
+                status="error",
+            )
+            await ui.append_system_message(message)
+            return
+
+        snapshot = self.apple_mode.snapshot
+        if not (
+            snapshot.connected
+            and snapshot.authorized
+            and snapshot.can_play
+            and snapshot.storefront
+        ):
+            try:
+                entry = await self.apple_mode.begin_entry(open_browser=True)
+            except DeveloperTokenNotConfiguredError:
+                setup = AppleMusicSetupSession(
+                    ui,
+                    on_configured=lambda: self._connect_music_provider(
+                        ui,
+                        "apple_music",
+                    ),
+                )
+                setattr(ui, "_apple_music_setup", setup)
+                await setup.start()
+                return
+            except Exception as exc:
+                message = sanitize_error_message(exc)
+                if manager.record("apple_music") is not None:
+                    manager.mark_unavailable("apple_music", reason=message)
+                await ui.append_activity(
+                    kind="error",
+                    title="Apple Music connection",
+                    detail=message,
+                    status="error",
+                )
+                await ui.append_system_message(message)
+                return
+            if not entry.already_ready:
+                browser_detail = (
+                    "Authorize Apple Music in the browser window."
+                    if entry.browser_opened
+                    else f"Open this local URL in a desktop browser: {entry.url}"
+                )
+                await ui.send_auth_setup(
+                    provider="apple_music",
+                    step="companion_wait",
+                    title="Apple Music connection",
+                    message=browser_detail,
+                    active=True,
+                )
+            try:
+                snapshot = await self.apple_mode.complete_entry()
+            except Exception as exc:
+                message = sanitize_error_message(exc)
+                await ui.send_auth_setup(
+                    provider="apple_music",
+                    step="companion_done",
+                    title="Apple Music connection",
+                    message=message,
+                    active=False,
+                )
+                await ui.append_activity(
+                    kind="error",
+                    title="Apple Music connection",
+                    detail=message,
+                    status="error",
+                )
+                return
+        account_label = f"Storefront {snapshot.storefront.upper()}"
+        manager.mark_connected("apple_music", account_label=account_label)
+        await ui.send_auth_setup(
+            provider="apple_music",
+            step="companion_done",
+            title="Apple Music connection",
+            message="Apple Music is connected.",
+            active=False,
+        )
+        message = f"Apple Music connected · {account_label}."
+        await ui.append_activity(
+            kind="status",
+            title="Apple Music connection",
+            detail=message,
+            status="success",
+        )
+        await ui.append_system_message(message)
 
     async def _handle_logout(self, ui: WebSocketUIAdapter, args: str = "") -> None:
         """Prepares handle logout for an internal Sonex flow.

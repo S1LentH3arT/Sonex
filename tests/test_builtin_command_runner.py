@@ -25,6 +25,7 @@ from src.api.ws_runner import WebSocketRunner, _decorate_player_state, _player_s
 from src.auth.models import OAuthToken
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
+from src.music.player_sinks import PlayerSelectionResult
 from src.thinking.config import ThinkingConfig
 
 
@@ -376,7 +377,7 @@ class PlayerBackendWebSocket:
             )
             if confirm_id:
                 self._sent_confirm_result = True
-                return json.dumps({"type": "confirm_result", "id": confirm_id, "decision": "cvlc"})
+                return json.dumps({"type": "confirm_result", "id": confirm_id, "decision": "managed:cvlc"})
         await asyncio.sleep(0)
         raise WebSocketDisconnect()
 
@@ -410,6 +411,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             return_value=Path(self._spotify_sync_home.name) / "library_sync.json",
         )
         self._spotify_sync_path_patch.start()
+        self._player_home_patch = patch(
+            "src.music.player_sinks.sonex_home",
+            return_value=Path(self._spotify_sync_home.name),
+        )
+        self._player_home_patch.start()
         self._metadata_search_patch = patch(
             "src.api.ws_runner.search_track_metadata_candidates",
             return_value={"candidates": [], "source_attempts": []},
@@ -420,6 +426,29 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             return_value=[],
         )
         self._online_audio_search_patch.start()
+        self._player_detection_patch = patch(
+            "src.api.ws_runner.available_local_playback_backends",
+            return_value=[
+                {
+                    "backend": "mpv",
+                    "label": "mpv",
+                    "description": "Controllable local player for stable background playback.",
+                    "executable": "/usr/bin/mpv",
+                },
+                {
+                    "backend": "cvlc",
+                    "label": "VLC",
+                    "description": "Controllable VLC playback through its RC interface.",
+                    "executable": "/usr/bin/cvlc",
+                },
+            ],
+        )
+        self._player_detection = self._player_detection_patch.start()
+        self._managed_player_validation_patch = patch(
+            "src.music.player_sink_runtime._validate_managed_player",
+            return_value=True,
+        )
+        self._managed_player_validation_patch.start()
         self._to_thread_patch = patch(
             "src.api.ws_runner.asyncio.to_thread",
             side_effect=_to_thread_inline,
@@ -429,9 +458,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         """Restore Spotify sync state resolution and remove temporary data."""
         self._to_thread_patch.stop()
+        self._player_detection_patch.stop()
+        self._managed_player_validation_patch.stop()
         self._online_audio_search_patch.stop()
         self._metadata_search_patch.stop()
         self._spotify_sync_path_patch.stop()
+        self._player_home_patch.stop()
         self._spotify_sync_home.cleanup()
 
     async def test_auth_resume_reenters_music_router_without_duplicate_user_message(self) -> None:
@@ -3046,12 +3078,10 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        await runner._handle_internal_command(ui, "/player mpv")
-        session = getattr(ui, "_player_backend_selection")
         with patch("src.api.ws_runner.registry.invoke", return_value=result), \
                 patch("src.api.ws_runner.track_in_playlist", return_value=True), \
                 patch("src.api.ws_runner.track_in_any_playlist", return_value=True):
-            await session.handle_choice("mpv")
+            await runner._sync_tool_result_ui(ui, "local_playback_status", result)
 
         player_events = [event for event in ui.events if event.get("type") == "player"]
         self.assertTrue(player_events[-1]["state"]["is_liked"])
@@ -3567,15 +3597,14 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(confirm_events[-1]["tool_args"]["stage"], "player_backend_selection")
         self.assertEqual(
             [choice["value"] for choice in confirm_events[-1]["choices"]],
-            ["auto", "mpv", "cvlc", "deny"],
+            ["managed:mpv", "managed:cvlc", "deny"],
         )
-        self.assertEqual([choice["label"] for choice in confirm_events[-1]["choices"]], ["🎧 auto", "🎧 mpv", "📻 VLC", "🚫 Cancel"])
+        self.assertEqual([choice["label"] for choice in confirm_events[-1]["choices"]], ["mpv", "VLC", "Cancel"])
         self.assertEqual(
             [choice.get("description") for choice in confirm_events[-1]["choices"]],
             [
-                "use the default stable mpv backend",
-                "use mpv explicitly",
-                "use VLC only for manual diagnostics",
+                "Managed playback with Sonex controls.",
+                "Managed playback with Sonex controls.",
                 None,
             ],
         )
@@ -3601,31 +3630,52 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(confirm_events)
         self.assertEqual(
             [choice["value"] for choice in confirm_events[-1]["choices"]],
-            ["auto", "mpv", "cvlc", "deny"],
+            ["managed:mpv", "managed:cvlc", "deny"],
         )
         self.assertFalse([event for event in ui.events if event.get("status") == "error"])
 
-    async def test_player_backend_choice_invokes_tool_and_syncs_result(self) -> None:
+    async def test_player_detection_is_cached_for_the_websocket_session(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/player")
+        await runner._handle_user_input(ui, "/player")
+
+        self._player_detection.assert_called_once_with()
+        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
+        self.assertEqual(len(confirm_events), 2)
+
+    async def test_player_command_reports_when_no_supported_application_is_installed(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        self._player_detection.return_value = []
+
+        await runner._handle_user_input(ui, "/player")
+
+        self.assertFalse([event for event in ui.events if event.get("type") == "confirm"])
+        self.assertIsNone(getattr(ui, "_player_backend_selection", None))
+        self.assertTrue(any(
+            event.get("type") == "activity"
+            and event.get("status") == "error"
+            and "Install mpv, VLC" in str(event.get("detail"))
+            for event in ui.events
+        ))
+
+    async def test_player_backend_choice_persists_manager_selection(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
-        result = {
-            "status": "success",
-            "tool": "local_playback_player",
-            "message": "Local playback backend set to cvlc.",
-            "data": {"backend": "cvlc"},
-        }
-
         await runner._handle_user_input(ui, "/player")
         session = getattr(ui, "_player_backend_selection")
-        with patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke:
-            await session.handle_choice("cvlc")
+        with patch("src.api.ws_runner.registry.invoke") as invoke:
+            await session.handle_choice("managed:cvlc")
 
-        invoke.assert_called_once_with("local_playback_player", {"backend": "cvlc"})
+        invoke.assert_not_called()
+        self.assertEqual(session.manager.default_sink_id, "managed:cvlc")
         self.assertIsNone(getattr(ui, "_player_backend_selection"))
         activity_events = [event for event in ui.events if event.get("type") == "activity"]
         self.assertEqual(activity_events[-1]["status"], "success")
-        self.assertIn("cvlc", activity_events[-1]["detail"])
+        self.assertIn("VLC", activity_events[-1]["detail"])
         self.assertTrue(any(
             event.get("type") == "chat"
             and event.get("role") == "agent"
@@ -3639,16 +3689,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             for event in ui.events
         ))
 
-    async def test_player_backend_confirm_result_from_websocket_invokes_tool(self) -> None:
+    async def test_player_backend_confirm_result_from_websocket_persists_selection(self) -> None:
         runner = WebSocketRunner()
         ws = PlayerBackendWebSocket()
-        result = {
-            "status": "success",
-            "tool": "local_playback_player",
-            "message": "Local playback backend set to cvlc.",
-            "data": {"backend": "cvlc"},
-        }
-
         async def idle_sync(_ui: object) -> None:
             while True:
                 await asyncio.sleep(60)
@@ -3656,15 +3699,19 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
                 patch.object(runner, "_restore_persistent_spotify_mode", new=AsyncMock()), \
                 patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
-                patch("src.api.ws_runner.registry.invoke", return_value=result) as invoke:
+                patch("src.api.ws_runner.registry.invoke") as invoke:
             await runner.handle_ws(ws)  # type: ignore[arg-type]
 
-        invoke.assert_called_once_with("local_playback_player", {"backend": "cvlc"})
+        invoke.assert_not_called()
+        self.assertEqual(
+            runner._player_sink_manager_instance.default_sink_id,  # type: ignore[union-attr]
+            "managed:cvlc",
+        )
         self.assertTrue(any(event.get("type") == "confirm" for event in ws.sent))
         queued = []
         while not runner._confirm_queue.empty():
             queued.append(runner._confirm_queue.get_nowait())
-        self.assertNotIn("cvlc", [decision for _confirm_id, decision in queued])
+        self.assertNotIn("managed:cvlc", [decision for _confirm_id, decision in queued])
 
     async def test_player_backend_cancel_does_not_invoke_tool(self) -> None:
         runner = WebSocketRunner()
@@ -3696,7 +3743,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         invoke.assert_not_called()
         self.assertTrue(any(
             event.get("type") == "chat"
-            and event.get("text") == "Playback backend unchanged."
+            and event.get("text") == "Default player unchanged."
             for event in ui.events
         ))
         self.assertFalse(any(
@@ -3708,21 +3755,15 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
     async def test_player_backend_failure_has_no_system_feedback(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
-        failure = {
-            "status": "fail",
-            "tool": "local_playback_player",
-            "message": "Backend selection failed.",
-            "error_code": "PLAYBACK_CONTROL_FAILED",
-            "data": {},
-        }
-
         await runner._handle_user_input(ui, "/player")
         session = getattr(ui, "_player_backend_selection")
-        with patch(
-            "src.api.ws_runner.registry.invoke",
-            return_value=failure,
-        ):
-            await session.handle_choice("mpv")
+        session.manager.select = AsyncMock(return_value=PlayerSelectionResult(
+            status="failed",
+            sink_id="managed:mpv",
+            message="Backend selection failed.",
+            previous_sink_id=None,
+        ))
+        await session.handle_choice("managed:mpv")
 
         self.assertFalse(any(
             event.get("tone") == "system"
@@ -4259,8 +4300,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 "name": "Sorry",
                 "player": "auto",
                 "choices": [
-                    {"value": "mpv", "label": "🎧 mpv"},
-                    {"value": "cvlc", "label": "📻 VLC"},
+                    {"value": "mpv", "label": "mpv"},
+                    {"value": "cvlc", "label": "VLC"},
                     {"value": "deny", "label": "取消"},
                 ],
             },
@@ -4328,7 +4369,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 "name": "Sorry",
                 "player": "auto",
                 "choices": [
-                    {"value": "mpv", "label": "🎧 mpv"},
+                    {"value": "mpv", "label": "mpv"},
                     {"value": "deny", "label": "取消"},
                 ],
             },
@@ -4389,7 +4430,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 "name": "Sorry",
                 "player": "auto",
                 "choices": [
-                    {"value": "mpv", "label": "🎧 mpv"},
+                    {"value": "mpv", "label": "mpv"},
                     {"value": "deny", "label": "取消"},
                 ],
             },
@@ -4753,8 +4794,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 "player_label": "auto local player (mpv default)",
                 "confirm_message": "Sonex wanna open auto local player (mpv default), confirm?",
                 "choices": [
-                    {"value": "mpv", "label": "🎧 mpv", "description": "default controllable backend for smoother background playback."},
-                    {"value": "cvlc", "label": "📻 VLC", "description": "manual diagnostic backend; use only when you explicitly want VLC."},
+                    {"value": "mpv", "label": "mpv", "description": "default controllable backend for smoother background playback."},
+                    {"value": "cvlc", "label": "VLC", "description": "manual diagnostic backend; use only when you explicitly want VLC."},
                     {"value": "deny", "label": "取消"},
                 ],
             },

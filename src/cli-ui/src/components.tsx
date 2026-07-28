@@ -5,7 +5,7 @@ import stringWidth from 'string-width';
 import { resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent } from './chat-message.js';
 import { APPLE_BLUSH, APPLE_PEARL_PINK, APPLE_SILVER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
-import { getVisibleConfirmChoices } from './confirm-choice.js';
+import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
 import { formatWorkingDirectory } from './info-banner.js';
 import { isHttpCoverSource, useCoverArt } from './hooks.js';
@@ -945,12 +945,13 @@ const CompactConfirm = ({
 }) => {
     if (!confirm) return null;
     const visibleChoices = getVisibleConfirmChoices(confirm.choices);
+    const selectedDisplayIndex = resolveConfirmChoiceDisplayIndex(confirm.choices, confirmIndex);
     const isSpotifyConfirm = spotifyTheme || confirm.tool_name === "spotify_device";
     const isSongCandidateConfirm = confirm.tool_name === "song_candidate";
 
     if (isSongCandidateConfirm) {
         const contentWidth = Math.max(1, panelWidth - 2);
-        const boundedIndex = Math.min(Math.max(confirmIndex, 0), Math.max(0, visibleChoices.length - 1));
+        const boundedIndex = selectedDisplayIndex;
 
         return (
             <PanelFrame width={panelWidth} title={confirm.message} hint="press Esc to cancel">
@@ -1010,9 +1011,11 @@ const CompactConfirm = ({
             : [
                 {
                     text: choice.label + " ".repeat(Math.max(0, CONFIRM_CHOICE_LABEL_WIDTH - stringWidth(choice.label))),
-                    color: PANEL_PRIMARY,
+                    color: choice.disabled ? PANEL_SECONDARY : PANEL_PRIMARY,
                 },
-                ...(choice.description ? [{ text: choice.description, color: PANEL_SECONDARY }] : []),
+                ...((choice.disabled_reason ?? choice.description)
+                    ? [{ text: choice.disabled_reason ?? choice.description ?? "", color: PANEL_SECONDARY }]
+                    : []),
             ],
     }));
 
@@ -1028,7 +1031,7 @@ const CompactConfirm = ({
             <PanelFrame width={panelWidth} title={confirm.message} hint={confirmCancelHint(confirm.choices)}>
                 <PanelChoiceList
                     items={playlistItems}
-                    selectedIndex={confirmIndex}
+                    selectedIndex={selectedDisplayIndex}
                     width={panelWidth}
                     spotifyTheme={isSpotifyConfirm}
                 />
@@ -1040,7 +1043,7 @@ const CompactConfirm = ({
         <PanelFrame width={panelWidth} title={confirm.message} hint={confirmCancelHint(confirm.choices)}>
             <PanelChoiceList
                 items={choiceItems}
-                selectedIndex={confirmIndex}
+                selectedIndex={selectedDisplayIndex}
                 width={panelWidth}
                 spotifyTheme={isSpotifyConfirm}
             />

@@ -20,6 +20,7 @@ export const MAX_VISIBLE_SLASH_COMMANDS = 4;
 export const MAX_VISIBLE_MODEL_CHOICES = 3;
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "bye", usage: "/bye", description: "save and exit", needsArgument: false },
+    { name: "connect", usage: "/connect", description: "connect a music account", needsArgument: false },
     { name: "exit", usage: "/exit", description: "save and exit", needsArgument: false },
     { name: "help", usage: "/help", description: "show commands", needsArgument: false },
     { name: "info", usage: "/info", description: "show runtime info", needsArgument: false },
@@ -27,7 +28,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "lang", usage: "/lang", description: "choose display language", needsArgument: false, enabled: false },
     { name: "logout", usage: "/logout", description: "sign out and exit", needsArgument: false },
     { name: "model", usage: "/model", description: "switch active model", needsArgument: false },
-    { name: "player", usage: "/player", description: "choose playback backend", needsArgument: false },
+    { name: "player", usage: "/player", description: "detect and set default player", needsArgument: false },
     { name: "playlist", usage: "/playlist [name]|save [name]", description: "browse or save playlists", needsArgument: false },
     { name: "queue", usage: "/queue", description: "show playback queue", needsArgument: false },
     { name: "random", usage: "/random", description: "play a recent song", needsArgument: false },

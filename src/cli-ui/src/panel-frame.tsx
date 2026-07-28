@@ -143,7 +143,9 @@ export const PanelChoiceList = ({
 }) => {
     if (items.length === 0) return null;
 
-    const boundedIndex = Math.min(Math.max(selectedIndex, 0), items.length - 1);
+    const boundedIndex = selectedIndex < 0
+        ? -1
+        : Math.min(selectedIndex, items.length - 1);
     const limit = Math.max(1, Math.min(visibleLimit ?? items.length, items.length));
     const maxStart = Math.max(0, items.length - limit);
     const startIndex = Math.min(Math.max(0, boundedIndex - limit + 1), maxStart);

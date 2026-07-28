@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Box, useApp, useInput, useStdin } from 'ink';
 import { upsertActivity } from './activity.js';
 import { appleModeSlashCommands, completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands, unknownSlashCommandMessage } from './commands.js';
-import { getVisibleConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
+import { getSelectableConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
 import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
@@ -130,8 +130,8 @@ export const App: React.FC<{
         && !matchingSlashCommand(input)
     );
     const selectedSlashCommand = slashSuggestions[Math.min(slashIndex, Math.max(0, slashSuggestions.length - 1))];
-    const visibleConfirmChoices = React.useMemo(() => confirm ? getVisibleConfirmChoices(confirm.choices) : [], [confirm]);
-    const selectedConfirmChoice = visibleConfirmChoices[Math.min(confirmIndex, Math.max(0, visibleConfirmChoices.length - 1))] ?? null;
+    const selectableConfirmChoices = React.useMemo(() => confirm ? getSelectableConfirmChoices(confirm.choices) : [], [confirm]);
+    const selectedConfirmChoice = selectableConfirmChoices[Math.min(confirmIndex, Math.max(0, selectableConfirmChoices.length - 1))] ?? null;
     const selectedConfirmInput = selectedConfirmChoice?.input ?? null;
     const miniVisible = activeRegion === "miniPlayer";
     const spotifyImmersiveVisible = activeRegion === "spotifyImmersive" || activeRegion === "providerImmersive";
@@ -765,7 +765,7 @@ export const App: React.FC<{
                 setConfirm(null);
                 return;
             }
-            const decision = resolveConfirmDecisionFromInput(text, visibleConfirmChoices);
+            const decision = resolveConfirmDecisionFromInput(text, selectableConfirmChoices);
             if (!decision) return;
             setInput("");
             send({ type: "confirm_result", id: confirm.id, decision });
@@ -855,7 +855,7 @@ export const App: React.FC<{
                 showError(API_NOT_RUNNING_MESSAGE, API_NOT_RUNNING_DETAIL);
             }
         }
-    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation, visibleConfirmChoices]);
+    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -958,9 +958,9 @@ export const App: React.FC<{
             setConfirmIndex((prev) => Math.max(0, prev - 1));
         } else if (key.downArrow) {
             setInput("");
-            setConfirmIndex((prev) => visibleConfirmChoices.length > 0 ? Math.min(visibleConfirmChoices.length - 1, prev + 1) : 0);
+            setConfirmIndex((prev) => selectableConfirmChoices.length > 0 ? Math.min(selectableConfirmChoices.length - 1, prev + 1) : 0);
         } else if (key.return) {
-            if (visibleConfirmChoices.length === 0) return;
+            if (selectableConfirmChoices.length === 0) return;
             if (selectedConfirmChoice?.input) return;
             send({
                 type: "confirm_result",

@@ -101,6 +101,9 @@ assert.doesNotMatch(songCandidateBody, /borderStyle=|selectedBackground|trailing
 
 // Playlist and generic confirms share the same frame while retaining domain formatting.
 assert.match(compactConfirmBody, /const isSpotifyConfirm = spotifyTheme \|\| confirm\.tool_name === "spotify_device"/);
+assert.match(compactConfirmBody, /resolveConfirmChoiceDisplayIndex\(confirm\.choices, confirmIndex\)/);
+assert.match(compactConfirmBody, /choice\.disabled_reason \?\? choice\.description/);
+assert.match(compactConfirmBody, /color: choice\.disabled \? PANEL_SECONDARY : PANEL_PRIMARY/);
 assert.match(compactConfirmBody, /if \(confirm\.tool_name === "playlist_browse"\)/);
 assert.match(compactConfirmBody, /formatPlaylistBrowseName\(choice\.label\)/);
 assert.match(compactConfirmBody, /playlistBrowseTrackCount\(choice\)/);
@@ -163,9 +166,9 @@ assert.match(
     appSource,
     /evt\.active === false[\s\S]*evt\.step === "model"[\s\S]*evt\.provider === "apple_music"[\s\S]*evt\.step === "companion_done" \|\| evt\.step === "cancelled"[\s\S]*setAuthSetup\(null\)/,
 );
-assert.match(appSource, /const visibleConfirmChoices = React\.useMemo\(\(\) => confirm \? getVisibleConfirmChoices\(confirm\.choices\) : \[\], \[confirm\]\)/);
-assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, visibleConfirmChoices\)/);
-assert.match(appSource, /setConfirmIndex\(\(prev\) => visibleConfirmChoices\.length > 0 \? Math\.min\(visibleConfirmChoices\.length - 1, prev \+ 1\) : 0\)/);
+assert.match(appSource, /const selectableConfirmChoices = React\.useMemo\(\(\) => confirm \? getSelectableConfirmChoices\(confirm\.choices\) : \[\], \[confirm\]\)/);
+assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, selectableConfirmChoices\)/);
+assert.match(appSource, /setConfirmIndex\(\(prev\) => selectableConfirmChoices\.length > 0 \? Math\.min\(selectableConfirmChoices\.length - 1, prev \+ 1\) : 0\)/);
 assert.match(appSource, /const isLoginScreenActive = isGenericAuthSetup\(authSetup\) && !isModelPanelActive/);
 assert.match(appSource, /completeSlashCommand\(selectedHelpCommand\)/);
 assert.match(appSource, /case "spotify_mode":/);

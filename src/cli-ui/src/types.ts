@@ -76,6 +76,8 @@ export type ConfirmChoice = {
     value: string;
     label: string;
     description?: string;
+    disabled?: boolean;
+    disabled_reason?: string;
     display?: ConfirmChoiceDisplay;
     track_count?: number;
     input?: {
