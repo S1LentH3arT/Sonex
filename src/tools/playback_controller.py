@@ -749,9 +749,9 @@ class LocalPlaybackController:
         """
         requested_backend = self._normalize_backend(player or "auto")
         backend = (
-            self.player_backend
-            if self.player_backend != "auto"
-            else requested_backend
+            requested_backend
+            if requested_backend != "auto"
+            else self.player_backend
         )
         if self._adapter is not None:
             try:
@@ -913,11 +913,8 @@ controller = LocalPlaybackController()
 
 
 def resolve_local_playback_backend(player: str = "auto") -> PlayerBackend:
-    """Resolve a tool-supplied player through the configured default."""
-    requested = controller._normalize_backend(player)
-    if controller.player_backend != "auto":
-        return controller.player_backend
-    return requested
+    """Normalize a tool-supplied player without consuming the ``auto`` route."""
+    return controller._normalize_backend(player)
 
 
 def start_local_playback(
@@ -951,7 +948,17 @@ def start_local_playback(
                     "or explicitly choose mpv for this playback."
                 ),
                 error_code="DEFAULT_PLAYER_FAILED",
-                data={**metadata, "source": source, "player": player},
+                data={
+                    **metadata,
+                    "source": source,
+                    "player": player,
+                    "player_recovery": {
+                        "source_url": source_url,
+                        "source": source,
+                        "metadata": metadata,
+                        "success_message": success_message,
+                    },
+                },
             ).to_dict()
         if routed is not None:
             return ToolResult.success(

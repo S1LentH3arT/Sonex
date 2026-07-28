@@ -35,6 +35,7 @@ class ManagedPlayerSinkAdapter:
         play_managed: Callable[[str, str, dict[str, object]], dict[str, object]],
         validate_managed: Callable[[str], bool] | None = None,
         control_managed: Callable[[str, str, int | None], dict[str, object]] | None = None,
+        is_active: Callable[[str], bool] | None = None,
     ) -> None:
         self.backend = backend
         self.executable_names = executable_names
@@ -42,6 +43,7 @@ class ManagedPlayerSinkAdapter:
         self._play_managed = play_managed
         self._validate_managed = validate_managed
         self._control_managed = control_managed
+        self._is_active = is_active or (lambda _backend: False)
         self.descriptor = PlayerSinkDescriptor(
             sink_id=f"managed:{backend}",
             display_name=display_name,
@@ -56,9 +58,10 @@ class ManagedPlayerSinkAdapter:
 
     async def probe(self) -> PlayerSinkProbe:
         installed = self._executable() is not None
+        running = installed and self._is_active(self.backend)
         return PlayerSinkProbe(
             installed=installed,
-            running=False,
+            running=running,
             controllable=installed,
             injectable=installed,
             accepted_asset_kinds=("file_uri", "public_http"),
@@ -69,6 +72,10 @@ class ManagedPlayerSinkAdapter:
         if self._executable() is None:
             return PlayerSinkValidation.failed(
                 f"{self.descriptor.display_name} is no longer available."
+            )
+        if self._is_active(self.backend):
+            return PlayerSinkValidation.deferred(
+                "The player is active. Sonex will validate it on the next playback."
             )
         if self._validate_managed is not None:
             valid = self._validate_managed(self.backend)
@@ -109,6 +116,7 @@ class CommandPlayerSinkAdapter:
         build_control_command: (
             Callable[[str, str, int | None], tuple[str, ...] | None] | None
         ) = None,
+        can_control: bool = True,
     ) -> None:
         self.descriptor = PlayerSinkDescriptor(sink_id, display_name, description)
         self.executable_names = executable_names
@@ -118,6 +126,8 @@ class CommandPlayerSinkAdapter:
         self._is_active = is_active
         self._validate_injection = validate_injection
         self._build_control_command = build_control_command
+        self._can_control = can_control
+        self._last_state: dict[str, object] = {}
 
     def _executable(self) -> str | None:
         return next(
@@ -131,7 +141,7 @@ class CommandPlayerSinkAdapter:
         return PlayerSinkProbe(
             installed=installed,
             running=running,
-            controllable=installed,
+            controllable=installed and self._can_control,
             injectable=installed,
             accepted_asset_kinds=("file_uri", "public_http"),
             supported_uri_schemes=("file", "http", "https"),
@@ -167,19 +177,26 @@ class CommandPlayerSinkAdapter:
             "uri": asset.uri,
             "player": self.descriptor.display_name,
         }
+        self._last_state = dict(state)
         return PlayerSinkPlayback(sink_id=self.descriptor.sink_id, state=state)
 
     async def control(self, action: str, value: int | None = None) -> PlayerSinkPlayback:
         executable = self._executable()
         if executable is None:
             raise RuntimeError(f"{self.descriptor.display_name} is no longer available.")
+        if not self._can_control:
+            raise RuntimeError(
+                f"{self.descriptor.display_name} does not expose a supported control interface."
+            )
         if action == "status":
+            state = {
+                "player": self.descriptor.display_name,
+                **self._last_state,
+            }
+            state.setdefault("is_playing", False)
             return PlayerSinkPlayback(
                 sink_id=self.descriptor.sink_id,
-                state={
-                    "player": self.descriptor.display_name,
-                    "is_playing": self._is_active(),
-                },
+                state=state,
             )
         command = (
             self._build_control_command(executable, action, value)
@@ -191,13 +208,19 @@ class CommandPlayerSinkAdapter:
                 f"{self.descriptor.display_name} does not support the {action} control."
             )
         self._launch(command)
+        state: dict[str, object] = {"player": self.descriptor.display_name}
+        if action == "pause":
+            state["is_playing"] = False
+        elif action == "resume":
+            state["is_playing"] = True
+        elif action == "stop":
+            state.update(is_playing=False, ended=True)
+        elif action == "volume":
+            state["volume_percent"] = value
+        self._last_state.update(state)
         return PlayerSinkPlayback(
             sink_id=self.descriptor.sink_id,
-            state={
-                "player": self.descriptor.display_name,
-                "is_playing": action == "resume",
-                "volume_percent": value if action == "volume" else None,
-            },
+            state=state,
         )
 
 
@@ -232,13 +255,31 @@ class MprisPlayerSinkAdapter:
     def __init__(self, client: MprisClient, service: MprisService) -> None:
         self._client = client
         self._service = service
-        suffix = service.bus_name.removeprefix("org.mpris.MediaPlayer2.").casefold()
-        suffix = re.sub(r"\.instance\d+$", "", suffix)
+        suffix = self._stable_suffix(service.bus_name)
         self.descriptor = PlayerSinkDescriptor(
             sink_id=f"mpris:{suffix}",
             display_name=service.identity or suffix,
             description="External MPRIS player.",
         )
+
+    @staticmethod
+    def _stable_suffix(bus_name: str) -> str:
+        suffix = bus_name.removeprefix("org.mpris.MediaPlayer2.").casefold()
+        return re.sub(r"\.instance\d+$", "", suffix)
+
+    async def _refresh_service(self) -> None:
+        expected = self.descriptor.sink_id.removeprefix("mpris:")
+        services = await self._client.list_services()
+        replacement = next(
+            (
+                service
+                for service in services
+                if self._stable_suffix(service.bus_name) == expected
+            ),
+            None,
+        )
+        if replacement is not None:
+            self._service = replacement
 
     async def probe(self) -> PlayerSinkProbe:
         schemes = tuple(scheme.casefold() for scheme in self._service.supported_uri_schemes)
@@ -279,7 +320,11 @@ class MprisPlayerSinkAdapter:
             raise RuntimeError(
                 f"{self.descriptor.display_name} does not support {scheme or 'local'} URIs."
             )
-        state = await self._client.open_uri(self._service.bus_name, asset.uri)
+        try:
+            state = await self._client.open_uri(self._service.bus_name, asset.uri)
+        except Exception:
+            await self._refresh_service()
+            raise
         return PlayerSinkPlayback(
             sink_id=self.descriptor.sink_id,
             state={**track, **state},

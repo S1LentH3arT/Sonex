@@ -7,6 +7,7 @@ import tempfile
 import wave
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
 from src.music.player_sink_adapters import MprisService
 
@@ -31,6 +32,24 @@ def _silent_probe_uri() -> str:
             audio.setframerate(8_000)
             audio.writeframes(b"\x00\x00" * 8_000)
     return path.as_uri()
+
+
+def _requested_uri_observed(
+    observed_uri: str,
+    requested_uri: str,
+    playback_status: str = "Playing",
+) -> bool:
+    if playback_status.casefold() != "playing":
+        return False
+    if observed_uri == requested_uri:
+        return True
+    observed = urlsplit(observed_uri)
+    requested = urlsplit(requested_uri)
+    if observed.scheme.casefold() != requested.scheme.casefold():
+        return False
+    if observed.scheme.casefold() != "file":
+        return False
+    return Path(unquote(observed.path)).resolve() == Path(unquote(requested.path)).resolve()
 
 
 class DbusNextMprisClient:
@@ -124,7 +143,7 @@ class DbusNextMprisClient:
                 metadata = _unwrap(player_properties.get("Metadata")) or {}
                 observed_url = _metadata_text(metadata, "xesam:url", "")
                 status = str(_unwrap(player_properties.get("PlaybackStatus")) or "Stopped")
-                if observed_url == uri or status.casefold() == "playing":
+                if _requested_uri_observed(observed_url, uri, status):
                     return {
                         "name": _metadata_text(metadata, "xesam:title", "External playback"),
                         "artist": _metadata_text(metadata, "xesam:artist"),

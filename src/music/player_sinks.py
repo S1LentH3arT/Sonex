@@ -138,7 +138,12 @@ class PlayerSinkManager:
                 continue
             if not probe.installed and not probe.running:
                 continue
-            disabled_reason = None if probe.injectable else "Remote control only"
+            if not probe.injectable:
+                disabled_reason = "Remote control only"
+            elif not probe.controllable:
+                disabled_reason = "Playback control unavailable"
+            else:
+                disabled_reason = None
             options.append(
                 PlayerSinkOption(
                     sink_id=adapter.descriptor.sink_id,
@@ -189,6 +194,13 @@ class PlayerSinkManager:
                 message="This application can be controlled but cannot receive Sonex audio.",
                 previous_sink_id=previous,
             )
+        if not probe.controllable:
+            return PlayerSelectionResult(
+                status="failed",
+                sink_id=sink_id,
+                message="This application does not expose a supported playback control interface.",
+                previous_sink_id=previous,
+            )
 
         validation = await adapter.validate()
         if validation.status == "succeeded":
@@ -236,7 +248,19 @@ class PlayerSinkManager:
                 f"{adapter.descriptor.display_name} cannot play {asset.kind.replace('_', ' ')} assets."
             )
 
-        playback = await adapter.play(asset, track)
+        try:
+            playback = await adapter.play(asset, track)
+        except Exception:
+            retry_probe = await asyncio.wait_for(
+                adapter.probe(),
+                timeout=self._probe_timeout_seconds,
+            )
+            if (
+                not retry_probe.injectable
+                or asset.kind not in retry_probe.accepted_asset_kinds
+            ):
+                raise
+            playback = await adapter.play(asset, track)
         if self._pending_sink_id == sink_id:
             self._default_sink_id = sink_id
             self._pending_sink_id = None

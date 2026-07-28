@@ -24,6 +24,7 @@ class _FakeSinkAdapter:
         validation: PlayerSinkValidation | None = None,
         playback: PlayerSinkPlayback | None = None,
         probe_error: Exception | None = None,
+        play_failures: int = 0,
     ) -> None:
         self.descriptor = descriptor
         self._probe = probe
@@ -33,6 +34,7 @@ class _FakeSinkAdapter:
             state={"is_playing": True},
         )
         self._probe_error = probe_error
+        self._play_failures = play_failures
         self.probe_calls = 0
         self.validate_calls = 0
         self.play_calls = 0
@@ -51,6 +53,8 @@ class _FakeSinkAdapter:
 
     async def play(self, asset: PlayerAsset, track: dict[str, object]) -> PlayerSinkPlayback:
         self.play_calls += 1
+        if self.play_calls <= self._play_failures:
+            raise RuntimeError("player dispatch failed")
         return self._playback
 
     async def control(self, action: str, value: int | None = None) -> PlayerSinkPlayback:
@@ -164,6 +168,35 @@ class PlayerSinkManagerTests(unittest.IsolatedAsyncioTestCase):
                 ],
             )
 
+    async def test_options_disable_injectable_player_without_control_interface(self) -> None:
+        with TemporaryDirectory() as temporary:
+            adapter = _FakeSinkAdapter(
+                PlayerSinkDescriptor(
+                    sink_id="mpris:audacious",
+                    display_name="Audacious",
+                    description="External player",
+                ),
+                PlayerSinkProbe(
+                    installed=True,
+                    running=False,
+                    controllable=False,
+                    injectable=True,
+                    accepted_asset_kinds=("file_uri", "public_http"),
+                ),
+            )
+            manager = PlayerSinkManager(
+                adapters=(adapter,),
+                preferences_path=Path(temporary) / "player-preferences.json",
+            )
+
+            (option,) = await manager.options()
+            result = await manager.select("mpris:audacious")
+
+            self.assertTrue(option.disabled)
+            self.assertEqual(option.disabled_reason, "Playback control unavailable")
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(adapter.validate_calls, 0)
+
     async def test_select_persists_stable_default_only_after_validation_succeeds(self) -> None:
         with TemporaryDirectory() as temporary:
             preferences_path = Path(temporary) / "player-preferences.json"
@@ -266,6 +299,38 @@ class PlayerSinkManagerTests(unittest.IsolatedAsyncioTestCase):
                     "default_sink_id": "mpris:clementine",
                 },
             )
+
+    async def test_play_retries_the_same_sink_once_without_fallback(self) -> None:
+        with TemporaryDirectory() as temporary:
+            adapter = _FakeSinkAdapter(
+                PlayerSinkDescriptor(
+                    sink_id="mpris:clementine",
+                    display_name="Clementine",
+                    description="External player",
+                ),
+                PlayerSinkProbe(
+                    installed=True,
+                    running=False,
+                    controllable=True,
+                    injectable=True,
+                    accepted_asset_kinds=("file_uri",),
+                ),
+                play_failures=2,
+            )
+            manager = PlayerSinkManager(
+                adapters=(adapter,),
+                preferences_path=Path(temporary) / "player-preferences.json",
+            )
+            await manager.select("mpris:clementine")
+
+            with self.assertRaisesRegex(RuntimeError, "dispatch failed"):
+                await manager.play(
+                    PlayerAsset(kind="file_uri", uri="file:///tmp/song.wav"),
+                    {"name": "Song"},
+                )
+
+            self.assertEqual(adapter.play_calls, 2)
+            self.assertEqual(adapter.probe_calls, 3)
 
 
 if __name__ == "__main__":

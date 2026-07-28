@@ -563,13 +563,13 @@ class PlaybackControllerTests(unittest.TestCase):
             ],
         )
 
-    def test_configured_default_overrides_tool_supplied_player(self) -> None:
-        cvlc_adapter = Mock()
-        cvlc_adapter.start.return_value = playback.PlayerState(
+    def test_explicit_tool_player_overrides_legacy_in_memory_default(self) -> None:
+        mpv = Mock()
+        mpv.start.return_value = playback.PlayerState(
             provider="local",
             source="local",
-            player="cvlc",
-            session_id="cvlc-session",
+            player="mpv",
+            session_id="mpv-session",
             name="Song",
             artist="-",
             album="-",
@@ -581,8 +581,8 @@ class PlaybackControllerTests(unittest.TestCase):
         self.controller.set_player_backend("cvlc")
 
         with (
-            patch.object(playback, "MpvPlaybackAdapter") as mpv_adapter,
-            patch.object(playback, "CvlcRcPlaybackAdapter", return_value=cvlc_adapter),
+            patch.object(playback, "MpvPlaybackAdapter", return_value=mpv),
+            patch.object(playback, "CvlcRcPlaybackAdapter") as cvlc_adapter,
         ):
             state = self.controller.play(
                 source_url="song.mp3",
@@ -591,8 +591,8 @@ class PlaybackControllerTests(unittest.TestCase):
                 player="mpv",
             )
 
-        mpv_adapter.assert_not_called()
-        self.assertEqual(state.player, "cvlc")
+        cvlc_adapter.assert_not_called()
+        self.assertEqual(state.player, "mpv")
 
     def test_setting_default_player_allows_direct_future_launches(self) -> None:
         original_backend = playback.controller.player_backend
@@ -602,7 +602,7 @@ class PlaybackControllerTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["data"]["backend"], "cvlc")
-        self.assertEqual(playback.resolve_local_playback_backend("auto"), "cvlc")
+        self.assertEqual(playback.resolve_local_playback_backend("auto"), "auto")
         remember.assert_called_once_with("cvlc")
 
     def test_start_local_playback_uses_current_backend_when_player_is_omitted(self) -> None:
@@ -681,6 +681,30 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["data"]["sink_id"], "mpris:clementine")
         self.assertEqual(result["data"]["player"], "Clementine")
+
+    def test_default_player_failure_carries_replay_context(self) -> None:
+        with patch(
+            "src.music.player_sink_runtime.play_through_persisted_sink",
+            side_effect=RuntimeError("sink unavailable"),
+        ):
+            result = playback.start_local_playback(
+                tool="play_local_song",
+                source_url="/music/song.flac",
+                source="local",
+                metadata={"name": "Song"},
+                success_message="Playing started.",
+            )
+
+        self.assertEqual(result["error_code"], "DEFAULT_PLAYER_FAILED")
+        self.assertEqual(
+            result["data"]["player_recovery"],
+            {
+                "source_url": "/music/song.flac",
+                "source": "local",
+                "metadata": {"name": "Song"},
+                "success_message": "Playing started.",
+            },
+        )
 
     def test_explicit_player_is_a_one_time_override_of_persisted_default(self) -> None:
         adapter = Mock()

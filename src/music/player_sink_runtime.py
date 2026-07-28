@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import shlex
 import shutil
 import subprocess
 import threading
@@ -28,6 +30,11 @@ from src.music.player_sinks import (
 from src.log import sonex_home
 
 _ACTIVE_SINK_STATES: dict[str, dict[str, object]] = {}
+_RUNTIME_MANAGER: PlayerSinkManager | None = None
+_RUNTIME_PREFERENCES_PATH: Path | None = None
+_RUNTIME_PREFERENCES_REVISION: bytes | None = None
+_RUNTIME_MANAGER_LOCK = threading.RLock()
+_RUNTIME_OPERATION_LOCK = threading.Lock()
 _T = TypeVar("_T")
 
 
@@ -128,6 +135,18 @@ def _managed_control(
     return state.to_dict()
 
 
+def _managed_player_active(backend: str) -> bool:
+    from src.tools.playback_controller import controller
+
+    if controller.current_session_id is None:
+        return False
+    try:
+        state = controller.status()
+    except Exception:
+        return False
+    return state.player == backend and not state.ended
+
+
 def _validate_managed_player(backend: str) -> bool:
     from src.tools.playback_controller import controller
 
@@ -145,29 +164,10 @@ def _validate_managed_player(backend: str) -> bool:
     return valid
 
 
-def _validate_known_player(adapter_id: str, which: Callable[[str], str | None]) -> bool:
-    probe_uri = _silent_probe_uri()
-    commands: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {}
-    if executable := which("clementine"):
-        commands["mpris:clementine"] = (
-            (executable, "--load", probe_uri),
-            (executable, "--stop"),
-        )
-    if executable := which("rhythmbox-client"):
-        commands["mpris:rhythmbox"] = (
-            (executable, "--play-uri", probe_uri),
-            (executable, "--stop"),
-        )
-    if executable := which("audacious"):
-        stop = which("audtool")
-        commands["mpris:audacious"] = (
-            (executable, probe_uri),
-            (stop, "playback-stop") if stop else (),
-        )
-    pair = commands.get(adapter_id)
-    if pair is None:
-        return False
-    play_command, stop_command = pair
+def _validate_known_player(
+    play_command: tuple[str, ...],
+    stop_command: tuple[str, ...],
+) -> bool:
     try:
         process = subprocess.Popen(
             play_command,
@@ -192,6 +192,73 @@ def _validate_known_player(adapter_id: str, which: Callable[[str], str | None]) 
     return accepted
 
 
+def _discover_desktop_executables() -> dict[str, str]:
+    """Read only trusted executable paths from desktop entries."""
+    trusted_names = {"clementine", "rhythmbox-client", "audacious", "audtool"}
+    data_home = Path(
+        os.environ.get("XDG_DATA_HOME") or Path.home() / ".local" / "share"
+    )
+    data_dirs = [
+        Path(item)
+        for item in os.environ.get(
+            "XDG_DATA_DIRS",
+            "/usr/local/share:/usr/share",
+        ).split(":")
+        if item
+    ]
+    discovered: dict[str, str] = {}
+    for directory in (data_home, *data_dirs):
+        applications = directory / "applications"
+        if not applications.is_dir():
+            continue
+        for entry in applications.glob("*.desktop"):
+            try:
+                lines = entry.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            exec_value = next(
+                (line.removeprefix("Exec=").strip() for line in lines if line.startswith("Exec=")),
+                "",
+            )
+            try:
+                command = shlex.split(exec_value)
+            except ValueError:
+                continue
+            if not command:
+                continue
+            executable = Path(command[0])
+            name = executable.name
+            if (
+                name in trusted_names
+                and executable.is_absolute()
+                and executable.is_file()
+                and os.access(executable, os.X_OK)
+            ):
+                discovered.setdefault(name, str(executable))
+    return discovered
+
+
+def _discover_flatpak_applications(
+    flatpak_executable: str | None,
+) -> frozenset[str]:
+    if flatpak_executable is None:
+        return frozenset()
+    try:
+        result = subprocess.run(
+            (flatpak_executable, "list", "--app", "--columns=application"),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=1,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return frozenset()
+    if result.returncode != 0:
+        return frozenset()
+    return frozenset(line.strip() for line in result.stdout.splitlines() if line.strip())
+
+
 def build_player_sink_manager(
     *,
     preferences_path: Path | None = None,
@@ -201,6 +268,8 @@ def build_player_sink_manager(
     is_process_running: Callable[[str], bool] = _process_running,
     validate_command_player: Callable[[str], bool] | None = None,
     discover_mpris: Callable[[], Awaitable[tuple[PlayerSinkAdapter, ...]]] | None = None,
+    desktop_executables: dict[str, str] | None = None,
+    flatpak_applications: frozenset[str] | None = None,
 ) -> PlayerSinkManager:
     """Build the device-persistent manager without scanning or launching players."""
     if available_managed is None:
@@ -230,6 +299,7 @@ def build_player_sink_manager(
                 play_managed=_managed_play,
                 validate_managed=_validate_managed_player,
                 control_managed=_managed_control,
+                is_active=_managed_player_active,
             )
         )
     if "cvlc" in managed_paths:
@@ -242,12 +312,48 @@ def build_player_sink_manager(
                 play_managed=_managed_play,
                 validate_managed=_validate_managed_player,
                 control_managed=_managed_control,
+                is_active=_managed_player_active,
             )
         )
 
-    validator = validate_command_player or (
-        lambda adapter_id: _validate_known_player(adapter_id, which)
-    )
+    inspect_host_installations = which is shutil.which
+    if desktop_executables is None:
+        desktop_executables = (
+            _discover_desktop_executables() if inspect_host_installations else {}
+        )
+    flatpak_executable = which("flatpak")
+    if flatpak_applications is None:
+        flatpak_applications = (
+            _discover_flatpak_applications(flatpak_executable)
+            if inspect_host_installations
+            else frozenset()
+        )
+
+    def application_command(target: str, *arguments: str) -> tuple[str, ...]:
+        if target.startswith("flatpak:"):
+            return (
+                flatpak_executable or "flatpak",
+                "run",
+                target.removeprefix("flatpak:"),
+                *arguments,
+            )
+        return target, *arguments
+
+    def helper_command(
+        target: str,
+        helper: str,
+        *arguments: str,
+    ) -> tuple[str, ...] | None:
+        if target.startswith("flatpak:"):
+            return (
+                flatpak_executable or "flatpak",
+                "run",
+                f"--command={helper}",
+                target.removeprefix("flatpak:"),
+                *arguments,
+            )
+        executable = which(helper) or desktop_executables.get(helper)
+        return (executable, *arguments) if executable else None
 
     def clementine_control(
         executable: str,
@@ -255,9 +361,9 @@ def build_player_sink_manager(
         value: int | None,
     ) -> tuple[str, ...] | None:
         if action == "volume" and value is not None:
-            return executable, "--volume", str(value)
+            return application_command(executable, "--volume", str(value))
         flag = {"pause": "--pause", "resume": "--play", "stop": "--stop"}.get(action)
-        return (executable, flag) if flag else None
+        return application_command(executable, flag) if flag else None
 
     def rhythmbox_control(
         executable: str,
@@ -265,51 +371,51 @@ def build_player_sink_manager(
         value: int | None,
     ) -> tuple[str, ...] | None:
         if action == "volume" and value is not None:
-            return executable, "--set-volume", str(value / 100)
+            return application_command(executable, "--set-volume", str(value / 100))
         flag = {"pause": "--pause", "resume": "--play", "stop": "--stop"}.get(action)
-        return (executable, flag) if flag else None
+        return application_command(executable, flag) if flag else None
 
     def audacious_control(
         _executable: str,
         action: str,
         value: int | None,
     ) -> tuple[str, ...] | None:
-        audtool = which("audtool")
-        if audtool is None:
-            return None
         if action == "volume" and value is not None:
-            return audtool, "set-volume", str(value)
+            return helper_command(_executable, "audtool", "set-volume", str(value))
         command = {
             "pause": "playback-pause",
             "resume": "playback-play",
             "stop": "playback-stop",
         }.get(action)
-        return (audtool, command) if command else None
+        return helper_command(_executable, "audtool", command) if command else None
 
     known = (
         (
             "mpris:clementine",
             "Clementine",
             ("clementine",),
-            lambda executable, uri: (executable, "--load", uri),
+            lambda executable, uri: application_command(executable, "--load", uri),
             "clementine",
             clementine_control,
+            "org.clementine_player.Clementine",
         ),
         (
             "mpris:rhythmbox",
             "Rhythmbox",
             ("rhythmbox-client",),
-            lambda executable, uri: (executable, "--play-uri", uri),
+            lambda executable, uri: application_command(executable, "--play-uri", uri),
             "rhythmbox",
             rhythmbox_control,
+            "org.gnome.Rhythmbox3",
         ),
         (
             "mpris:audacious",
             "Audacious",
             ("audacious",),
-            lambda executable, uri: (executable, uri),
+            lambda executable, uri: application_command(executable, uri),
             "audacious",
             audacious_control,
+            "org.atheme.audacious",
         ),
     )
     for (
@@ -319,9 +425,36 @@ def build_player_sink_manager(
         command_builder,
         process_name,
         control_builder,
+        flatpak_app_id,
     ) in known:
-        if not any(which(executable) for executable in executables):
+        target = next(
+            (
+                path
+                for executable in executables
+                if (path := which(executable) or desktop_executables.get(executable))
+            ),
+            None,
+        )
+        if target is None and flatpak_app_id in flatpak_applications:
+            target = f"flatpak:{flatpak_app_id}"
+        if target is None:
             continue
+        adapter_which = lambda _executable, resolved=target: resolved
+        can_control = (
+            sink_id != "mpris:audacious"
+            or target.startswith("flatpak:")
+            or which("audtool") is not None
+            or desktop_executables.get("audtool") is not None
+        )
+        if validate_command_player is not None:
+            validate_injection = lambda adapter_id=sink_id: validate_command_player(
+                adapter_id
+            )
+        else:
+            validate_injection = lambda target=target, builder=command_builder, control=control_builder: _validate_known_player(
+                builder(target, _silent_probe_uri()),
+                control(target, "stop", None) or (),
+            )
         adapters.append(
             CommandPlayerSinkAdapter(
                 sink_id=sink_id,
@@ -329,11 +462,12 @@ def build_player_sink_manager(
                 description="External player controlled by its supported interface.",
                 executable_names=executables,
                 build_play_command=command_builder,
-                which=which,
+                which=adapter_which,
                 launch=launch,
                 is_active=lambda name=process_name: is_process_running(name),
-                validate_injection=lambda adapter_id=sink_id: validator(adapter_id),
+                validate_injection=validate_injection,
                 build_control_command=control_builder,
+                can_control=can_control,
             )
         )
 
@@ -345,6 +479,42 @@ def build_player_sink_manager(
         adapter_discovery=discover_mpris,
         preferences_path=preferences_path,
     )
+
+
+def _player_preferences_path() -> Path:
+    return sonex_home() / "music" / "player-preferences.json"
+
+
+def _preferences_revision(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def _persisted_player_sink_manager() -> PlayerSinkManager:
+    """Reuse adapter state until another process changes the preference record."""
+    global _RUNTIME_MANAGER, _RUNTIME_PREFERENCES_PATH, _RUNTIME_PREFERENCES_REVISION
+
+    path = _player_preferences_path()
+    revision = _preferences_revision(path)
+    with _RUNTIME_MANAGER_LOCK:
+        if (
+            _RUNTIME_MANAGER is None
+            or path != _RUNTIME_PREFERENCES_PATH
+            or revision != _RUNTIME_PREFERENCES_REVISION
+        ):
+            _RUNTIME_MANAGER = build_player_sink_manager(preferences_path=path)
+            _RUNTIME_PREFERENCES_PATH = path
+            _RUNTIME_PREFERENCES_REVISION = revision
+        return _RUNTIME_MANAGER
+
+
+def _remember_preferences_revision() -> None:
+    global _RUNTIME_PREFERENCES_REVISION
+
+    with _RUNTIME_MANAGER_LOCK:
+        _RUNTIME_PREFERENCES_REVISION = _preferences_revision(_player_preferences_path())
 
 
 async def play_through_player_sink(
@@ -368,18 +538,20 @@ def play_through_persisted_sink(
     track: dict[str, object],
 ) -> PlayerSinkPlayback | None:
     """Route sync tool playback when a persisted Player Sink default exists."""
-    manager = build_player_sink_manager()
-    if manager.default_sink_id is None and manager.pending_sink_id is None:
-        return None
-    playback = _run_coroutine_sync(
-        lambda: play_through_player_sink(
-            manager,
-            source_url=source_url,
-            track=track,
+    with _RUNTIME_OPERATION_LOCK:
+        manager = _persisted_player_sink_manager()
+        if manager.default_sink_id is None and manager.pending_sink_id is None:
+            return None
+        playback = _run_coroutine_sync(
+            lambda: play_through_player_sink(
+                manager,
+                source_url=source_url,
+                track=track,
+            )
         )
-    )
-    _ACTIVE_SINK_STATES[playback.sink_id] = dict(playback.state)
-    return playback
+        _ACTIVE_SINK_STATES[playback.sink_id] = dict(playback.state)
+        _remember_preferences_revision()
+        return playback
 
 
 def has_persisted_player_sink(preferences_path: Path | None = None) -> bool:
@@ -402,14 +574,15 @@ def control_persisted_player_sink(
     action: str,
     value: int | None = None,
 ) -> PlayerSinkPlayback | None:
-    manager = build_player_sink_manager()
-    if manager.default_sink_id is None:
-        return None
-    playback = _run_coroutine_sync(lambda: manager.control(action, value))
-    previous = _ACTIVE_SINK_STATES.get(playback.sink_id, {})
-    merged = {**previous, **playback.state}
-    if action == "stop":
-        merged["ended"] = True
-        merged["is_playing"] = False
-    _ACTIVE_SINK_STATES[playback.sink_id] = merged
-    return PlayerSinkPlayback(sink_id=playback.sink_id, state=merged)
+    with _RUNTIME_OPERATION_LOCK:
+        manager = _persisted_player_sink_manager()
+        if manager.default_sink_id is None:
+            return None
+        playback = _run_coroutine_sync(lambda: manager.control(action, value))
+        previous = _ACTIVE_SINK_STATES.get(playback.sink_id, {})
+        merged = {**previous, **playback.state}
+        if action == "stop":
+            merged["ended"] = True
+            merged["is_playing"] = False
+        _ACTIVE_SINK_STATES[playback.sink_id] = merged
+        return PlayerSinkPlayback(sink_id=playback.sink_id, state=merged)
