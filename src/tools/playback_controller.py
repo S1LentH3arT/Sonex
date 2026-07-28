@@ -29,6 +29,50 @@ PlayerName = Literal["mpv", "cvlc"]
 PlayerBackend = Literal["auto", "mpv", "cvlc"]
 PlaybackSource = Literal["local", "youtube", "spotify", "apple_music"]
 
+LOCAL_PLAYBACK_APPLICATIONS: tuple[dict[str, Any], ...] = (
+    {
+        "backend": "mpv",
+        "label": "mpv",
+        "executables": ("mpv",),
+        "description": "Controllable local player for stable background playback.",
+    },
+    {
+        "backend": "cvlc",
+        "label": "VLC",
+        "executables": ("cvlc", "vlc"),
+        "description": "Controllable VLC playback through its RC interface.",
+    },
+)
+
+
+def available_local_playback_backends() -> list[dict[str, str]]:
+    """Return installed applications backed by Sonex playback adapters."""
+    available: list[dict[str, str]] = []
+    for application in LOCAL_PLAYBACK_APPLICATIONS:
+        executable = next(
+            (
+                path
+                for command in application["executables"]
+                if (path := shutil.which(command)) is not None
+            ),
+            None,
+        )
+        if executable is None:
+            continue
+        available.append(
+            {
+                "backend": str(application["backend"]),
+                "label": str(application["label"]),
+                "description": str(application["description"]),
+                "executable": executable,
+            }
+        )
+    return available
+
+
+def _vlc_executable() -> str | None:
+    return shutil.which("cvlc") or shutil.which("vlc")
+
 
 def _timestamp_ms() -> int:
     """Prepares timestamp ms for an internal Sonex flow.
@@ -560,11 +604,12 @@ class CvlcRcPlaybackAdapter:
 
         Example: start() -> returns the value used by the surrounding Sonex flow.
         """
-        if shutil.which("cvlc") is None:
-            raise RuntimeError("cvlc is not installed or not on PATH.")
+        executable = _vlc_executable()
+        if executable is None:
+            raise RuntimeError("VLC is not installed or not on PATH.")
         self.process = subprocess.Popen(
             [
-                "cvlc",
+                executable,
                 "--no-video",
                 "--network-caching=5000",
                 "--extraintf",
@@ -702,7 +747,12 @@ class LocalPlaybackController:
 
         Example: play(source_url=..., source=..., metadata=..., player=...) -> returns the value used by the surrounding Sonex flow.
         """
-        backend = self._normalize_backend(player or self.player_backend)
+        requested_backend = self._normalize_backend(player or "auto")
+        backend = (
+            self.player_backend
+            if self.player_backend != "auto"
+            else requested_backend
+        )
         if self._adapter is not None:
             try:
                 self._adapter.stop()
@@ -862,6 +912,14 @@ class LocalPlaybackController:
 controller = LocalPlaybackController()
 
 
+def resolve_local_playback_backend(player: str = "auto") -> PlayerBackend:
+    """Resolve a tool-supplied player through the configured default."""
+    requested = controller._normalize_backend(player)
+    if controller.player_backend != "auto":
+        return controller.player_backend
+    return requested
+
+
 def start_local_playback(
     *,
     tool: str,
@@ -877,7 +935,37 @@ def start_local_playback(
 
     Example: start_local_playback(tool=..., source_url=..., source=..., metadata=..., player=..., success_message=...) -> returns the value used by the surrounding Sonex flow.
     """
-    selected_player = None if player.strip().lower() == "auto" else player
+    from src.music.player_sink_runtime import play_through_persisted_sink
+
+    if player.strip().casefold() == "auto":
+        try:
+            routed = play_through_persisted_sink(
+                source_url=source_url,
+                track=metadata,
+            )
+        except Exception as exc:
+            return ToolResult.fail(
+                tool=tool,
+                message=(
+                    f"Default player failed: {exc}. Run /player to change it, "
+                    "or explicitly choose mpv for this playback."
+                ),
+                error_code="DEFAULT_PLAYER_FAILED",
+                data={**metadata, "source": source, "player": player},
+            ).to_dict()
+        if routed is not None:
+            return ToolResult.success(
+                tool=tool,
+                message=success_message,
+                data={
+                    **metadata,
+                    **routed.state,
+                    "sink_id": routed.sink_id,
+                    "source": source,
+                },
+            ).to_dict()
+
+    selected_player = resolve_local_playback_backend(player)
     try:
         state = controller.play(source_url=source_url, source=source, metadata=metadata, player=selected_player)
     except Exception as exc:
@@ -897,7 +985,22 @@ def _control_result(tool: str, action: str) -> dict[str, Any]:
 
     Example: _control_result(tool=..., action=...) -> returns the value used by the surrounding Sonex flow.
     """
+    from src.music.player_sink_runtime import control_persisted_player_sink
+
+    messages = {
+        "pause": "Playback paused.",
+        "resume": "Playback resumed.",
+        "stop": "Playback stopped.",
+        "status": "Playback status.",
+    }
     try:
+        routed = control_persisted_player_sink(action)
+        if routed is not None:
+            return ToolResult.success(
+                tool=tool,
+                message=messages[action],
+                data={**routed.state, "sink_id": routed.sink_id},
+            ).to_dict()
         state = getattr(controller, action)()
     except Exception as exc:
         error_code = (
@@ -910,12 +1013,6 @@ def _control_result(tool: str, action: str) -> dict[str, Any]:
             message=str(exc),
             error_code=error_code,
         ).to_dict()
-    messages = {
-        "pause": "Playback paused.",
-        "resume": "Playback resumed.",
-        "stop": "Playback stopped.",
-        "status": "Playback status.",
-    }
     return ToolResult.success(tool=tool, message=messages[action], data=state.to_dict()).to_dict()
 
 
@@ -974,7 +1071,16 @@ def local_playback_volume(volume_percent: int) -> dict[str, Any]:
             message=str(exc),
             error_code="INVALID_VOLUME",
         ).to_dict()
+    from src.music.player_sink_runtime import control_persisted_player_sink
+
     try:
+        routed = control_persisted_player_sink("volume", volume)
+        if routed is not None:
+            return ToolResult.success(
+                tool="local_playback_volume",
+                message=f"Playback volume set to {volume}%.",
+                data={**routed.state, "sink_id": routed.sink_id},
+            ).to_dict()
         state = controller.set_volume(volume)
     except Exception as exc:
         return ToolResult.fail(
@@ -1004,9 +1110,12 @@ def local_playback_player(backend: str) -> dict[str, Any]:
             message=str(exc),
             error_code="INVALID_PLAYER_BACKEND",
         ).to_dict()
+    from src.tools.player_permission import remember_player
+
+    remember_player(selected)
     return ToolResult.success(
         tool="local_playback_player",
-        message=f"Local playback backend set to {selected}.",
+        message=f"Default local player set to {selected}.",
         data={"backend": selected},
     ).to_dict()
 
@@ -1046,7 +1155,7 @@ registry.register(
 registry.register(
     name="local_playback_player",
     type="player",
-    description="Set local playback backend strategy for this session.",
+    description="Set the default local player for this session.",
     parameters=Params(
         type="object",
         properties={"backend": {"type": "string", "enum": ["auto", "mpv", "cvlc"]}},

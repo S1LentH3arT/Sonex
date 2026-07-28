@@ -14,6 +14,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from src.music.player_sinks import PlayerSinkPlayback
 from src.tools import playback_controller as playback
 
 
@@ -545,6 +546,65 @@ class PlaybackControllerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupportedlocal playback backend"):
             self.controller.set_player_backend("vlc")
 
+    def test_available_local_playback_backends_lists_only_installed_adapters(self) -> None:
+        installed = {
+            "mpv": "/usr/bin/mpv",
+            "vlc": "/usr/bin/vlc",
+        }
+
+        with patch.object(playback.shutil, "which", side_effect=installed.get):
+            available = playback.available_local_playback_backends()
+
+        self.assertEqual(
+            [(item["backend"], item["label"], item["executable"]) for item in available],
+            [
+                ("mpv", "mpv", "/usr/bin/mpv"),
+                ("cvlc", "VLC", "/usr/bin/vlc"),
+            ],
+        )
+
+    def test_configured_default_overrides_tool_supplied_player(self) -> None:
+        cvlc_adapter = Mock()
+        cvlc_adapter.start.return_value = playback.PlayerState(
+            provider="local",
+            source="local",
+            player="cvlc",
+            session_id="cvlc-session",
+            name="Song",
+            artist="-",
+            album="-",
+            duration_ms=1000,
+            progress_ms=0,
+            timestamp=10,
+            is_playing=True,
+        )
+        self.controller.set_player_backend("cvlc")
+
+        with (
+            patch.object(playback, "MpvPlaybackAdapter") as mpv_adapter,
+            patch.object(playback, "CvlcRcPlaybackAdapter", return_value=cvlc_adapter),
+        ):
+            state = self.controller.play(
+                source_url="song.mp3",
+                source="local",
+                metadata={"name": "Song"},
+                player="mpv",
+            )
+
+        mpv_adapter.assert_not_called()
+        self.assertEqual(state.player, "cvlc")
+
+    def test_setting_default_player_allows_direct_future_launches(self) -> None:
+        original_backend = playback.controller.player_backend
+        self.addCleanup(playback.controller.set_player_backend, original_backend)
+        with patch("src.tools.player_permission.remember_player") as remember:
+            result = playback.local_playback_player("cvlc")
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["data"]["backend"], "cvlc")
+        self.assertEqual(playback.resolve_local_playback_backend("auto"), "cvlc")
+        remember.assert_called_once_with("cvlc")
+
     def test_start_local_playback_uses_current_backend_when_player_is_omitted(self) -> None:
         """Verifies that start local playback uses current backend when player is omitted behaves as expected.
 
@@ -584,6 +644,102 @@ class PlaybackControllerTests(unittest.TestCase):
         mpv_adapter.assert_not_called()
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["data"]["player"], "cvlc")
+
+    def test_start_local_playback_routes_through_persisted_player_sink(self) -> None:
+        routed = PlayerSinkPlayback(
+            sink_id="mpris:clementine",
+            state={
+                "name": "Song",
+                "artist": "Artist",
+                "album": "Album",
+                "is_playing": True,
+                "player": "Clementine",
+            },
+        )
+
+        with patch(
+            "src.music.player_sink_runtime.play_through_persisted_sink",
+            return_value=routed,
+        ) as dispatch, patch.object(self.controller, "play") as managed_play, patch.object(
+            playback,
+            "controller",
+            self.controller,
+        ):
+            result = playback.start_local_playback(
+                tool="play_local_song",
+                source_url="/music/song.flac",
+                source="local",
+                metadata={"name": "Song", "artist": "Artist"},
+                success_message="Playing started.",
+            )
+
+        dispatch.assert_called_once_with(
+            source_url="/music/song.flac",
+            track={"name": "Song", "artist": "Artist"},
+        )
+        managed_play.assert_not_called()
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["data"]["sink_id"], "mpris:clementine")
+        self.assertEqual(result["data"]["player"], "Clementine")
+
+    def test_explicit_player_is_a_one_time_override_of_persisted_default(self) -> None:
+        adapter = Mock()
+        adapter.start.return_value = playback.PlayerState(
+            provider="local",
+            source="local",
+            player="mpv",
+            session_id="mpv-session",
+            name="Song",
+            artist="-",
+            album="-",
+            duration_ms=0,
+            progress_ms=0,
+            timestamp=10,
+            is_playing=True,
+        )
+        with patch(
+            "src.music.player_sink_runtime.play_through_persisted_sink",
+        ) as dispatch, patch.object(
+            playback,
+            "MpvPlaybackAdapter",
+            return_value=adapter,
+        ), patch.object(
+            playback,
+            "controller",
+            self.controller,
+        ):
+            result = playback.start_local_playback(
+                tool="play_local_song",
+                source_url="/music/song.flac",
+                source="local",
+                metadata={"name": "Song"},
+                player="mpv",
+                success_message="Playing started.",
+            )
+
+        dispatch.assert_not_called()
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["data"]["player"], "mpv")
+
+    def test_playback_control_targets_persisted_external_sink(self) -> None:
+        routed = PlayerSinkPlayback(
+            sink_id="mpris:rhythmbox",
+            state={"player": "Rhythmbox", "is_playing": False},
+        )
+        with patch(
+            "src.music.player_sink_runtime.control_persisted_player_sink",
+            return_value=routed,
+        ) as control, patch.object(self.controller, "pause") as managed_pause, patch.object(
+            playback,
+            "controller",
+            self.controller,
+        ):
+            result = playback.local_playback_pause()
+
+        control.assert_called_once_with("pause")
+        managed_pause.assert_not_called()
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["data"]["sink_id"], "mpris:rhythmbox")
 
     def test_volume_tool_validates_range_and_returns_state(self) -> None:
         """Verifies that volume tool validates range and returns state behaves as expected.

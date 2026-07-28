@@ -33,7 +33,7 @@ from src.tools.player_permission import (
     build_player_confirm_result,
     is_player_allowed,
 )
-from src.tools.playback_controller import start_local_playback
+from src.tools.playback_controller import resolve_local_playback_backend, start_local_playback
 from src.tools.registry import registry, Params
 from src.tools.result import ToolResult
 from src.tools.song_cache import resolve_cached_song, upsert_cached_song
@@ -2987,6 +2987,7 @@ def play_online_audio_candidate(
 
     Example: play_online_audio_candidate(candidate=..., player=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
+    player = resolve_local_playback_backend(player)
     provider = str(candidate.get("provider") or "online")
     if provider == "youtube":
         return play_youtube_candidate(candidate, player=player, cache_root=cache_root)
@@ -3081,6 +3082,7 @@ def play_youtube_candidate(
 
     Example: play_youtube_candidate(candidate=..., player=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
+    player = resolve_local_playback_backend(player)
     is_youtube_fallback = candidate.get("fallback_provider") == "youtube"
     try:
         data = download_youtube_candidate(candidate, cache_root=cache_root)
@@ -3310,6 +3312,7 @@ def play_youtube_song(
 
     Example: play_youtube_song(query=..., player=..., cache_root=..., playback_metadata=...) -> returns the value used by the surrounding Sonex flow.
     """
+    player = resolve_local_playback_backend(player)
     identity_retry_limit = 5 if _complete_identity(_track_identity(playback_metadata or {})) else 1
     if online_audio_configured():
         try:

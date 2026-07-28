@@ -14,12 +14,12 @@ from src.tools.result import ToolResult
 PLAYER_CONFIRM_CHOICES = [
     {
         "value": "mpv",
-        "label": "🎧 mpv",
+        "label": "mpv",
         "description": "default controllable backend for smooth background playback",
     },
     {
         "value": "cvlc",
-        "label": "📻 VLC",
+        "label": "VLC",
         "description": "manual diagnostic fallback when VLC is required",
     },
     {"value": "deny", "label": "Cancel"},
@@ -70,7 +70,14 @@ def is_player_allowed(player: str) -> bool:
 
     Example: is_player_allowed(player=...) -> returns the value used by the surrounding Sonex flow.
     """
-    return normalize_player(player) in _ALLOWED_PLAYERS
+    normalized = normalize_player(player)
+    if normalized in _ALLOWED_PLAYERS:
+        return True
+    if normalized != "auto":
+        return False
+    from src.music.player_sink_runtime import has_persisted_player_sink
+
+    return has_persisted_player_sink()
 
 
 def remember_player(player: str) -> None:

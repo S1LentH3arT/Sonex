@@ -24,7 +24,8 @@ dependencies = [
     "Pillow",
     "numpy",
     "mutagen",
-    "cryptography"
+    "cryptography",
+    "dbus-next"
 ]
 
 [tool.setuptools.package-data]

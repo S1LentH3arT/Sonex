@@ -12,7 +12,7 @@ from src.tools.player_permission import (
     is_player_allowed,
 )
 from src.tools.cover_sources import extract_embedded_cover
-from src.tools.playback_controller import start_local_playback
+from src.tools.playback_controller import resolve_local_playback_backend, start_local_playback
 from src.tools.registry import registry, Params
 from src.tools.result import ToolResult
 from src.workspace import WorkspaceBoundaryError, user_music_dir
@@ -50,6 +50,8 @@ def check_player(player: str) -> bool:
 
     Example: check_player(player=...) -> returns the value used by the surrounding Sonex flow.
     """
+    if player == "cvlc":
+        return shutil.which("cvlc") is not None or shutil.which("vlc") is not None
     return shutil.which(player) is not None
 
 def _player_command(player: str, file: str) -> list[str] | None:
@@ -62,7 +64,7 @@ def _player_command(player: str, file: str) -> list[str] | None:
     if player == "auto":
         return ["sonex-local-playback", "auto", file]
     if player == "cvlc":
-        return ["cvlc", "--no-video", file]
+        return [shutil.which("cvlc") or shutil.which("vlc") or "cvlc", "--no-video", file]
     if player == "vlc":
         return ["vlc", "--play-and-exit", file]
     if player == "mpv":
@@ -92,6 +94,8 @@ def play_local_song(query: str, player: str = "auto") -> dict:
             error_code="NOT_FOUND",
             data={"query": query},
         ).to_dict()
+
+    player = resolve_local_playback_backend(player)
 
     # `auto` is resolved by the playback controller; concrete adapters validate binaries.
     if player != "auto" and not check_player(player):
