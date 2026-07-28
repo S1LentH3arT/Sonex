@@ -216,6 +216,11 @@ Sonex 会加载 `.env`，然后按以下顺序解析运行时配置：环境变�
 
 ## 🎧 音乐服务设置
 
+执行 `/connect` 会打开交互式音乐账号连接面板。首版只展示 Spotify 与 Apple Music，
+因为 Sonex 已能完成它们支持的授权流程。连接记录只保存非敏感的账号标识与健康状态；
+OAuth token 和 MusicKit 授权仍由现有本地组件持有。在官方 `ncm-cli` 适配器完成并通过
+验证前，网易云音乐不会作为虚假的可连接选项出现。
+
 ### 🟩 Spotify
 
 在 TUI 中输入：
@@ -277,9 +282,11 @@ MusicKit 管理。高级本地开发可以显式设置 `SONEX_APPLE_TOKEN_SOURCE
 
 ### 📁 本地和 YouTube 播放
 
-如果需要可控制的本地文件或在线播放，请安装 `mpv`。`auto` 为了播放稳定性只使用
-`mpv`。`cvlc` 仍可在 `/player` 后端选择面板中作为显式诊断后端使用；Spotify
-Connect 播放不使用这些本地播放器。
+如果需要可控制的本地文件或在线播放，请安装 `mpv` 或 VLC。每个会话初次执行
+`/player` 时，Sonex 会检测已安装且受支持的应用。Sonex 管理的 mpv/VLC，以及
+Clementine、Rhythmbox、Audacious 等受支持的独立播放器，都可以设为设备默认播放器；
+只能遥控、不能接收音频的 MPRIS 应用仍会显示为不可选项。Spotify Connect 和 Apple
+Music 仍使用各自独立的 provider mode，不使用这些本地播放器。
 
 ### 🌐 在线音频 fallback
 
@@ -328,8 +335,9 @@ Sonex 会先检查匹配的本地文件；没有本地结果或跳过本地后�
 /player
 ```
 
-`/player` 会打开后端选择面板。选择 `auto` 或 `mpv` 使用稳定的 mpv 路径；只有在
-排查播放器相关问题时选择 `VLC`；取消则保持当前设置不变。
+每个会话初次执行 `/player` 时会检测受支持且已安装的应用，并打开默认播放器面板。
+选择兼容播放器后，后续本地和在线音频播放会直接使用持久化的设备默认项，不再重复
+选择；取消则保持当前默认值不变。
 
 ## 🧩 封面珠子图
 
@@ -366,7 +374,7 @@ Mard 的品牌/色号身份来自打包的官方品牌参考，RGB 近似值继�
   `sonex tui`。
 - 🟩 Spotify 无法播放：scope 缺失时按 TUI 中的重授权引导操作，或重新运行
   `sonex auth login spotify`；检查账号 product，并确认 Spotify 已在某个设备上打开。
-- 🎬 本地或在线播放无法启动：安装 `mpv`，打开 `/player`，保持 auto/mpv 后端；
-  只有在手动测试 VLC 行为时选择 VLC。
+- 🎬 本地或在线播放无法启动：安装 `mpv` 或 VLC，启动新会话后执行 `/player`，
+  再选择检测到的应用。
 - 🧩 封面珠子图没有出现：检查 `beads.brand`，用带官方封面的曲目重新播放，并查看
   `~/.sonex/log` 中的封面生成错误。

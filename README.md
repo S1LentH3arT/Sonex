@@ -225,6 +225,13 @@ config file. Set `SONEX_CONFIG_PATH` to use a config file other than
 
 ## 🎧 Music Setup
 
+Run `/connect` to open the interactive music-account panel. The first release
+offers Spotify and Apple Music because Sonex can complete their supported
+authorization flows. Connection records contain only non-secret account and
+health metadata; OAuth tokens and MusicKit authorization remain with their
+existing local owners. NetEase Cloud Music is not listed until the official
+`ncm-cli` adapter is implemented and validated.
+
 ### 🟩 Spotify
 
 In the TUI, type:
@@ -297,10 +304,13 @@ credentials with `sonex auth set-key apple_music --api-key '<json-or-path>'`.
 
 ### 📁 Local And YouTube Playback
 
-Install `mpv` if you want controllable local-file or online playback. `auto`
-uses `mpv` only for playback stability. `cvlc` is available as an explicit
-diagnostic backend from the `/player` backend choice panel; Spotify Connect
-playback does not use these local players.
+Install `mpv` or VLC if you want controllable local-file or online playback.
+The first `/player` call in a session detects installed applications supported
+by Sonex. Managed mpv/VLC and supported external applications such as
+Clementine, Rhythmbox, and Audacious can become the device default. Other
+running MPRIS applications remain visible as remote-control-only when they
+cannot accept audio. Spotify Connect and Apple Music remain separate provider
+modes and do not use these local players.
 
 ### 🌐 Online Audio Fallback
 
@@ -354,9 +364,10 @@ While a local or online track is playing, use:
 /player
 ```
 
-`/player` opens a backend choice panel. Choose `auto` or `mpv` for the stable
-mpv path, `VLC` when you want to diagnose player-specific behavior, or cancel to
-keep the current setting unchanged.
+`/player` detects supported installed applications on its first call in the
+session and opens a default-player panel. After you choose a compatible player,
+local and online-audio playback uses that device-persistent default directly
+without asking you to choose again. Cancel keeps the current default unchanged.
 
 ## 🧩 Cover Bead Art
 
@@ -397,7 +408,7 @@ stored in that cache.
 - 🟩 Spotify cannot play: follow the TUI reauthorization guide when scopes are
   missing, or run `sonex auth login spotify` again. Check account product and
   make sure Spotify is open on a device.
-- 🎬 Local or online playback cannot start: install `mpv`, open `/player`, keep
-  the auto/mpv backend, and choose VLC only when manually testing VLC behavior.
+- 🎬 Local or online playback cannot start: install `mpv` or VLC, start a new
+  session, run `/player`, and choose one of the detected applications.
 - 🧩 Cover bead art does not appear: check `beads.brand`, rerun playback with an
   official cover source, and inspect `~/.sonex/log` for cover generation errors.
