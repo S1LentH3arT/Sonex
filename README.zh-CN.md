@@ -77,66 +77,6 @@ sonex tui
 .venv/bin/sonex
 ```
 
-## 🤖 给外部 Agent 使用的 MCP
-
-Sonex 提供本地 MCP server，Claude Code、Codex、Hermes Agent 以及其他 MCP
-客户端都可以把 Sonex 当成音乐工具服务使用。默认只暴露只读工具，例如搜索、账号
-状态、当前播放、最近播放和推荐。会改变真实播放状态的工具默认隐藏，除非你显式
-开启。
-
-正常运行 Sonex 时，FastAPI 后端也会在这里提供 MCP：
-
-```text
-http://127.0.0.1:9001/mcp
-```
-
-连接 Codex：
-
-```bash
-codex mcp add sonex --url http://127.0.0.1:9001/mcp
-```
-
-用 HTTP 连接 Claude Code：
-
-```bash
-claude mcp add --transport http sonex http://127.0.0.1:9001/mcp
-```
-
-让 Claude Code 以本地 stdio MCP server 方式启动 Sonex：
-
-```bash
-claude mcp add --transport stdio sonex -- sonex mcp
-```
-
-Hermes Agent 可以使用 HTTP：
-
-```yaml
-mcp_servers:
-  sonex:
-    url: "http://127.0.0.1:9001/mcp"
-```
-
-也可以使用 stdio：
-
-```yaml
-mcp_servers:
-  sonex:
-    command: "sonex"
-    args: ["mcp"]
-```
-
-如果要单独调试 HTTP MCP server，可以运行：
-
-```bash
-sonex mcp --transport http --host 127.0.0.1 --port 9002
-```
-
-单独调试时的 URL 是 `http://127.0.0.1:9002/mcp`。
-
-如果想把播放、暂停、切歌等会改变播放状态的工具暴露给可信任的本地 agent，可以
-给 `sonex mcp` 加 `--allow-mutations`，或在启动 `sonex api` 之前设置
-`SONEX_MCP_ALLOW_MUTATIONS=1`。
-
 ## 🩺 检查安装状态
 
 运行：
@@ -245,8 +185,8 @@ Spotify 账号和可用的 Spotify Connect 设备；播放控制需要 Premium�
 设置完成后，可用 `/spotify` 进入持久化 Spotify 模式。进入前会检查已登录
 Premium 账号、播放控制、playlist read scopes 和 `user-library-read` scope，以及
 至少一个可用的 Spotify Connect 设备。成功进入后，Sonex 会在后续对话中恢复
-Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你用 `/spotify` 或
-`/spotify off` 退出。启动时的恢复只检查本地 token 和已保存设备信息，不调用 Spotify
+Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你执行 `/spotify`
+并在退出面板中确认。启动时的恢复只检查本地 token 和已保存设备信息，不调用 Spotify
 账号或设备 API。模式开启后，播放/搜索、推荐、歌单和当前播放都会只使用 Spotify 工具。
 在 Spotify mode 下，`/recommend [taste]` 会展示 5 首编号 Spotify 推荐，并把它们加入
 所选设备的 Spotify 队列，不会直接开始播放。在 Spotify 模式下，`/playlist` 会立即打开本地歌单浏览器，
@@ -265,10 +205,7 @@ Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你�
 Apple Mode 通过 token 服务获取短期 developer token。可以直接在终端内配置服务
 URL，然后进入 Apple Mode：
 
-```text
-/setup apple
-/apple
-```
+先执行 `/connect` 并选择 Apple Music，再执行 `/apple`。
 
 环境变量配置仍然保留，并且优先于终端保存的配置：
 
@@ -293,10 +230,7 @@ Music 仍使用各自独立的 provider mode，不使用这些本地播放器。
 普通模式会优先使用本地文件，随后通过在线音频源解析选中的歌曲。Spotify 播放归属
 Spotify Mode；Apple Music 播放归属 Apple Mode。至少配置一个在线音频 provider：
 
-```text
-/setup jamendo
-/setup audius
-```
+执行 `/connect` 并选择 Jamendo 或 Audius。
 
 也可以通过环境变量提供凭据：
 

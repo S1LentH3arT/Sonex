@@ -25,7 +25,8 @@ def _registry(*, read_only: bool = True) -> ToolRegistry:
     tools = ToolRegistry()
     tools.register(
         name="spotify_play" if not read_only else "spotify_search",
-        type="spotify",
+        kind="agent",
+        domain="spotify",
         description="test tool",
         parameters=Params(type="object", properties={}, required=[]),
         fn=lambda **kwargs: {"ok": True, "args": kwargs},
@@ -45,7 +46,8 @@ def _youtube_registry() -> ToolRegistry:
     tools = ToolRegistry()
     tools.register(
         name="play_youtube_song",
-        type="player",
+        kind="agent",
+        domain="playback",
         description="Play YouTube audio via a local player.",
         parameters=Params(type="object", properties={}, required=[]),
         fn=lambda **kwargs: {"ok": True, "args": kwargs},
@@ -64,7 +66,8 @@ def _premium_error_registry() -> ToolRegistry:
     tools = ToolRegistry()
     tools.register(
         name="spotify_play",
-        type="player",
+        kind="agent",
+        domain="playback",
         description="Play Spotify audio.",
         parameters=Params(type="object", properties={}, required=[]),
         fn=lambda **kwargs: {
@@ -98,7 +101,8 @@ def _search_premium_error_registry() -> ToolRegistry:
     tools = ToolRegistry()
     tools.register(
         name="spotify_search",
-        type="search",
+        kind="agent",
+        domain="search",
         description="Search Spotify audio.",
         parameters=Params(type="object", properties={}, required=[]),
         fn=lambda **kwargs: {
@@ -135,7 +139,7 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
 
         with patch("src.agent.core.append_context"), \
             patch("src.agent.core.llm_plan", return_value=Action(tool="spotify_search", args={"query": "x"}, usage=1)), \
-            patch.object(tools, "invoke", wraps=tools.invoke) as invoke:
+            patch.object(tools, "invoke_agent", wraps=tools.invoke_agent) as invoke:
             state = next(state for state in agent_loop("hello", tools, command_intent=intent) if state.type == "error")
 
         self.assertIn("not allowed", state.content)
@@ -159,7 +163,7 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
 
         with patch("src.agent.core.append_context"), \
             patch("src.agent.core.llm_plan", return_value=Action(tool="play_youtube_song", args={"query": "song"}, usage=1)), \
-            patch.object(tools, "invoke", wraps=tools.invoke) as invoke:
+            patch.object(tools, "invoke_agent", wraps=tools.invoke_agent) as invoke:
             state = next(state for state in agent_loop("recommend songs", tools, command_intent=intent) if state.type == "error")
 
         self.assertIn("not allowed", state.content)
@@ -203,7 +207,7 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
 
         with patch("src.agent.core.append_context"), \
             patch("src.agent.core.llm_plan", return_value=Action(tool="spotify_play", args={"query": "song"}, usage=4)), \
-            patch.object(tools, "invoke", wraps=tools.invoke) as invoke:
+            patch.object(tools, "invoke_agent", wraps=tools.invoke_agent) as invoke:
             gen = agent_loop("/test song", tools, command_intent=intent)
             first = next(gen)
             self.assertEqual(first.type, "status")
@@ -233,7 +237,7 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
 
         with patch("src.agent.core.append_context"), \
             patch("src.agent.core.llm_plan", return_value=Action(tool="play_youtube_song", args={"query": "song"}, usage=4)), \
-            patch.object(tools, "invoke", wraps=tools.invoke) as invoke:
+            patch.object(tools, "invoke_agent", wraps=tools.invoke_agent) as invoke:
             gen = agent_loop("/test song", tools, command_intent=intent)
             first = next(gen)
             self.assertEqual(first.type, "status")

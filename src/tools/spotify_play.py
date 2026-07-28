@@ -1763,7 +1763,8 @@ def _register_tool(
     """
     registry.register(
         name=name,
-        type="spotify",
+        kind="system",
+        domain="spotify",
         description=description,
         parameters=Params(type="object", properties=properties, required=required),
         fn=fn,

@@ -60,16 +60,16 @@ class MusicConnectCommandTests(unittest.IsolatedAsyncioTestCase):
         runner._run_agent_turn = AsyncMock()
         ui = _FakeUI()
 
-        await runner._handle_user_input(ui, "/connect netease")
+        await runner._handle_user_input(ui, "/connect")
 
         self.assertFalse(runner._run_agent_turn.called)
         confirm = [event for event in ui.events if event.get("type") == "confirm"][-1]
         self.assertEqual(confirm["tool_name"], "music_connection")
         self.assertEqual(
             [choice["value"] for choice in confirm["choices"]],  # type: ignore[index]
-            ["spotify", "apple_music", "deny"],
+            ["spotify", "apple_music", "netease", "jamendo", "audius", "deny"],
         )
-        self.assertNotIn("netease", str(confirm).casefold())
+        self.assertIn("netease", str(confirm).casefold())
         self.assertIn("Connected", confirm["choices"][0]["description"])  # type: ignore[index]
         self.assertIn("Not connected", confirm["choices"][1]["description"])  # type: ignore[index]
 

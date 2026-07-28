@@ -87,7 +87,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         assert intent is not None
         self.assertEqual(intent.command, "recommend")
         self.assertEqual(intent.args, "华语女声")
-        self.assertIn("spotify_recommend", intent.allowed_tools)
+        self.assertEqual(intent.allowed_tools, ("Read", "Query"))
 
     def test_play_and_search_are_not_user_level_commands(self) -> None:
         """Verifies that play and search are not public slash commands.
@@ -232,7 +232,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertIsNone(parsed.command_intent())
 
         commands = {command.name: command for command in command_suggestions()}
-        self.assertEqual(commands["spotify"].usage, "/spotify [off]")
+        self.assertEqual(commands["spotify"].usage, "/spotify")
         self.assertEqual(commands["spotify"].description, "enter or exit persistent Spotify mode")
 
     def test_random_includes_online_playback_fallback(self) -> None:
@@ -248,25 +248,24 @@ class BuiltinCommandParserTests(unittest.TestCase):
         intent = parsed.command_intent()
         self.assertIsNotNone(intent)
         assert intent is not None
-        self.assertIn("spotify_recent_tracks", intent.allowed_tools)
-        self.assertNotIn("apple_music_recent_tracks", intent.allowed_tools)
-        self.assertIn("spotify_play", intent.allowed_tools)
-        self.assertNotIn("apple_music_play", intent.allowed_tools)
-        self.assertIn("play_youtube_song", intent.allowed_tools)
+        self.assertEqual(intent.allowed_tools, ("Query", "Call"))
 
-    def test_setup_provider(self) -> None:
-        """Verifies that setup provider behaves as expected.
+    def test_sandbox_replaces_setup_provider_command(self) -> None:
+        """Verifies that sandbox is local and the legacy setup command is retired.
 
         Typical use: Use this in automated tests when guarding the setup provider behavior against regressions.
 
         Example: test_setup_provider() -> passes without assertion failures when the behavior remains correct.
         """
-        parsed = parse_builtin_command("/setup spotify")
-        self.assertIsNotNone(parsed)
-        assert parsed is not None
-        self.assertEqual(parsed.name, "setup")
-        self.assertEqual(parsed.args, "spotify")
-        self.assertTrue(parsed.known)
+        sandbox = parse_builtin_command("/sandbox")
+        setup = parse_builtin_command("/setup spotify")
+        self.assertIsNotNone(sandbox)
+        self.assertIsNotNone(setup)
+        assert sandbox is not None
+        assert setup is not None
+        self.assertTrue(sandbox.known)
+        self.assertEqual(sandbox.command.usage, "/sandbox")
+        self.assertFalse(setup.known)
 
     def test_bye_command(self) -> None:
         """Verifies that the bye command behaves as expected.
@@ -380,7 +379,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        for name in ["help", "info", "model", "logout", "setup", "bye", "exit", "player", "keymap"]:
+        for name in ["help", "info", "model", "logout", "sandbox", "bye", "exit", "player", "keymap"]:
             with self.subTest(name=name):
                 self.assertEqual(commands[name].mode, "local")
 

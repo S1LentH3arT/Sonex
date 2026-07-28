@@ -44,6 +44,8 @@ from src.tools.spotify_play import (
     spotify_transfer_playback,
 )
 from src.memory.tool import search_context, search_memory
+from src.tools.agent_surface import Call, Connect, Query, Read
+from src.sandbox.tool import Bash
 
 
 __all__ = [
@@ -89,4 +91,9 @@ __all__ = [
     "spotify_previous",
     "search_context",
     "search_memory",
+    "Read",
+    "Query",
+    "Connect",
+    "Call",
+    "Bash",
 ]

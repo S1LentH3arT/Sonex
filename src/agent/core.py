@@ -67,6 +67,14 @@ def _is_player_confirm_result(value: Any) -> bool:
     """
     return isinstance(value, dict) and value.get("status") == "requires_player_confirm"
 
+
+def _is_suspended_interaction_result(value: Any) -> bool:
+    """Return whether an Agent Tool asked the UI runtime to suspend the turn."""
+    return isinstance(value, dict) and value.get("status") in {
+        "requires_play_selection",
+        "requires_connection",
+    }
+
 def _spotify_premium_failure_answer(result: Any) -> str | None:
     """Prepares spotify premium failure answer for an internal Sonex flow.
 
@@ -189,7 +197,7 @@ def agent_loop(
             return
 
         # 使用工具
-        tool_func = tools.get(action.tool)
+        tool_func = tools.get_agent(action.tool)
         if not tool_func:
             message = f"Tool '{action.tool}' not found or not allowed."
             _safe_memory_call("append tool missing error", append_context, "error", {"error_text": message}, ["error", "tool", f"{action.tool}"])
@@ -231,7 +239,7 @@ def agent_loop(
 
         tool_result = Any
         try:
-            res = tools.invoke(action.tool, tool_args)
+            res = tools.invoke_agent(action.tool, tool_args)
             tool_result = _to_serializable(res)
         except Exception as exc:
             error_text = _format_error(exc)
@@ -252,6 +260,16 @@ def agent_loop(
                 args=_player_confirm_payload(tool_result, tool_args),
             )
             tool_result = _to_serializable(complete_player_confirm(tool_result, decision))
+
+        if _is_suspended_interaction_result(tool_result):
+            interaction_result = yield AgentState(
+                type="interaction",
+                tool=action.tool,
+                args={
+                    "request": tool_result,
+                },
+            )
+            tool_result = _to_serializable(interaction_result)
 
         yield AgentState(
             type="tool",

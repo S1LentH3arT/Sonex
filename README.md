@@ -82,67 +82,6 @@ You can also run the internal virtualenv command directly:
 .venv/bin/sonex
 ```
 
-## 🤖 MCP For External Agents
-
-Sonex exposes a local MCP server so Claude Code, Codex, Hermes Agent, and other
-MCP clients can use Sonex music tools. By default, MCP exposes read-only tools
-such as search, account status, current playback, recent tracks, and
-recommendations. Playback-changing tools are hidden unless you explicitly allow
-them.
-
-When Sonex is running normally, the FastAPI backend also serves MCP at:
-
-```text
-http://127.0.0.1:9001/mcp
-```
-
-Connect Codex:
-
-```bash
-codex mcp add sonex --url http://127.0.0.1:9001/mcp
-```
-
-Connect Claude Code over HTTP:
-
-```bash
-claude mcp add --transport http sonex http://127.0.0.1:9001/mcp
-```
-
-Connect Claude Code by spawning Sonex as a local stdio MCP server:
-
-```bash
-claude mcp add --transport stdio sonex -- sonex mcp
-```
-
-Hermes Agent can use either HTTP:
-
-```yaml
-mcp_servers:
-  sonex:
-    url: "http://127.0.0.1:9001/mcp"
-```
-
-or stdio:
-
-```yaml
-mcp_servers:
-  sonex:
-    command: "sonex"
-    args: ["mcp"]
-```
-
-For debugging a standalone HTTP MCP server, run:
-
-```bash
-sonex mcp --transport http --host 127.0.0.1 --port 9002
-```
-
-The standalone debug URL is `http://127.0.0.1:9002/mcp`.
-
-To expose playback-changing tools to trusted local agents, add
-`--allow-mutations` to `sonex mcp` or set `SONEX_MCP_ALLOW_MUTATIONS=1` before
-starting `sonex api`.
-
 ## 🩺 Check Your Setup
 
 Run:
@@ -259,8 +198,8 @@ Use `/spotify` to enter persistent Spotify mode after setup. Entry requires a
 logged-in Premium account, playback, playlist-read, and `user-library-read`
 scopes, and at least one usable Spotify Connect device. After a successful
 entry, Sonex restores Spotify mode in later chats until the local Spotify token
-expires, loses required scopes, or you leave the mode with `/spotify` or
-`/spotify off`. Startup restore only checks the local token and saved device
+expires, loses required scopes, or you run `/spotify` and confirm the exit
+panel. Startup restore only checks the local token and saved device
 metadata; it does not call Spotify account or device APIs. While the mode is
 active, play/search, recommendations, playlists, and current playback use
 Spotify tools only. In Spotify mode, `/recommend [taste]` shows five numbered
@@ -285,10 +224,7 @@ the current chat so you can grant the updated permissions.
 Apple Mode obtains short-lived developer tokens from a token service. Configure
 the service URL from the terminal, then enter Apple Mode:
 
-```text
-/setup apple
-/apple
-```
+Run `/connect`, choose Apple Music, then run `/apple`.
 
 The environment variable remains available and takes precedence over the saved
 terminal configuration:
@@ -319,10 +255,7 @@ through online audio sources. Spotify playback belongs to Spotify Mode; Apple
 Music playback belongs to Apple Mode. Configure at least one online audio
 provider:
 
-```text
-/setup jamendo
-/setup audius
-```
+Use `/connect` and choose Jamendo or Audius.
 
 You can also provide credentials through environment variables:
 

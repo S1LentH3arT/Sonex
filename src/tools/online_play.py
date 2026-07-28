@@ -103,7 +103,7 @@ UNAVAILABLE_MESSAGE = (
 )
 ONLINE_AUDIO_SETUP_MESSAGE = (
     "Online playback requires Jamendo or Audius setup. "
-    "Run /setup jamendo or /setup audius first."
+    "Run /connect first."
 )
 ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS = 12.0
 OPEN_AUDIO_SEARCH_TIMEOUT_SECONDS = 4.0
@@ -3408,7 +3408,8 @@ def play_youtube_song(
 
 registry.register(
     name="play_youtube_song",
-    type="player",
+    kind="system",
+    domain="playback",
     description="Play a resolved audio extract from youtube via mpv music player.",
     parameters=Params(
         type="object",

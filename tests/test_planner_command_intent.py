@@ -61,7 +61,8 @@ def _registry() -> ToolRegistry:
     for name in ["spotify_search", "spotify_recommend", "spotify_play"]:
         tools.register(
             name=name,
-            type="spotify",
+            kind="agent",
+            domain="spotify",
             description=f"{name} tool",
             parameters=Params(type="object", properties={}, required=[]),
             fn=lambda: None,

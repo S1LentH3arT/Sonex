@@ -147,7 +147,7 @@ const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = 
     random: { en: "play a recent song", "zh-CN": "从最近歌曲中播放" },
     recommend: { en: "recommend songs", "zh-CN": "按偏好的音乐口味推荐歌曲" },
     resume: { en: "resume playback", "zh-CN": "继续当前播放" },
-    setup: { en: "configure music provider", "zh-CN": "配置音乐服务" },
+    sandbox: { en: "check Agent Bash sandbox", "zh-CN": "检查 Agent Bash 沙箱" },
     apple: { en: "toggle Apple Mode", "zh-CN": "进入或退出持久化 Apple 模式" },
     spotify: { en: "toggle Spotify mode", "zh-CN": "进入或退出持久化 Spotify 模式" },
 };
@@ -168,7 +168,7 @@ const helpCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     random: { en: "play a random song from the recent Sonex queue", "zh-CN": "从最近歌曲中播放" },
     recommend: { en: "recommend songs based on a taste hint", "zh-CN": "按偏好的音乐口味推荐歌曲" },
     resume: { en: "resume current local playback", "zh-CN": "继续当前播放" },
-    setup: { en: "configure a music provider", "zh-CN": "配置音乐服务" },
+    sandbox: { en: "check or configure the Agent Bash sandbox", "zh-CN": "检查或配置 Agent Bash 沙箱" },
     apple: { en: "enter or exit persistent Apple Mode", "zh-CN": "进入或退出持久化 Apple 模式" },
     spotify: { en: "enter or exit persistent Spotify mode", "zh-CN": "进入或退出持久化 Spotify 模式" },
 };

@@ -31,7 +31,8 @@ def request_playback_selection(query: str) -> dict[str, Any]:
 
 registry.register(
     name="request_playback_selection",
-    type="player",
+    kind="system",
+    domain="playback",
     description=(
         "Use only when the user is asking Sonex to play music but the system router did not "
         "already enter playback mode. This does not start playback directly; it asks the UI to "

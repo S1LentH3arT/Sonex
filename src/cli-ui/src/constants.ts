@@ -34,9 +34,9 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "random", usage: "/random", description: "play a recent song", needsArgument: false },
     { name: "recommend", usage: "/recommend", description: "recommend songs", needsArgument: false },
     { name: "resume", usage: "/resume", description: "resume playback", needsArgument: false },
-    { name: "setup", usage: "/setup", description: "configure music provider", needsArgument: true },
-    { name: "apple", usage: "/apple [off]", description: "toggle Apple Mode", needsArgument: false },
-    { name: "spotify", usage: "/spotify [off]", description: "toggle Spotify mode", needsArgument: false },
+    { name: "sandbox", usage: "/sandbox", description: "check Agent Bash sandbox", needsArgument: false },
+    { name: "apple", usage: "/apple", description: "toggle Apple Mode", needsArgument: false },
+    { name: "spotify", usage: "/spotify", description: "toggle Spotify mode", needsArgument: false },
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";
 export const API_NOT_RUNNING_DETAIL = "Start with `sonex`, or run `sonex api` before `sonex tui`.";

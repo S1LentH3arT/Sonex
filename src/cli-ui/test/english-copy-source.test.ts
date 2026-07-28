@@ -32,6 +32,9 @@ assert.match(runnerSource, /"input": \{"placeholder": ""\}/);
 assert.match(runnerSource, /"message": "Choose the default player"/);
 assert.match(playerPermissionSource, /"confirm_message": f"Allow Sonex to open \{label\}\?"/);
 
-// Multilingual understanding remains intentional and outside the display-copy audit.
+// Multilingual setup triggers remain intentional and outside the display-copy audit.
 assert.match(websocketConstantsSource, /"连接 spotify"/);
-assert.match(runnerSource, /"pause": \{"pause", "暂停", "暫停"\}/);
+
+// Provider modes must not restore their retired natural-language direct routers.
+assert.doesNotMatch(runnerSource, /def _handle_apple_mode_input/);
+assert.doesNotMatch(runnerSource, /def _handle_spotify_mode_input/);

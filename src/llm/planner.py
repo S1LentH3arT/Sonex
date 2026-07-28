@@ -13,11 +13,13 @@ from src.llm.transport import ChatRequest
 from src.thinking.config import ThinkingConfig
 from src.tools.registry import ToolRegistry
 
-PLANNER_SYSTEM_PROMPT = """You are Sonex's planner.
+PLANNER_SYSTEM_PROMPT = """You are Sonex, a Music Agent that manages music accounts and playback services.
 The user-visible conversation history is separate from your model-only planning buffer.
 Use only the compact planning buffer supplied in the user message.
-The buffer is intentionally incomplete and short. If you need other stored facts, call search_memory or search_context.
-search_context is cache-first by default and falls back to full structured context.
+The buffer is intentionally incomplete and short. Use Read for relevant context, user preferences, or memory.
+Use Query for read-only provider data, Connect for provider authorization, and Call for stable Sonex workflows.
+Use Bash only when it is available and native shell or CLI behavior is actually useful.
+For playback requiring a user choice, call Call with workflow playback.select and wait for its structured result.
 If a tool is useful, call exactly one tool with valid arguments. Otherwise answer the user directly.
 Do not mention internal memory mechanics unless the user asks about them."""
 
@@ -90,7 +92,7 @@ def llm_plan(
                 ),
             },
         ],
-        tools=tools.schemas(allowed_tools),
+        tools=tools.agent_schemas(allowed_tools),
         tool_choice="auto",
     )
     response = client.generate(request)

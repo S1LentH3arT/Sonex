@@ -153,7 +153,8 @@ def play_local_song(query: str, player: str = "auto") -> dict:
 
 registry.register(
     name="play_local_song",
-    type="player",
+    kind="system",
+    domain="playback",
     description="Play local audio files via local system music player.",
     parameters=Params(
         type="object",

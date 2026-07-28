@@ -494,6 +494,8 @@ export const App: React.FC<{
                     tool_name: evt.tool_name,
                     tool_args: evt.tool_args,
                     message: evt.message || `Confirm ${evt.tool_name}`,
+                    warning: evt.warning,
+                    hide_hint: evt.hide_hint === true,
                     choices: evt.choices && evt.choices.length > 0 ? evt.choices : DEFAULT_CONFIRM_CHOICES,
                 });
                 setConfirmIndex(0);

@@ -91,7 +91,7 @@ class HttpDeveloperTokenProvider:
         self.timeout_seconds = timeout_seconds
         if not self.broker_url:
             raise DeveloperTokenNotConfiguredError(
-                "Apple Mode token service is not configured. Run /setup apple or set "
+                "Apple Mode token service is not configured. Run /connect or set "
                 "SONEX_APPLE_TOKEN_BROKER_URL."
             )
 

@@ -1073,7 +1073,8 @@ def _register_tool(
     """
     registry.register(
         name=name,
-        type="apple_music",
+        kind="system",
+        domain="apple_music",
         description=description,
         parameters=Params(type="object", properties=properties, required=required),
         fn=fn,

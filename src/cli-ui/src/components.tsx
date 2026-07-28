@@ -1039,8 +1039,31 @@ const CompactConfirm = ({
         );
     }
 
+    if (confirm.tool_name === "provider_mode_exit") {
+        return (
+            <PanelFrame width={panelWidth} title={confirm.message} hint={null}>
+                {confirm.warning ? (
+                    <PanelRow
+                        width={panelWidth}
+                        segments={[{ text: confirm.warning, color: "#facc15" }]}
+                    />
+                ) : null}
+                <PanelChoiceList
+                    items={choiceItems}
+                    selectedIndex={selectedDisplayIndex}
+                    width={panelWidth}
+                    spotifyTheme={isSpotifyConfirm}
+                />
+            </PanelFrame>
+        );
+    }
+
     return (
-        <PanelFrame width={panelWidth} title={confirm.message} hint={confirmCancelHint(confirm.choices)}>
+        <PanelFrame
+            width={panelWidth}
+            title={confirm.message}
+            hint={confirm.hide_hint ? null : confirmCancelHint(confirm.choices)}
+        >
             <PanelChoiceList
                 items={choiceItems}
                 selectedIndex={selectedDisplayIndex}

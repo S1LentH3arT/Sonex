@@ -52,12 +52,12 @@ assert.equal(englishShortHelp?.description, "show commands");
 
 const helpCommands = helpCommandsForLanguage([
     { name: "help", usage: "/help", description: "Show available Sonex commands." },
-    { name: "setup", usage: "/setup [provider]", description: "Configure a music provider." },
+    { name: "sandbox", usage: "/sandbox", description: "Check the Agent Bash sandbox." },
 ], "zh-CN");
 assert.equal(helpCommands[0]?.usage, "/help");
 assert.equal(helpCommands[0]?.description, "显示可用的 Sonex 命令");
-assert.equal(helpCommands[1]?.usage, "/setup [provider]");
-assert.equal(helpCommands[1]?.description, "配置音乐服务");
+assert.equal(helpCommands[1]?.usage, "/sandbox");
+assert.equal(helpCommands[1]?.description, "检查或配置 Agent Bash 沙箱");
 
 const englishLongHelp = helpCommandsForLanguage([
     { name: "help", usage: "/help", description: "placeholder" },

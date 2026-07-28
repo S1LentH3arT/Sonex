@@ -14,7 +14,7 @@ export type ServerEvent =
     | CoverPatternEvent
     | CoverPatternUnavailableEvent
     | { type: "error"; message: string; detail?: string | null; recoverable?: boolean | null }
-    | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; choices?: ConfirmChoice[] | null }
+    | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; warning?: string | null; hide_hint?: boolean | null; choices?: ConfirmChoice[] | null }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
     | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
     | { type: "auth_state"; ready: boolean; provider: string; model: string; auth_type: string; credential_source: string; reason?: string | null }
@@ -90,6 +90,8 @@ export type ConfirmState = {
     tool_name: string;
     tool_args: Record<string, unknown>;
     message: string;
+    warning?: string | null;
+    hide_hint?: boolean;
     choices: ConfirmChoice[];
 } | null;
 

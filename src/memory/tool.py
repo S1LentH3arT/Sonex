@@ -25,7 +25,8 @@ def search_context(query: str, target: str = "auto", limit: int = 10) -> list[di
 
 registry.register(
     name="search_memory",
-    type="memory",
+    kind="system",
+    domain="knowledge",
     description=(
         "Search long-term markdown memory. Use this when the preloaded memories "
         "are not enough and more stored project or user facts are needed."
@@ -53,7 +54,8 @@ registry.register(
 
 registry.register(
     name="search_context",
-    type="memory",
+    kind="system",
+    domain="knowledge",
     description=(
         "Search reusable cache first, then full context if cache has no matches. "
         "Use target='context' or target='cache' to force a specific table."

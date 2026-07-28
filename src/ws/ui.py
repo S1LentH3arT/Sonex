@@ -218,6 +218,8 @@ class WebSocketUIAdapter:
                 "tool_name": attached.get("tool_name"),
                 "tool_args": attached.get("tool_args"),
                 "message": attached.get("message"),
+                "warning": attached.get("warning"),
+                "hide_hint": attached.get("hide_hint"),
                 "choices": attached.get("choices"),
             }
         )

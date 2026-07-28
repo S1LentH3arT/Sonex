@@ -108,7 +108,10 @@ assert.match(compactConfirmBody, /if \(confirm\.tool_name === "playlist_browse"\
 assert.match(compactConfirmBody, /formatPlaylistBrowseName\(choice\.label\)/);
 assert.match(compactConfirmBody, /playlistBrowseTrackCount\(choice\)/);
 assert.equal((compactConfirmBody.match(/<PanelFrame /g) ?? []).length, 3);
-assert.equal((compactConfirmBody.match(/<PanelChoiceList/g) ?? []).length, 2);
+assert.equal((compactConfirmBody.match(/<PanelChoiceList/g) ?? []).length, 3);
+assert.match(compactConfirmBody, /confirm\.tool_name === "provider_mode_exit"/);
+assert.match(compactConfirmBody, /segments=\{\[\{ text: confirm\.warning, color: "#facc15" \}\]\}/);
+assert.match(compactConfirmBody, /title=\{confirm\.message\} hint=\{null\}/);
 assert.match(compactConfirmBody, /spotifyTheme=\{isSpotifyConfirm\}/);
 assert.doesNotMatch(compactConfirmBody, /borderStyle=|selectedBackgroundColor=|<ChoicePanel|selected \? "> "/);
 

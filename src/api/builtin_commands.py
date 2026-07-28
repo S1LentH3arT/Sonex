@@ -88,9 +88,9 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("logout", "/logout", "sign out from the current LLM provider and exit"),
     BuiltinCommand("playlist", "/playlist [name]|save [name]", "browse playlists or save the current song"),
     BuiltinCommand("queue", "/queue", "show the playback queue"),
-    BuiltinCommand("apple", "/apple [off]", "enter or exit persistent Apple Mode"),
+    BuiltinCommand("apple", "/apple", "enter or exit persistent Apple Mode"),
     BuiltinCommand("connect", "/connect", "connect a supported music account"),
-    BuiltinCommand("spotify", "/spotify [off]", "enter or exit persistent Spotify mode"),
+    BuiltinCommand("spotify", "/spotify", "enter or exit persistent Spotify mode"),
     BuiltinCommand("pause", "/pause", "pause current local playback", visible=False),
     BuiltinCommand("resume", "/resume", "resume current local playback"),
     BuiltinCommand("stop", "/stop", "stop current local playback", visible=False),
@@ -107,14 +107,11 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         mode="agent",
         intent_prompt=(
             "The user invoked /recommend. Treat the args as a music taste hint. "
-            "Prefer recommendation tools, return a concise numbered text list, and end with a normal "
-            "question about what the user wants to hear. Do not start playback."
+            "Use Query and Read to recommend real tracks, return a concise numbered "
+            "text list, and end with a normal question about what the user wants to hear. "
+            "Do not start playback."
         ),
-        allowed_tools=(
-            "spotify_recommend",
-            "spotify_recent_tracks",
-            "spotify_search",
-        ),
+        allowed_tools=("Read", "Query"),
     ),
     BuiltinCommand(
         "random",
@@ -122,17 +119,12 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         "play a random song from the recent Sonex queue",
         mode="agent",
         intent_prompt=(
-            "The user invoked /random. Choose a track from recent listening or cached queue context, "
-            "then prefer Spotify or Apple Music playback. If platform playback is not viable, "
-            "fall back to online playback with play_youtube_song using the selected title and artist."
+            "The user invoked /random. Use Query to choose a track from recent listening "
+            "or queue context, then use Call with playback.select or playback.play."
         ),
-        allowed_tools=(
-            "spotify_recent_tracks",
-            "spotify_play",
-            "play_youtube_song",
-        ),
+        allowed_tools=("Query", "Call"),
     ),
-    BuiltinCommand("setup", "/setup [provider]", "configure a music provider"),
+    BuiltinCommand("sandbox", "/sandbox", "check or configure the Agent Bash sandbox"),
     BuiltinCommand("bye", "/bye", "save the current session and exit safely"),
     BuiltinCommand("exit", "/exit", "save the current session and exit safely"),
 )

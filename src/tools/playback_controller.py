@@ -1135,7 +1135,8 @@ for name, description, fn in (
 ):
     registry.register(
         name=name,
-        type="player",
+        kind="system",
+        domain="playback",
         description=description,
         parameters=Params(type="object", properties={}, required=[]),
         fn=fn,
@@ -1146,7 +1147,8 @@ for name, description, fn in (
 
 registry.register(
     name="local_playback_volume",
-    type="player",
+    kind="system",
+    domain="playback",
     description="Set current local playback volume from 0 to 100 percent.",
     parameters=Params(
         type="object",
@@ -1161,7 +1163,8 @@ registry.register(
 
 registry.register(
     name="local_playback_player",
-    type="player",
+    kind="system",
+    domain="playback",
     description="Set the default local player for this session.",
     parameters=Params(
         type="object",
