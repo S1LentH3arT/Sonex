@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from src.api.ws_runner import WebSocketRunner
 from src.music.player_sinks import PlayerSelectionResult, PlayerSinkOption
+
+
+async def _to_thread_inline(function: object, *args: object, **kwargs: object) -> object:
+    return function(*args, **kwargs)  # type: ignore[operator]
 
 
 class _FakeManager:
@@ -67,8 +72,12 @@ class PlayerSinkCommandTests(unittest.IsolatedAsyncioTestCase):
         runner = WebSocketRunner(player_sink_manager_factory=lambda: manager)
         ui = _FakeUI()
 
-        await runner._handle_local_playback_player(ui, "")
-        await runner._handle_local_playback_player(ui, "")
+        with patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await runner._handle_local_playback_player(ui, "")
+            await runner._handle_local_playback_player(ui, "")
 
         self.assertEqual(manager.option_calls, 2)
         confirms = [event for event in ui.events if event.get("type") == "confirm"]
@@ -86,18 +95,54 @@ class PlayerSinkCommandTests(unittest.IsolatedAsyncioTestCase):
         manager = _FakeManager()
         runner = WebSocketRunner(player_sink_manager_factory=lambda: manager)
         ui = _FakeUI()
-        await runner._handle_local_playback_player(ui, "")
-        session = getattr(ui, "_player_backend_selection")
+        with patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await runner._handle_local_playback_player(ui, "")
+            session = getattr(ui, "_player_backend_selection")
 
-        await session.handle_choice("mpris:remote")
-        self.assertEqual(manager.selections, [])
+            await session.handle_choice("mpris:remote")
+            self.assertEqual(manager.selections, [])
 
-        await runner._handle_local_playback_player(ui, "")
-        session = getattr(ui, "_player_backend_selection")
-        await session.handle_choice("managed:mpv")
+            await runner._handle_local_playback_player(ui, "")
+            session = getattr(ui, "_player_backend_selection")
+            await session.handle_choice("managed:mpv")
 
         self.assertEqual(manager.selections, ["managed:mpv"])
         self.assertTrue(any(event.get("text") == "player: mpv" for event in ui.events))
+
+    async def test_default_failure_opens_explicit_recovery_choices(self) -> None:
+        runner = WebSocketRunner(player_sink_manager_factory=_FakeManager)
+        ui = _FakeUI()
+        result = {
+            "status": "fail",
+            "tool": "play_local_song",
+            "message": "Default player failed.",
+            "error_code": "DEFAULT_PLAYER_FAILED",
+            "data": {
+                "player_recovery": {
+                    "source_url": "/music/song.flac",
+                    "source": "local",
+                    "metadata": {"name": "Song"},
+                    "success_message": "Playing started.",
+                }
+            },
+        }
+
+        await runner._sync_tool_result_ui(ui, "play_local_song", result)
+
+        session = getattr(ui, "_player_sink_recovery")
+        confirm = next(
+            event
+            for event in ui.events
+            if event.get("type") == "confirm"
+            and event.get("id") == session.confirm_id
+        )
+        self.assertEqual(
+            [choice["value"] for choice in confirm["choices"]],  # type: ignore[index]
+            ["retry", "change_default", "mpv_once", "deny"],
+        )
 
 
 if __name__ == "__main__":

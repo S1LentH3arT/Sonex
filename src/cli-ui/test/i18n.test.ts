@@ -166,8 +166,8 @@ const defaultPlayerConfirm = applyLanguageToServerEvent({
     },
     message: "Choose the default player",
     choices: [
-        { value: "mpv", label: "mpv", description: "Controllable local player for stable background playback." },
-        { value: "cvlc", label: "VLC", description: "Controllable VLC playback through its RC interface." },
+        { value: "managed:mpv", label: "mpv", description: "Controllable local player for stable background playback." },
+        { value: "managed:cvlc", label: "VLC", description: "Controllable VLC playback through its RC interface." },
         { value: "deny", label: "Cancel" },
     ],
 }, "zh-CN");

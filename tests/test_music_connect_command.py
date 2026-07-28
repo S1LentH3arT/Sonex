@@ -71,6 +71,7 @@ class MusicConnectCommandTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("netease", str(confirm).casefold())
         self.assertIn("Connected", confirm["choices"][0]["description"])  # type: ignore[index]
+        self.assertIn("Not connected", confirm["choices"][1]["description"])  # type: ignore[index]
 
     async def test_connect_selection_delegates_to_interactive_provider_workflow(self) -> None:
         runner = WebSocketRunner(

@@ -3964,6 +3964,90 @@ class SpotifyPlaylistSelectionSession:
         await self.ui.append_activity(kind="status", title="Spotify playlists", detail=f"Showing {title}.", status="success")
 
 
+class PlayerSinkRecoverySession:
+    """Offer bounded recovery actions after the persisted default fails twice."""
+
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        runner: "WebSocketRunner",
+        tool_name: str,
+        recovery: dict[str, Any],
+    ) -> None:
+        self.ui = ui
+        self.runner = runner
+        self.tool_name = tool_name
+        self.recovery = recovery
+        self.confirm_id = _new_event_id("player_recovery")
+
+    async def start(self) -> None:
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Default player unavailable",
+            detail="Choose how to continue this playback.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "type": "confirm",
+                "id": self.confirm_id,
+                "tool_name": self.tool_name,
+                "tool_args": {"stage": "player_sink_recovery"},
+                "message": "Default player unavailable",
+                "choices": [
+                    {
+                        "value": "retry",
+                        "label": "Retry",
+                        "description": "Retry the same default player.",
+                    },
+                    {
+                        "value": "change_default",
+                        "label": "Change default player",
+                        "description": "Choose a different device default.",
+                    },
+                    {
+                        "value": "mpv_once",
+                        "label": "Use mpv this time",
+                        "description": "Use managed mpv once without changing the default.",
+                    },
+                    {"value": "deny", "label": "Cancel"},
+                ],
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        setattr(self.ui, "_player_sink_recovery", None)
+        action = str(decision or "deny").strip().casefold()
+        if action == "change_default":
+            await self.runner._handle_local_playback_player(self.ui, "")
+            return
+        if action not in {"retry", "mpv_once"}:
+            await self.ui.append_system_message("Playback recovery cancelled.")
+            return
+
+        metadata = self.recovery.get("metadata")
+        result = await asyncio.to_thread(
+            start_local_playback,
+            tool=self.tool_name,
+            source_url=str(self.recovery.get("source_url") or ""),
+            source=str(self.recovery.get("source") or "local"),
+            metadata=dict(metadata) if isinstance(metadata, dict) else {},
+            player="mpv" if action == "mpv_once" else "auto",
+            success_message=str(
+                self.recovery.get("success_message") or "Playback started."
+            ),
+        )
+        await self.runner._sync_tool_result_ui(self.ui, self.tool_name, result)
+        if _is_failed_tool_result(result):
+            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
+            await self.ui.append_agent_message(message)
+            await self.ui.send_error(message)
+
+
 class PlayerBackendSelectionSession:
     """Render Player Sink options and delegate selection to the manager."""
 
@@ -4070,19 +4154,20 @@ class ConnectionSelectionSession:
 
     async def start(self) -> None:
         choices: list[dict[str, object]] = []
-        for provider_id, label, base_description in (
-            ("spotify", "Spotify", "Connect a Spotify account with official OAuth."),
-            (
-                "apple_music",
-                "Apple Music",
-                "Connect Apple Music through the secure MusicKit companion.",
-            ),
+        for provider_id, label in (
+            ("spotify", "Spotify"),
+            ("apple_music", "Apple Music"),
         ):
             record = self.manager.record(provider_id)
-            description = base_description
-            if record is not None:
+            if record is None:
+                description = "Not connected. Select to connect."
+            else:
                 account = f" · {record.account_label}" if record.account_label else ""
-                status = "Connected" if record.status == "connected" else "Unavailable"
+                status = (
+                    "Connected"
+                    if record.status == "connected"
+                    else "Reauthorization required"
+                )
                 description = f"{status}{account}. Select to check the connection."
             choices.append(
                 {
@@ -4324,6 +4409,10 @@ class WebSocketRunner:
         player_backend = getattr(ui, "_player_backend_selection", None)
         if player_backend and player_backend.owns_confirm(confirm_id):
             await player_backend.handle_choice(decision)
+            return True
+        player_recovery = getattr(ui, "_player_sink_recovery", None)
+        if player_recovery and player_recovery.owns_confirm(confirm_id):
+            await player_recovery.handle_choice(decision)
             return True
         music_connection = getattr(ui, "_music_connection_selection", None)
         if music_connection and music_connection.owns_confirm(confirm_id):
@@ -6166,7 +6255,9 @@ class WebSocketRunner:
         Example: await _handle_local_playback_player(ui=..., args=...) -> returns the value used by the surrounding Sonex flow.
         """
         if self._player_sink_manager_instance is None:
-            self._player_sink_manager_instance = self._player_sink_manager_factory()
+            self._player_sink_manager_instance = await asyncio.to_thread(
+                self._player_sink_manager_factory
+            )
         manager = self._player_sink_manager_instance
         options = await manager.options()
         if not options:
@@ -6536,6 +6627,16 @@ class WebSocketRunner:
             await ui.send_cover(cover_url)
         if result_status == "success" and is_spotify_play_tool:
             _request_spotify_sync(ui)
+        if (
+            isinstance(tool_result, dict)
+            and tool_result.get("error_code") == "DEFAULT_PLAYER_FAILED"
+        ):
+            data = tool_result.get("data")
+            recovery = data.get("player_recovery") if isinstance(data, dict) else None
+            if isinstance(recovery, dict):
+                session = PlayerSinkRecoverySession(ui, self, tool_name, recovery)
+                setattr(ui, "_player_sink_recovery", session)
+                await session.start()
 
     async def _run_agent_turn(
         self,

@@ -252,6 +252,14 @@ const playerConfirmChoices: Record<string, Record<UiLanguage, Partial<ConfirmCho
 };
 
 const defaultPlayerChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {
+    "managed:mpv": {
+        en: { label: "mpv", description: "Controllable local player for stable background playback." },
+        "zh-CN": { label: "mpv", description: "可控制的本地播放器，适合稳定的后台播放。" },
+    },
+    "managed:cvlc": {
+        en: { label: "VLC", description: "Controllable VLC playback through its RC interface." },
+        "zh-CN": { label: "VLC", description: "通过 RC 接口进行可控制的 VLC 播放。" },
+    },
     mpv: {
         en: { label: "mpv", description: "Controllable local player for stable background playback." },
         "zh-CN": { label: "mpv", description: "可控制的本地播放器，适合稳定的后台播放。" },
