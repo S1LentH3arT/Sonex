@@ -17,7 +17,6 @@ dependencies = [
     "requests",
     "textual",
     "fastapi",
-    "mcp[cli]",
     "uvicorn[standard]",
     "spotipy",
     "yt-dlp",

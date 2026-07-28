@@ -44,7 +44,6 @@ from src.auth.store import (
     set_provider_config,
 )
 from src.log import configure_file_logging, sonex_log_path
-from src.mcp import SONEX_MCP_ALLOW_MUTATIONS, run_mcp_server
 from src.workspace import user_workspace_root
 
 APP_VERSION = "1.0.0"
@@ -553,32 +552,6 @@ def tui(
     exit_code = _run_ink_tui(host=host, port=port)
     if exit_code:
         raise typer.Exit(exit_code)
-
-
-@app.command("mcp")
-def mcp_command(
-    transport: str = typer.Option("stdio", "--transport", help="stdio or http."),
-    host: str = typer.Option(DEFAULT_HOST, "--host", help="HTTP bind host."),
-    port: int = typer.Option(9002, "--port", help="HTTP bind port."),
-    allow_mutations: bool = typer.Option(
-        False,
-        "--allow-mutations",
-        help="Expose playback-changing MCP tools.",
-    ),
-) -> None:
-    """Run Sonex as an MCP server."""
-    normalized_transport = transport.strip().lower().replace("_", "-")
-    if normalized_transport not in {"stdio", "http"}:
-        raise typer.BadParameter("transport must be one of: stdio, http")
-    effective_allow_mutations = True if allow_mutations else None
-    if effective_allow_mutations:
-        os.environ[SONEX_MCP_ALLOW_MUTATIONS] = "1"
-    run_mcp_server(
-        transport="http" if normalized_transport == "http" else "stdio",
-        host=host,
-        port=port,
-        allow_mutations=effective_allow_mutations,
-    )
 
 
 if __name__ == "__main__":
