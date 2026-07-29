@@ -348,6 +348,7 @@ export const App: React.FC<{
                 content: evt.text,
                 theme: evt.theme,
                 tone: evt.tone,
+                segments: evt.segments,
             };
             if (evt.role === "user") {
                 dispatchTranscript({
@@ -497,6 +498,10 @@ export const App: React.FC<{
                     warning: evt.warning,
                     hide_hint: evt.hide_hint === true,
                     choices: evt.choices && evt.choices.length > 0 ? evt.choices : DEFAULT_CONFIRM_CHOICES,
+                    variant: evt.variant,
+                    commands: evt.commands ?? [],
+                    page_index: evt.page_index,
+                    page_count: evt.page_count,
                 });
                 setConfirmIndex(0);
                 break;
@@ -973,7 +978,9 @@ export const App: React.FC<{
         } else if (key.escape) {
             send({ type: "confirm_result", id: confirm.id, decision: "deny" });
             setConfirm(null);
-            appendPanelHiddenNotice(t(language, "panel.confirmHidden"));
+            if (confirm.variant !== "tool_call_review") {
+                appendPanelHiddenNotice(t(language, "panel.confirmHidden"));
+            }
         }
     }, { isActive: Boolean(confirm) && rawModeAvailable });
 

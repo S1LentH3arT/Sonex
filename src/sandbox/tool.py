@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from src.sandbox.command_policy import (
+    MAX_BASH_COMMAND_LENGTH,
+    MAX_BASH_COMMANDS,
+    inspect_commands,
+)
 from src.sandbox.manager import SandboxManager
 from src.tools.registry import Params, ToolRegistry, registry
 
@@ -9,12 +14,17 @@ _manager = SandboxManager()
 
 
 def Bash(
-    script: str,
-    cwd: str = "/work",
+    commands: list[str],
     timeout_ms: int = 30_000,
 ) -> dict[str, object]:
-    """Execute native Bash syntax inside the mandatory Sonex sandbox."""
-    return _manager.execute(script, cwd=cwd, timeout_ms=timeout_ms).to_dict()
+    """Execute one ordered, reviewable command list in the mandatory sandbox."""
+    decision = inspect_commands(commands)
+    if not decision.valid:
+        raise ValueError(decision.invalid_reason)
+    if decision.level == "deny":
+        raise PermissionError("Bash commands were denied by the Sonex guardrail.")
+    script = "set -e -o pipefail\n" + "\n".join(decision.commands)
+    return _manager.execute(script, cwd="/work", timeout_ms=timeout_ms).to_dict()
 
 
 def sandbox_manager() -> SandboxManager:
@@ -32,18 +42,29 @@ def register_bash_tool(tool_registry: ToolRegistry = registry) -> None:
         kind="agent",
         domain="sandbox",
         description=(
-            "Run native Bash syntax in the restricted Sonex sandbox. The shell has "
-            "no public network or credentials; use Query, Connect, and Call for "
+            "Run an ordered list of simple commands in one restricted sandbox shell. "
+            "Each commands item must contain one command or one single-line pipeline. "
+            "Commands run sequentially and stop on failure; cd affects later items in "
+            "this call only. Complex or inline shell programs are rejected. The shell "
+            "has no public network or credentials; use Query, Connect, and Call for "
             "provider operations."
         ),
         parameters=Params(
             type="object",
             properties={
-                "script": {"type": "string", "description": "Bash script to execute."},
-                "cwd": {
-                    "type": "string",
-                    "description": "Sandbox cwd within /work, /music, or /tmp.",
-                    "default": "/work",
+                "commands": {
+                    "type": "array",
+                    "description": (
+                        "One to twelve simple commands in execution order. Each item "
+                        "must be one physical line."
+                    ),
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": MAX_BASH_COMMAND_LENGTH,
+                    },
+                    "minItems": 1,
+                    "maxItems": MAX_BASH_COMMANDS,
                 },
                 "timeout_ms": {
                     "type": "integer",
@@ -52,7 +73,7 @@ def register_bash_tool(tool_registry: ToolRegistry = registry) -> None:
                     "default": 30000,
                 },
             },
-            required=["script"],
+            required=["commands"],
         ),
         fn=Bash,
         read_only=False,

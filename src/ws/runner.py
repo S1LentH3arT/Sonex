@@ -36,6 +36,12 @@ from src.agent.interactions import (
     has_interrupted_interaction,
     mark_interrupted_interaction,
 )
+from src.agent.tool_messages import (
+    approved_commands_message,
+    blocked_commands_message,
+    format_tool_batch,
+    rejected_commands_message,
+)
 from src.apple_mode import (
     AppleCandidateDecision,
     AppleCompanionError,
@@ -7041,7 +7047,7 @@ class WebSocketRunner:
         self,
         ui: WebSocketUIAdapter,
         *,
-        messages: list[dict[str, str]],
+        messages: list[dict[str, Any]],
         reason: str,
     ) -> None:
         """Prepares handle bye for an internal Sonex flow.
@@ -7177,6 +7183,7 @@ class WebSocketRunner:
         """
         event_queue: asyncio.Queue[RunnerEvent] = asyncio.Queue()
         self._confirm_queue = queue.Queue()
+        tool_message_gate: queue.Queue[bool] = queue.Queue(maxsize=1)
         loop = asyncio.get_running_loop()
         tick_interval = 0.25
         current_phase = "Planning"
@@ -7235,7 +7242,13 @@ class WebSocketRunner:
                                     "tool_name": evt.tool,
                                     "tool_args": tool_args,
                                     "message": confirm_payload.get("message"),
+                                    "warning": confirm_payload.get("warning"),
+                                    "hide_hint": confirm_payload.get("hide_hint"),
                                     "choices": confirm_payload.get("choices"),
+                                    "variant": confirm_payload.get("variant"),
+                                    "commands": confirm_payload.get("commands"),
+                                    "page_index": confirm_payload.get("page_index"),
+                                    "page_count": confirm_payload.get("page_count"),
                                 },
                             )
                         )
@@ -7243,7 +7256,11 @@ class WebSocketRunner:
                         emit(
                             RunnerEvent(
                                 type="confirm_decision",
-                                data={"id": confirm_id, "decision": decision},
+                                data={
+                                    "id": confirm_id,
+                                    "decision": decision,
+                                    "variant": confirm_payload.get("variant"),
+                                },
                             )
                         )
                         continue
@@ -7272,10 +7289,19 @@ class WebSocketRunner:
                             "tool_args": evt.args or {},
                             "tool_result": evt.result,
                         }
-                    elif evt.type in {"error", "complete"}:
+                    elif evt.type == "tool_batch":
+                        data = {"calls": evt.calls or []}
+                    elif evt.type in {"tool_approved", "tool_rejected", "tool_blocked"}:
+                        data = {
+                            "calls": evt.calls or [],
+                            **(evt.args or {}),
+                        }
+                    elif evt.type in {"error", "complete", "warning"}:
                         data = {"content": evt.content, "tool_name": evt.tool}
 
                     emit(RunnerEvent(type=evt.type, data=data))
+                    if evt.type == "tool_batch" and not tool_message_gate.get():
+                        return
             except StopIteration:
                 pass
             except Exception as exc:
@@ -7360,17 +7386,20 @@ class WebSocketRunner:
             if event.type == "confirm":
                 await finish_planning("success", "Planning complete.")
                 tool_name = str(event.data.get("tool_name") or "tool")
-                await ui.append_activity(
-                    kind="confirm",
-                    title=f"Confirm {tool_name}",
-                    detail=event.data.get("message") or _format_args(event.data.get("tool_args")),
-                    status="pending",
-                    activity_id=str(event.data.get("id")),
-                )
+                if event.data.get("variant") != "tool_call_review":
+                    await ui.append_activity(
+                        kind="confirm",
+                        title=f"Confirm {tool_name}",
+                        detail=event.data.get("message") or _format_args(event.data.get("tool_args")),
+                        status="pending",
+                        activity_id=str(event.data.get("id")),
+                    )
                 await ui.ask_confirm(event.data)
                 continue
 
             if event.type == "confirm_decision":
+                if event.data.get("variant") == "tool_call_review":
+                    continue
                 decision = str(event.data.get("decision") or "deny")
                 confirmed = decision != "deny"
                 await ui.append_activity(
@@ -7380,6 +7409,44 @@ class WebSocketRunner:
                     status="success" if confirmed else "error",
                     activity_id=str(event.data.get("id")),
                 )
+                continue
+
+            if event.type == "tool_approved":
+                commands = event.data.get("commands") or []
+                await ui.append_system_message(approved_commands_message(commands))
+                continue
+
+            if event.type == "tool_rejected":
+                commands = event.data.get("commands") or []
+                await ui.append_system_message(rejected_commands_message(commands))
+                continue
+
+            if event.type == "tool_blocked":
+                commands = event.data.get("commands") or []
+                rule_ids = event.data.get("rule_ids") or []
+                command_rule_ids = event.data.get("command_rule_ids") or []
+                await ui.append_system_message(
+                    blocked_commands_message(
+                        commands,
+                        rule_ids,
+                        command_rule_ids,
+                    )
+                )
+                continue
+
+            if event.type == "tool_batch":
+                calls = event.data.get("calls") or []
+                message = format_tool_batch(calls)
+                delivered = False
+                try:
+                    if message.text:
+                        await ui.append_agent_message(
+                            message.text,
+                            segments=message.segments,
+                        )
+                    delivered = not getattr(ui, "closed", False)
+                finally:
+                    tool_message_gate.put(delivered)
                 continue
 
             if event.type == "interaction":
@@ -7473,6 +7540,12 @@ class WebSocketRunner:
                 )
                 await ui.append_agent_message(friendly_message)
                 await ui.send_error(friendly_message)
+                continue
+
+            if event.type == "warning":
+                await finish_planning("error", str(event.data.get("content") or "Agent warning."))
+                message = str(event.data.get("content") or "Agent warning.")
+                await ui.append_warning_message(message)
                 continue
 
             if event.type == "complete":

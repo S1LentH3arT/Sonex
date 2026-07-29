@@ -8,8 +8,9 @@ import {
     resolveChatMarkerColor,
     resolveChatSubject,
     wrapChatMessageContent,
+    wrapChatMessageSegments,
 } from '../src/chat-message.js';
-import { BORDER_BLUE, BORDER_BLUE_SOFT, SPOTIFY_GREEN } from '../src/constants.js';
+import { BORDER_BLUE, BORDER_BLUE_SOFT, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from '../src/constants.js';
 
 assert.deepEqual(wrapChatMessageContent('hello', 20), ['hello']);
 assert.deepEqual(wrapChatMessageContent('one\ntwo\nthree', 20), ['one', 'two', 'three']);
@@ -19,6 +20,23 @@ assert.deepEqual(wrapChatMessageContent('中文A', 3), ['中', '文A']);
 assert.deepEqual(wrapChatMessageContent('🙂a', 2), ['🙂', 'a']);
 assert.deepEqual(wrapChatMessageContent('界', 1), ['界']);
 assert.deepEqual(wrapChatMessageContent('', 0), ['']);
+assert.deepEqual(
+    wrapChatMessageSegments([
+        { text: 'Bash', style: 'tool_name' },
+        { text: '  npm test\n      git status', style: 'tool_value' },
+    ], 12),
+    [
+        [
+            { text: 'Bash', style: 'tool_name' },
+            { text: '  npm te', style: 'tool_value' },
+        ],
+        [{ text: 'st', style: 'tool_value' }],
+        [{ text: '      git st', style: 'tool_value' }],
+        [{ text: 'atus', style: 'tool_value' }],
+    ],
+);
+assert.equal(TOOL_NAVY, '#2f5d8c');
+assert.equal(TOOL_VALUE, '#ffffff');
 
 assert.equal(resolveChatMarkerColor('user', null, null), CHAT_USER_MARKER_COLOR);
 assert.equal(resolveChatMarkerColor('user', 'spotify', 'error'), CHAT_USER_MARKER_COLOR);

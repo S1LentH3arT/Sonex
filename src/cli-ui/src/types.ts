@@ -1,5 +1,5 @@
 export type ServerEvent =
-    | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null }
+    | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null; segments?: ChatSegment[] | null }
     | { type: "session_state"; session_id: string }
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
     | { type: "status"; phase: string; message: string; active?: boolean | null; step?: number; max_steps?: number }
@@ -14,7 +14,7 @@ export type ServerEvent =
     | CoverPatternEvent
     | CoverPatternUnavailableEvent
     | { type: "error"; message: string; detail?: string | null; recoverable?: boolean | null }
-    | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; warning?: string | null; hide_hint?: boolean | null; choices?: ConfirmChoice[] | null }
+    | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; warning?: string | null; hide_hint?: boolean | null; choices?: ConfirmChoice[] | null; variant?: "tool_call_review" | null; commands?: string[] | null; page_index?: number | null; page_count?: number | null }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
     | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
     | { type: "auth_state"; ready: boolean; provider: string; model: string; auth_type: string; credential_source: string; reason?: string | null }
@@ -93,6 +93,10 @@ export type ConfirmState = {
     warning?: string | null;
     hide_hint?: boolean;
     choices: ConfirmChoice[];
+    variant?: "tool_call_review" | null;
+    commands?: string[];
+    page_index?: number | null;
+    page_count?: number | null;
 } | null;
 
 export type SpotifySetupState = {
@@ -203,12 +207,18 @@ export type ChatTheme = "spotify" | "muted";
 
 export type ChatTone = "system" | "warning" | "error";
 
+export type ChatSegment = {
+    text: string;
+    style: "tool_name" | "tool_value";
+};
+
 export type ChatBubbleProps = {
     role: ChatRole;
     content: string;
     contentWidth: number;
     theme?: ChatTheme | null;
     tone?: ChatTone | null;
+    segments?: ChatSegment[] | null;
 };
 
 export type ChatMessageItem = {
@@ -217,9 +227,10 @@ export type ChatMessageItem = {
     content: string;
     theme?: ChatTheme | null;
     tone?: ChatTone | null;
+    segments?: ChatSegment[] | null;
 };
 
-export type ChatTranscriptMessage = Pick<ChatMessageItem, "role" | "content" | "theme">;
+export type ChatTranscriptMessage = Pick<ChatMessageItem, "role" | "content" | "theme" | "tone" | "segments">;
 
 export type InfoBannerItem = {
     type: "info_banner";

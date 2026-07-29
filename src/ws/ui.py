@@ -33,7 +33,7 @@ class WebSocketUIAdapter:
         self.ws = ws
         self.session_id = session_id
         self.closed = False
-        self.transcript: list[dict[str, str]] = []
+        self.transcript: list[dict[str, Any]] = []
 
     async def _send(self, payload: dict[str, Any]) -> None:
         """Prepares send for an internal Sonex flow.
@@ -68,13 +68,24 @@ class WebSocketUIAdapter:
         self.transcript.append({"role": "user", "content": text})
         await self._send({"type": "chat", "role": "user", "text": text})
 
-    async def append_agent_message(self, text: str) -> None:
+    async def append_agent_message(
+        self,
+        text: str,
+        *,
+        segments: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+    ) -> None:
         """Append an LLM answer or agent/tool-call explanation."""
-        self.transcript.append({"role": "agent", "content": text})
+        transcript_item: dict[str, Any] = {"role": "agent", "content": text}
         payload: dict[str, Any] = {"type": "chat", "role": "agent", "text": text}
+        if segments:
+            safe_segments = [dict(segment) for segment in segments]
+            transcript_item["segments"] = safe_segments
+            payload["segments"] = safe_segments
         mode = getattr(self, "_spotify_mode", None)
         if isinstance(mode, dict) and mode.get("enabled"):
+            transcript_item["theme"] = "spotify"
             payload["theme"] = "spotify"
+        self.transcript.append(transcript_item)
         await self._send(payload)
 
     async def append_system_message(self, text: str) -> None:
@@ -85,6 +96,18 @@ class WebSocketUIAdapter:
                 "type": "chat",
                 "role": "agent",
                 "tone": "system",
+                "text": text,
+            }
+        )
+
+    async def append_warning_message(self, text: str) -> None:
+        """Append a durable runtime warning using the existing Agent role."""
+        self.transcript.append({"role": "agent", "content": text})
+        await self._send(
+            {
+                "type": "chat",
+                "role": "agent",
+                "tone": "warning",
                 "text": text,
             }
         )
@@ -221,6 +244,10 @@ class WebSocketUIAdapter:
                 "warning": attached.get("warning"),
                 "hide_hint": attached.get("hide_hint"),
                 "choices": attached.get("choices"),
+                "variant": attached.get("variant"),
+                "commands": attached.get("commands"),
+                "page_index": attached.get("page_index"),
+                "page_count": attached.get("page_count"),
             }
         )
 

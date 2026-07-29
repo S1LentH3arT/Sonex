@@ -133,6 +133,35 @@ class PlannerCommandIntentTests(unittest.TestCase):
         tool_names = [tool["function"]["name"] for tool in request.tools]
         self.assertEqual(tool_names, ["spotify_search"])
 
+    def test_planner_preserves_all_tool_calls_in_provider_order(self) -> None:
+        client = FakeClient(
+            ChatResponse(
+                tool_calls=[
+                    ToolCall(id="1", name="spotify_search", arguments={"query": "jay"}),
+                    ToolCall(id="2", name="spotify_recommend", arguments={"query": "jazz"}),
+                ],
+                usage=Usage(total_tokens=9),
+            )
+        )
+
+        with patch("src.llm.planner.ThinkingConfig.get_client", return_value=client), \
+            patch("src.llm.planner.ThinkingConfig.get_model", return_value="model"), \
+            patch("src.llm.planner.build_planning_context", return_value=""):
+            action = llm_plan(
+                user_input="search and recommend",
+                tools=_registry(),
+                planning_feedback="Split the invalid Bash call.",
+            )
+
+        self.assertEqual(
+            [(call.call_id, call.tool) for call in action.calls()],
+            [("1", "spotify_search"), ("2", "spotify_recommend")],
+        )
+        self.assertIn(
+            "[planning_feedback]\nSplit the invalid Bash call.",
+            client.requests[0].messages[1]["content"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

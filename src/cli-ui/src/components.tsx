@@ -2,8 +2,8 @@ import React from 'react';
 import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
-import { resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent } from './chat-message.js';
-import { APPLE_BLUSH, APPLE_PEARL_PINK, APPLE_SILVER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN } from './constants.js';
+import { resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
+import { APPLE_BLUSH, APPLE_PEARL_PINK, APPLE_SILVER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
@@ -414,22 +414,43 @@ const HelpPanel = ({ panel, selectedIndex, width, language = "en" }: {
     );
 };
 
-const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null }: ChatBubbleProps) => {
+const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, segments = null }: ChatBubbleProps) => {
     const isUser = role === "user";
     const color = theme === "muted" && !isUser ? "#9ca3af" : isUser ? "#fff6f8" : "#f6e9ee";
     const markerColor = resolveChatMarkerColor(role, theme, tone);
     const subject = resolveChatSubject(role, tone);
-    const lines = wrapChatMessageContent(content, contentWidth);
+    const validSegments = segments && segments.map((segment) => segment.text).join("") === content
+        ? segments
+        : null;
+    const richLines = validSegments ? wrapChatMessageSegments(validSegments, contentWidth) : null;
+    const lines = richLines ?? wrapChatMessageContent(content, contentWidth);
 
     return (
         <Box marginBottom={1} flexDirection="column" width="100%">
             <Text bold color={markerColor}>{subject}</Text>
             {lines.map((line, index) => {
                 const marker = index === lines.length - 1 ? "└" : "│";
+                if (typeof line === "string") {
+                    return (
+                        <Text key={`${index}_${line}`}>
+                            <Text color={markerColor}>{marker}</Text>
+                            <Text color={color}>{` ${line}`}</Text>
+                        </Text>
+                    );
+                }
                 return (
-                    <Text key={`${index}_${line}`}>
+                    <Text key={`${index}_${line.map((segment) => segment.text).join("")}`}>
                         <Text color={markerColor}>{marker}</Text>
-                        <Text color={color}>{` ${line}`}</Text>
+                        <Text color={color}>{" "}</Text>
+                        {line.map((segment, segmentIndex) => (
+                            <Text
+                                key={`${segmentIndex}_${segment.text}`}
+                                color={segment.style === "tool_name" ? TOOL_NAVY : TOOL_VALUE}
+                                bold={segment.style === "tool_name"}
+                            >
+                                {segment.text}
+                            </Text>
+                        ))}
                     </Text>
                 );
             })}
@@ -458,6 +479,7 @@ export const CommittedRecord = ({
                 contentWidth={record.presentation.contentWidth}
                 theme={record.item.theme}
                 tone={record.item.tone}
+                segments={record.item.segments}
             />
         )}
     </Box>
@@ -948,6 +970,40 @@ const CompactConfirm = ({
     const selectedDisplayIndex = resolveConfirmChoiceDisplayIndex(confirm.choices, confirmIndex);
     const isSpotifyConfirm = spotifyTheme || confirm.tool_name === "spotify_device";
     const isSongCandidateConfirm = confirm.tool_name === "song_candidate";
+
+    if (confirm.variant === "tool_call_review") {
+        const contentWidth = Math.max(1, panelWidth - 2);
+        return (
+            <PanelFrame
+                width={panelWidth}
+                title={confirm.message}
+                hint={confirm.warning ?? "Please review the Bash command(s) below before permission."}
+                hintColor="#facc15"
+            >
+                {(confirm.commands ?? []).map((command, commandIndex) => (
+                    <React.Fragment key={`${commandIndex}-${command}`}>
+                        {commandIndex > 0 ? <PanelEmptyRow width={panelWidth} /> : null}
+                        {wrapChatMessageContent(command, contentWidth).map((row, rowIndex) => (
+                            <PanelRow
+                                key={`${commandIndex}-${rowIndex}-${row}`}
+                                width={panelWidth}
+                                segments={[{ text: row, color: TOOL_VALUE }]}
+                            />
+                        ))}
+                    </React.Fragment>
+                ))}
+                <PanelEmptyRow width={panelWidth} />
+                <PanelChoiceList
+                    items={visibleChoices.map((choice) => ({
+                        key: choice.value,
+                        segments: [{ text: choice.label, color: PANEL_PRIMARY }],
+                    }))}
+                    selectedIndex={selectedDisplayIndex}
+                    width={panelWidth}
+                />
+            </PanelFrame>
+        );
+    }
 
     if (isSongCandidateConfirm) {
         const contentWidth = Math.max(1, panelWidth - 2);

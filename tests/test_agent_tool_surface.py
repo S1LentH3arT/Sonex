@@ -15,6 +15,11 @@ from src.agent.interactions import (
     mark_interrupted_interaction,
 )
 from src.sandbox.manager import SandboxManager, SandboxReport, SandboxState
+from src.sandbox.tool import (
+    register_bash_tool,
+    sandbox_manager,
+    set_sandbox_manager_for_tests,
+)
 from src.tools.agent_surface import (
     Call,
     Connect,
@@ -80,6 +85,26 @@ def test_agent_schema_honors_dynamic_availability() -> None:
     assert tools.agent_schemas() == []
     ready = True
     assert [item["function"]["name"] for item in tools.agent_schemas()] == ["Bash"]
+
+
+def test_bash_schema_exposes_reviewable_command_array_only(tmp_path: Path) -> None:
+    tools = ToolRegistry()
+    manager = SandboxManager(root=tmp_path / "sandbox")
+    original = sandbox_manager()
+    try:
+        with patch.object(manager, "ready", return_value=True):
+            set_sandbox_manager_for_tests(manager)
+            register_bash_tool(tools)
+            schema = tools.agent_schemas()[0]["function"]
+    finally:
+        set_sandbox_manager_for_tests(original)
+
+    properties = schema["parameters"]["properties"]
+    assert schema["parameters"]["required"] == ["commands"]
+    assert properties["commands"]["type"] == "array"
+    assert properties["commands"]["maxItems"] == 12
+    assert "script" not in properties
+    assert "cwd" not in properties
 
 
 def test_workflow_registry_never_resolves_dynamic_function_names() -> None:

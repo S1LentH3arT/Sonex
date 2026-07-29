@@ -7,7 +7,7 @@ Key public entry points include llm_plan.
 from __future__ import annotations
 
 from src.api.builtin_commands import CommandIntent
-from src.agent.action import Action
+from src.agent.action import Action, ToolAction
 from src.llm.context_builder import build_planning_context
 from src.llm.transport import ChatRequest
 from src.thinking.config import ThinkingConfig
@@ -19,8 +19,13 @@ Use only the compact planning buffer supplied in the user message.
 The buffer is intentionally incomplete and short. Use Read for relevant context, user preferences, or memory.
 Use Query for read-only provider data, Connect for provider authorization, and Call for stable Sonex workflows.
 Use Bash only when it is available and native shell or CLI behavior is actually useful.
+When using Bash, submit reviewable commands through the commands array. Each item must be one simple command or one single-line pipeline.
+Do not generate multiline scripts, shell control structures, functions, heredocs, eval, command substitution, subshells, or inline interpreter programs.
+Split multi-step shell work into ordinary commands. Use at most one Bash tool call in a response and at most 12 commands in that call.
 For playback requiring a user choice, call Call with workflow playback.select and wait for its structured result.
-If a tool is useful, call exactly one tool with valid arguments. Otherwise answer the user directly.
+If tools are useful, call one or more tools with valid arguments. Tool calls execute serially in the order returned.
+Do not place a tool call in the same response when its arguments depend on the result of an earlier call.
+Otherwise answer the user directly.
 Do not mention internal memory mechanics unless the user asks about them."""
 
 
@@ -64,6 +69,7 @@ def llm_plan(
     user_input: str,
     tools: ToolRegistry,
     command_intent: CommandIntent | None = None,
+    planning_feedback: str | None = None,
 ) -> Action:
     """Coordinates llm plan for the current Sonex flow.
 
@@ -75,6 +81,11 @@ def llm_plan(
     model = ThinkingConfig.get_model()
     context = build_planning_context(user_input)
     allowed_tools = command_intent.allowed_tools if command_intent else None
+    feedback_block = (
+        f"[planning_feedback]\n{planning_feedback}\n\n"
+        if planning_feedback
+        else ""
+    )
 
     request = ChatRequest(
         model=model,
@@ -88,6 +99,7 @@ def llm_plan(
                 "content": (
                     f"{_format_command_intent(command_intent)}"
                     f"[user_input]\n{user_input}\n\n"
+                    f"{feedback_block}"
                     f"[preloaded_memory]\n{context}"
                 ),
             },
@@ -98,10 +110,18 @@ def llm_plan(
     response = client.generate(request)
 
     if response.tool_calls:
-        tool_call = response.tool_calls[0]
+        first_call = response.tool_calls[0]
         return Action(
-            tool=tool_call.name,
-            args=tool_call.arguments,
+            tool=first_call.name,
+            args=first_call.arguments,
+            tool_calls=[
+                ToolAction(
+                    tool=tool_call.name,
+                    args=tool_call.arguments,
+                    call_id=tool_call.id,
+                )
+                for tool_call in response.tool_calls
+            ],
             usage=response.usage.total_tokens,
         )
 

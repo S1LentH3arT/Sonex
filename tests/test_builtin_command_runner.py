@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, patch
 
 from fastapi import WebSocketDisconnect
 
+from src.agent.action import ToolAction
 from src.agent.core import AgentState
 from src.api import ws_runner
 from src.api.music_intent import MusicIntentDecision, MusicIntentRoute
@@ -56,7 +57,12 @@ class FakeUI:
         self.transcript.append({"role": "user", "content": text})
         self.events.append({"type": "chat", "role": "user", "text": text})
 
-    async def append_agent_message(self, text: str) -> None:
+    async def append_agent_message(
+        self,
+        text: str,
+        *,
+        segments: object | None = None,
+    ) -> None:
         """Verifies that append agent message behaves as expected.
 
         Typical use: Use this in automated tests when guarding the append agent message behavior against regressions.
@@ -68,6 +74,8 @@ class FakeUI:
         mode = getattr(self, "_spotify_mode", None)
         if isinstance(mode, dict) and mode.get("enabled"):
             event["theme"] = "spotify"
+        if segments is not None:
+            event["segments"] = segments
         self.events.append(event)
 
     async def append_system_message(self, text: str) -> None:
@@ -77,6 +85,17 @@ class FakeUI:
                 "type": "chat",
                 "role": "agent",
                 "tone": "system",
+                "text": text,
+            }
+        )
+
+    async def append_warning_message(self, text: str) -> None:
+        self.transcript.append({"role": "agent", "content": text})
+        self.events.append(
+            {
+                "type": "chat",
+                "role": "agent",
+                "tone": "warning",
                 "text": text,
             }
         )
@@ -5153,6 +5172,64 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 for event in ui.events
             )
         )
+
+    async def test_agent_turn_appends_approval_before_rich_tool_batch_message(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        commands = ["cd src/cli-ui", "npm test"]
+        calls = [
+            ToolAction("Read", {"query": "preferences"}),
+            ToolAction("Bash", {"commands": commands}),
+        ]
+
+        def approved_agent_loop(user_input: str, tools: object):
+            yield AgentState(type="status", content="planning")
+            yield AgentState(
+                type="tool_approved",
+                calls=calls,
+                args={"commands": commands},
+            )
+            yield AgentState(type="tool_batch", calls=calls)
+
+        with patch("src.api.ws_runner.agent_loop", approved_agent_loop):
+            await runner._run_agent_turn(ui, "build")
+
+        chat_events = [
+            event for event in ui.events if event.get("type") == "chat"
+        ]
+        self.assertEqual(chat_events[0]["tone"], "system")
+        self.assertIn("You confirmed running 'npm test' this time.", chat_events[0]["text"])
+        self.assertEqual(
+            chat_events[1]["text"],
+            "Read  preferences\n\nBash  cd src/cli-ui\n      npm test",
+        )
+        self.assertTrue(chat_events[1].get("segments"))
+
+    async def test_agent_turn_flushes_tool_chat_before_execution_resumes(self) -> None:
+        runner = WebSocketRunner()
+        order: list[str] = []
+
+        class OrderedUI(FakeUI):
+            async def append_agent_message(
+                self,
+                text: str,
+                *,
+                segments: object | None = None,
+            ) -> None:
+                order.append("tool message")
+                await super().append_agent_message(text, segments=segments)
+
+        ui = OrderedUI()
+        calls = [ToolAction("Read", {"query": "preferences"})]
+
+        def gated_agent_loop(user_input: str, tools: object):
+            yield AgentState(type="tool_batch", calls=calls)
+            order.append("execution resumed")
+
+        with patch("src.api.ws_runner.agent_loop", gated_agent_loop):
+            await runner._run_agent_turn(ui, "read")
+
+        self.assertEqual(order, ["tool message", "execution resumed"])
 
     async def test_spotify_sync_reports_premium_failure_once_in_chat(self) -> None:
         """Verifies that spotify sync reports premium failure once in chat behaves as expected.

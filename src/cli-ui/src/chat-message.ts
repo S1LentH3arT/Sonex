@@ -1,7 +1,7 @@
 import stringWidth from 'string-width';
 
 import { BORDER_BLUE, SPOTIFY_GREEN } from './constants.js';
-import type { ChatRole, ChatTheme, ChatTone } from './types.js';
+import type { ChatRole, ChatSegment, ChatTheme, ChatTone } from './types.js';
 
 export const CHAT_USER_MARKER_COLOR = "#808791";
 export const CHAT_SYSTEM_MARKER_COLOR = "#c8a6ff";
@@ -40,6 +40,45 @@ export function wrapChatMessageContent(content: string, width: number): string[]
     }
 
     return physicalLines.length > 0 ? physicalLines : [""];
+}
+
+export function wrapChatMessageSegments(
+    segments: ChatSegment[],
+    width: number,
+): ChatSegment[][] {
+    const boundedWidth = Math.max(1, Math.floor(width));
+    const lines: ChatSegment[][] = [[]];
+    let lineWidth = 0;
+
+    const append = (text: string, style: ChatSegment["style"]) => {
+        if (!text) return;
+        const line = lines[lines.length - 1]!;
+        const previous = line[line.length - 1];
+        if (previous?.style === style) {
+            previous.text += text;
+        } else {
+            line.push({ text, style });
+        }
+    };
+
+    for (const segment of segments) {
+        for (const character of Array.from(segment.text)) {
+            if (character === "\n") {
+                lines.push([]);
+                lineWidth = 0;
+                continue;
+            }
+            const characterWidth = stringWidth(character);
+            if (lineWidth > 0 && lineWidth + characterWidth > boundedWidth) {
+                lines.push([]);
+                lineWidth = 0;
+            }
+            append(character, segment.style);
+            lineWidth += characterWidth;
+        }
+    }
+
+    return lines.length > 0 ? lines : [[]];
 }
 
 export function resolveChatSubject(

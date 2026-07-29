@@ -38,9 +38,10 @@ export function isChatMessageItem(item: ChatItem): item is ChatMessageItem {
 }
 
 export function chatMessagesForTranscript(items: ChatItem[]): ChatTranscriptMessage[] {
-    return items.filter(isChatMessageItem).map(({ role, content, theme }) => ({
+    return items.filter(isChatMessageItem).map(({ role, content, theme, segments }) => ({
         role,
         content,
         ...(theme == null ? {} : { theme }),
+        ...(segments == null ? {} : { segments }),
     }));
 }

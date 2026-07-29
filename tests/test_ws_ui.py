@@ -48,3 +48,25 @@ class WebSocketUIAdapterTests(unittest.IsolatedAsyncioTestCase):
             ws.sent,
             [{"type": "session_state", "session_id": "session-1"}],
         )
+
+    async def test_append_agent_message_persists_rich_tool_segments(self) -> None:
+        ws = RecordingWebSocket()
+        ui = WebSocketUIAdapter(ws, session_id="session-1")  # type: ignore[arg-type]
+        segments = [
+            {"text": "Read", "style": "tool_name"},
+            {"text": "  USER.md", "style": "tool_value"},
+        ]
+
+        await ui.append_agent_message("Read  USER.md", segments=segments)
+
+        self.assertEqual(
+            ui.transcript,
+            [
+                {
+                    "role": "agent",
+                    "content": "Read  USER.md",
+                    "segments": segments,
+                }
+            ],
+        )
+        self.assertEqual(ws.sent[0]["segments"], segments)
