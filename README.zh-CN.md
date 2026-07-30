@@ -24,7 +24,8 @@ FastAPI/WebSocket 后端。正常使用时只需要运行一个命令：`sonex` 
 | Linux 或 WSL | 需要兼容的 shell 环境 |
 | `vlc` 或 `mpv` | 可选；用于本地文件和 YouTube 播放 |
 
-安装脚本会检查 Python、Node.js 和 npm，但不会替你安装系统软件包。
+> [!NOTE]
+> 安装脚本会检查 Python、Node.js 和 npm，但不会替你安装系统软件包。
 
 ## 安装
 
@@ -42,7 +43,8 @@ FastAPI/WebSocket 后端。正常使用时只需要运行一个命令：`sonex` 
 - 构建 `src/cli-ui/dist/index.js`
 - 在 `~/.local/bin/sonex` 创建用户可直接运行的 `sonex` 启动器
 
-如果 `~/.local/bin` 不在你的 `PATH` 中，把它加入 shell 配置后重新打开 shell：
+> [!TIP]
+> 如果 `~/.local/bin` 不在你的 `PATH` 中，把它加入 shell 配置后重新打开 shell：
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -133,6 +135,10 @@ export SONEX_GEMINI_API_KEY=...
 export SONEX_DEEPSEEK_API_KEY=sk-...
 ```
 
+> [!WARNING]
+> 不要把 API Key 或 Sonex 保存的凭据提交到版本控制。建议使用 `sonex auth`
+> 管理本地密钥；环境变量应通过安全的本地密钥存储或部署密钥系统提供。
+
 如果默认 provider 还没有配置好就开始聊天，TUI 会先进入交互式设置流程，不会
 直接开始 planner 或 agent 工作。把 `ollama` 配置为默认 provider 时，可以作为
 本地 provider 使用。
@@ -166,9 +172,12 @@ Sonex 会加载 `.env`，然后按以下顺序解析运行时配置：环境变�
 ## 音乐服务设置
 
 执行 `/connect` 会打开交互式音乐账号连接面板。首版只展示 Spotify 与 Apple Music，
-因为 Sonex 已能完成它们支持的授权流程。连接记录只保存非敏感的账号标识与健康状态；
-OAuth token 和 MusicKit 授权仍由现有本地组件持有。在官方 `ncm-cli` 适配器完成并通过
-验证前，网易云音乐不会作为虚假的可连接选项出现。
+因为 Sonex 已能完成它们支持的授权流程。在官方 `ncm-cli` 适配器完成并通过验证前，
+网易云音乐不会作为虚假的可连接选项出现。
+
+> [!NOTE]
+> 连接记录只保存非敏感的账号标识与健康状态；OAuth token 和 MusicKit 授权仍由
+> 现有本地组件持有。
 
 ### Spotify
 
