@@ -110,11 +110,11 @@ def _tool_block(tool_name: str, values: list[str]) -> RichToolMessage:
             segments=({"text": safe_name, "style": "tool_name"},),
         )
 
-    indent = " " * (len(safe_name) + 2)
-    text = f"{safe_name}  {safe_values[0]}"
+    indent = " " * (len(safe_name) + 1)
+    text = f"{safe_name} {safe_values[0]}"
     segments: list[dict[str, Any]] = [
         {"text": safe_name, "style": "tool_name"},
-        {"text": f"  {safe_values[0]}", "style": "tool_value"},
+        {"text": f" {safe_values[0]}", "style": "tool_value"},
     ]
     for value in safe_values[1:]:
         text += f"\n{indent}{value}"
