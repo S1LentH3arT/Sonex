@@ -1,0 +1,14 @@
+python-dotenv
+typer
+rich
+litellm
+spotipy
+yt-dlp
+textual
+fastapi
+mcp[cli]
+uvicorn[standard]
+cryptography
+Pillow
+numpy
+mutagen

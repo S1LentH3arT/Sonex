@@ -1,0 +1,1350 @@
+{
+  "schema_version": 1,
+  "brand": "perler",
+  "product_line": "Perler Classic",
+  "diameter_mm": 5,
+  "version": "beadcolors-29229889-2026-06-13",
+  "license": "MIT",
+  "retrieved_at": "2026-06-13",
+  "calibration_disclaimer": "Community-maintained sRGB approximation; not official brand colorimetry or measured calibration data.",
+  "sources": {
+    "brand_reference": {
+      "url": "https://perler.com/",
+      "license": "reference-only",
+      "role": "brand identity and product-line reference"
+    },
+    "beadcolors_mit": {
+      "url": "https://github.com/maxcleme/beadcolors/tree/29229889daab404fb30531d4bb785fd73f7f58e3",
+      "license": "MIT",
+      "role": "community color codes, names, and sRGB approximations"
+    }
+  },
+  "colors": [
+    {
+      "code": "80-15179",
+      "name": "Evergreen",
+      "rgb": [
+        48,
+        85,
+        69
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15181",
+      "name": "Light Grey",
+      "rgb": [
+        179,
+        186,
+        184
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15182",
+      "name": "Lavender",
+      "rgb": [
+        175,
+        159,
+        206
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15199",
+      "name": "Shamrock",
+      "rgb": [
+        0,
+        143,
+        83
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15200",
+      "name": "Cobalt",
+      "rgb": [
+        0,
+        101,
+        177
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15201",
+      "name": "Midnight",
+      "rgb": [
+        47,
+        60,
+        85
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15202",
+      "name": "Robin's Egg",
+      "rgb": [
+        169,
+        205,
+        213
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15203",
+      "name": "Flamingo",
+      "rgb": [
+        242,
+        175,
+        183
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15204",
+      "name": "Salmon",
+      "rgb": [
+        225,
+        116,
+        122
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15205",
+      "name": "Fawn",
+      "rgb": [
+        201,
+        163,
+        133
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15206",
+      "name": "Pewter",
+      "rgb": [
+        148,
+        161,
+        157
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15207",
+      "name": "Charcoal",
+      "rgb": [
+        79,
+        89,
+        90
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15208",
+      "name": "Toasted Marshmallow",
+      "rgb": [
+        222,
+        218,
+        206
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15210",
+      "name": "Orchid",
+      "rgb": [
+        177,
+        98,
+        142
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15211",
+      "name": "Tomato",
+      "rgb": [
+        209,
+        67,
+        55
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15212",
+      "name": "Spice",
+      "rgb": [
+        217,
+        89,
+        58
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15213",
+      "name": "Apricot",
+      "rgb": [
+        245,
+        161,
+        104
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15214",
+      "name": "Sherbet",
+      "rgb": [
+        216,
+        228,
+        124
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15215",
+      "name": "Mist",
+      "rgb": [
+        147,
+        176,
+        189
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15216",
+      "name": "Sky",
+      "rgb": [
+        74,
+        192,
+        216
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15217",
+      "name": "Lagoon",
+      "rgb": [
+        0,
+        164,
+        172
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15218",
+      "name": "Teal",
+      "rgb": [
+        4,
+        127,
+        138
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15219",
+      "name": "Fern",
+      "rgb": [
+        127,
+        151,
+        26
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15220",
+      "name": "Olive",
+      "rgb": [
+        105,
+        110,
+        49
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15961",
+      "name": "Cherry",
+      "rgb": [
+        157,
+        43,
+        58
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19001",
+      "name": "White",
+      "rgb": [
+        234,
+        239,
+        238
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19002",
+      "name": "Creme",
+      "rgb": [
+        225,
+        226,
+        187
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19003",
+      "name": "Yellow",
+      "rgb": [
+        231,
+        206,
+        62
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19004",
+      "name": "Orange",
+      "rgb": [
+        235,
+        123,
+        49
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19005",
+      "name": "Red",
+      "rgb": [
+        176,
+        53,
+        60
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19006",
+      "name": "Bubblegum",
+      "rgb": [
+        216,
+        114,
+        154
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19007",
+      "name": "Purple",
+      "rgb": [
+        104,
+        75,
+        134
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19008",
+      "name": "Dark Blue",
+      "rgb": [
+        14,
+        80,
+        146
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19009",
+      "name": "Light Blue",
+      "rgb": [
+        39,
+        140,
+        201
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19010",
+      "name": "Dark Green",
+      "rgb": [
+        0,
+        123,
+        78
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19011",
+      "name": "Light Green",
+      "rgb": [
+        24,
+        199,
+        177
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19012",
+      "name": "Brown",
+      "rgb": [
+        103,
+        76,
+        68
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19017",
+      "name": "Grey",
+      "rgb": [
+        144,
+        148,
+        151
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19018",
+      "name": "Black",
+      "rgb": [
+        50,
+        50,
+        52
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19020",
+      "name": "Rust",
+      "rgb": [
+        153,
+        80,
+        67
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19021",
+      "name": "Light Brown",
+      "rgb": [
+        147,
+        104,
+        72
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19033",
+      "name": "Peach",
+      "rgb": [
+        233,
+        191,
+        185
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19035",
+      "name": "Tan",
+      "rgb": [
+        197,
+        172,
+        144
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19038",
+      "name": "Magenta",
+      "rgb": [
+        224,
+        66,
+        132
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19052",
+      "name": "Pastel Blue",
+      "rgb": [
+        74,
+        156,
+        207
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19053",
+      "name": "Pastel Green",
+      "rgb": [
+        109,
+        204,
+        148
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19054",
+      "name": "Pastel Lavender",
+      "rgb": [
+        147,
+        127,
+        191
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19056",
+      "name": "Pastel Yellow",
+      "rgb": [
+        233,
+        226,
+        144
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19057",
+      "name": "Cheddar",
+      "rgb": [
+        251,
+        177,
+        70
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19058",
+      "name": "Toothpaste",
+      "rgb": [
+        150,
+        209,
+        212
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19059",
+      "name": "Hot Coral",
+      "rgb": [
+        221,
+        89,
+        91
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19060",
+      "name": "Plum",
+      "rgb": [
+        167,
+        93,
+        157
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19061",
+      "name": "Kiwi Lime",
+      "rgb": [
+        105,
+        184,
+        69
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19062",
+      "name": "Turquoise",
+      "rgb": [
+        0,
+        152,
+        197
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19063",
+      "name": "Blush",
+      "rgb": [
+        249,
+        146,
+        151
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19070",
+      "name": "Periwinkle Blue",
+      "rgb": [
+        102,
+        131,
+        183
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19079",
+      "name": "Light Pink",
+      "rgb": [
+        225,
+        188,
+        206
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19080",
+      "name": "Green",
+      "rgb": [
+        77,
+        171,
+        100
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19083",
+      "name": "Pink",
+      "rgb": [
+        212,
+        84,
+        150
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19088",
+      "name": "Raspberry",
+      "rgb": [
+        152,
+        56,
+        100
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19090",
+      "name": "Butterscotch",
+      "rgb": [
+        218,
+        153,
+        100
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19091",
+      "name": "Parrot Green",
+      "rgb": [
+        0,
+        145,
+        136
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19092",
+      "name": "Dark Grey",
+      "rgb": [
+        88,
+        92,
+        97
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19093",
+      "name": "Blueberry Creme",
+      "rgb": [
+        133,
+        168,
+        227
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19096",
+      "name": "Cranapple",
+      "rgb": [
+        132,
+        57,
+        71
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19097",
+      "name": "Prickly Pear",
+      "rgb": [
+        187,
+        201,
+        56
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-19098",
+      "name": "Sand",
+      "rgb": [
+        229,
+        190,
+        158
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Perlervault"
+    },
+    {
+      "code": "80-15240",
+      "name": "Mint",
+      "rgb": [
+        179,
+        238,
+        213
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15241",
+      "name": "Sour Apple",
+      "rgb": [
+        163,
+        222,
+        111
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15242",
+      "name": "Cotton Candy",
+      "rgb": [
+        244,
+        121,
+        176
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15243",
+      "name": "Grape",
+      "rgb": [
+        80,
+        59,
+        156
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15244",
+      "name": "Rose",
+      "rgb": [
+        210,
+        93,
+        114
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15245",
+      "name": "Iris",
+      "rgb": [
+        78,
+        86,
+        163
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15246",
+      "name": "Tangerine",
+      "rgb": [
+        253,
+        89,
+        24
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15247",
+      "name": "Forest",
+      "rgb": [
+        0,
+        93,
+        87
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15248",
+      "name": "Eggplant",
+      "rgb": [
+        111,
+        50,
+        85
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15249",
+      "name": "Honey",
+      "rgb": [
+        218,
+        140,
+        44
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15250",
+      "name": "Gingerbread",
+      "rgb": [
+        126,
+        84,
+        70
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "BIORIO"
+    },
+    {
+      "code": "80-15251",
+      "name": "Thistle",
+      "rgb": [
+        140,
+        140,
+        167
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15252",
+      "name": "Slate Blue",
+      "rgb": [
+        94,
+        109,
+        123
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15253",
+      "name": "Denim",
+      "rgb": [
+        76,
+        99,
+        136
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15254",
+      "name": "Sage",
+      "rgb": [
+        154,
+        169,
+        142
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15255",
+      "name": "Orange Cream",
+      "rgb": [
+        239,
+        183,
+        155
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15256",
+      "name": "Fruit Punch",
+      "rgb": [
+        202,
+        59,
+        101
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15257",
+      "name": "Fuchsia",
+      "rgb": [
+        203,
+        89,
+        185
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15258",
+      "name": "Mulberry",
+      "rgb": [
+        113,
+        72,
+        117
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15259",
+      "name": "Slime",
+      "rgb": [
+        200,
+        200,
+        92
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15260",
+      "name": "Stone",
+      "rgb": [
+        152,
+        140,
+        140
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15261",
+      "name": "Dark Spruce",
+      "rgb": [
+        20,
+        49,
+        59
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15262",
+      "name": "Cocoa",
+      "rgb": [
+        57,
+        41,
+        40
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15265",
+      "name": "Twilight Plum",
+      "rgb": [
+        198,
+        133,
+        177
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15266",
+      "name": "Caribbean Sea",
+      "rgb": [
+        108,
+        200,
+        173
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15267",
+      "name": "Frosted Lilac",
+      "rgb": [
+        205,
+        183,
+        195
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Exodeca1"
+    },
+    {
+      "code": "80-15273",
+      "name": "Brick",
+      "rgb": [
+        252,
+        149,
+        116
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "toptierbeads.com"
+    },
+    {
+      "code": "80-15274",
+      "name": "Rich Butter",
+      "rgb": [
+        246,
+        202,
+        105
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "toptierbeads.com"
+    },
+    {
+      "code": "80-15275",
+      "name": "Peacock",
+      "rgb": [
+        0,
+        144,
+        172
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "toptierbeads.com"
+    },
+    {
+      "code": "80-15276",
+      "name": "Carnation Pink",
+      "rgb": [
+        248,
+        199,
+        201
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "rYonder"
+    },
+    {
+      "code": "80-15268",
+      "name": "Sunflower",
+      "rgb": [
+        222,
+        186,
+        11
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "LizzyJanee"
+    },
+    {
+      "code": "80-15269",
+      "name": "Lemon",
+      "rgb": [
+        246,
+        217,
+        1
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "LizzyJanee"
+    },
+    {
+      "code": "80-15263",
+      "name": "Celery",
+      "rgb": [
+        190,
+        212,
+        166
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "LizzyJanee"
+    },
+    {
+      "code": "80-15239",
+      "name": "Mocha",
+      "rgb": [
+        200,
+        182,
+        147
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "LizzyJanee"
+    },
+    {
+      "code": "80-15272",
+      "name": "Coral",
+      "rgb": [
+        255,
+        154,
+        139
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "SteelSkyStudios"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sonex"
+version = "1.0.0"
+description = "A CLI agent music player"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "typer",
+    "rich",
+    "openai",
+    "litellm",
+    "python-dotenv",
+    "requests",
+    "textual",
+    "fastapi",
+    "uvicorn[standard]",
+    "spotipy",
+    "yt-dlp",
+    "Pillow",
+    "numpy",
+    "mutagen",
+    "cryptography",
+    "dbus-next"
+]
+
+[tool.setuptools.package-data]
+"src.tools.bead_catalog_data" = ["*.json"]
+"src.apple_mode" = ["*.html"]
+
+[project.scripts]
+sonex = "src.main:app"
+sonex-apple-token-broker = "src.apple_mode.broker:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+namespaces = true

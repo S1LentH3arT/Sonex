@@ -1,0 +1,28 @@
+{
+  "name": "cli-ui",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --outDir dist",
+    "start": "node dist/index.js",
+    "test": "tsx --test test/*.test.ts",
+    "verify:pty": "python3 ../../scripts/verify_cli_tui_append.py"
+  },
+  "dependencies": {
+    "ink": "^5.0.0",
+    "ink-image": "^2.0.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^18.3.1",
+    "string-width": "^7.2.0",
+    "terminal-image": "^3.1.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "@types/react": "^18.3.12",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

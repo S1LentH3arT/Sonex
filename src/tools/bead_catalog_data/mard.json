@@ -1,0 +1,3807 @@
+{
+  "schema_version": 1,
+  "brand": "mard",
+  "product_line": "Mard Standard Opaque",
+  "diameter_mm": 5,
+  "version": "beadcolors-29229889-2026-06-16",
+  "license": "MIT",
+  "retrieved_at": "2026-06-16",
+  "calibration_disclaimer": "Community-maintained sRGB approximation; not official brand colorimetry or measured calibration data.",
+  "sources": {
+    "brand_reference": {
+      "url": "https://www.mard.cn/",
+      "license": "reference-only",
+      "role": "brand identity and product-line reference"
+    },
+    "beadcolors_mit": {
+      "url": "https://github.com/maxcleme/beadcolors/tree/29229889daab404fb30531d4bb785fd73f7f58e3",
+      "license": "MIT",
+      "role": "community color codes, names, and sRGB approximations"
+    }
+  },
+  "colors": [
+    {
+      "code": "A1",
+      "name": "A1",
+      "rgb": [
+        250,
+        244,
+        200
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A10",
+      "name": "A10",
+      "rgb": [
+        247,
+        124,
+        49
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A11",
+      "name": "A11",
+      "rgb": [
+        255,
+        221,
+        153
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A12",
+      "name": "A12",
+      "rgb": [
+        254,
+        159,
+        114
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A13",
+      "name": "A13",
+      "rgb": [
+        255,
+        195,
+        101
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A14",
+      "name": "A14",
+      "rgb": [
+        253,
+        84,
+        61
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A15",
+      "name": "A15",
+      "rgb": [
+        255,
+        243,
+        101
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A16",
+      "name": "A16",
+      "rgb": [
+        255,
+        255,
+        159
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A17",
+      "name": "A17",
+      "rgb": [
+        255,
+        227,
+        110
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A18",
+      "name": "A18",
+      "rgb": [
+        254,
+        190,
+        125
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A19",
+      "name": "A19",
+      "rgb": [
+        253,
+        124,
+        114
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A2",
+      "name": "A2",
+      "rgb": [
+        255,
+        255,
+        213
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A20",
+      "name": "A20",
+      "rgb": [
+        255,
+        213,
+        104
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A21",
+      "name": "A21",
+      "rgb": [
+        255,
+        227,
+        149
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A22",
+      "name": "A22",
+      "rgb": [
+        244,
+        245,
+        125
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A23",
+      "name": "A23",
+      "rgb": [
+        230,
+        201,
+        183
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A24",
+      "name": "A24",
+      "rgb": [
+        247,
+        248,
+        162
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A25",
+      "name": "A25",
+      "rgb": [
+        255,
+        214,
+        125
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A26",
+      "name": "A26",
+      "rgb": [
+        255,
+        200,
+        48
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A3",
+      "name": "A3",
+      "rgb": [
+        254,
+        255,
+        139
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A4",
+      "name": "A4",
+      "rgb": [
+        251,
+        237,
+        86
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A5",
+      "name": "A5",
+      "rgb": [
+        244,
+        215,
+        56
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A6",
+      "name": "A6",
+      "rgb": [
+        254,
+        172,
+        76
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A7",
+      "name": "A7",
+      "rgb": [
+        254,
+        139,
+        76
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A8",
+      "name": "A8",
+      "rgb": [
+        255,
+        218,
+        69
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "A9",
+      "name": "A9",
+      "rgb": [
+        255,
+        153,
+        91
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B1",
+      "name": "B1",
+      "rgb": [
+        230,
+        238,
+        49
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B10",
+      "name": "B10",
+      "rgb": [
+        149,
+        211,
+        194
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B11",
+      "name": "B11",
+      "rgb": [
+        93,
+        114,
+        42
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B12",
+      "name": "B12",
+      "rgb": [
+        22,
+        111,
+        65
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B13",
+      "name": "B13",
+      "rgb": [
+        202,
+        235,
+        123
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B14",
+      "name": "B14",
+      "rgb": [
+        173,
+        233,
+        70
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B15",
+      "name": "B15",
+      "rgb": [
+        46,
+        81,
+        50
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B16",
+      "name": "B16",
+      "rgb": [
+        197,
+        237,
+        156
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B17",
+      "name": "B17",
+      "rgb": [
+        155,
+        177,
+        58
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B18",
+      "name": "B18",
+      "rgb": [
+        230,
+        238,
+        73
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B19",
+      "name": "B19",
+      "rgb": [
+        36,
+        184,
+        140
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B2",
+      "name": "B2",
+      "rgb": [
+        99,
+        243,
+        71
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B20",
+      "name": "B20",
+      "rgb": [
+        194,
+        240,
+        204
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B21",
+      "name": "B21",
+      "rgb": [
+        21,
+        106,
+        107
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B22",
+      "name": "B22",
+      "rgb": [
+        11,
+        60,
+        67
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B23",
+      "name": "B23",
+      "rgb": [
+        48,
+        58,
+        33
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B24",
+      "name": "B24",
+      "rgb": [
+        238,
+        252,
+        165
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B25",
+      "name": "B25",
+      "rgb": [
+        78,
+        132,
+        109
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B26",
+      "name": "B26",
+      "rgb": [
+        141,
+        122,
+        53
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B27",
+      "name": "B27",
+      "rgb": [
+        204,
+        225,
+        175
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B28",
+      "name": "B28",
+      "rgb": [
+        158,
+        229,
+        185
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B29",
+      "name": "B29",
+      "rgb": [
+        197,
+        226,
+        84
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B3",
+      "name": "B3",
+      "rgb": [
+        158,
+        247,
+        128
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B30",
+      "name": "B30",
+      "rgb": [
+        226,
+        252,
+        177
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B31",
+      "name": "B31",
+      "rgb": [
+        176,
+        231,
+        146
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B32",
+      "name": "B32",
+      "rgb": [
+        156,
+        171,
+        90
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B4",
+      "name": "B4",
+      "rgb": [
+        93,
+        224,
+        53
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B5",
+      "name": "B5",
+      "rgb": [
+        53,
+        227,
+        82
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B6",
+      "name": "B6",
+      "rgb": [
+        101,
+        226,
+        166
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B7",
+      "name": "B7",
+      "rgb": [
+        61,
+        175,
+        128
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B8",
+      "name": "B8",
+      "rgb": [
+        28,
+        156,
+        79
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "B9",
+      "name": "B9",
+      "rgb": [
+        39,
+        82,
+        58
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C1",
+      "name": "C1",
+      "rgb": [
+        232,
+        255,
+        231
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C10",
+      "name": "C10",
+      "rgb": [
+        62,
+        188,
+        226
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C11",
+      "name": "C11",
+      "rgb": [
+        40,
+        221,
+        222
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C12",
+      "name": "C12",
+      "rgb": [
+        28,
+        51,
+        77
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C13",
+      "name": "C13",
+      "rgb": [
+        205,
+        232,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C14",
+      "name": "C14",
+      "rgb": [
+        213,
+        253,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C15",
+      "name": "C15",
+      "rgb": [
+        34,
+        196,
+        198
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C16",
+      "name": "C16",
+      "rgb": [
+        21,
+        87,
+        168
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C17",
+      "name": "C17",
+      "rgb": [
+        4,
+        209,
+        246
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C18",
+      "name": "C18",
+      "rgb": [
+        29,
+        51,
+        68
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C19",
+      "name": "C19",
+      "rgb": [
+        24,
+        135,
+        162
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C2",
+      "name": "C2",
+      "rgb": [
+        169,
+        249,
+        252
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C20",
+      "name": "C20",
+      "rgb": [
+        23,
+        109,
+        175
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C21",
+      "name": "C21",
+      "rgb": [
+        190,
+        221,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C22",
+      "name": "C22",
+      "rgb": [
+        103,
+        180,
+        190
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C23",
+      "name": "C23",
+      "rgb": [
+        200,
+        226,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C24",
+      "name": "C24",
+      "rgb": [
+        124,
+        196,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C25",
+      "name": "C25",
+      "rgb": [
+        169,
+        229,
+        229
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C26",
+      "name": "C26",
+      "rgb": [
+        60,
+        174,
+        216
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C27",
+      "name": "C27",
+      "rgb": [
+        211,
+        223,
+        250
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C28",
+      "name": "C28",
+      "rgb": [
+        187,
+        207,
+        237
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C29",
+      "name": "C29",
+      "rgb": [
+        52,
+        72,
+        142
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C3",
+      "name": "C3",
+      "rgb": [
+        160,
+        226,
+        251
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C4",
+      "name": "C4",
+      "rgb": [
+        65,
+        204,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C5",
+      "name": "C5",
+      "rgb": [
+        1,
+        172,
+        235
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C6",
+      "name": "C6",
+      "rgb": [
+        80,
+        170,
+        240
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C7",
+      "name": "C7",
+      "rgb": [
+        54,
+        119,
+        210
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C8",
+      "name": "C8",
+      "rgb": [
+        15,
+        84,
+        192
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "C9",
+      "name": "C9",
+      "rgb": [
+        50,
+        75,
+        202
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D1",
+      "name": "D1",
+      "rgb": [
+        174,
+        180,
+        242
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D10",
+      "name": "D10",
+      "rgb": [
+        54,
+        24,
+        81
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D11",
+      "name": "D11",
+      "rgb": [
+        185,
+        186,
+        225
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D12",
+      "name": "D12",
+      "rgb": [
+        222,
+        154,
+        212
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D13",
+      "name": "D13",
+      "rgb": [
+        185,
+        0,
+        149
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D14",
+      "name": "D14",
+      "rgb": [
+        139,
+        39,
+        155
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D15",
+      "name": "D15",
+      "rgb": [
+        47,
+        31,
+        144
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D16",
+      "name": "D16",
+      "rgb": [
+        227,
+        225,
+        238
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D17",
+      "name": "D17",
+      "rgb": [
+        196,
+        212,
+        246
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D18",
+      "name": "D18",
+      "rgb": [
+        164,
+        94,
+        199
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D19",
+      "name": "D19",
+      "rgb": [
+        216,
+        195,
+        215
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D2",
+      "name": "D2",
+      "rgb": [
+        133,
+        142,
+        221
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D20",
+      "name": "D20",
+      "rgb": [
+        156,
+        50,
+        178
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D21",
+      "name": "D21",
+      "rgb": [
+        154,
+        0,
+        155
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D22",
+      "name": "D22",
+      "rgb": [
+        51,
+        58,
+        149
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D23",
+      "name": "D23",
+      "rgb": [
+        235,
+        218,
+        252
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D24",
+      "name": "D24",
+      "rgb": [
+        119,
+        134,
+        229
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D25",
+      "name": "D25",
+      "rgb": [
+        73,
+        79,
+        199
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D26",
+      "name": "D26",
+      "rgb": [
+        223,
+        194,
+        248
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D3",
+      "name": "D3",
+      "rgb": [
+        47,
+        84,
+        175
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D4",
+      "name": "D4",
+      "rgb": [
+        24,
+        42,
+        132
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D5",
+      "name": "D5",
+      "rgb": [
+        184,
+        67,
+        197
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D6",
+      "name": "D6",
+      "rgb": [
+        172,
+        123,
+        222
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D7",
+      "name": "D7",
+      "rgb": [
+        136,
+        84,
+        179
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D8",
+      "name": "D8",
+      "rgb": [
+        226,
+        211,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "D9",
+      "name": "D9",
+      "rgb": [
+        213,
+        185,
+        248
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E1",
+      "name": "E1",
+      "rgb": [
+        253,
+        211,
+        204
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E10",
+      "name": "E10",
+      "rgb": [
+        211,
+        55,
+        147
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E11",
+      "name": "E11",
+      "rgb": [
+        252,
+        221,
+        210
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E12",
+      "name": "E12",
+      "rgb": [
+        247,
+        143,
+        195
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E13",
+      "name": "E13",
+      "rgb": [
+        181,
+        0,
+        109
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E14",
+      "name": "E14",
+      "rgb": [
+        255,
+        209,
+        186
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E15",
+      "name": "E15",
+      "rgb": [
+        248,
+        199,
+        201
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E16",
+      "name": "E16",
+      "rgb": [
+        255,
+        243,
+        235
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E17",
+      "name": "E17",
+      "rgb": [
+        255,
+        226,
+        234
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E18",
+      "name": "E18",
+      "rgb": [
+        255,
+        199,
+        219
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E19",
+      "name": "E19",
+      "rgb": [
+        254,
+        186,
+        213
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E2",
+      "name": "E2",
+      "rgb": [
+        254,
+        192,
+        223
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E20",
+      "name": "E20",
+      "rgb": [
+        216,
+        199,
+        209
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E21",
+      "name": "E21",
+      "rgb": [
+        189,
+        157,
+        161
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E22",
+      "name": "E22",
+      "rgb": [
+        183,
+        133,
+        161
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E23",
+      "name": "E23",
+      "rgb": [
+        147,
+        122,
+        141
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E24",
+      "name": "E24",
+      "rgb": [
+        225,
+        188,
+        232
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E3",
+      "name": "E3",
+      "rgb": [
+        255,
+        183,
+        231
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E4",
+      "name": "E4",
+      "rgb": [
+        232,
+        100,
+        158
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E5",
+      "name": "E5",
+      "rgb": [
+        245,
+        81,
+        162
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E6",
+      "name": "E6",
+      "rgb": [
+        241,
+        61,
+        116
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E7",
+      "name": "E7",
+      "rgb": [
+        198,
+        52,
+        120
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E8",
+      "name": "E8",
+      "rgb": [
+        255,
+        219,
+        233
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "E9",
+      "name": "E9",
+      "rgb": [
+        233,
+        112,
+        204
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F1",
+      "name": "F1",
+      "rgb": [
+        253,
+        149,
+        123
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F10",
+      "name": "F10",
+      "rgb": [
+        138,
+        69,
+        38
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F11",
+      "name": "F11",
+      "rgb": [
+        90,
+        33,
+        33
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F12",
+      "name": "F12",
+      "rgb": [
+        253,
+        78,
+        106
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F13",
+      "name": "F13",
+      "rgb": [
+        243,
+        87,
+        68
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F14",
+      "name": "F14",
+      "rgb": [
+        255,
+        169,
+        173
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F15",
+      "name": "F15",
+      "rgb": [
+        211,
+        0,
+        34
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F16",
+      "name": "F16",
+      "rgb": [
+        254,
+        194,
+        166
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F17",
+      "name": "F17",
+      "rgb": [
+        230,
+        156,
+        121
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F18",
+      "name": "F18",
+      "rgb": [
+        211,
+        124,
+        70
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F19",
+      "name": "F19",
+      "rgb": [
+        193,
+        68,
+        74
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F2",
+      "name": "F2",
+      "rgb": [
+        252,
+        61,
+        70
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F20",
+      "name": "F20",
+      "rgb": [
+        205,
+        147,
+        145
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F21",
+      "name": "F21",
+      "rgb": [
+        247,
+        180,
+        198
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F22",
+      "name": "F22",
+      "rgb": [
+        253,
+        192,
+        208
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F23",
+      "name": "F23",
+      "rgb": [
+        246,
+        126,
+        102
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F24",
+      "name": "F24",
+      "rgb": [
+        230,
+        152,
+        170
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F25",
+      "name": "F25",
+      "rgb": [
+        229,
+        75,
+        79
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F3",
+      "name": "F3",
+      "rgb": [
+        247,
+        73,
+        65
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F4",
+      "name": "F4",
+      "rgb": [
+        252,
+        40,
+        60
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F5",
+      "name": "F5",
+      "rgb": [
+        231,
+        0,
+        47
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F6",
+      "name": "F6",
+      "rgb": [
+        148,
+        54,
+        48
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F7",
+      "name": "F7",
+      "rgb": [
+        151,
+        25,
+        55
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F8",
+      "name": "F8",
+      "rgb": [
+        188,
+        0,
+        40
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "F9",
+      "name": "F9",
+      "rgb": [
+        226,
+        103,
+        122
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G1",
+      "name": "G1",
+      "rgb": [
+        255,
+        226,
+        206
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G10",
+      "name": "G10",
+      "rgb": [
+        217,
+        140,
+        57
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G11",
+      "name": "G11",
+      "rgb": [
+        224,
+        197,
+        147
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G12",
+      "name": "G12",
+      "rgb": [
+        255,
+        200,
+        144
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G13",
+      "name": "G13",
+      "rgb": [
+        183,
+        113,
+        74
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G14",
+      "name": "G14",
+      "rgb": [
+        141,
+        97,
+        76
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G15",
+      "name": "G15",
+      "rgb": [
+        252,
+        249,
+        224
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G16",
+      "name": "G16",
+      "rgb": [
+        242,
+        217,
+        186
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G17",
+      "name": "G17",
+      "rgb": [
+        120,
+        82,
+        75
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G18",
+      "name": "G18",
+      "rgb": [
+        255,
+        228,
+        204
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G19",
+      "name": "G19",
+      "rgb": [
+        224,
+        121,
+        53
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G2",
+      "name": "G2",
+      "rgb": [
+        255,
+        196,
+        170
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G20",
+      "name": "G20",
+      "rgb": [
+        169,
+        64,
+        35
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G21",
+      "name": "G21",
+      "rgb": [
+        184,
+        133,
+        88
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G3",
+      "name": "G3",
+      "rgb": [
+        244,
+        195,
+        165
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G4",
+      "name": "G4",
+      "rgb": [
+        225,
+        179,
+        131
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G5",
+      "name": "G5",
+      "rgb": [
+        237,
+        176,
+        69
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G6",
+      "name": "G6",
+      "rgb": [
+        233,
+        156,
+        23
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G7",
+      "name": "G7",
+      "rgb": [
+        157,
+        91,
+        62
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G8",
+      "name": "G8",
+      "rgb": [
+        117,
+        56,
+        50
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "G9",
+      "name": "G9",
+      "rgb": [
+        230,
+        180,
+        131
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H1",
+      "name": "H1",
+      "rgb": [
+        253,
+        251,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H10",
+      "name": "H10",
+      "rgb": [
+        238,
+        233,
+        234
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H11",
+      "name": "H11",
+      "rgb": [
+        206,
+        205,
+        213
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H12",
+      "name": "H12",
+      "rgb": [
+        255,
+        245,
+        237
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H13",
+      "name": "H13",
+      "rgb": [
+        245,
+        236,
+        210
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H14",
+      "name": "H14",
+      "rgb": [
+        207,
+        215,
+        211
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H15",
+      "name": "H15",
+      "rgb": [
+        152,
+        166,
+        168
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H16",
+      "name": "H16",
+      "rgb": [
+        29,
+        20,
+        20
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H17",
+      "name": "H17",
+      "rgb": [
+        241,
+        237,
+        237
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H18",
+      "name": "H18",
+      "rgb": [
+        255,
+        253,
+        240
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H19",
+      "name": "H19",
+      "rgb": [
+        246,
+        239,
+        226
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H2",
+      "name": "H2",
+      "rgb": [
+        254,
+        255,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H20",
+      "name": "H20",
+      "rgb": [
+        148,
+        159,
+        163
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H21",
+      "name": "H21",
+      "rgb": [
+        255,
+        251,
+        225
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H22",
+      "name": "H22",
+      "rgb": [
+        202,
+        202,
+        212
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H23",
+      "name": "H23",
+      "rgb": [
+        154,
+        157,
+        148
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H3",
+      "name": "H3",
+      "rgb": [
+        182,
+        177,
+        186
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H4",
+      "name": "H4",
+      "rgb": [
+        137,
+        133,
+        140
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H5",
+      "name": "H5",
+      "rgb": [
+        72,
+        70,
+        78
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H6",
+      "name": "H6",
+      "rgb": [
+        47,
+        43,
+        47
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H7",
+      "name": "H7",
+      "rgb": [
+        0,
+        0,
+        0
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H8",
+      "name": "H8",
+      "rgb": [
+        231,
+        214,
+        219
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "H9",
+      "name": "H9",
+      "rgb": [
+        237,
+        237,
+        237
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M1",
+      "name": "M1",
+      "rgb": [
+        188,
+        198,
+        184
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M10",
+      "name": "M10",
+      "rgb": [
+        197,
+        178,
+        188
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M11",
+      "name": "M11",
+      "rgb": [
+        159,
+        117,
+        148
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M12",
+      "name": "M12",
+      "rgb": [
+        100,
+        71,
+        73
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M13",
+      "name": "M13",
+      "rgb": [
+        209,
+        144,
+        102
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M14",
+      "name": "M14",
+      "rgb": [
+        199,
+        115,
+        98
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M15",
+      "name": "M15",
+      "rgb": [
+        117,
+        125,
+        120
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M2",
+      "name": "M2",
+      "rgb": [
+        138,
+        163,
+        134
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M3",
+      "name": "M3",
+      "rgb": [
+        105,
+        125,
+        128
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M4",
+      "name": "M4",
+      "rgb": [
+        227,
+        210,
+        188
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M5",
+      "name": "M5",
+      "rgb": [
+        208,
+        204,
+        170
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M6",
+      "name": "M6",
+      "rgb": [
+        176,
+        167,
+        130
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M7",
+      "name": "M7",
+      "rgb": [
+        180,
+        164,
+        151
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M8",
+      "name": "M8",
+      "rgb": [
+        179,
+        130,
+        129
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "M9",
+      "name": "M9",
+      "rgb": [
+        165,
+        135,
+        103
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P1",
+      "name": "P1",
+      "rgb": [
+        252,
+        247,
+        248
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P10",
+      "name": "P10",
+      "rgb": [
+        217,
+        199,
+        234
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P11",
+      "name": "P11",
+      "rgb": [
+        243,
+        236,
+        201
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P12",
+      "name": "P12",
+      "rgb": [
+        230,
+        238,
+        242
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P13",
+      "name": "P13",
+      "rgb": [
+        170,
+        203,
+        239
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P14",
+      "name": "P14",
+      "rgb": [
+        51,
+        118,
+        128
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P15",
+      "name": "P15",
+      "rgb": [
+        102,
+        133,
+        117
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P16",
+      "name": "P16",
+      "rgb": [
+        254,
+        191,
+        69
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P17",
+      "name": "P17",
+      "rgb": [
+        254,
+        163,
+        36
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P18",
+      "name": "P18",
+      "rgb": [
+        254,
+        184,
+        159
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P19",
+      "name": "P19",
+      "rgb": [
+        255,
+        254,
+        236
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P2",
+      "name": "P2",
+      "rgb": [
+        176,
+        169,
+        172
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P20",
+      "name": "P20",
+      "rgb": [
+        254,
+        190,
+        207
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P21",
+      "name": "P21",
+      "rgb": [
+        236,
+        190,
+        191
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P22",
+      "name": "P22",
+      "rgb": [
+        228,
+        168,
+        159
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P23",
+      "name": "P23",
+      "rgb": [
+        165,
+        98,
+        104
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P3",
+      "name": "P3",
+      "rgb": [
+        175,
+        220,
+        171
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P4",
+      "name": "P4",
+      "rgb": [
+        254,
+        164,
+        159
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P5",
+      "name": "P5",
+      "rgb": [
+        238,
+        140,
+        62
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P6",
+      "name": "P6",
+      "rgb": [
+        95,
+        208,
+        167
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P7",
+      "name": "P7",
+      "rgb": [
+        235,
+        146,
+        112
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P8",
+      "name": "P8",
+      "rgb": [
+        240,
+        217,
+        88
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "P9",
+      "name": "P9",
+      "rgb": [
+        217,
+        217,
+        217
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Q1",
+      "name": "Q1",
+      "rgb": [
+        242,
+        165,
+        232
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Q2",
+      "name": "Q2",
+      "rgb": [
+        233,
+        236,
+        145
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Q3",
+      "name": "Q3",
+      "rgb": [
+        255,
+        255,
+        0
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Q4",
+      "name": "Q4",
+      "rgb": [
+        255,
+        235,
+        250
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Q5",
+      "name": "Q5",
+      "rgb": [
+        118,
+        206,
+        222
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R1",
+      "name": "R1",
+      "rgb": [
+        213,
+        13,
+        33
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R10",
+      "name": "R10",
+      "rgb": [
+        255,
+        219,
+        76
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R11",
+      "name": "R11",
+      "rgb": [
+        255,
+        235,
+        250
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R12",
+      "name": "R12",
+      "rgb": [
+        216,
+        213,
+        206
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R13",
+      "name": "R13",
+      "rgb": [
+        85,
+        81,
+        76
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R14",
+      "name": "R14",
+      "rgb": [
+        159,
+        228,
+        223
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R15",
+      "name": "R15",
+      "rgb": [
+        119,
+        206,
+        233
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R16",
+      "name": "R16",
+      "rgb": [
+        62,
+        207,
+        202
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R17",
+      "name": "R17",
+      "rgb": [
+        74,
+        134,
+        122
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R18",
+      "name": "R18",
+      "rgb": [
+        127,
+        205,
+        157
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R19",
+      "name": "R19",
+      "rgb": [
+        205,
+        229,
+        93
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R2",
+      "name": "R2",
+      "rgb": [
+        249,
+        47,
+        131
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R20",
+      "name": "R20",
+      "rgb": [
+        232,
+        199,
+        180
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R21",
+      "name": "R21",
+      "rgb": [
+        173,
+        111,
+        60
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R22",
+      "name": "R22",
+      "rgb": [
+        108,
+        55,
+        47
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R23",
+      "name": "R23",
+      "rgb": [
+        254,
+        184,
+        114
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R24",
+      "name": "R24",
+      "rgb": [
+        243,
+        193,
+        192
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R25",
+      "name": "R25",
+      "rgb": [
+        201,
+        103,
+        94
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R26",
+      "name": "R26",
+      "rgb": [
+        210,
+        147,
+        190
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R27",
+      "name": "R27",
+      "rgb": [
+        234,
+        140,
+        177
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R28",
+      "name": "R28",
+      "rgb": [
+        156,
+        135,
+        214
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R3",
+      "name": "R3",
+      "rgb": [
+        253,
+        131,
+        36
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R4",
+      "name": "R4",
+      "rgb": [
+        248,
+        236,
+        49
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R5",
+      "name": "R5",
+      "rgb": [
+        53,
+        199,
+        91
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R6",
+      "name": "R6",
+      "rgb": [
+        35,
+        136,
+        145
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R7",
+      "name": "R7",
+      "rgb": [
+        25,
+        119,
+        157
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R8",
+      "name": "R8",
+      "rgb": [
+        26,
+        96,
+        195
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "R9",
+      "name": "R9",
+      "rgb": [
+        154,
+        86,
+        180
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "T1",
+      "name": "T1",
+      "rgb": [
+        255,
+        255,
+        255
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Y1",
+      "name": "Y1",
+      "rgb": [
+        253,
+        111,
+        180
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Y2",
+      "name": "Y2",
+      "rgb": [
+        254,
+        180,
+        129
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Y3",
+      "name": "Y3",
+      "rgb": [
+        215,
+        250,
+        160
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Y4",
+      "name": "Y4",
+      "rgb": [
+        139,
+        219,
+        250
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "Y5",
+      "name": "Y5",
+      "rgb": [
+        233,
+        135,
+        234
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "ZG1",
+      "name": "ZG1",
+      "rgb": [
+        218,
+        171,
+        179
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "ZG2",
+      "name": "ZG2",
+      "rgb": [
+        214,
+        170,
+        135
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "ZG3",
+      "name": "ZG3",
+      "rgb": [
+        193,
+        189,
+        141
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "ZG4",
+      "name": "ZG4",
+      "rgb": [
+        150,
+        134,
+        159
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "ZG5",
+      "name": "ZG5",
+      "rgb": [
+        132,
+        144,
+        166
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "ZG6",
+      "name": "ZG6",
+      "rgb": [
+        148,
+        191,
+        226
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "ZG7",
+      "name": "ZG7",
+      "rgb": [
+        226,
+        169,
+        210
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    },
+    {
+      "code": "ZG8",
+      "name": "ZG8",
+      "rgb": [
+        171,
+        145,
+        192
+      ],
+      "material": "standard_opaque",
+      "identity_source_id": "brand_reference",
+      "rgb_source_id": "beadcolors_mit",
+      "rgb_contributor": "Asher"
+    }
+  ]
+}
