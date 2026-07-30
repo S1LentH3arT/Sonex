@@ -84,9 +84,9 @@ export function wrapChatMessageSegments(
 export function resolveChatSubject(
     role: ChatRole,
     tone: ChatTone | null,
-): "User" | "Agent" | "System" | "Warning" | "Error" {
+): "User" | "Agent" | "System" | "Warning" | "Caution" {
     if (role === "user") return "User";
-    if (tone === "error") return "Error";
+    if (tone === "error") return "Caution";
     if (tone === "warning") return "Warning";
     if (tone === "system") return "System";
     return "Agent";

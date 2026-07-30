@@ -5,15 +5,25 @@ from __future__ import annotations
 import hashlib
 import threading
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import Any, Callable
 
 from src.memory.tool import search_context, search_memory
+from src.log import sonex_home
 from src.music.connections import MusicConnectionManager
+from src.tools.agent_modify import Modify
+from src.tools.apple_music import apple_music_recommend
 from src.tools.local_play import search_local_file
 from src.tools.playback_queue import playback_queue_snapshot
 from src.tools.registry import Params, ToolRegistry, registry
 from src.tools.result import ToolResult
+from src.tools.spotify_play import spotify_recommend
+from src.tools.track_refs import (
+    remember_existing_track_reference,
+    remember_track_reference,
+)
+from src.tools.up_next import up_next_snapshot
 
 QUERY_PROVIDERS = (
     "current",
@@ -36,6 +46,8 @@ QUERY_RESOURCES = (
     "playback",
 )
 CONNECT_PROVIDERS = ("spotify", "apple_music", "netease", "jamendo", "audius")
+RECOMMEND_PROVIDERS = ("spotify", "apple_music", "netease")
+RECOMMEND_TIMEOUT_SECONDS = 8.0
 _MAX_LOCAL_REFS = 512
 _LOCAL_REFS: OrderedDict[str, str] = OrderedDict()
 _LOCAL_REFS_LOCK = threading.Lock()
@@ -81,6 +93,7 @@ _SAFE_ITEM_KEYS = {
     "position_ms",
     "product",
     "provider",
+    "recommendation_reason",
     "status",
     "title",
     "total",
@@ -167,10 +180,76 @@ def _normalize_item(provider: str, item: dict[str, Any]) -> dict[str, Any]:
         if str(key) in _SAFE_ITEM_KEYS
     }
     normalized.setdefault("provider", provider)
-    ref = _opaque_ref(provider, item)
-    if ref:
-        normalized["ref"] = ref
+    ref = remember_track_reference(
+        provider,
+        normalized,
+        playable=provider in {"spotify", "apple_music", "netease", "local"},
+    )
+    normalized["ref"] = ref
     return normalized
+
+
+def _normalize_persisted_track(item: dict[str, Any]) -> dict[str, Any]:
+    provider = _normalize_provider(str(item.get("provider") or "unknown"))
+    normalized = {
+        str(key): _safe_value(value)
+        for key, value in item.items()
+        if str(key) in _SAFE_ITEM_KEYS or str(key) in {"ref", "playable"}
+    }
+    ref = str(item.get("ref") or "").strip()
+    if ref:
+        internal = dict(normalized)
+        local_path = str(
+            item.get("audio_path")
+            or item.get("file_path")
+            or item.get("path")
+            or ""
+        ).strip()
+        if provider == "local" and local_path:
+            with _LOCAL_REFS_LOCK:
+                _LOCAL_REFS[ref] = local_path
+                _LOCAL_REFS.move_to_end(ref)
+                while len(_LOCAL_REFS) > _MAX_LOCAL_REFS:
+                    _LOCAL_REFS.popitem(last=False)
+            internal["audio_path"] = local_path
+        remember_existing_track_reference(
+            ref,
+            provider,
+            internal,
+            playable=bool(item.get("playable")),
+        )
+        normalized["ref"] = ref
+    normalized["provider"] = provider
+    return normalized
+
+
+def _normalize_recent_track(item: dict[str, Any]) -> dict[str, Any]:
+    provider = _normalize_provider(
+        str(item.get("provider") or item.get("source") or "unknown")
+    )
+    local_path = str(
+        item.get("audio_path")
+        or item.get("file_path")
+        or item.get("path")
+        or ""
+    ).strip()
+    if provider == "local" and local_path:
+        ref = remember_local_track(local_path)
+        normalized = {
+            str(key): _safe_value(value)
+            for key, value in item.items()
+            if str(key) in _SAFE_ITEM_KEYS
+        }
+        normalized["provider"] = provider
+        normalized["ref"] = ref
+        remember_existing_track_reference(
+            ref,
+            provider,
+            {**normalized, "audio_path": local_path},
+            playable=True,
+        )
+        return normalized
+    return _normalize_item(provider, item)
 
 
 def _extract_items(data: dict[str, Any], limit: int) -> list[dict[str, Any]]:
@@ -278,6 +357,12 @@ def _query_tool_and_args(
             "playback": ("apple_music_current_playback", {}),
         }
         return mapping.get(resource, (None, {}))
+    if provider == "netease":
+        mapping = {
+            "catalog": ("netease_search", {"query": query, "limit": limit}),
+            "account": ("netease_account", {}),
+        }
+        return mapping.get(resource, (None, {}))
     if provider == "local":
         return None, {}
     return None, {}
@@ -338,22 +423,45 @@ def Query(
     if resolved_provider == "local":
         if normalized_resource == "catalog":
             path = search_local_file(normalized_query or "")
+            local_ref = (
+                remember_local_track(path)
+                if path
+                and not path.startswith("No local files found")
+                and path != "Path outside user workspace."
+                else None
+            )
+            if local_ref:
+                remember_existing_track_reference(
+                    local_ref,
+                    "local",
+                    {
+                        "provider": "local",
+                        "title": normalized_query,
+                        "name": normalized_query,
+                        "audio_path": path,
+                    },
+                    playable=True,
+                )
             items = (
                 [
                     {
                         "provider": "local",
                         "title": normalized_query,
-                        "ref": remember_local_track(path),
+                        "name": normalized_query,
+                        "ref": local_ref,
                     }
                 ]
-                if path
-                and not path.startswith("No local files found")
-                and path != "Path outside user workspace."
+                if local_ref
                 else []
             )
-        elif normalized_resource in {"queue", "recent"}:
+        elif normalized_resource == "queue":
             items = [
-                _normalize_item("local", item)
+                _normalize_persisted_track(item)
+                for item in up_next_snapshot()["items"][:bounded]
+            ]
+        elif normalized_resource == "recent":
+            items = [
+                _normalize_recent_track(item)
                 for item in playback_queue_snapshot()[:bounded]
             ]
         elif normalized_resource == "playback":
@@ -448,6 +556,167 @@ def Query(
     ).to_dict()
 
 
+def _recommendation_keys(track: dict[str, Any]) -> set[str]:
+    keys: set[str] = set()
+    for key in ("uri", "id", "url"):
+        value = str(track.get(key) or "").strip()
+        if value:
+            keys.add(f"{key}:{value}")
+    name = str(track.get("name") or track.get("title") or "").strip().casefold()
+    artist = str(track.get("artist") or "").strip().casefold()
+    if name or artist:
+        keys.add(f"text:{name}|{artist}")
+    return keys
+
+
+def _recommendation_preferences() -> str:
+    try:
+        return (sonex_home() / "USER.md").read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def Recommend(
+    query: str = "",
+    provider: str = "current",
+    limit: int = 5,
+) -> dict[str, Any]:
+    """Aggregate one bounded recommendation request across connected authorities."""
+    taste = str(query or "").strip()
+    bounded = min(10, max(1, int(limit or 5)))
+    requested = _normalize_provider(provider) or "current"
+    if requested not in {"current", *RECOMMEND_PROVIDERS}:
+        return _failure(
+            "Recommend",
+            f"Unknown recommendation provider: {provider}.",
+            "PROVIDER_UNSUPPORTED",
+            data={"providers": ["current", *RECOMMEND_PROVIDERS]},
+        )
+
+    manager = MusicConnectionManager()
+    preferred = (
+        manager.preferred_provider_id
+        if requested == "current"
+        else requested
+    )
+    ordered = list(RECOMMEND_PROVIDERS)
+    if preferred in ordered:
+        ordered.remove(preferred)
+        ordered.insert(0, preferred)
+
+    recent_tracks = playback_queue_snapshot()
+    preferences = _recommendation_preferences()
+    skipped: list[dict[str, str]] = []
+    connected: list[str] = []
+    for provider_id in ordered:
+        record = manager.record(provider_id)
+        if record is None or record.status != "connected":
+            skipped.append(
+                {"provider": provider_id, "reason": "not_connected"}
+            )
+            continue
+        if provider_id == "netease":
+            skipped.append(
+                {
+                    "provider": provider_id,
+                    "reason": "recommendation_capability_unavailable",
+                }
+            )
+            continue
+        connected.append(provider_id)
+
+    calls: dict[str, Callable[..., dict[str, Any]]] = {
+        "spotify": spotify_recommend,
+        "apple_music": apple_music_recommend,
+    }
+    executor = ThreadPoolExecutor(
+        max_workers=max(1, len(connected)),
+        thread_name_prefix="sonex-recommend",
+    )
+    futures = {
+        executor.submit(
+            calls[provider_id],
+            query=taste,
+            limit=bounded,
+            recent_tracks=recent_tracks,
+            preferences=preferences,
+        ): provider_id
+        for provider_id in connected
+    }
+    done, pending = wait(futures, timeout=RECOMMEND_TIMEOUT_SECONDS)
+    failed: list[dict[str, str]] = []
+    provider_tracks: dict[str, list[dict[str, Any]]] = {}
+    for future in done:
+        provider_id = futures[future]
+        try:
+            result = future.result()
+        except Exception as exc:
+            failed.append(
+                {"provider": provider_id, "reason": str(exc) or "provider_failed"}
+            )
+            continue
+        if not isinstance(result, dict) or str(result.get("status") or "").casefold() not in {
+            "success",
+            "ok",
+        }:
+            failed.append(
+                {
+                    "provider": provider_id,
+                    "reason": str(
+                        result.get("message")
+                        if isinstance(result, dict)
+                        else "invalid_provider_result"
+                    ),
+                }
+            )
+            continue
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        provider_tracks[provider_id] = [
+            item
+            for item in data.get("tracks", [])
+            if isinstance(item, dict)
+        ]
+    for future in pending:
+        provider_id = futures[future]
+        future.cancel()
+        failed.append({"provider": provider_id, "reason": "timed_out"})
+    executor.shutdown(wait=False, cancel_futures=True)
+
+    tracks: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for provider_id in ordered:
+        for item in provider_tracks.get(provider_id, []):
+            keys = _recommendation_keys(item)
+            if not keys or keys & seen:
+                continue
+            seen.update(keys)
+            tracks.append(_normalize_item(provider_id, item))
+            if len(tracks) >= bounded:
+                break
+        if len(tracks) >= bounded:
+            break
+
+    data = {
+        "query": taste,
+        "tracks": tracks,
+        "skipped": skipped,
+        "failed": failed,
+        "providers": ordered,
+    }
+    if not tracks:
+        return _failure(
+            "Recommend",
+            "No credible recommendations are available from connected providers.",
+            "NO_RECOMMENDATIONS",
+            data=data,
+        )
+    return ToolResult.success(
+        tool="Recommend",
+        message=f"Recommended {len(tracks)} track(s).",
+        data=data,
+    ).to_dict()
+
+
 def Connect(provider: str) -> dict[str, Any]:
     """Request one provider connection or health-check interaction."""
     normalized = _normalize_provider(provider)
@@ -514,6 +783,10 @@ def _select_workflow(arguments: dict[str, Any]) -> dict[str, Any]:
         "data": {
             "workflow": "playback.select",
             "query": query,
+            "provider": _normalize_provider(str(arguments.get("provider") or "current")),
+            "provider_constraint": str(
+                arguments.get("provider_constraint") or "preference"
+            ).strip().casefold(),
             "timeout_seconds": 60,
         },
         "error_code": None,
@@ -558,6 +831,19 @@ def _play_workflow(arguments: dict[str, Any]) -> dict[str, Any]:
         )
     if provider in {"jamendo", "audius"}:
         return registry.invoke_system("play_youtube_song", {"query": query or ref})
+    if provider == "netease":
+        netease_ref = _decode_ref("netease", ref) or ""
+        encrypted_id, separator, original_id = netease_ref.partition("|")
+        if not separator or not encrypted_id or not original_id:
+            return _failure(
+                "Call",
+                "NetEase playback requires a selected encrypted and original track ID.",
+                "INVALID_REF",
+            )
+        return registry.invoke_system(
+            "netease_play",
+            {"encrypted_id": encrypted_id, "original_id": original_id},
+        )
     return _failure(
         "Call",
         f"Playback is not supported for {provider}.",
@@ -655,6 +941,30 @@ def register_agent_surface(tool_registry: ToolRegistry = registry) -> None:
         confirm_required=False,
     )
     tool_registry.register(
+        name="Recommend",
+        kind="agent",
+        domain="music",
+        description=(
+            "Recommend real tracks once using recent listening context and connected "
+            "authoritative providers. This tool never starts playback or modifies queues."
+        ),
+        parameters=Params(
+            type="object",
+            properties={
+                "query": {"type": "string"},
+                "provider": {
+                    "type": "string",
+                    "enum": ["current", *RECOMMEND_PROVIDERS],
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 10},
+            },
+            required=[],
+        ),
+        fn=Recommend,
+        read_only=True,
+        confirm_required=False,
+    )
+    tool_registry.register(
         name="Connect",
         kind="agent",
         domain="connection",
@@ -670,6 +980,68 @@ def register_agent_surface(tool_registry: ToolRegistry = registry) -> None:
             required=["provider"],
         ),
         fn=Connect,
+        read_only=False,
+        confirm_required=False,
+    )
+    tool_registry.register(
+        name="Modify",
+        kind="agent",
+        domain="music",
+        description=(
+            "Apply one idempotent transaction to Sonex local playlists or up next. "
+            "Use one call with all requested operations. Destructive actions are previewed "
+            "and confirmed by the runtime."
+        ),
+        parameters=Params(
+            type="object",
+            properties={
+                "operations": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "target": {
+                                "type": "string",
+                                "enum": ["playlist", "up_next"],
+                            },
+                            "action": {
+                                "type": "string",
+                                "enum": [
+                                    "create",
+                                    "add",
+                                    "remove",
+                                    "move",
+                                    "reorder",
+                                    "rename",
+                                    "clear",
+                                    "delete",
+                                    "replace",
+                                ],
+                            },
+                            "name": {"type": "string"},
+                            "new_name": {"type": "string"},
+                            "refs": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "ref": {"type": "string"},
+                            "index": {"type": "integer", "minimum": 0},
+                        },
+                        "required": ["target", "action"],
+                    },
+                },
+                "idempotency_key": {
+                    "type": "string",
+                    "description": (
+                        "A unique key for this user turn. Reuse it only when retrying "
+                        "the exact same operation batch."
+                    ),
+                },
+            },
+            required=["operations", "idempotency_key"],
+        ),
+        fn=Modify,
         read_only=False,
         confirm_required=False,
     )

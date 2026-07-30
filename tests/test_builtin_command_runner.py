@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import tempfile
+import threading
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -21,11 +22,13 @@ from fastapi import WebSocketDisconnect
 from src.agent.action import ToolAction
 from src.agent.core import AgentState
 from src.api import ws_runner
+from src.api.builtin_commands import CommandIntent
 from src.api.music_intent import MusicIntentDecision, MusicIntentRoute
 from src.api.ws_runner import WebSocketRunner, _decorate_player_state, _player_sync_signature, _queue_payload, _track_panel_payload
 from src.auth.models import OAuthToken
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
+from src.music.playback_coordinator import ProviderReadiness, RecordingIdentity
 from src.music.player_sinks import PlayerSelectionResult
 from src.thinking.config import ThinkingConfig
 
@@ -161,6 +164,15 @@ class FakeUI:
         Example: send_error() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "error", "message": message})
+
+    async def send_agent_working_state(self, turn_id: str, *, active: bool) -> None:
+        self.events.append(
+            {
+                "type": "agent_working_state",
+                "turn_id": turn_id,
+                "active": active,
+            }
+        )
 
     async def ask_confirm(self, attached: dict[str, object]) -> None:
         """Verifies that ask confirm behaves as expected.
@@ -424,6 +436,285 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
     Collects assertions that exercise builtin command runner tests behavior without mixing unrelated fixtures.
     """
+
+    async def test_active_agent_turn_queues_user_messages_fifo_and_warns_at_limit(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        blocker = asyncio.Event()
+        active = asyncio.create_task(blocker.wait())
+        setattr(ui, "_agent_turn_task", active)
+        try:
+            for index in range(11):
+                await runner._handle_user_input(ui, f"queued {index}")
+        finally:
+            active.cancel()
+
+        self.assertEqual(
+            list(getattr(ui, "_agent_input_queue")),
+            [f"queued {index}" for index in range(10)],
+        )
+        self.assertTrue(
+            any(
+                event.get("tone") == "warning"
+                and "queue is full" in str(event.get("text"))
+                for event in ui.events
+            )
+        )
+        self.assertEqual(
+            [
+                item.get("execution")
+                for item in ui.transcript
+                if item.get("role") == "user"
+            ][:10],
+            ["queued"] * 10,
+        )
+
+    async def test_agent_interrupt_is_turn_bound_and_cancels_provider_work_once(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        interrupt_event = threading.Event()
+        provider_task = asyncio.create_task(asyncio.sleep(60))
+        setattr(ui, "_active_agent_turn_id", "turn-current")
+        setattr(ui, "_agent_turn_interrupt_event", interrupt_event)
+        setattr(ui, "_active_agent_provider_task", provider_task)
+
+        interrupted = await runner._handle_agent_turn_interrupt(
+            ui,
+            "turn-current",
+        )
+        await asyncio.sleep(0)
+        stale = await runner._handle_agent_turn_interrupt(
+            ui,
+            "turn-current",
+        )
+
+        self.assertTrue(interrupted)
+        self.assertFalse(stale)
+        self.assertTrue(interrupt_event.is_set())
+        self.assertTrue(provider_task.cancelled())
+        self.assertEqual(
+            [
+                event
+                for event in ui.events
+                if event.get("type") == "agent_working_state"
+            ],
+            [
+                {
+                    "type": "agent_working_state",
+                    "turn_id": "turn-current",
+                    "active": False,
+                }
+            ],
+        )
+        self.assertEqual(
+            [
+                event.get("text")
+                for event in ui.events
+                if event.get("tone") == "system"
+            ],
+            ["Agent turn interrupted."],
+        )
+
+    async def test_agent_interrupt_returns_without_waiting_for_blocked_planner_thread(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        release = threading.Event()
+
+        def blocked_agent_loop(*_args: object, **_kwargs: object):
+            release.wait(timeout=2)
+            yield AgentState(type="complete", content="late")
+
+        with patch("src.api.ws_runner.agent_loop", blocked_agent_loop):
+            task = asyncio.create_task(runner._run_agent_turn(ui, "hello"))
+            for _ in range(20):
+                await asyncio.sleep(0.01)
+                turn_id = getattr(ui, "_active_agent_turn_id", None)
+                if turn_id:
+                    break
+            else:
+                self.fail("Agent turn never entered Working state.")
+
+            interrupted = await runner._handle_agent_turn_interrupt(ui, turn_id)
+            await asyncio.wait_for(task, timeout=0.5)
+            release.set()
+
+        self.assertTrue(interrupted)
+        self.assertFalse(
+            any(
+                event.get("type") == "chat"
+                and event.get("text") == "late"
+                for event in ui.events
+            )
+        )
+
+    async def test_authoritative_route_rejection_tries_next_ready_provider(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        spotify = ProviderReadiness(
+            "spotify",
+            True,
+            True,
+            True,
+            True,
+            startup_latency_ms=10,
+        )
+        netease = ProviderReadiness(
+            "netease",
+            True,
+            True,
+            True,
+            True,
+            startup_latency_ms=20,
+        )
+        runner._probe_authoritative_providers = AsyncMock(
+            return_value=[netease, spotify]
+        )
+        runner._confirm_agent_playback_route = AsyncMock(
+            side_effect=[False, True]
+        )
+        runner._ensure_authoritative_mode = AsyncMock(return_value=True)
+        runner._try_selected_native_provider = AsyncMock(
+            return_value={
+                "status": "playback_completed",
+                "message": "NetEase playback started.",
+                "data": {"provider": "netease"},
+            }
+        )
+
+        result = await runner._route_authoritative_provider(
+            ui,
+            identity=RecordingIdentity("BB88", "方大同"),
+            selected_candidate={"title": "BB88", "artist": "方大同"},
+            requested_provider=None,
+            hard_provider=False,
+        )
+
+        self.assertEqual(result["status"], "playback_completed")
+        self.assertEqual(
+            [
+                call.kwargs["provider"]
+                for call in runner._confirm_agent_playback_route.await_args_list
+            ],
+            ["spotify", "netease"],
+        )
+        self.assertEqual(
+            runner._try_selected_native_provider.await_args.kwargs["provider"],
+            "netease",
+        )
+
+    async def test_explicit_provider_rejection_does_not_cross_provider_boundary(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        providers = [
+            ProviderReadiness("spotify", True, True, True, True),
+            ProviderReadiness("netease", True, True, True, True),
+        ]
+        runner._probe_authoritative_providers = AsyncMock(return_value=providers)
+        runner._confirm_agent_playback_route = AsyncMock(return_value=False)
+        runner._ensure_authoritative_mode = AsyncMock(return_value=True)
+        runner._try_selected_native_provider = AsyncMock()
+
+        result = await runner._route_authoritative_provider(
+            ui,
+            identity=RecordingIdentity("BB88", "方大同"),
+            selected_candidate={"title": "BB88", "artist": "方大同"},
+            requested_provider="spotify",
+            hard_provider=True,
+        )
+
+        self.assertEqual(result["status"], "playback_failed")
+        runner._try_selected_native_provider.assert_not_awaited()
+        self.assertEqual(result["data"]["attempted"], ["spotify"])
+
+    async def test_agent_community_fallback_offers_only_one_explicit_alternative(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        completed: list[dict[str, object]] = []
+        session = ws_runner.PlaySelectionSession(
+            ui,
+            runner,
+            "方大同 BB88",
+            on_finish=completed.append,
+        )
+        session.selected_playback_metadata = {
+            "title": "BB88",
+            "name": "BB88",
+            "artist": "方大同",
+            "duration_ms": 240_000,
+        }
+        alternative = {
+            "cache_id": "alternative-1",
+            "provider": "audius",
+            "title": "BB88 (Live)",
+            "name": "BB88 (Live)",
+            "artist": "方大同",
+            "duration_ms": 260_000,
+            "assessment": {"confidence": "medium"},
+        }
+
+        with patch(
+            "src.api.ws_runner._search_online_audio_for_runner",
+            return_value=[alternative],
+        ), patch(
+            "src.api.ws_runner.resolve_online_playback_metadata",
+            return_value={},
+        ):
+            await session._play_selected_metadata_candidate(
+                "方大同 BB88",
+                session.selected_playback_metadata,
+            )
+
+        confirmations = [
+            event for event in ui.events if event.get("type") == "confirm"
+        ]
+        self.assertEqual(len(confirmations), 1)
+        self.assertIn("Alternative version: BB88 (Live)", confirmations[0]["message"])
+        values = [
+            choice.get("value")
+            for choice in confirmations[0]["choices"]
+        ]
+        self.assertEqual(values, ["youtube_candidate:alternative-1", "deny"])
+        self.assertNotIn("refine_query", values)
+        self.assertEqual(completed, [])
+
+    def test_verified_cache_requires_exact_identity_and_existing_audio(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            audio_path = Path(directory) / "bb88.mp3"
+            audio_path.write_bytes(b"audio")
+            cached = {
+                "cache_id": "bb88",
+                "title": "BB88",
+                "name": "BB88",
+                "artist": "方大同",
+                "duration_ms": 240_000,
+                "audio_path": str(audio_path),
+            }
+            with patch(
+                "src.api.ws_runner.find_best_cached_song",
+                return_value={"cache_id": "bb88"},
+            ), patch(
+                "src.api.ws_runner.resolve_cached_song",
+                return_value=cached,
+            ):
+                exact = WebSocketRunner._verified_cached_recording(
+                    RecordingIdentity(
+                        "BB88",
+                        "方大同",
+                        duration_ms=240_000,
+                    )
+                )
+                mismatch = WebSocketRunner._verified_cached_recording(
+                    RecordingIdentity(
+                        "BB88 (Live)",
+                        "方大同",
+                        duration_ms=260_000,
+                    )
+                )
+
+        self.assertEqual(exact["playback_path"], str(audio_path))
+        self.assertTrue(exact["cached"])
+        self.assertIsNone(mismatch)
+
     _RETIRED_DIRECT_ROUTING_TESTS = {
         "test_explicit_natural_language_playback_starts_selection_session",
         "test_general_music_question_does_not_start_playback",
@@ -2450,7 +2741,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         playback.assert_not_called()
 
-    async def test_track_panel_queue_add_remembers_selected_track(self) -> None:
+    async def test_track_panel_queue_add_appends_selected_track_to_up_next(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
         track = {
@@ -2464,18 +2755,75 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "provider": "spotify",
         }
 
-        with patch("src.api.ws_runner.remember_playback_track", return_value=[track]) as remember, patch(
+        resolved = {
+            **track,
+            "ref": "spotify:uri:spotify:track:queued",
+            "playable": True,
+        }
+        with patch(
+            "src.api.ws_runner.remember_track_reference",
+            return_value=resolved["ref"],
+        ), patch(
+            "src.api.ws_runner.resolve_track_reference",
+            return_value=resolved,
+        ), patch(
+            "src.api.ws_runner.append_up_next_track",
+            return_value={"revision": 1, "items": [resolved], "failed": []},
+        ) as append, patch(
             "src.api.ws_runner._queue_payload",
             return_value=[track],
         ):
             await runner._handle_track_panel_action(ui, {"action": "queue_add", "track": track, "panel": "playlist", "title": "Spotify Playlist: Road"})
 
-        remember.assert_called_once()
-        self.assertEqual(remember.call_args.args[0]["uri"], "spotify:track:queued")
+        append.assert_called_once_with(resolved)
         queue_events = [event for event in ui.events if event.get("type") == "queue"]
         self.assertEqual(queue_events[-1]["tracks"], [track])
         details = [str(event.get("detail") or "") for event in ui.events]
         self.assertTrue(any("Added to playback queue" in detail for detail in details))
+
+    async def test_up_next_play_skips_failed_head_and_reports_one_caution(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        first = {
+            "ref": "spotify:uri:spotify:track:first",
+            "name": "First",
+            "provider": "spotify",
+            "playable": True,
+        }
+        second = {
+            "ref": "spotify:uri:spotify:track:second",
+            "name": "Second",
+            "provider": "spotify",
+            "playable": True,
+        }
+        runner._play_track_panel_track = AsyncMock(
+            side_effect=[
+                (False, "First route failed."),
+                (True, ""),
+            ]
+        )
+        with patch("src.api.ws_runner.up_next_snapshot", return_value={
+            "revision": 1,
+            "items": [first, second],
+            "failed": [],
+        }), patch("src.api.ws_runner.fail_up_next_head", return_value={
+            "revision": 2,
+            "items": [second],
+            "failed": [{**first, "failure_reason": "First route failed."}],
+        }) as fail_head, patch(
+            "src.api.ws_runner.consume_up_next_head",
+        ) as consume_head, patch(
+            "src.api.ws_runner._queue_payload",
+            return_value=[],
+        ):
+            await runner._play_up_next_from_selection(ui, first)
+
+        self.assertEqual(runner._play_track_panel_track.await_count, 2)
+        fail_head.assert_called_once_with("First route failed.")
+        consume_head.assert_called_once_with()
+        cautions = [event for event in ui.events if event.get("type") == "error"]
+        self.assertEqual(len(cautions), 1)
+        self.assertIn("skipping 1 queued track", str(cautions[0]["message"]))
 
     async def test_track_panel_enter_plays_spotify_uri_on_selected_device(self) -> None:
         runner = WebSocketRunner()
@@ -2685,7 +3033,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
         self.assertEqual(intent.command, "recommend")
-        self.assertIn("spotify_recommend", intent.allowed_tools)
+        self.assertEqual(intent.allowed_tools, ("Recommend",))
+        self.assertEqual(intent.max_tool_calls, 1)
         self.assertNotIn("spotify_play", intent.allowed_tools)
         self.assertFalse([event for event in ui.events if event.get("type") == "confirm"])
 
@@ -2995,12 +3344,16 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             if event.get("type") == "chat"
         ))
 
-    def test_queue_payload_reads_dedicated_playback_queue_snapshot(self) -> None:
+    def test_queue_payload_reads_dedicated_up_next_snapshot(self) -> None:
         queue_tracks = [
             {"name": f"Queued {idx}", "artist": "Artist", "duration_ms": 60_000}
             for idx in range(10)
         ]
-        with patch("src.api.ws_runner.playback_queue_snapshot", return_value=queue_tracks):
+        with patch("src.api.ws_runner.up_next_snapshot", return_value={
+            "revision": 3,
+            "items": queue_tracks,
+            "failed": [],
+        }):
             queue = _queue_payload()
 
         self.assertEqual(len(queue), 10)
@@ -3011,7 +3364,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         queue_tracks = [
             {"name": "Queued Song", "artist": "Artist", "duration_ms": 90_000}
         ]
-        with patch("src.api.ws_runner.playback_queue_snapshot", return_value=queue_tracks):
+        with patch("src.api.ws_runner.up_next_snapshot", return_value={
+            "revision": 1,
+            "items": queue_tracks,
+            "failed": [],
+        }):
             panel = _track_panel_payload("queue", "Queue", _queue_payload())
 
         self.assertEqual(panel["type"], "track_panel")
@@ -3026,7 +3383,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ui = FakeUI()
         queue_tracks = [{"name": "Queued Song", "artist": "Artist", "duration_ms": 90_000}]
 
-        with patch("src.api.ws_runner.playback_queue_snapshot", return_value=queue_tracks):
+        with patch("src.api.ws_runner.up_next_snapshot", return_value={
+            "revision": 1,
+            "items": queue_tracks,
+            "failed": [],
+        }):
             await runner._handle_user_input(ui, "/queue")
 
         self.assertFalse(runner._run_agent_turn.called)
@@ -4995,20 +5356,23 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(player_events)
         self.assertEqual(player_events[-1]["state"]["name"], "Song")
 
-    async def test_online_play_choice_reports_failure_to_chat_and_error(self) -> None:
-        """Verifies that online play choice reports failure to chat and error behaves as expected.
+    async def test_online_play_choice_reports_failure_only_as_caution(self) -> None:
+        """Verify a terminal playback failure emits one Caution and no Agent copy.
 
-        Typical use: Use this in automated tests when guarding the online play choice reports failure to chat and error behavior against regressions.
-
-        Example: test_online_play_choice_reports_failure_to_chat_and_error() -> passes without assertion failures when the behavior remains correct.
+        This covers the aggregated Jamendo/Audius/YouTube failure shown in chat.
         """
         runner = WebSocketRunner()
         ui = FakeUI()
         result = {
             "status": "fail",
             "tool": "play_youtube_song",
-            "message": "Failed to start controllable playback: mpv is not installed.",
-            "error_code": "PLAYER_START_FAILED",
+            "message": (
+                "Jamendo returned no credible matches. "
+                "Audius returned no credible matches. "
+                "Sonex fell back to YouTube. "
+                "YouTube failed: YouTube is temporarily unavailable; playback is cooling down."
+            ),
+            "error_code": "ONLINE_AUDIO_RESOLVE_FAILED",
             "data": {"query": "Song Artist", "method": "online_play", "provider": "youtube"},
         }
         candidate = {
@@ -5020,30 +5384,39 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "duration_ms": 180000,
             "cached": False,
         }
-
-        with patch("src.api.ws_runner.search_local_file", return_value="No local files found related to 'Song Artist'."), \
-             patch("src.api.ws_runner.find_best_cached_song", return_value=None):
-            await runner._handle_user_input(ui, "play Song Artist")
-        session = getattr(ui, "_play_selection")
-        with patch("src.api.ws_runner.search_youtube_songs", return_value=[candidate]), \
-             patch("src.api.ws_runner.play_youtube_candidate", return_value=result), \
-             patch("src.api.ws_runner.online_audio_configured", return_value=True), \
-             patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await session.handle_choice("online_play")
-            await session.handle_choice("youtube_candidate:youtube_abc")
+        session = ws_runner.PlaySelectionSession(ui, runner, "Song Artist")
+        with patch(
+            "src.api.ws_runner.play_online_audio_candidate",
+            return_value=result,
+        ), patch(
+            "src.api.ws_runner.asyncio.to_thread",
+            side_effect=_to_thread_inline,
+        ):
+            await session._play_online_audio_candidate(candidate)
 
         self.assertFalse([event for event in ui.events if event.get("type") == "player"])
-        self.assertTrue(any(
+        expected = (
+            "Playback failed. Technical detail: "
+            "Jamendo returned no credible matches. "
+            "Audius returned no credible matches. "
+            "Sonex fell back to YouTube. "
+            "YouTube failed: YouTube is temporarily unavailable; playback is cooling down."
+        )
+        self.assertFalse(any(
             event.get("type") == "chat"
             and event.get("role") == "agent"
-            and "mpv is not installed" in str(event.get("text"))
+            and event.get("text") == expected
             for event in ui.events
         ))
-        self.assertTrue(any(
-            event.get("type") == "error"
-            and "mpv is not installed" in str(event.get("message"))
-            for event in ui.events
-        ))
+        self.assertEqual(
+            [
+                event.get("message")
+                for event in ui.events
+                if event.get("type") == "error"
+                and event.get("message") == expected
+            ],
+            [expected],
+        )
 
     def test_sonex_log_path_uses_log_filename(self) -> None:
         """Verifies that sonex log path uses log filename behaves as expected.
@@ -5129,6 +5502,54 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual(len(agent_answers), 1)
         self.assertIsNone(agent_answers[0].get("tone"))
+        working_events = [
+            event for event in ui.events
+            if event.get("type") == "agent_working_state"
+        ]
+        self.assertEqual(
+            [event.get("active") for event in working_events],
+            [True, False],
+        )
+
+    async def test_recommend_failure_emits_one_caution_and_no_agent_error_copy(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        failure = {
+            "status": "fail",
+            "tool": "Recommend",
+            "message": "No credible recommendations are available from connected providers.",
+            "error_code": "NO_RECOMMENDATIONS",
+            "data": {"tracks": [], "failed": [], "skipped": []},
+        }
+
+        def recommendation_events(*_args: object, **_kwargs: object):
+            yield AgentState(type="tool", tool="Recommend", result=failure)
+            yield AgentState(type="complete", content="")
+
+        intent = CommandIntent(
+            command="recommend",
+            raw="/recommend",
+            args="",
+            intent_prompt="Call Recommend once.",
+            allowed_tools=("Recommend",),
+            max_tool_calls=1,
+        )
+        with patch("src.api.ws_runner.agent_loop", recommendation_events):
+            await runner._run_agent_turn(ui, "/recommend", command_intent=intent)
+
+        caution = [
+            event for event in ui.events
+            if event.get("type") == "error"
+            and "Recommendation failed. Technical detail:" in str(event.get("message"))
+        ]
+        agent_copies = [
+            event for event in ui.events
+            if event.get("type") == "chat"
+            and event.get("role") == "agent"
+            and "No credible recommendations" in str(event.get("text"))
+        ]
+        self.assertEqual(len(caution), 1)
+        self.assertEqual(agent_copies, [])
 
     async def test_agent_turn_marks_planning_activity_error_when_planner_fails(self) -> None:
         """Verifies that agent turn marks planning activity error when planner fails behaves as expected.
@@ -5201,7 +5622,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("You confirmed running 'npm test' this time.", chat_events[0]["text"])
         self.assertEqual(
             chat_events[1]["text"],
-            "Read  preferences\n\nBash  cd src/cli-ui\n      npm test",
+            "Read preferences\n\nBash cd src/cli-ui\n     npm test",
         )
         self.assertTrue(chat_events[1].get("segments"))
 

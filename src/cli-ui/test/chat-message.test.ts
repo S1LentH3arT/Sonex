@@ -35,7 +35,7 @@ assert.deepEqual(
         [{ text: 'atus', style: 'tool_value' }],
     ],
 );
-assert.equal(TOOL_NAVY, '#2f5d8c');
+assert.equal(TOOL_NAVY, '#182e66');
 assert.equal(TOOL_VALUE, '#ffffff');
 
 assert.equal(resolveChatMarkerColor('user', null, null), CHAT_USER_MARKER_COLOR);
@@ -55,4 +55,4 @@ assert.equal(resolveChatSubject('user', 'error'), 'User');
 assert.equal(resolveChatSubject('agent', null), 'Agent');
 assert.equal(resolveChatSubject('agent', 'system'), 'System');
 assert.equal(resolveChatSubject('agent', 'warning'), 'Warning');
-assert.equal(resolveChatSubject('agent', 'error'), 'Error');
+assert.equal(resolveChatSubject('agent', 'error'), 'Caution');

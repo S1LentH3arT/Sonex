@@ -222,8 +222,8 @@ Entering an alternate surface is ordered as follows:
 
 1. clear the current Ink dynamic output through the attached `app.clear()`;
 2. reset the incremental frame cache;
-3. emit enter-alternate-screen and clear/home sequences;
-4. mark the controller as alternate;
+3. mark the controller as alternate so a partial write can still be restored;
+4. emit enter-alternate-screen and clear/home sequences;
 5. commit the React region-state transition.
 
 Leaving is ordered as follows:
@@ -245,14 +245,19 @@ used by normal exit and signal cleanup.
 ### Incremental Frame Writer
 
 The main chat surface must no longer depend on full-screen frame rewriting.
-Its dynamic output stays shorter than the terminal and uses Ink's normal
-line-update behavior.
+The stdout proxy passed to Ink intentionally does not expose `rows`. Ink 5
+otherwise enters a destructive `clearTerminal + fullStaticOutput` branch when
+dynamic output reaches the reported terminal height, which clears native
+scrollback and replays the complete Static transcript.
 
 Keep the incremental frame writer for full-screen alternate surfaces, where
 cursor or playback state may otherwise repaint the entire alternate buffer.
 Change its construction API so the entrypoint retains an explicit `reset()`
 handle. The terminal surface controller calls this handle before every buffer
-or full-screen-region transition.
+or full-screen-region transition. Pass the real `process.stdout` to `App`
+separately for dimensions, resize events, TTY detection, and direct playback
+writers. Alternate Ink regions reserve the terminal's final row so log-update's
+trailing newline cannot scroll the alternate buffer.
 
 ### Terminal Input
 
@@ -268,7 +273,8 @@ input events nor Sonex output.
 ### Startup
 
 1. Create the surface controller and reset stale mouse-reporting modes.
-2. Create incremental stdout and retain its reset handle.
+2. Create incremental stdout, hide its `rows` value from Ink, and retain its
+   reset handle.
 3. Render the main Ink root without clearing or sizing it to terminal height.
 4. Attach the Ink `clear()` callback to the surface controller.
 5. When the initial runtime-info event arrives, commit one immutable
@@ -306,13 +312,21 @@ Pre-existing terminal lines remain above Sonex and stay in scrollback.
 4. reset renderer caches;
 5. allow the process to exit.
 
+On signal exit, unmount Ink while still in the current terminal buffer, then
+dispose the controller. This prevents Ink's final render from writing an
+alternate-region frame after the controller has already restored the main
+buffer.
+
 If WebSocket send fails after a local user commit, retain the prompt and append
 an error record. If an alternate renderer throws, cleanup occurs in `finally`
 before the error is surfaced.
 
 For non-TTY output, the controller never enters the alternate screen and never
-emits cursor or mouse sequences. Existing non-interactive behavior remains the
-fallback.
+emits cursor or mouse sequences. Direct progress/status writers are gated by
+the physical stdout's TTY state, and the renderer-facing stdout adapter removes
+Ink `log-update` erase-line, styling, and cursor-motion sequences from pipe
+output. Ink remains in its normal Static mode, so committed records are still
+written exactly once. Existing non-interactive behavior remains the fallback.
 
 ## Migration Boundaries
 
@@ -404,8 +418,9 @@ With a fake writer and renderer-clear callback, verify:
 - the exact enter, alternate-to-alternate, leave, and dispose order;
 - repeated enter/leave/dispose calls are idempotent;
 - cache reset occurs before each buffer transition;
+- renderer-facing stdout does not expose terminal rows;
 - main chat never emits whole-screen clear sequences;
-- alternate surfaces may use complete-frame clears;
+- alternate surfaces never receive replayed main-screen Static history;
 - non-TTY mode emits no terminal-control sequences.
 
 ### PTY Verification
@@ -419,7 +434,9 @@ Run the compiled entrypoint in a real 80x24 PTY and:
 - verify PageUp no longer changes an application history offset;
 - enter and leave each alternate-screen region;
 - verify the main transcript and dynamic tail are restored;
-- terminate from both main and alternate surfaces and inspect cleanup bytes.
+- terminate from both main and alternate surfaces and inspect cleanup bytes;
+- verify no clear, alternate content, or transcript replay appears after the
+  leave-alternate-screen sequence.
 
 A PTY can prove byte-level behavior, but native scrollbar, selection, copy, and
 terminal reflow require a real terminal emulator smoke check.

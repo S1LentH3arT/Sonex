@@ -753,7 +753,12 @@ def _rank_candidates_with_llm(
     return ranked
 
 
-def apple_music_recommend(query: str, limit: int = 10, recent_tracks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def apple_music_recommend(
+    query: str,
+    limit: int = 10,
+    recent_tracks: list[dict[str, Any]] | None = None,
+    preferences: str | None = None,
+) -> dict[str, Any]:
     """Coordinates apple music recommend for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs apple music recommend as part of a Sonex command, playback, auth, llm, or ui path.
@@ -761,7 +766,7 @@ def apple_music_recommend(query: str, limit: int = 10, recent_tracks: list[dict[
     Example: apple_music_recommend(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
-    preferences = _user_preferences_text()
+    preferences = _user_preferences_text() if preferences is None else str(preferences)
     local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
     candidates = _candidate_tracks(query=query, limit=bounded_limit)
     if not candidates:

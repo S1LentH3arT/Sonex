@@ -19,6 +19,9 @@ from src.tools.player_permission import complete_player_confirm
 from src.tools.registry import ToolRegistry
 
 MAX_TOKEN_LIMIT = 60000
+MAX_TOOL_CALLS_PER_TURN = 12
+MAX_IDENTICAL_TOOL_CALLS = 2
+MAX_TOOL_CALLS_BY_NAME = {"Modify": 1, "Recommend": 1}
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -76,7 +79,28 @@ def _is_suspended_interaction_result(value: Any) -> bool:
     return isinstance(value, dict) and value.get("status") in {
         "requires_play_selection",
         "requires_connection",
+        "requires_modify_confirmation",
     }
+
+
+def _is_committed_playback_result(value: Any) -> bool:
+    """Return whether the runtime completed playback without another LLM pass."""
+    return isinstance(value, dict) and value.get("status") in {
+        "playback_completed",
+        "playback_failed",
+        "playback_cancelled",
+    }
+
+
+def _normalized_call_key(tool: str, arguments: dict[str, Any]) -> str:
+    """Build a stable per-turn key for repeated Agent Tool detection."""
+    return json.dumps(
+        {"tool": tool, "arguments": arguments},
+        ensure_ascii=True,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
 
 def _spotify_premium_failure_answer(result: Any) -> str | None:
     """Prepares spotify premium failure answer for an internal Sonex flow.
@@ -166,11 +190,15 @@ def agent_loop(
             "raw": command_intent.raw,
             "args": command_intent.args,
             "allowed_tools": list(command_intent.allowed_tools),
+            "max_tool_calls": command_intent.max_tool_calls,
         }
     _safe_memory_call("append user context", append_context, "user", user_context, ["user_input", "user"])
     total_tokens = 0
     planning_feedback: str | None = None
     bash_rewrite_used = False
+    tool_call_count = 0
+    tool_call_counts: dict[str, int] = {}
+    identical_call_counts: dict[str, int] = {}
 
     while True:
         try:
@@ -192,6 +220,17 @@ def agent_loop(
         planning_feedback = None
         total_tokens += action.usage or 0
         yield AgentState(type="status", content="planning", tokens=total_tokens)
+        if total_tokens >= MAX_TOKEN_LIMIT:
+            warning = "Agent turn stopped after reaching the token limit."
+            _safe_memory_call(
+                "append token limit warning",
+                append_context,
+                "warn",
+                {"warning": warning},
+                ["warning", "limit", "tokens"],
+            )
+            yield AgentState(type="warning", content=warning, tokens=total_tokens)
+            return
 
         calls = action.calls()
         if not calls:
@@ -199,6 +238,63 @@ def agent_loop(
             _safe_memory_call("append agent context", append_context, "agent", {"agent_output": answer}, ["agent", "output", "complete"])
             _safe_memory_call("finalize turn", finalize_turn, user_input)
             yield AgentState(type="complete", content=answer)
+            return
+
+        tool_call_limit = (
+            command_intent.max_tool_calls
+            if command_intent is not None and command_intent.max_tool_calls is not None
+            else MAX_TOOL_CALLS_PER_TURN
+        )
+        if tool_call_count + len(calls) > tool_call_limit:
+            warning = "Agent turn stopped after reaching the tool-call limit."
+            _safe_memory_call(
+                "append tool-call limit warning",
+                append_context,
+                "warn",
+                {"warning": warning},
+                ["warning", "limit", "tool"],
+            )
+            yield AgentState(type="warning", content=warning, tokens=total_tokens)
+            return
+
+        repeated_call: str | None = None
+        for call in calls:
+            call_key = _normalized_call_key(call.tool, call.args)
+            if identical_call_counts.get(call_key, 0) >= MAX_IDENTICAL_TOOL_CALLS:
+                repeated_call = call.tool
+                break
+        if repeated_call is not None:
+            warning = f"Agent turn stopped because '{repeated_call}' repeated without progress."
+            _safe_memory_call(
+                "append repeated tool warning",
+                append_context,
+                "warn",
+                {"warning": warning},
+                ["warning", "repeat", "tool", repeated_call],
+            )
+            yield AgentState(type="warning", content=warning, tokens=total_tokens)
+            return
+
+        over_budget_tool = next(
+            (
+                tool_name
+                for tool_name in dict.fromkeys(call.tool for call in calls)
+                if tool_call_counts.get(tool_name, 0)
+                + sum(1 for call in calls if call.tool == tool_name)
+                > MAX_TOOL_CALLS_BY_NAME.get(tool_name, MAX_TOOL_CALLS_PER_TURN)
+            ),
+            None,
+        )
+        if over_budget_tool is not None:
+            warning = f"Agent turn stopped after reaching the {over_budget_tool} call limit."
+            _safe_memory_call(
+                "append per-tool limit warning",
+                append_context,
+                "warn",
+                {"warning": warning},
+                ["warning", "limit", "tool", over_budget_tool],
+            )
+            yield AgentState(type="warning", content=warning, tokens=total_tokens)
             return
 
         batch_error: str | None = None
@@ -315,6 +411,11 @@ def agent_loop(
         # This is the durable Agent message boundary: validation and
         # authorization are complete, but no tool has started yet.
         yield AgentState(type="tool_batch", calls=calls, tokens=total_tokens)
+        tool_call_count += len(calls)
+        for call in calls:
+            tool_call_counts[call.tool] = tool_call_counts.get(call.tool, 0) + 1
+            call_key = _normalized_call_key(call.tool, call.args)
+            identical_call_counts[call_key] = identical_call_counts.get(call_key, 0) + 1
 
         capability_answer: str | None = None
         for call in calls:
@@ -370,6 +471,19 @@ def agent_loop(
                 _safe_memory_call("append tool summary", append_tool_summary, context_id, call.tool, tool_args, tool_result)
 
             capability_answer = capability_answer or _spotify_premium_failure_answer(tool_result)
+
+            if _is_committed_playback_result(tool_result):
+                _safe_memory_call("finalize turn", finalize_turn, user_input)
+                yield AgentState(type="complete", content="", tokens=total_tokens)
+                return
+            if (
+                call.tool == "Recommend"
+                and isinstance(tool_result, dict)
+                and str(tool_result.get("status") or "").casefold() not in {"success", "ok"}
+            ):
+                _safe_memory_call("finalize turn", finalize_turn, user_input)
+                yield AgentState(type="complete", content="", tokens=total_tokens)
+                return
 
         if capability_answer:
             _safe_memory_call(

@@ -1,6 +1,7 @@
 export type ServerEvent =
     | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null; segments?: ChatSegment[] | null }
     | { type: "session_state"; session_id: string }
+    | { type: "agent_working_state"; turn_id: string; active: boolean }
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
     | { type: "status"; phase: string; message: string; active?: boolean | null; step?: number; max_steps?: number }
     | { type: "input_state"; disabled: boolean; reason?: "recommendation" | null }
@@ -56,6 +57,7 @@ export type LanguagePanelState = {
 
 export type ClientEvent =
     | { type: "user_input"; text: string }
+    | { type: "agent_turn_interrupt"; turn_id: string }
     | { type: "internal_command"; text: string }
     | { type: "track_panel_action"; action: "queue_add" | "play"; track: TrackPanelTrack; panel: "queue" | "playlist"; title: string }
     | { type: "confirm_result"; id: string; decision: string }

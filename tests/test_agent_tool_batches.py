@@ -149,3 +149,48 @@ def test_invalid_bash_gets_one_rewrite_then_a_warning() -> None:
     assert states[-1].content == "Agent could not produce reviewable Bash commands."
     assert "planning_feedback" in planner.call_args_list[1].kwargs
     assert invocations == []
+
+
+def test_committed_playback_selection_ends_without_second_llm_plan() -> None:
+    tools = ToolRegistry()
+    tools.register(
+        name="Call",
+        kind="agent",
+        domain="workflow",
+        description="test",
+        parameters=Params(type="object", properties={}, required=[]),
+        fn=lambda **_: {
+            "status": "requires_play_selection",
+            "data": {"query": "方大同 BB88"},
+        },
+        read_only=False,
+        confirm_required=False,
+    )
+    with patch("src.agent.core.append_context"), patch(
+        "src.agent.core.append_tool_summary"
+    ), patch("src.agent.core.finalize_turn"), patch(
+        "src.agent.core.llm_plan",
+        return_value=Action(
+            tool="Call",
+            args={
+                "workflow": "playback.select",
+                "arguments": {"query": "方大同 BB88"},
+            },
+            usage=1,
+        ),
+    ) as planner:
+        gen = agent_loop("播放方大同的BB88", tools)
+        assert next(gen).type == "status"
+        assert next(gen).type == "tool_batch"
+        assert next(gen).type == "tool"
+        assert next(gen).type == "interaction"
+        tool_result = gen.send(
+            {
+                "status": "playback_completed",
+                "data": {"provider": "NetEase"},
+            }
+        )
+        assert tool_result.type == "tool"
+        assert next(gen).type == "complete"
+
+    planner.assert_called_once()

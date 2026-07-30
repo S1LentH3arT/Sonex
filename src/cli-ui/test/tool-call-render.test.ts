@@ -30,10 +30,10 @@ test('renders tool names in bold navy and values in white ANSI spans', async () 
                 item: {
                     type: 'message',
                     role: 'agent',
-                    content: 'Bash  npm test',
+                    content: 'Bash npm test',
                     segments: [
                         { text: 'Bash', style: 'tool_name' },
-                        { text: '  npm test', style: 'tool_value' },
+                        { text: ' npm test', style: 'tool_value' },
                     ],
                 },
                 presentation: {
@@ -56,12 +56,12 @@ test('renders tool names in bold navy and values in white ANSI spans', async () 
     stdin.destroy();
     stdout.destroy();
 
-    const navyAnsi = String.raw`\u001b\[(?:38;2;47;93;140|38;5;67)m`;
+    const navyAnsi = String.raw`\u001b\[(?:38;2;24;46;102|38;5;24)m`;
     const whiteAnsi = String.raw`\u001b\[(?:38;2;255;255;255|38;5;231)m`;
     assert.match(output, new RegExp(navyAnsi));
     assert.match(
         output,
         new RegExp(String.raw`\u001b\[1m${navyAnsi}Bash\u001b\[22m`),
     );
-    assert.match(output, new RegExp(`${whiteAnsi}  npm test`));
+    assert.match(output, new RegExp(`${whiteAnsi} npm test`));
 });

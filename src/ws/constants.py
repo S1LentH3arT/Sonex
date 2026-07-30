@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 
-SEARCH_RESULT_TOOLS = {"spotify_search", "search_track", "spotify_recommend", "apple_music_search", "apple_music_recommend"}
+SEARCH_RESULT_TOOLS = {"spotify_search", "search_track", "spotify_recommend", "apple_music_search", "apple_music_recommend", "Recommend"}
 
-RECOMMENDATION_TOOLS = {"spotify_recommend", "apple_music_recommend"}
+RECOMMENDATION_TOOLS = {"spotify_recommend", "apple_music_recommend", "Recommend"}
 
 PLAYBACK_AGENT_TOOLS = {"spotify_play", "apple_music_play", "play_youtube_song", "play_local_song"}
 

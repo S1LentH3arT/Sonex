@@ -30,11 +30,11 @@ def test_tool_batch_formats_semantic_values_and_aligned_multivalue_blocks() -> N
     )
 
     assert message.text == (
-        "Read  USER.md\n"
-        "      My Notes.md\n\n"
-        "Bash  npm --prefix src/cli-ui test\n"
-        "      git status --short\n\n"
-        "Query  spotify catalog Miles Davis live"
+        "Read USER.md\n"
+        "     My Notes.md\n\n"
+        "Bash npm --prefix src/cli-ui test\n"
+        "     git status --short\n\n"
+        "Query spotify catalog Miles Davis live"
     )
     assert [segment["style"] for segment in message.segments].count("tool_name") == 3
     assert "".join(segment["text"] for segment in message.segments) == message.text
@@ -57,7 +57,7 @@ def test_call_omits_keys_and_internal_nested_values() -> None:
         ]
     )
 
-    assert message.text == "Call  playback.play local Blue in Green"
+    assert message.text == "Call playback.play local Blue in Green"
     assert "provider=" not in message.text
     assert "internal" not in message.text
 
