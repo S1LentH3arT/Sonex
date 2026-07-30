@@ -19,6 +19,7 @@ export type PanelRowSegment = {
     text: string;
     color?: string;
     bold?: boolean;
+    italic?: boolean;
 };
 
 export type PanelChoiceItem = {
@@ -115,6 +116,7 @@ export const PanelRow = ({
                             key={`${index}-${segment.text}`}
                             color={segment.color ?? PANEL_PRIMARY}
                             bold={segment.bold}
+                            italic={segment.italic}
                         >
                             {segment.text}
                         </Text>
@@ -175,6 +177,7 @@ export const PanelFrame = ({
     title,
     hint = null,
     hintColor = PANEL_SECONDARY,
+    titleDetailSegments = null,
     paddingX = 1,
     children,
 }: {
@@ -182,6 +185,7 @@ export const PanelFrame = ({
     title: string;
     hint?: string | null;
     hintColor?: string;
+    titleDetailSegments?: PanelRowSegment[] | null;
     paddingX?: number;
     children?: ReactNode;
 }) => {
@@ -209,6 +213,13 @@ export const PanelFrame = ({
                     segments={[{ text: row, color: hintColor }]}
                 />
             ))}
+            {titleDetailSegments ? (
+                <PanelRow
+                    width={boundedWidth}
+                    paddingX={paddingX}
+                    segments={titleDetailSegments}
+                />
+            ) : null}
             <PanelEmptyRow width={boundedWidth} />
             {children}
             <PanelEmptyRow width={boundedWidth} />

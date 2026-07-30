@@ -131,7 +131,7 @@ export const App: React.FC<{
         && !matchingSlashCommand(input)
     );
     const selectedSlashCommand = slashSuggestions[Math.min(slashIndex, Math.max(0, slashSuggestions.length - 1))];
-    const selectableConfirmChoices = React.useMemo(() => confirm ? getSelectableConfirmChoices(confirm.choices) : [], [confirm]);
+    const selectableConfirmChoices = React.useMemo(() => confirm ? getSelectableConfirmChoices(confirm.choices, confirm.tool_name === "provider_mode_exit") : [], [confirm]);
     const selectedConfirmChoice = selectableConfirmChoices[Math.min(confirmIndex, Math.max(0, selectableConfirmChoices.length - 1))] ?? null;
     const selectedConfirmInput = selectedConfirmChoice?.input ?? null;
     const miniVisible = activeRegion === "miniPlayer";

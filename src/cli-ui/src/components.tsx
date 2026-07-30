@@ -989,8 +989,9 @@ const CompactConfirm = ({
     spotifyTheme?: boolean;
 }) => {
     if (!confirm) return null;
-    const visibleChoices = getVisibleConfirmChoices(confirm.choices);
-    const selectedDisplayIndex = resolveConfirmChoiceDisplayIndex(confirm.choices, confirmIndex);
+    const includeCancelChoice = confirm.tool_name === "provider_mode_exit";
+    const visibleChoices = getVisibleConfirmChoices(confirm.choices, includeCancelChoice);
+    const selectedDisplayIndex = resolveConfirmChoiceDisplayIndex(confirm.choices, confirmIndex, includeCancelChoice);
     const isSpotifyConfirm = spotifyTheme || confirm.tool_name === "spotify_device";
     const isSongCandidateConfirm = confirm.tool_name === "song_candidate";
 
@@ -1120,13 +1121,15 @@ const CompactConfirm = ({
 
     if (confirm.tool_name === "provider_mode_exit") {
         return (
-            <PanelFrame width={panelWidth} title={confirm.message} hint={null}>
-                {confirm.warning ? (
-                    <PanelRow
-                        width={panelWidth}
-                        segments={[{ text: confirm.warning, color: "#facc15" }]}
-                    />
-                ) : null}
+            <PanelFrame
+                width={panelWidth}
+                title={confirm.message}
+                hint={null}
+                titleDetailSegments={confirm.warning ? [
+                    { text: "Warning: ", color: "#facc15", bold: true },
+                    { text: confirm.warning, color: "#facc15", italic: true },
+                ] : null}
+            >
                 <PanelChoiceList
                     items={choiceItems}
                     selectedIndex={selectedDisplayIndex}
