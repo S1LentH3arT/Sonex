@@ -25,8 +25,9 @@ Install these system runtimes before running the Sonex installer:
 | Linux or WSL | A compatible shell environment is required |
 | `vlc` or `mpv` | Optional; enables local-file and YouTube playback |
 
-The installer checks for Python, Node.js, and npm, but it does not install
-system packages for you.
+> [!NOTE]
+> The installer checks for Python, Node.js, and npm, but it does not install
+> system packages for you.
 
 ## Installation
 
@@ -44,8 +45,9 @@ The installer:
 - Builds `src/cli-ui/dist/index.js`
 - Creates a user-facing `sonex` launcher at `~/.local/bin/sonex`
 
-If `~/.local/bin` is not on your `PATH`, add it to your shell profile and open a
-new shell:
+> [!TIP]
+> If `~/.local/bin` is not on your `PATH`, add it to your shell profile and open
+> a new shell:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
@@ -139,6 +141,11 @@ export SONEX_GEMINI_API_KEY=...
 export SONEX_DEEPSEEK_API_KEY=sk-...
 ```
 
+> [!WARNING]
+> Never commit API keys or saved Sonex credentials to source control. Prefer
+> `sonex auth` for local secrets, and provide environment variables through a
+> secure local or deployment secret store.
+
 If you start chatting before the default provider is configured, the TUI
 starts an interactive setup flow before planner or agent work begins. `ollama`
 can be used as a local provider when configured as the default provider.
@@ -174,10 +181,13 @@ Advanced users can still override per-provider `base_url`, `model`,
 
 Run `/connect` to open the interactive music-account panel. The first release
 offers Spotify and Apple Music because Sonex can complete their supported
-authorization flows. Connection records contain only non-secret account and
-health metadata; OAuth tokens and MusicKit authorization remain with their
-existing local owners. NetEase Cloud Music is not listed until the official
+authorization flows. NetEase Cloud Music is not listed until the official
 `ncm-cli` adapter is implemented and validated.
+
+> [!NOTE]
+> Connection records contain only non-secret account and health metadata.
+> OAuth tokens and MusicKit authorization remain with their existing local
+> owners.
 
 ### Spotify
 
