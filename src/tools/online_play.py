@@ -1881,8 +1881,6 @@ def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -
         "cover_like": -2,
         "noisy_media": -3,
     }
-    provider_priority = {"jamendo": 3, "audius": 2, "youtube": 1}
-
     confidence_priority = {"high": 2, "medium": 1, "low": 0}
 
     def score(pair: tuple[int, dict[str, Any]]) -> tuple[int, int, int, int, int]:
@@ -1892,7 +1890,7 @@ def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -
 
         Example: score(pair=...) -> returns the value used by the surrounding Sonex flow.
         """
-        index, candidate = pair
+        _, candidate = pair
         assessment = candidate.get("assessment")
         confidence = assessment.get("confidence") if isinstance(assessment, dict) else "high"
         match_score = candidate.get("match_score")
@@ -1909,11 +1907,10 @@ def rank_online_audio_candidates(query: str, candidates: list[dict[str, Any]]) -
             quality_priority.get(str(candidate.get("quality_label") or "other"), 0),
             1 if provider in {"jamendo", "audius"} else 0,
             metadata_completeness,
-            provider_priority.get(provider, 0),
-            -index,
         )
 
     indexed = list(enumerate(candidates))
+    indexed.sort(key=lambda pair: str(pair[1].get("provider") or ""))
     indexed.sort(key=score, reverse=True)
     return [candidate for _, candidate in indexed]
 

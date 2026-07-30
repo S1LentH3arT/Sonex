@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
-import { resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
+import { CHAT_SYSTEM_MARKER_COLOR, resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
 import { APPLE_BLUSH, APPLE_PEARL_PINK, APPLE_SILVER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
@@ -49,6 +49,29 @@ const MiniMascotStatus = () => {
                     ))}
                 </Text>
             ))}
+        </Box>
+    );
+};
+
+const WORKING_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+const WORKING_SPINNER_INTERVAL_MS = 100;
+
+export const AgentWorkingStatus = () => {
+    const [frame, setFrame] = React.useState(0);
+
+    React.useEffect(() => {
+        const timer = setInterval(
+            () => setFrame((current) => (current + 1) % WORKING_SPINNER_FRAMES.length),
+            WORKING_SPINNER_INTERVAL_MS,
+        );
+        return () => clearInterval(timer);
+    }, []);
+
+    return (
+        <Box height={1} flexShrink={0} paddingLeft={1} paddingRight={1} alignItems="flex-start">
+            <Text color={CHAT_SYSTEM_MARKER_COLOR}>{WORKING_SPINNER_FRAMES[frame]} </Text>
+            <Text color={CHAT_SYSTEM_MARKER_COLOR} italic>Working</Text>
+            <Text color="#808791" bold> • Esc to interrupt</Text>
         </Box>
     );
 };
@@ -1464,6 +1487,7 @@ export const DynamicTail = ({
     languagePanelIndex,
     modelPanelIndex,
     terminalColumns,
+    agentWorking,
     language = "en",
 }: {
     input: string;
@@ -1488,6 +1512,7 @@ export const DynamicTail = ({
     languagePanelIndex: number;
     modelPanelIndex: number;
     terminalColumns: number | null;
+    agentWorking: boolean;
     language?: UiLanguage;
 }) => {
     const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
@@ -1499,7 +1524,9 @@ export const DynamicTail = ({
 
     return (
         <Box flexDirection="column">
-            {showMiniMascotStatus ? <MiniMascotStatus /> : null}
+            {showMiniMascotStatus ? (
+                agentWorking ? <AgentWorkingStatus /> : <MiniMascotStatus />
+            ) : null}
             <InputDock
                 input={input}
                 setInput={setInput}
@@ -1683,6 +1710,7 @@ export const DynamicShell = ({
     miniLayout,
     spotifyImmersiveLayout,
     terminalSpace,
+    agentWorking,
     language = "en",
 }: {
     input: string;
@@ -1716,6 +1744,7 @@ export const DynamicShell = ({
     miniLayout: MiniPlayerLayout;
     spotifyImmersiveLayout: SpotifyImmersiveLayout;
     terminalSpace: TerminalSpace;
+    agentWorking: boolean;
     language?: UiLanguage;
 }) => {
     if (activeRegion === "miniPlayer") {
@@ -1778,6 +1807,7 @@ export const DynamicShell = ({
             languagePanelIndex={languagePanelIndex}
             modelPanelIndex={modelPanelIndex}
             terminalColumns={terminalSpace.columns}
+            agentWorking={agentWorking}
             language={language}
         />
     );

@@ -23,6 +23,7 @@ from src.sandbox.tool import (
 from src.tools.agent_surface import (
     Call,
     Connect,
+    Recommend,
     Query,
     Workflow,
     WorkflowRegistry,
@@ -126,6 +127,20 @@ def test_call_selection_is_structured_and_does_not_play() -> None:
     assert result["data"]["timeout_seconds"] == 60
 
 
+def test_call_selection_preserves_explicit_provider_constraint() -> None:
+    result = Call(
+        "playback.select",
+        {
+            "query": "方大同 BB88",
+            "provider": "netease",
+            "provider_constraint": "hard",
+        },
+    )
+
+    assert result["data"]["provider"] == "netease"
+    assert result["data"]["provider_constraint"] == "hard"
+
+
 def test_local_track_reference_is_opaque_and_resolvable_by_call() -> None:
     local_path = "/home/example/Music/private/song.mp3"
     ref = remember_local_track(local_path)
@@ -165,6 +180,145 @@ def test_query_explicit_disconnected_provider_does_not_fallback(tmp_path: Path) 
     assert result["status"] == "fail"
     assert result["error_code"] == "CONNECTION_REQUIRED"
     assert result["data"]["provider"] == "spotify"
+
+
+def test_query_separates_up_next_from_recent_playback() -> None:
+    queued = {
+        "name": "Queued",
+        "artist": "Artist",
+        "provider": "spotify",
+        "uri": "spotify:track:queued",
+        "ref": "spotify:uri:spotify:track:queued",
+        "playable": True,
+    }
+    with patch("src.tools.agent_surface.up_next_snapshot", return_value={
+        "revision": 2,
+        "items": [queued],
+        "failed": [],
+    }), patch(
+        "src.tools.agent_surface.playback_queue_snapshot",
+        return_value=[{"name": "Recent", "artist": "Artist", "uri": "spotify:track:recent"}],
+    ):
+        queue_result = Query("local", "queue")
+        recent_result = Query("local", "recent")
+
+    assert queue_result["data"]["items"][0]["name"] == "Queued"
+    assert queue_result["data"]["items"][0]["ref"] == queued["ref"]
+    assert recent_result["data"]["items"][0]["name"] == "Recent"
+
+
+def test_query_rehydrates_persisted_local_up_next_reference() -> None:
+    ref = "local:track:persisted-test"
+    queued = {
+        "name": "Local Song",
+        "artist": "Artist",
+        "provider": "local",
+        "audio_path": "/music/local-song.flac",
+        "ref": ref,
+        "playable": True,
+    }
+    with patch("src.tools.agent_surface.up_next_snapshot", return_value={
+        "revision": 1,
+        "items": [queued],
+        "failed": [],
+    }):
+        result = Query("local", "queue")
+
+    assert result["data"]["items"][0]["ref"] == ref
+    with patch("src.tools.agent_surface.registry.invoke_system", return_value={
+        "status": "success",
+    }) as invoke:
+        Call("playback.play", {"provider": "local", "ref": ref})
+
+    invoke.assert_called_once_with(
+        "play_local_song",
+        {"query": "/music/local-song.flac", "player": "auto"},
+    )
+
+
+def test_recommend_reads_recent_once_and_aggregates_connected_authoritative_providers() -> None:
+    spotify_track = {
+        "name": "BB88",
+        "artist": "方大同",
+        "uri": "spotify:track:bb88",
+    }
+    apple_track = {
+        "name": "特别的人",
+        "artist": "方大同",
+        "id": "apple-special",
+    }
+    apple_duplicate = {
+        "name": "BB88",
+        "artist": "方大同",
+        "id": "apple-bb88",
+    }
+    manager = type(
+        "Manager",
+        (),
+        {
+            "preferred_provider_id": "spotify",
+            "record": lambda self, provider: type("Record", (), {"status": "connected"})()
+            if provider in {"spotify", "apple_music"}
+            else None,
+        },
+    )()
+
+    with patch("src.tools.agent_surface.MusicConnectionManager", return_value=manager), \
+        patch("src.tools.agent_surface.playback_queue_snapshot", return_value=[{"name": "Recent"}]) as recent, \
+        patch("src.tools.agent_surface._recommendation_preferences", return_value="R&B") as preferences, \
+        patch("src.tools.agent_surface.spotify_recommend", return_value={
+            "status": "success",
+            "data": {"tracks": [spotify_track]},
+        }) as spotify, \
+        patch("src.tools.agent_surface.apple_music_recommend", return_value={
+            "status": "success",
+            "data": {"tracks": [apple_duplicate, apple_track]},
+        }) as apple:
+        result = Recommend("方大同", provider="spotify", limit=5)
+
+    assert result["status"] == "success"
+    assert [item["name"] for item in result["data"]["tracks"]] == ["BB88", "特别的人"]
+    assert all(item.get("ref") for item in result["data"]["tracks"])
+    assert result["data"]["failed"] == []
+    recent.assert_called_once_with()
+    preferences.assert_called_once_with()
+    spotify.assert_called_once_with(
+        query="方大同",
+        limit=5,
+        recent_tracks=[{"name": "Recent"}],
+        preferences="R&B",
+    )
+    apple.assert_called_once_with(
+        query="方大同",
+        limit=5,
+        recent_tracks=[{"name": "Recent"}],
+        preferences="R&B",
+    )
+
+
+def test_recommend_skips_unconnected_providers_without_connection_flow() -> None:
+    manager = type(
+        "Manager",
+        (),
+        {
+            "preferred_provider_id": None,
+            "record": lambda self, provider: None,
+        },
+    )()
+    with patch("src.tools.agent_surface.MusicConnectionManager", return_value=manager), \
+        patch("src.tools.agent_surface.playback_queue_snapshot", return_value=[]), \
+        patch("src.tools.agent_surface.spotify_recommend") as spotify, \
+        patch("src.tools.agent_surface.apple_music_recommend") as apple:
+        result = Recommend("jazz")
+
+    assert result["status"] == "fail"
+    assert result["error_code"] == "NO_RECOMMENDATIONS"
+    assert {item["provider"] for item in result["data"]["skipped"]} >= {
+        "spotify",
+        "apple_music",
+    }
+    spotify.assert_not_called()
+    apple.assert_not_called()
 
 
 def test_guardrail_denies_sensitive_and_boundary_attempts() -> None:

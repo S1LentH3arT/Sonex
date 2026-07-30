@@ -1570,7 +1570,12 @@ def _rank_candidates_with_llm(
     return ranked
 
 
-def spotify_recommend(query: str, limit: int = 10, recent_tracks: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def spotify_recommend(
+    query: str,
+    limit: int = 10,
+    recent_tracks: list[dict[str, Any]] | None = None,
+    preferences: str | None = None,
+) -> dict[str, Any]:
     """Coordinates spotify recommend for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs spotify recommend as part of a Sonex command, playback, auth, llm, or ui path.
@@ -1578,7 +1583,7 @@ def spotify_recommend(query: str, limit: int = 10, recent_tracks: list[dict[str,
     Example: spotify_recommend(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
-    preferences = _user_preferences_text()
+    preferences = _user_preferences_text() if preferences is None else str(preferences)
     local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
     candidates = _spotify_candidate_tracks(
         query=query,

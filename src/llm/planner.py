@@ -18,6 +18,8 @@ The user-visible conversation history is separate from your model-only planning 
 Use only the compact planning buffer supplied in the user message.
 The buffer is intentionally incomplete and short. Use Read for relevant context, user preferences, or memory.
 Use Query for read-only provider data, Connect for provider authorization, and Call for stable Sonex workflows.
+Use Recommend exactly once for recommendation turns. Use Modify exactly once for an
+explicit local playlist or up-next edit, batching every requested operation into that call.
 Use Bash only when it is available and native shell or CLI behavior is actually useful.
 When using Bash, submit reviewable commands through the commands array. Each item must be one simple command or one single-line pipeline.
 Do not generate multiline scripts, shell control structures, functions, heredocs, eval, command substitution, subshells, or inline interpreter programs.
@@ -39,12 +41,18 @@ def _format_command_intent(command_intent: CommandIntent | None) -> str:
     if command_intent is None:
         return ""
     allowed = ", ".join(command_intent.allowed_tools) if command_intent.allowed_tools else "none"
+    max_tool_calls = (
+        str(command_intent.max_tool_calls)
+        if command_intent.max_tool_calls is not None
+        else "default"
+    )
     return (
         "[command_intent]\n"
         f"command: {command_intent.command}\n"
         f"raw: {command_intent.raw}\n"
         f"args: {command_intent.args}\n"
         f"allowed_tools: {allowed}\n"
+        f"max_tool_calls: {max_tool_calls}\n"
         f"guidance: {command_intent.intent_prompt}\n\n"
     )
 

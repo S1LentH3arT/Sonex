@@ -72,6 +72,11 @@ def format_song_candidate_feedback(candidate: Mapping[str, Any]) -> str:
     )
 
 
+def format_agent_selection_feedback(candidate: Mapping[str, Any]) -> str:
+    """Format metadata-only identity feedback for an Agent playback handoff."""
+    return format_song_candidate_feedback(candidate).replace("\nsource:", "\nmetadata:", 1)
+
+
 def player_feedback_label(player: Any) -> str:
     """Return the display label for a player backend."""
     raw = _text(player)
@@ -99,3 +104,31 @@ def format_playing_feedback(
         or selected_candidate.get("title")
     )
     return f"on playing: {_display(track)}"
+
+
+def format_agent_playing_feedback(
+    result: Mapping[str, Any],
+    selected_candidate: Mapping[str, Any],
+) -> str:
+    """Format the detailed final System message for Agent-routed playback."""
+    data = result.get("data")
+    result_data = data if isinstance(data, Mapping) else {}
+    track = (
+        result_data.get("name")
+        or result_data.get("title")
+        or selected_candidate.get("name")
+        or selected_candidate.get("title")
+    )
+    artist = (
+        result_data.get("artist")
+        or selected_candidate.get("artist")
+        or _candidate_artist(selected_candidate)
+    )
+    provider = result_data.get("provider")
+    player = result_data.get("player")
+    lines = [f"on playing: {_display(track)} - {_display(artist)}"]
+    if _text(provider):
+        lines.append(f"provider: {_display(provider)}")
+    if _text(player):
+        lines.append(f"player: {player_feedback_label(player)}")
+    return "\n".join(lines)

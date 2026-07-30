@@ -40,6 +40,7 @@ export const App: React.FC<{
     const [input, setInput] = useState("");
     const [inputRevision, setInputRevision] = useState(0);
     const [sessionId, setSessionId] = useState<string | null>(null);
+    const [agentWorkingTurnId, setAgentWorkingTurnId] = useState<string | null>(null);
     const [transcript, dispatchTranscript] = React.useReducer(
         transcriptReducer,
         undefined,
@@ -370,6 +371,15 @@ export const App: React.FC<{
             case "session_state":
                 sessionIdRef.current = evt.session_id;
                 setSessionId(evt.session_id);
+                break;
+            case "agent_working_state":
+                setAgentWorkingTurnId((current) => (
+                    evt.active
+                        ? evt.turn_id
+                        : current === evt.turn_id
+                            ? null
+                            : current
+                ));
                 break;
             case "activity":
                 setActivityItems((prev) => upsertActivity(prev, evt));
@@ -1053,6 +1063,28 @@ export const App: React.FC<{
         }
     }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
 
+    useInput((_inputKey, key) => {
+        if (!key.escape || !agentWorkingTurnId) return;
+        const sent = send({
+            type: "agent_turn_interrupt",
+            turn_id: agentWorkingTurnId,
+        });
+        if (sent) {
+            setAgentWorkingTurnId(null);
+        }
+    }, {
+        isActive: rawModeAvailable
+            && activeRegion === "chat"
+            && agentWorkingTurnId !== null
+            && !confirm
+            && !isSlashMenuActive
+            && !helpPanel
+            && !languagePanel?.active
+            && !spotifySetup?.active
+            && !authSetup?.active
+            && !trackPanel,
+    });
+
     return (
         <>
             <CommittedTranscript
@@ -1115,6 +1147,7 @@ export const App: React.FC<{
                         miniLayout={miniLayout}
                         spotifyImmersiveLayout={spotifyImmersiveLayout}
                         terminalSpace={terminalSize}
+                        agentWorking={agentWorkingTurnId !== null}
                         language={language}
                     />
                 )}

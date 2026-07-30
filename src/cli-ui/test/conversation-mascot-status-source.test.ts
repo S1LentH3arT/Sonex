@@ -30,7 +30,7 @@ assert.match(dynamicTailBody, /const hasSetupPanel = Boolean\(spotifySetup\) \|\
 assert.match(dynamicTailBody, /const hasSlashPanel = slashSuggestions\.length > 0;/);
 assert.match(dynamicTailBody, /const showInput = !helpPanel && !languagePanel && !hasModelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
 assert.match(dynamicTailBody, /const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;/);
-assert.match(dynamicTailBody, /\{showMiniMascotStatus \? <MiniMascotStatus \/> : null\}/);
+assert.match(dynamicTailBody, /agentWorking \? <AgentWorkingStatus \/> : <MiniMascotStatus \/>/);
 assert.match(dynamicTailBody, /<InputDock[\s\S]*modelStatus=\{modelStatus\}/);
 assert.equal(dynamicTailBody.includes('<MiniMascotStatus />\n        <InputDock'), false);
 assert.equal(dynamicTailBody.includes('{statusText}'), false);
@@ -46,3 +46,15 @@ assert.equal(source.includes('elapsed: string | null'), false);
 assert.equal(source.includes('tokens: string | null'), false);
 assert.equal(source.includes('const ConversationColumn ='), false);
 assert.equal(source.includes('const ConversationRegion ='), false);
+
+const workingStart = source.indexOf('const AgentWorkingStatus =');
+const workingEnd = source.indexOf('\n};', workingStart);
+const workingBody = source.slice(workingStart, workingEnd);
+assert.ok(workingStart > mascotStart);
+assert.match(source, /const WORKING_SPINNER_FRAMES = \["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"\]/);
+assert.match(source, /const WORKING_SPINNER_INTERVAL_MS = 100;/);
+assert.match(workingBody, /color=\{CHAT_SYSTEM_MARKER_COLOR\}/);
+assert.match(workingBody, /italic>Working/);
+assert.match(workingBody, /color="#808791" bold> • Esc to interrupt/);
+assert.match(appSource, /case "agent_working_state":/);
+assert.match(appSource, /type:\s*"agent_turn_interrupt",\s*turn_id:\s*agentWorkingTurnId/);

@@ -58,6 +58,16 @@ class WebSocketUIAdapter:
             }
         )
 
+    async def send_agent_working_state(self, turn_id: str, *, active: bool) -> None:
+        """Show or clear the Working indicator for one foreground Agent turn."""
+        await self._send(
+            {
+                "type": "agent_working_state",
+                "turn_id": turn_id,
+                "active": active,
+            }
+        )
+
     async def append_user_message(self, text: str) -> None:
         """Coordinates append user message for the current Sonex flow.
 

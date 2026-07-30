@@ -306,6 +306,60 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         self.assertNotIn("search Spotify results", states[-1].content)
         plan.assert_called_once()
 
+    def test_identical_agent_tool_call_stops_after_two_attempts(self) -> None:
+        tools = _registry()
+        with patch("src.agent.core.append_context"), \
+            patch("src.agent.core.append_tool_summary"), \
+            patch(
+                "src.agent.core.llm_plan",
+                return_value=Action(tool="spotify_search", args={"query": "BB88"}, usage=1),
+            ), \
+            patch.object(tools, "invoke_agent", wraps=tools.invoke_agent) as invoke:
+            states = list(agent_loop("play BB88", tools))
+
+        self.assertEqual(invoke.call_count, 2)
+        self.assertEqual(states[-1].type, "warning")
+        self.assertIn("repeated without progress", states[-1].content)
+
+    def test_command_intent_enforces_smaller_tool_call_budget(self) -> None:
+        tools = _registry()
+        intent = CommandIntent(
+            command="recommend",
+            raw="/recommend jazz",
+            args="jazz",
+            intent_prompt="Call Recommend once.",
+            allowed_tools=("spotify_search",),
+            max_tool_calls=1,
+        )
+        actions = [
+            Action(tool="spotify_search", args={"query": "jazz"}, usage=1),
+            Action(tool="spotify_search", args={"query": "more jazz"}, usage=1),
+        ]
+
+        with patch("src.agent.core.append_context"), \
+            patch("src.agent.core.append_tool_summary"), \
+            patch("src.agent.core.llm_plan", side_effect=actions), \
+            patch.object(tools, "invoke_agent", wraps=tools.invoke_agent) as invoke:
+            states = list(agent_loop("/recommend jazz", tools, command_intent=intent))
+
+        self.assertEqual(invoke.call_count, 1)
+        self.assertEqual(states[-1].type, "warning")
+        self.assertIn("tool-call limit", states[-1].content)
+
+    def test_token_limit_terminates_before_tool_execution(self) -> None:
+        tools = _registry()
+        with patch("src.agent.core.append_context"), \
+            patch(
+                "src.agent.core.llm_plan",
+                return_value=Action(tool="spotify_search", args={"query": "BB88"}, usage=60_000),
+            ), \
+            patch.object(tools, "invoke_agent", wraps=tools.invoke_agent) as invoke:
+            states = list(agent_loop("play BB88", tools))
+
+        invoke.assert_not_called()
+        self.assertEqual(states[-1].type, "warning")
+        self.assertIn("token limit", states[-1].content)
+
 
 if __name__ == "__main__":
     unittest.main()

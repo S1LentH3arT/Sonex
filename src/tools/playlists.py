@@ -16,6 +16,10 @@ SPOTIFY_LIBRARY_PLAYLIST = "Spotify Library"
 SPOTIFY_LIBRARY_EXTERNAL_ID = "spotify-library"
 
 
+class PlaylistVersionConflict(RuntimeError):
+    """Raised when a playlist write was planned against a stale revision."""
+
+
 def _default_playlists_root() -> Path:
     return sonex_home() / "cache" / "playlists"
 
@@ -89,6 +93,7 @@ def _empty_playlist(
         "readonly": readonly,
         "protected": protected,
         "tracks": [],
+        "revision": 0,
         "created_at": None,
         "updated_at": None,
     }
@@ -113,6 +118,10 @@ def _coerce_playlist(
     playlist["protected"] = source == SOURCE_SONEX and name == LIKES_PLAYLIST
     if not isinstance(playlist.get("tracks"), list):
         playlist["tracks"] = []
+    try:
+        playlist["revision"] = max(0, int(playlist.get("revision") or 0))
+    except (TypeError, ValueError):
+        playlist["revision"] = 0
     return playlist
 
 
@@ -149,6 +158,7 @@ def _save_playlist(playlist: dict[str, Any], playlists_root: Path | None = None)
         "external_id": external,
         "readonly": bool(playlist.get("readonly")) or source != SOURCE_SONEX,
         "protected": source == SOURCE_SONEX and name == LIKES_PLAYLIST,
+        "revision": max(0, int(playlist.get("revision") or 0)),
     }
     path = _playlist_path(name, playlists_root, source_app=source, external_id=external)
     path.write_text(json.dumps(playlist, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
@@ -300,6 +310,7 @@ def save_track_to_playlist(
     if duplicate is None:
         tracks.append(snapshot)
         playlist["tracks"] = tracks
+        playlist["revision"] = int(playlist.get("revision") or 0) + 1
         playlist["updated_at"] = timestamp
         _save_playlist(playlist, playlists_root)
         added = True
@@ -351,6 +362,7 @@ def upsert_mirror_playlist(
         "readonly": True,
         "protected": False,
         "tracks": snapshots,
+        "revision": int(existing.get("revision") or 0) + 1,
         "created_at": existing.get("created_at") or timestamp,
         "updated_at": timestamp,
     }
@@ -414,3 +426,77 @@ def list_playlist_tracks(
 ) -> list[dict[str, Any]]:
     playlist = _load_playlist(_playlist_name(playlist_name), playlists_root, source_app=source_app, external_id=external_id)
     return list(playlist.get("tracks") or [])
+
+
+def playlist_snapshot(
+    playlist_name: str,
+    *,
+    playlists_root: Path | None = None,
+) -> dict[str, Any]:
+    """Return one detached local playlist state including its revision."""
+    playlist = _load_playlist(_playlist_name(playlist_name), playlists_root)
+    return {
+        **playlist,
+        "tracks": [dict(track) for track in playlist.get("tracks") or []],
+    }
+
+
+def playlist_storage_path(
+    playlist_name: str,
+    *,
+    playlists_root: Path | None = None,
+) -> Path:
+    """Return the canonical local storage path for transaction coordination."""
+    return _playlist_path(_playlist_name(playlist_name), playlists_root)
+
+
+def commit_playlist_state(
+    playlist: dict[str, Any],
+    *,
+    expected_revision: int,
+    playlists_root: Path | None = None,
+) -> dict[str, Any]:
+    """Atomically save one local playlist when its revision still matches."""
+    name = _playlist_name(str(playlist.get("name") or LIKES_PLAYLIST))
+    current = _load_playlist(name, playlists_root)
+    if current.get("readonly"):
+        raise ValueError(f"Playlist {name} is read-only.")
+    current_revision = int(current.get("revision") or 0)
+    if current_revision != int(expected_revision):
+        raise PlaylistVersionConflict(
+            f"Expected playlist revision {expected_revision}, found {current_revision}."
+        )
+    committed = {
+        **playlist,
+        "name": name,
+        "source_app": SOURCE_SONEX,
+        "external_id": None,
+        "readonly": False,
+        "protected": name == LIKES_PLAYLIST,
+        "revision": current_revision + 1,
+    }
+    _save_playlist(committed, playlists_root)
+    return playlist_snapshot(name, playlists_root=playlists_root)
+
+
+def delete_playlist_state(
+    playlist_name: str,
+    *,
+    expected_revision: int,
+    playlists_root: Path | None = None,
+) -> None:
+    """Delete one unprotected local playlist after a revision check."""
+    name = _playlist_name(playlist_name)
+    if name == LIKES_PLAYLIST:
+        raise ValueError("The likes playlist cannot be deleted.")
+    current = _load_playlist(name, playlists_root)
+    current_revision = int(current.get("revision") or 0)
+    if current_revision != int(expected_revision):
+        raise PlaylistVersionConflict(
+            f"Expected playlist revision {expected_revision}, found {current_revision}."
+        )
+    path = _playlist_path(name, playlists_root)
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return

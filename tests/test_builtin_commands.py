@@ -87,7 +87,8 @@ class BuiltinCommandParserTests(unittest.TestCase):
         assert intent is not None
         self.assertEqual(intent.command, "recommend")
         self.assertEqual(intent.args, "华语女声")
-        self.assertEqual(intent.allowed_tools, ("Read", "Query"))
+        self.assertEqual(intent.allowed_tools, ("Recommend",))
+        self.assertEqual(intent.max_tool_calls, 1)
 
     def test_play_and_search_are_not_user_level_commands(self) -> None:
         """Verifies that play and search are not public slash commands.

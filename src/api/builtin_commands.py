@@ -25,6 +25,8 @@ class BuiltinCommand:
     allowed_tools: tuple[str, ...] = ()
     visible: bool = True
     enabled: bool = True
+    playback: bool = False
+    max_tool_calls: int | None = None
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,8 @@ class CommandIntent:
     args: str
     intent_prompt: str
     allowed_tools: tuple[str, ...] = ()
+    playback: bool = False
+    max_tool_calls: int | None = None
 
 
 @dataclass(frozen=True)
@@ -76,6 +80,8 @@ class ParsedCommand:
             args=self.args,
             intent_prompt=self.command.intent_prompt or "",
             allowed_tools=self.command.allowed_tools,
+            playback=self.command.playback,
+            max_tool_calls=self.command.max_tool_calls,
         )
 
 
@@ -107,11 +113,12 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         mode="agent",
         intent_prompt=(
             "The user invoked /recommend. Treat the args as a music taste hint. "
-            "Use Query and Read to recommend real tracks, return a concise numbered "
-            "text list, and end with a normal question about what the user wants to hear. "
-            "Do not start playback."
+            "Call Recommend exactly once. Use only tracks returned by Recommend, return "
+            "a concise numbered text list, and end with a normal question about what the "
+            "user wants to hear. Do not start playback or modify a playlist or queue."
         ),
-        allowed_tools=("Read", "Query"),
+        allowed_tools=("Recommend",),
+        max_tool_calls=1,
     ),
     BuiltinCommand(
         "random",
@@ -123,6 +130,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
             "or queue context, then use Call with playback.select or playback.play."
         ),
         allowed_tools=("Query", "Call"),
+        playback=True,
     ),
     BuiltinCommand("sandbox", "/sandbox", "check or configure the Agent Bash sandbox"),
     BuiltinCommand("bye", "/bye", "save the current session and exit safely"),
