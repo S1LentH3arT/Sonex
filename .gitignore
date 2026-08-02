@@ -4,7 +4,7 @@
 .codex
 .idea
 .worktrees/
-docs/superpowers/
+docs/
 identifier.sqlite
 **/__pycache__/
 assets/
