@@ -22,17 +22,33 @@ assert.equal((headerBody.match(/borderStyle="round"/g) ?? []).length, 2);
 assert.equal((headerBody.match(/borderColor="#808791"/g) ?? []).length, 2);
 assert.equal((headerBody.match(/<Text bold color=\{BORDER_BLUE\}>v\{APP_VERSION\}<\/Text>/g) ?? []).length, 2);
 assert.equal((headerBody.match(/<Box height=\{1\} \/>/g) ?? []).length, 2);
+assert.equal(
+    (headerBody.match(/<Text color="#facc15" bold>Not logged in<\/Text>/g) ?? []).length,
+    2,
+);
+assert.match(headerBody, /authState\.ready[\s\S]*\? formatAuthLabel\(authState\)/);
 assert.match(headerBody, /sessionId: string \| null/);
-assert.match(headerBody, /height=\{8\}/);
+assert.match(headerBody, /tokenUsage: SessionTokenUsage/);
+assert.equal((headerBody.match(/height=\{10\}/g) ?? []).length, 2);
+assert.doesNotMatch(headerBody, /minHeight=/);
 assert.equal((headerBody.match(/\{displayCwd\}/g) ?? []).length, 2);
 assert.equal((headerBody.match(/session id:/g) ?? []).length, 2);
 assert.equal((headerBody.match(/\{sessionId\}/g) ?? []).length, 2);
+assert.equal((headerBody.match(/usage:/g) ?? []).length, 2);
 assert.equal(
     (headerBody.match(/<Text color="#808791">session id:<\/Text>/g) ?? []).length,
     2,
 );
 assert.equal(
     (headerBody.match(/<Text color="#fff4f6" wrap="truncate-end">\{sessionId\}<\/Text>/g) ?? []).length,
+    2,
+);
+assert.equal(
+    (headerBody.match(/<Text color="#808791">usage:<\/Text>/g) ?? []).length,
+    2,
+);
+assert.equal(
+    (headerBody.match(/<Text color="#fff4f6" wrap="truncate-end">input: \{tokenUsage\.inputTokens\} output: \{tokenUsage\.outputTokens\}<\/Text>/g) ?? []).length,
     2,
 );
 assert.equal(

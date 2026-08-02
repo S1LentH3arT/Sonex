@@ -7,9 +7,16 @@ test('formats supported provider brands', () => {
     const cases = [
         ['openai', 'OpenAI'],
         ['anthropic', 'Anthropic'],
-        ['gemini', 'Gemini'],
+        ['gemini', 'Google Gemini'],
         ['deepseek', 'DeepSeek'],
-        ['ollama', 'Ollama'],
+        ['openrouter', 'OpenRouter'],
+        ['zai', 'Z.AI'],
+        ['kimi_global', 'Kimi Global'],
+        ['kimi_cn', 'Kimi CN'],
+        ['minimax_global', 'MiniMax Global'],
+        ['minimax_cn', 'MiniMax CN'],
+        ['xai', 'xAI'],
+        ['custom', 'Custom'],
     ] as const;
 
     for (const [provider, label] of cases) {
@@ -28,6 +35,18 @@ test('normalizes provider casing and trims provider and model', () => {
             model: '  gpt-5.5  ',
         }),
         '[OpenAI] gpt-5.5',
+    );
+});
+
+test('prefers the explicit official model display name', () => {
+    assert.equal(
+        formatModelStatus({
+            ready: true,
+            provider: 'anthropic',
+            model: 'claude-sonnet-4-6',
+            model_label: 'Claude Sonnet 4.6',
+        }),
+        '[Anthropic] Claude Sonnet 4.6',
     );
 });
 

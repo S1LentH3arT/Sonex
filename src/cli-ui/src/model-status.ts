@@ -2,14 +2,22 @@ export type ModelStatusInput = {
     ready: boolean;
     provider: string;
     model: string;
+    model_label?: string | null;
 };
 
 const PROVIDER_BRANDS: Readonly<Record<string, string>> = {
     openai: 'OpenAI',
     anthropic: 'Anthropic',
-    gemini: 'Gemini',
+    gemini: 'Google Gemini',
     deepseek: 'DeepSeek',
-    ollama: 'Ollama',
+    openrouter: 'OpenRouter',
+    zai: 'Z.AI',
+    kimi_global: 'Kimi Global',
+    kimi_cn: 'Kimi CN',
+    minimax_global: 'MiniMax Global',
+    minimax_cn: 'MiniMax CN',
+    xai: 'xAI',
+    custom: 'Custom',
 };
 
 export const formatModelStatus = (
@@ -18,9 +26,12 @@ export const formatModelStatus = (
     if (!input.ready) return null;
 
     const provider = input.provider.trim();
-    const model = input.model.trim();
+    const model = (input.model_label || input.model).trim();
     if (!provider || !model) return null;
 
-    const providerLabel = PROVIDER_BRANDS[provider.toLowerCase()] ?? provider;
+    const normalizedProvider = provider.toLowerCase();
+    const providerLabel = normalizedProvider.startsWith('custom__')
+        ? 'Custom'
+        : PROVIDER_BRANDS[normalizedProvider] ?? provider;
     return `[${providerLabel}] ${model}`;
 };

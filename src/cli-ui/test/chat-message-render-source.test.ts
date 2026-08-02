@@ -54,6 +54,10 @@ test('committed transcript appends records through Ink Static without a virtual 
     );
     assert.match(
         committedRecordSource,
+        /record\.item\.type === "info_banner" \? \([\s\S]*<HeaderFrame[\s\S]*tokenUsage=\{record\.item\.tokenUsage\}/,
+    );
+    assert.match(
+        committedRecordSource,
         /<ChatBubble[\s\S]*role=\{record\.item\.role\}[\s\S]*contentWidth=\{record\.presentation\.contentWidth\}[\s\S]*tone=\{record\.item\.tone\}/,
     );
     assert.match(committedTranscriptSource, /<Static items=\{records\}>/);

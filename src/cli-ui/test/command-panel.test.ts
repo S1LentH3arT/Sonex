@@ -110,11 +110,11 @@ const helpQueue = allHelpCommands.find((command) => command.name === "queue");
 assert.equal(helpQueue?.usage, "/queue");
 assert.equal(helpQueue?.description, "show playback queue");
 
-assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend", "spotify"]);
+assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["apple", "bye", "connect", "exit", "info", "lang", "login", "logout", "model", "playlist", "queue", "random", "recommend", "spotify"]);
 assert.deepEqual(spotifyModeSlashCommands().map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
 assert.deepEqual(spotifyModeSlashCommands("/").map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
 assert.deepEqual(spotifyModeSlashCommands("/p").map((command) => command.name), ["playlist"]);
 assert.deepEqual(spotifyModeSlashCommands("/sp").map((command) => command.name), ["spotify"]);
-assert.deepEqual(APPLE_MODE_COMMAND_NAMES, ["apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "queue", "spotify"]);
+assert.deepEqual(APPLE_MODE_COMMAND_NAMES, ["apple", "bye", "connect", "exit", "info", "lang", "login", "logout", "model", "queue", "spotify"]);
 assert.deepEqual(appleModeSlashCommands().map((command) => command.name), APPLE_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
 assert.deepEqual(appleModeSlashCommands("/sp").map((command) => command.name), ["spotify"]);

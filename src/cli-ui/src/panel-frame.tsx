@@ -20,6 +20,7 @@ export type PanelRowSegment = {
     color?: string;
     bold?: boolean;
     italic?: boolean;
+    preserveColorWhenSelected?: boolean;
 };
 
 export type PanelChoiceItem = {
@@ -67,6 +68,15 @@ export const resolvePanelChoiceSegments = (
         return item.unselectedBold
             ? item.segments.map((segment) => ({ ...segment, bold: true }))
             : item.segments;
+    }
+
+    if (item.segments.some((segment) => segment.preserveColorWhenSelected)) {
+        const selectedColor = spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE;
+        return item.segments.map((segment) => ({
+            ...segment,
+            color: segment.preserveColorWhenSelected ? segment.color : selectedColor,
+            bold: true,
+        }));
     }
 
     return [{

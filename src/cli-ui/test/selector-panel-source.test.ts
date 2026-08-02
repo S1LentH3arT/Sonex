@@ -7,6 +7,7 @@ const panelSource = readFileSync(new URL('../src/panel-frame.tsx', import.meta.u
 const constantsSource = readFileSync(new URL('../src/constants.ts', import.meta.url), 'utf8');
 
 assert.match(constantsSource, /export const SPOTIFY_GREEN = "#1db954"/);
+assert.match(constantsSource, /export const MAX_VISIBLE_MODEL_CHOICES = 4/);
 assert.match(panelSource, /export const PANEL_BACKGROUND = "#48273e"/);
 assert.match(panelSource, /export const PANEL_TITLE = "#c8a6ff"/);
 assert.match(panelSource, /export const PANEL_PRIMARY = "#fff4f6"/);
@@ -60,12 +61,12 @@ const songCandidateBody = compactConfirmBody.slice(
     compactConfirmBody.indexOf('const choiceItems:'),
 );
 
-// Login is a formal panel; its API-key input is embedded directly in the frame.
+// Login is a formal panel; its text and secret inputs are embedded directly in the frame.
 assert.match(loginBody, /<PanelChoiceList/);
 assert.match(loginBody, /<PanelFrame width=\{74\} paddingX=\{2\} title=\{authSetup\.title\} hint=\{displayMessage\}>/);
 assert.match(
     loginBody,
-    /<PromptInput[\s\S]*mask="\*"[\s\S]*backgroundColor=\{PANEL_BACKGROUND\}[\s\S]*backgroundWidth=\{74\}[\s\S]*backgroundPaddingX=\{2\}/,
+    /<PromptInput[\s\S]*mask=\{authSetup\.mask \|\| isApiKeyStep \? "\*" : undefined\}[\s\S]*backgroundColor=\{PANEL_BACKGROUND\}[\s\S]*backgroundWidth=\{74\}[\s\S]*backgroundPaddingX=\{2\}/,
 );
 assert.doesNotMatch(loginBody, /borderStyle=|selectedBackground|selected \? "> "/);
 
@@ -140,11 +141,14 @@ assert.match(
 assert.doesNotMatch(compactSetupBody, /borderStyle=|selectedBackground|trailingRowBackgroundMarker|\{"> "\}/);
 
 // Model selection is a formal panel, while InputDock itself remains excluded.
+assert.match(source, /const formatModelPanelLabel = \(model: AuthMethodChoice\): string => \(\s*model\.label\.padEnd/);
 assert.match(inputDockBody, /const insetPanelWidth = Math\.max\(3, Math\.floor\(terminalColumns \?\? 80\) - 2\)/);
 assert.match(
     inputDockBody,
     /<PanelFrame width=\{insetPanelWidth\} title=\{modelPanel\.title\} hint=\{modelPanel\.hint\}>[\s\S]*<PanelChoiceList[\s\S]*visibleLimit=\{MAX_VISIBLE_MODEL_CHOICES\}/,
 );
+assert.match(inputDockBody, /filterModelChoices\(authSetup\?\.models \?\? \[\], input\)/);
+assert.match(inputDockBody, /text: "Search: "/);
 assert.match(inputDockBody, /const spotifyTheme = Boolean\(spotifyMode\?\.enabled \|\| spotifySetup\)/);
 assert.match(inputDockBody, /<SlashCommandList suggestions=\{slashSuggestions\} selectedIndex=\{slashIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
 assert.match(inputDockBody, /borderStyle="single" borderColor="#808791"/);
@@ -164,6 +168,8 @@ assert.match(
 assert.match(inputDockBody, /setupPanel \? <CompactSetup/);
 
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
+assert.match(appSource, /const choices = filterModelChoices\(authSetup\?\.models \?\? \[\], input\)/);
+assert.match(appSource, /key\.backspace \|\| key\.delete/);
 assert.match(appSource, /const isAppleTokenSetupActive = authSetup\?\.active && authSetup\.provider === "apple_music"/);
 assert.match(
     appSource,

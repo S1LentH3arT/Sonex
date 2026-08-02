@@ -19,7 +19,7 @@ export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
     { value: "deny", label: "No" },
 ];
 export const MAX_VISIBLE_SLASH_COMMANDS = 4;
-export const MAX_VISIBLE_MODEL_CHOICES = 3;
+export const MAX_VISIBLE_MODEL_CHOICES = 4;
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "bye", usage: "/bye", description: "save and exit", needsArgument: false },
     { name: "connect", usage: "/connect", description: "connect a music account", needsArgument: false },
@@ -28,6 +28,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "info", usage: "/info", description: "show runtime info", needsArgument: false },
     { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "toggle playback shortcuts", needsArgument: false },
     { name: "lang", usage: "/lang", description: "choose display language", needsArgument: false, enabled: false },
+    { name: "login", usage: "/login", description: "connect or switch LLM provider", needsArgument: false },
     { name: "logout", usage: "/logout", description: "sign out and exit", needsArgument: false },
     { name: "model", usage: "/model", description: "switch active model", needsArgument: false },
     { name: "player", usage: "/player", description: "detect and set default player", needsArgument: false },

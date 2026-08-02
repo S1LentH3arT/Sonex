@@ -14,12 +14,13 @@ import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
+import { filterModelChoices } from './model-selection.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem } from './panel-frame.js';
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SessionTokenUsage, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -92,26 +93,33 @@ export const formatAuthLabel = (state: AuthRuntimeState): string => {
     return state.auth_type || state.credential_source || "auth";
 };
 
-export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en" }: {
+export const HeaderFrame = ({ authState, cwd, sessionId, tokenUsage, variant, language = "en" }: {
     authState: AuthRuntimeState;
     cwd: string;
     sessionId: string | null;
+    tokenUsage: SessionTokenUsage;
     variant: ChatHeaderVariant;
     language?: UiLanguage;
 }) => {
-    const identity = `${authState.model || authState.provider || FALLBACK_MODEL_NAME} • ${formatAuthLabel(authState)}`;
+    const identityModel = authState.model_label || authState.model || authState.provider || FALLBACK_MODEL_NAME;
     const displayCwd = formatWorkingDirectory(cwd);
     if (variant === 'compact') {
         return (
-            <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
+            <Box width="100%" height={10} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
-                <Text color="#d8bcc7" wrap="truncate-end">{identity}</Text>
+                <Text color="#d8bcc7" wrap="truncate-end">
+                    {identityModel} • {authState.ready
+                        ? formatAuthLabel(authState)
+                        : <Text color="#facc15" bold>Not logged in</Text>}
+                </Text>
                 <Text color="#fff4f6" wrap="truncate-end">{displayCwd}</Text>
                 {sessionId ? (
                     <>
                         <Text color="#808791">session id:</Text>
                         <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
+                        <Text color="#808791">usage:</Text>
+                        <Text color="#fff4f6" wrap="truncate-end">input: {tokenUsage.inputTokens} output: {tokenUsage.outputTokens}</Text>
                     </>
                 ) : null}
             </Box>
@@ -119,17 +127,23 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
     }
 
     return (
-        <Box width="100%" minHeight={9} paddingX={1} borderStyle="round" borderColor="#808791">
+        <Box width="100%" height={10} paddingX={1} borderStyle="round" borderColor="#808791">
             <Mascot />
             <Box flexDirection="column" justifyContent="flex-start">
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
-                <Text color="#d8bcc7">{identity}</Text>
+                <Text color="#d8bcc7">
+                    {identityModel} • {authState.ready
+                        ? formatAuthLabel(authState)
+                        : <Text color="#facc15" bold>Not logged in</Text>}
+                </Text>
                 <Text color="#fff4f6">{displayCwd}</Text>
                 {sessionId ? (
                     <>
                         <Text color="#808791">session id:</Text>
                         <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
+                        <Text color="#808791">usage:</Text>
+                        <Text color="#fff4f6" wrap="truncate-end">input: {tokenUsage.inputTokens} output: {tokenUsage.outputTokens}</Text>
                     </>
                 ) : null}
             </Box>
@@ -142,20 +156,38 @@ export const isGenericAuthSetup = (setup: AuthSetupState): boolean => {
     return setup.provider !== "apple_music";
 };
 
-const LoginChoiceList = ({ choices, selectedIndex, visibleLimit }: {
+const LoginChoiceList = ({ choices, selectedIndex, visibleLimit, showConnectionStatus = false }: {
     choices: AuthMethodChoice[];
     selectedIndex: number;
     visibleLimit?: number;
+    showConnectionStatus?: boolean;
 }) => {
     return (
         <PanelChoiceList
-            items={choices.map((choice) => ({
-                key: choice.value,
-                segments: [
-                    { text: choice.label, color: PANEL_PRIMARY },
-                    { text: `  ${choice.provider ?? choice.value}`, color: PANEL_SECONDARY },
-                ],
-            }))}
+            items={choices.map((choice) => {
+                const detail = choice.description
+                    ? [{ text: `  ${choice.description}`, color: PANEL_SECONDARY }]
+                    : [];
+                const connectionStatus = choice.connection_status ?? (choice.connected ? "active" : "missing");
+                const connectionColor = connectionStatus === "active"
+                    ? SPOTIFY_GREEN
+                    : connectionStatus === "missing"
+                        ? "#ef4444"
+                        : PANEL_SECONDARY;
+                return {
+                    key: choice.value,
+                    segments: showConnectionStatus
+                        ? [
+                            {
+                                text: "• ",
+                                color: connectionColor,
+                                preserveColorWhenSelected: true,
+                            },
+                            { text: choice.label, color: PANEL_PRIMARY },
+                        ]
+                        : [{ text: choice.label, color: PANEL_PRIMARY }, ...detail],
+                };
+            })}
             selectedIndex={selectedIndex}
             visibleLimit={visibleLimit}
             width={74}
@@ -170,8 +202,9 @@ export const LoginScreen = ({
     apiKeyInput,
     setApiKeyInput,
     onApiKeySubmit,
+    inputFocus = true,
     language = "en",
-}: LoginScreenProps & { language?: UiLanguage }) => {
+}: LoginScreenProps & { inputFocus?: boolean; language?: UiLanguage }) => {
     if (!authSetup) return null;
 
     const providerChoices = authSetup.providers ?? [];
@@ -182,10 +215,17 @@ export const LoginScreen = ({
     const isApiKeyStep = authSetup.step === "api_key";
     const isModelStep = authSetup.step === "model";
     const isOauthWait = authSetup.step === "oauth_wait";
+    const isTextStep = !isProviderStep && !isMethodStep && !isModelStep && !isOauthWait;
     const choices = isProviderStep ? providerChoices : isMethodStep ? methodChoices : isModelStep ? modelChoices : [];
+    const showProviderConnectionStatus = isProviderStep
+        && providerChoices.length > 0
+        && providerChoices.every((choice) => Boolean(choice.connection_status) || typeof choice.connected === "boolean");
     const displayMessage = isProviderStep
         ? t(language, "login.warmup")
         : authSetup.message;
+    const helpRows = authSetup.help_text
+        ? wrapChatMessageContent(authSetup.help_text, 70)
+        : [];
 
     return (
         <PanelFrame width={74} paddingX={2} title={authSetup.title} hint={displayMessage}>
@@ -195,33 +235,42 @@ export const LoginScreen = ({
                         choices={choices}
                         selectedIndex={selectedIndex}
                         visibleLimit={isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
+                        showConnectionStatus={showProviderConnectionStatus}
                     />
                     <PanelRow
                         width={74}
                         paddingX={2}
-                        segments={[{ text: t(language, "login.continue"), color: PANEL_SECONDARY }]}
+                        segments={[{ text: t(language, "login.continue"), color: PANEL_SECONDARY, bold: true }]}
                     />
                 </>
             ) : null}
 
-            {isApiKeyStep ? (
+            {isTextStep ? (
                 <>
                     <PanelRow
                         width={74}
                         paddingX={2}
-                        segments={[{ text: authSetup.prompt ?? "API key", color: PANEL_SECONDARY }]}
+                        segments={[{ text: authSetup.prompt ?? "Value", color: PANEL_SECONDARY }]}
                     />
                     <PromptInput
                         input={apiKeyInput}
                         setInput={setApiKeyInput}
                         onSubmit={onApiKeySubmit}
-                        focus={true}
-                        placeholder={authSetup.prompt ?? "API key"}
-                        mask="*"
+                        focus={inputFocus}
+                        placeholder={authSetup.placeholder ?? authSetup.prompt ?? "Value"}
+                        mask={authSetup.mask || isApiKeyStep ? "*" : undefined}
                         backgroundColor={PANEL_BACKGROUND}
                         backgroundWidth={74}
                         backgroundPaddingX={2}
                     />
+                    {helpRows.map((row, index) => (
+                        <PanelRow
+                            key={`auth-help-${index}`}
+                            width={74}
+                            paddingX={2}
+                            segments={[{ text: row, color: PANEL_SECONDARY, italic: true }]}
+                        />
+                    ))}
                 </>
             ) : null}
 
@@ -342,13 +391,8 @@ const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): 
     `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
 );
 
-const modelIdFromChoice = (model: AuthMethodChoice): string => {
-    const valueParts = model.value.split("::");
-    return valueParts.length > 1 ? valueParts.slice(1).join("::") : model.label;
-};
-
 const formatModelPanelLabel = (model: AuthMethodChoice): string => (
-    modelIdFromChoice(model).padEnd(MODEL_PANEL_LABEL_WIDTH, " ")
+    model.label.padEnd(MODEL_PANEL_LABEL_WIDTH, " ")
 );
 
 const formatPlaylistBrowseName = (label: string): string => (
@@ -492,6 +536,7 @@ export const CommittedRecord = ({
                 authState={record.item.authState}
                 cwd={record.item.cwd}
                 sessionId={record.item.sessionId}
+                tokenUsage={record.item.tokenUsage}
                 variant={record.presentation.headerVariant}
                 language={record.presentation.language}
             />
@@ -1345,11 +1390,12 @@ const InputDock = ({
     const spotifyTheme = Boolean(spotifyMode?.enabled || spotifySetup);
     const isSongCandidateConfirm = confirm?.tool_name === "song_candidate";
     const insetPanelWidth = Math.max(3, Math.floor(terminalColumns ?? 80) - 2);
+    const filteredModelChoices = filterModelChoices(authSetup?.models ?? [], input);
     const modelPanel = authSetup?.active && authSetup.step === "model"
         ? {
             title: authSetup.title,
             hint: authSetup.message,
-            items: (authSetup.models ?? []).map((model) => ({
+            items: filteredModelChoices.map((model) => ({
                 key: model.value,
                 segments: [
                     { text: formatModelPanelLabel(model), color: PANEL_PRIMARY },
@@ -1388,12 +1434,23 @@ const InputDock = ({
                     <LanguagePanel panel={languagePanel} selectedIndex={languagePanelIndex} width={insetPanelWidth} language={language} />
                     {modelPanel ? (
                         <PanelFrame width={insetPanelWidth} title={modelPanel.title} hint={modelPanel.hint}>
+                            <PanelRow
+                                width={insetPanelWidth}
+                                segments={[
+                                    { text: "Search: ", color: PANEL_SECONDARY },
+                                    { text: input || "type to filter", color: input ? PANEL_PRIMARY : PANEL_SECONDARY },
+                                ]}
+                            />
                             <PanelChoiceList
                                 items={modelPanel.items}
                                 selectedIndex={modelPanelIndex}
                                 visibleLimit={MAX_VISIBLE_MODEL_CHOICES}
                                 width={insetPanelWidth}
                                 spotifyTheme={spotifyTheme}
+                            />
+                            <PanelRow
+                                width={insetPanelWidth}
+                                segments={[{ text: t(language, "login.continue"), color: PANEL_SECONDARY, bold: true }]}
                             />
                         </PanelFrame>
                     ) : null}

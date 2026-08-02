@@ -61,3 +61,15 @@ assert.deepEqual(resolvePanelChoiceSegments(choice, true, true), [{
 }]);
 assert.deepEqual(resolvePanelChoiceSegments(choice, false, false), choice.segments);
 assert.equal(resolvePanelChoiceSegments({ ...choice, unselectedBold: true }, false, false).every((segment) => segment.bold), true);
+
+const statusChoice: PanelChoiceItem = {
+    key: 'provider',
+    segments: [
+        { text: '• ', color: PANEL_SECONDARY, preserveColorWhenSelected: true },
+        { text: 'OpenAI — Not connected', color: PANEL_PRIMARY },
+    ],
+};
+assert.deepEqual(resolvePanelChoiceSegments(statusChoice, true, false), [
+    { text: '• ', color: PANEL_SECONDARY, preserveColorWhenSelected: true, bold: true },
+    { text: 'OpenAI — Not connected', color: '#3b82f6', bold: true },
+]);

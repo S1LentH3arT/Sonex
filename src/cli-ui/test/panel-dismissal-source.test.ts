@@ -22,10 +22,16 @@ assert.match(
 
 const appleSetupEscape = sliceBetween(
     'if (!isAppleTokenSetupActive || !key.escape) return;',
-    'if (!isLoginScreenActive || authSetup?.step === "api_key") return;',
+    'if (!isLoginScreenActive) return;',
 );
 assert.match(appleSetupEscape, /send\(\{ type: "auth_setup_input", value: "__cancel__" \}\)/);
 assert.doesNotMatch(appleSetupEscape, /appendPanelHiddenNotice/);
+
+const loginEscape = sliceBetween(
+    'if (!isLoginScreenActive) return;',
+    'if (!isModelPanelActive) return;',
+);
+assert.match(loginEscape, /key\.escape[\s\S]*send\(\{ type: "auth_setup_input", value: "__cancel__" \}\)/);
 
 const modelEscape = sliceBetween(
     'if (!isModelPanelActive) return;',

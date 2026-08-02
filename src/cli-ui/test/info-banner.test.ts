@@ -14,12 +14,15 @@ const authState: AuthRuntimeState = {
     auth_type: 'oauth',
     credential_source: 'auth.json',
 };
-const snapshot = createInfoBannerItem(authState, '/home/user/project', 'session-1');
+const tokenUsage = { inputTokens: 120, outputTokens: 34 };
+const snapshot = createInfoBannerItem(authState, '/home/user/project', 'session-1', tokenUsage);
 
 authState.model = 'gpt-after';
+tokenUsage.inputTokens = 999;
 assert.equal(snapshot.authState.model, 'gpt-before');
 assert.equal(snapshot.cwd, '/home/user/project');
 assert.equal(snapshot.sessionId, 'session-1');
+assert.deepEqual(snapshot.tokenUsage, { inputTokens: 120, outputTokens: 34 });
 
 assert.equal(formatWorkingDirectory('/home/user', '/home/user'), '~');
 assert.equal(formatWorkingDirectory('/home/user/project', '/home/user'), '~/project');

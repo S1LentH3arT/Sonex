@@ -1,6 +1,7 @@
 export type ServerEvent =
     | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null; segments?: ChatSegment[] | null }
     | { type: "session_state"; session_id: string }
+    | { type: "usage_state"; input_tokens: number; output_tokens: number }
     | { type: "agent_working_state"; turn_id: string; active: boolean }
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
     | { type: "status"; phase: string; message: string; active?: boolean | null; step?: number; max_steps?: number }
@@ -17,8 +18,8 @@ export type ServerEvent =
     | { type: "error"; message: string; detail?: string | null; recoverable?: boolean | null }
     | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; warning?: string | null; hide_hint?: boolean | null; choices?: ConfirmChoice[] | null; variant?: "tool_call_review" | null; commands?: string[] | null; page_index?: number | null; page_count?: number | null }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
-    | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
-    | { type: "auth_state"; ready: boolean; provider: string; model: string; auth_type: string; credential_source: string; reason?: string | null }
+    | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; placeholder?: string | null; help_text?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
+    | { type: "auth_state"; ready: boolean; provider: string; model: string; model_label?: string | null; auth_type: string; credential_source: string; reason?: string | null }
     | { type: "help_panel"; title: string; hint: string; commands: HelpCommand[] }
     | { type: "bye"; path: string; message?: string | null };
 
@@ -127,6 +128,9 @@ export type AuthMethodChoice = {
     value: string;
     label: string;
     provider?: string;
+    description?: string;
+    connected?: boolean;
+    connection_status?: "active" | "saved" | "missing";
 };
 
 export type AuthSetupState = {
@@ -135,6 +139,8 @@ export type AuthSetupState = {
     title: string;
     message: string;
     prompt?: string | null;
+    placeholder?: string | null;
+    help_text?: string | null;
     mask?: boolean | null;
     active: boolean;
     methods?: AuthMethodChoice[] | null;
@@ -146,9 +152,15 @@ export type AuthRuntimeState = {
     ready: boolean;
     provider: string;
     model: string;
+    model_label?: string | null;
     auth_type: string;
     credential_source: string;
     reason?: string | null;
+};
+
+export type SessionTokenUsage = {
+    inputTokens: number;
+    outputTokens: number;
 };
 
 export type ChatRole = "user" | "agent";
@@ -239,6 +251,7 @@ export type InfoBannerItem = {
     authState: AuthRuntimeState;
     cwd: string;
     sessionId: string | null;
+    tokenUsage: SessionTokenUsage;
 };
 
 export type ChatItem = ChatMessageItem | InfoBannerItem;

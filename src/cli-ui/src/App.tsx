@@ -13,11 +13,12 @@ import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPre
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, resolveSpotifyImmersiveLayout, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { formatModelStatus } from './model-status.js';
+import { filterModelChoices } from './model-selection.js';
 import { isApplePlaybackShortcutSource, isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
 import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer } from './transcript.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, ProviderModeState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 
 type InkInputKey = {
     ctrl?: boolean;
@@ -40,6 +41,7 @@ export const App: React.FC<{
     const [input, setInput] = useState("");
     const [inputRevision, setInputRevision] = useState(0);
     const [sessionId, setSessionId] = useState<string | null>(null);
+    const [tokenUsage, setTokenUsage] = useState<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
     const [agentWorkingTurnId, setAgentWorkingTurnId] = useState<string | null>(null);
     const [transcript, dispatchTranscript] = React.useReducer(
         transcriptReducer,
@@ -100,6 +102,7 @@ export const App: React.FC<{
     const authSetupActiveRef = React.useRef(false);
     const slashMenuActiveRef = React.useRef(false);
     const sessionIdRef = React.useRef<string | null>(null);
+    const tokenUsageRef = React.useRef<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
     const startupInfoCapturedRef = React.useRef(false);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
     const isAppleTokenSetupActive = authSetup?.active && authSetup.provider === "apple_music";
@@ -372,6 +375,13 @@ export const App: React.FC<{
                 sessionIdRef.current = evt.session_id;
                 setSessionId(evt.session_id);
                 break;
+            case "usage_state":
+                tokenUsageRef.current = {
+                    inputTokens: evt.input_tokens,
+                    outputTokens: evt.output_tokens,
+                };
+                setTokenUsage(tokenUsageRef.current);
+                break;
             case "agent_working_state":
                 setAgentWorkingTurnId((current) => (
                     evt.active
@@ -545,6 +555,7 @@ export const App: React.FC<{
                     )
                 ) {
                     setAuthSetup(null);
+                    setInput("");
                     break;
                 }
                 if (evt.active !== false) {
@@ -556,12 +567,18 @@ export const App: React.FC<{
                     title: evt.title,
                     message: evt.message,
                     prompt: evt.prompt,
+                    placeholder: evt.placeholder,
+                    help_text: evt.help_text,
                     mask: evt.mask,
                     active: evt.active !== false,
                     methods: evt.methods,
                     providers: evt.providers,
                     models: evt.models,
                 });
+                if (evt.step === "model") {
+                    setInput("");
+                    setLoginSelectionIndex(0);
+                }
                 setStatusText(evt.title);
                 break;
             case "auth_state":
@@ -570,6 +587,7 @@ export const App: React.FC<{
                     ready: evt.ready,
                     provider: evt.provider,
                     model: evt.model,
+                    model_label: evt.model_label,
                     auth_type: evt.auth_type,
                     credential_source: evt.credential_source,
                     reason: evt.reason,
@@ -577,7 +595,7 @@ export const App: React.FC<{
                 setAuthState(nextAuthState);
                 if (!startupInfoCapturedRef.current) {
                     startupInfoCapturedRef.current = true;
-                    commitItems([createInfoBannerItem(nextAuthState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
+                    commitItems([createInfoBannerItem(nextAuthState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current, tokenUsageRef.current)]);
                 }
                 break;
             case "help_panel":
@@ -817,7 +835,7 @@ export const App: React.FC<{
             setTrackPanelIndex(0);
             setLanguagePanel(null);
             setHelpPanelIndex(0);
-            commitItems([createInfoBannerItem(authState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
+            commitItems([createInfoBannerItem(authState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current, tokenUsageRef.current)]);
             return;
         }
 
@@ -888,7 +906,15 @@ export const App: React.FC<{
     }, { isActive: rawModeAvailable && Boolean(isAppleTokenSetupActive) });
 
     useInput((inputKey, key) => {
-        if (!isLoginScreenActive || authSetup?.step === "api_key") return;
+        if (!isLoginScreenActive) return;
+        if (key.escape) {
+            setAuthSetup(null);
+            setLoginSelectionIndex(0);
+            setLoginApiKeyInput("");
+            send({ type: "auth_setup_input", value: "__cancel__" });
+            return;
+        }
+        if (authSetup?.step === "api_key") return;
 
         if ((authSetup?.step === "provider" || authSetup?.step === "method") && loginChoices.length > 0) {
             if (key.upArrow) {
@@ -903,7 +929,7 @@ export const App: React.FC<{
 
     useInput((inputKey, key) => {
         if (!isModelPanelActive) return;
-        const choices = authSetup?.models ?? [];
+        const choices = filterModelChoices(authSetup?.models ?? [], input);
 
         if (key.upArrow && choices.length > 0) {
             setLoginSelectionIndex((prev) => (prev - 1 + choices.length) % choices.length);
@@ -913,12 +939,27 @@ export const App: React.FC<{
             const choice = choices[Math.min(loginSelectionIndex, Math.max(0, choices.length - 1))];
             if (choice) {
                 send({ type: "auth_setup_input", value: choice.value });
+                setInput("");
             }
         } else if (key.escape) {
             setAuthSetup(null);
             setLoginSelectionIndex(0);
+            setInput("");
             appendPanelHiddenNotice(t(language, "panel.modelHidden"));
             send({ type: "auth_setup_input", value: "__cancel__" });
+        } else if (key.backspace || key.delete) {
+            setInput((previous) => previous.slice(0, -1));
+            setLoginSelectionIndex(0);
+        } else if (
+            inputKey
+            && !key.ctrl
+            && !key.meta
+            && !key.return
+            && !key.upArrow
+            && !key.downArrow
+        ) {
+            setInput((previous) => previous + inputKey);
+            setLoginSelectionIndex(0);
         }
     }, { isActive: rawModeAvailable && Boolean(isModelPanelActive) });
 
@@ -1101,6 +1142,7 @@ export const App: React.FC<{
                         authState={authState}
                         cwd={RUNTIME_WORKING_DIRECTORY}
                         sessionId={sessionId}
+                        tokenUsage={tokenUsage}
                         variant={headerVariant}
                         language={language}
                     />

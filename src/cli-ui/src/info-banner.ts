@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 
-import type { AuthRuntimeState, ChatItem, ChatMessageItem, ChatTranscriptMessage, InfoBannerItem } from './types.js';
+import type { AuthRuntimeState, ChatItem, ChatMessageItem, ChatTranscriptMessage, InfoBannerItem, SessionTokenUsage } from './types.js';
 
 export function formatWorkingDirectory(cwd: string, homeDirectory: string = homedir()): string {
     if (!homeDirectory) return cwd;
@@ -24,12 +24,14 @@ export function createInfoBannerItem(
     authState: AuthRuntimeState,
     cwd: string,
     sessionId: string | null,
+    tokenUsage: SessionTokenUsage,
 ): InfoBannerItem {
     return {
         type: "info_banner",
         authState: { ...authState },
         cwd,
         sessionId,
+        tokenUsage: { ...tokenUsage },
     };
 }
 
