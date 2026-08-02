@@ -18,7 +18,10 @@ from src.llm.models import (
     DeepSeekModelCatalog,
     GeminiModelCatalog,
     OpenAIModelCatalog,
+    OpenAICompatibleModelCatalog,
+    list_provider_models,
     model_choices_for_provider,
+    model_display_name,
 )
 from src.llm.transport.base import ChatRequest, ProviderRequest
 from src.llm.transport.deepseek import DeepSeekTransport, _chat_completions_url
@@ -84,6 +87,7 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
             urlopen.return_value = _FakeResponse(
                 {
                     "data": [
+                        {"id": "deepseek-v4-flash-0731", "object": "model"},
                         {"id": "deepseek-v4-flash", "object": "model"},
                         {"id": "deepseek-v4-pro", "object": "model"},
                         {"id": "deepseek-chat", "object": "model"},
@@ -94,7 +98,14 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
 
             models = DeepSeekModelCatalog().list_models(config)
 
-        self.assertEqual([model.id for model in models], ["deepseek-v4-pro", "deepseek-v4-flash"])
+        self.assertEqual(
+            [model.id for model in models],
+            ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-0731"],
+        )
+        self.assertEqual(
+            [model.label for model in models],
+            ["DeepSeek-V4-Pro", "DeepSeek-V4-Flash", "DeepSeek-V4-Flash-0731"],
+        )
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://api.deepseek.com/models")
         self.assertEqual(request.headers["Authorization"], "Bearer sk-test")
@@ -113,7 +124,10 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
 
         self.assertEqual(
             [choice["value"] for choice in choices],
-            ["deepseek::deepseek-v4-pro", "deepseek::deepseek-v4-flash"],
+            [
+                "deepseek::deepseek-v4-pro",
+                "deepseek::deepseek-v4-flash",
+            ],
         )
 
     def test_normalizes_legacy_deepseek_model_names(self) -> None:
@@ -123,9 +137,15 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
 
         Example: test_normalizes_legacy_deepseek_model_names() -> passes without assertion failures when the behavior remains correct.
         """
-        self.assertEqual(normalize_provider_model("deepseek", "Deepseek-v4-pro"), "deepseek-v4-pro")
-        self.assertEqual(normalize_provider_model("deepseek", "deepseek-chat"), "deepseek-v4-flash")
-        self.assertEqual(normalize_provider_model("deepseek", "deepseek-reasoner"), "deepseek-v4-flash")
+        self.assertEqual(normalize_provider_model("deepseek", "Deepseek-v4-pro"), "Deepseek-v4-pro")
+        self.assertEqual(normalize_provider_model("deepseek", "deepseek-chat"), "deepseek-chat")
+        self.assertEqual(normalize_provider_model("deepseek", "deepseek-reasoner"), "deepseek-reasoner")
+        self.assertEqual(normalize_provider_model("deepseek", "deepseek-v4"), "deepseek-v4")
+        self.assertEqual(normalize_provider_model("deepseek", "deepseek-v3"), "deepseek-v3")
+        self.assertEqual(
+            normalize_provider_model("deepseek", "deepseek-v4-flash-0731"),
+            "deepseek-v4-flash-0731",
+        )
 
 
 class OfficialProviderModelCatalogTests(unittest.TestCase):
@@ -148,14 +168,16 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
                     "data": [
                         {"id": "gpt-5.4-mini", "object": "model"},
                         {"id": "gpt-5.5", "object": "model"},
+                        {"id": "gpt-6-preview", "object": "model"},
+                        {"id": "text-embedding-4", "object": "model"},
                     ]
                 }
             )
 
             models = OpenAIModelCatalog().list_models(config)
 
-        self.assertEqual([model.id for model in models], ["gpt-5.5", "gpt-5.4-mini"])
-        self.assertEqual([model.label for model in models], ["gpt-5.5", "gpt-5.4-mini"])
+        self.assertEqual([model.id for model in models], ["gpt-5.5", "gpt-5.4-mini", "gpt-6-preview"])
+        self.assertEqual([model.label for model in models], ["GPT-5.5", "GPT-5.4 mini", "gpt-6-preview"])
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://api.openai.com/v1/models")
         self.assertEqual(request.headers["Authorization"], "Bearer sk-test")
@@ -192,10 +214,20 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
                 }
             )
 
-            models = AnthropicModelCatalog().list_models(config)
+            models = list_provider_models(config)
 
-        self.assertEqual([model.id for model in models], ["claude-fable-5", "claude-sonnet-4-6"])
-        self.assertEqual([model.label for model in models], ["claude-fable-5", "claude-sonnet-4-6"])
+        self.assertEqual(
+            [model.id for model in models],
+            ["claude-fable-5", "claude-sonnet-4-6", "claude-mythos-5"],
+        )
+        self.assertEqual(
+            [model.label for model in models],
+            ["Claude Fable 5", "Claude Sonnet 4.6", "Claude Mythos 5"],
+        )
+        self.assertEqual(
+            model_display_name("anthropic", "claude-sonnet-4-6"),
+            "Claude Sonnet 4.6",
+        )
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://api.anthropic.com/v1/models")
         self.assertEqual(request.headers["X-api-key"], "sk-ant")
@@ -225,6 +257,11 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
                             "supportedGenerationMethods": ["generateContent"],
                         },
                         {
+                            "name": "models/gemini-4-pro-preview",
+                            "displayName": "Gemini 4 Pro Preview",
+                            "supportedGenerationMethods": ["generateContent"],
+                        },
+                        {
                             "name": "models/veo-3.1-preview",
                             "displayName": "Veo 3.1 Preview",
                             "supportedGenerationMethods": ["generateVideos"],
@@ -235,8 +272,8 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
 
             models = GeminiModelCatalog().list_models(config)
 
-        self.assertEqual([model.id for model in models], ["gemini-3.5-flash"])
-        self.assertEqual([model.label for model in models], ["gemini-3.5-flash"])
+        self.assertEqual([model.id for model in models], ["gemini-3.5-flash", "gemini-4-pro-preview"])
+        self.assertEqual([model.label for model in models], ["Gemini 3.5 Flash", "Gemini 4 Pro Preview"])
         request = urlopen.call_args.args[0]
         self.assertEqual(
             request.full_url,
@@ -260,6 +297,53 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
             for provider, value in expected.items():
                 choices = model_choices_for_provider(ProviderConfig(name=provider))
                 self.assertEqual(choices[0]["value"], value)
+        self.assertEqual(model_display_name("openai", "gpt-5.5"), "GPT-5.5")
+        self.assertEqual(model_display_name("deepseek", "deepseek-v4-flash"), "DeepSeek-V4-Flash")
+
+    def test_openrouter_catalog_preserves_exact_versioned_ids_and_filters_non_agent_models(self) -> None:
+        config = ProviderConfig(
+            name="openrouter",
+            api_key="or-key",
+            base_url="https://openrouter.ai/api/v1",
+        )
+        with patch("src.llm.models.urllib.request.urlopen") as urlopen:
+            urlopen.return_value = _FakeResponse({
+                "data": [
+                    {
+                        "id": "deepseek/deepseek-v4-flash-0731",
+                        "name": "DeepSeek: DeepSeek V4 Flash 0731",
+                        "output_modalities": ["text"],
+                        "supported_parameters": ["tools", "tool_choice"],
+                    },
+                    {
+                        "id": "deepseek/deepseek-v4-flash",
+                        "name": "DeepSeek: DeepSeek V4 Flash",
+                        "output_modalities": ["text"],
+                        "supported_parameters": ["tools"],
+                    },
+                    {
+                        "id": "provider/image-model",
+                        "name": "Image Model",
+                        "output_modalities": ["image"],
+                        "supported_parameters": ["tools"],
+                    },
+                    {
+                        "id": "provider/chat-without-tools",
+                        "name": "Chat without tools",
+                        "output_modalities": ["text"],
+                        "supported_parameters": ["temperature"],
+                    },
+                ],
+            })
+
+            models = OpenAICompatibleModelCatalog().list_models(config)
+
+        self.assertEqual(
+            [model.id for model in models],
+            ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-flash-0731"],
+        )
+        self.assertEqual(models[1].label, "DeepSeek: DeepSeek V4 Flash 0731")
+        self.assertEqual(urlopen.call_args.args[0].full_url, "https://openrouter.ai/api/v1/models")
 
 
 class DeepSeekTransportTests(unittest.TestCase):

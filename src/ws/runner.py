@@ -18,6 +18,7 @@ import time
 import webbrowser
 from collections import OrderedDict, deque
 from contextlib import suppress
+from contextvars import copy_context
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -69,13 +70,20 @@ from src.apple_mode.token_provider import (
 )
 from src.auth.apple_music import load_apple_music_user_token
 from src.auth.browser_oauth import (
-    BrowserOAuthConfigError,
+    BrowserOAuthPending,
+    begin_browser_oauth,
     browser_oauth_requirements,
     browser_oauth_supported,
-    run_browser_oauth,
+    complete_browser_oauth,
 )
-from src.auth.oauth import ensure_oauth_token_usable
-from src.auth.providers import get_provider_capability, normalize_provider, normalize_provider_model
+from src.auth.oauth import clear_oauth_access_cache, ensure_oauth_token_usable
+from src.auth.providers import (
+    get_provider_capability,
+    normalize_provider,
+    normalize_provider_model,
+    provider_display_name,
+)
+from src.auth.secure_store import credential_storage_backend
 from src.auth.spotify import (
     load_spotify_token,
     save_spotify_app_credentials,
@@ -84,9 +92,34 @@ from src.auth.spotify import (
     spotify_oauth_manager,
     spotify_redirect_uri,
 )
-from src.auth.store import get_provider_auth, load_auth_store, remove_provider, set_api_key, set_default
-from src.llm.models import model_choices_for_provider
+from src.auth.store import (
+    clear_default,
+    get_provider_auth,
+    load_auth_store,
+    remove_provider,
+    remove_provider_method,
+    set_api_key,
+    set_custom_profile,
+    set_default,
+    set_experimental_confirmation,
+    set_managed_auth,
+)
+from src.llm.custom import (
+    custom_profile_id,
+    discover_custom_models,
+    normalize_custom_base_url,
+    test_custom_connection,
+)
+from src.llm.transport.codex_app_server import (
+    CodexAppServer,
+    codex_app_server_status,
+    logout_chatgpt_subscription,
+    start_chatgpt_device_login,
+    wait_for_chatgpt_login,
+)
+from src.llm.models import model_choices_for_provider, model_display_name
 from src.llm.transport import ChatRequest, sanitize_error_message
+from src.llm.usage import reset_token_usage_observer, set_token_usage_observer
 from src.log import sonex_home
 from src.memory.memory import memory_store
 from src.music.connections import MusicConnectionManager
@@ -1085,7 +1118,33 @@ def _env_api_key_for_provider(provider: str) -> str | None:
         return value
     if name == "openai":
         return os.getenv("SONEX_API_KEY") or None
+    if name == "kimi_global":
+        return os.getenv("SONEX_KIMI_API_KEY") or None
+    if name == "minimax_global":
+        return os.getenv("SONEX_MINIMAX_API_KEY") or None
     return None
+
+
+def _provider_credentials_available(provider: str) -> bool:
+    """Return local credential availability without making a network request."""
+    name = normalize_provider(provider)
+    store = load_auth_store()
+    if name == "custom":
+        return any(
+            key.startswith("custom__") and not profile.needs_review
+            for key, profile in store.providers.items()
+        )
+    auth = get_provider_auth(store, name)
+    return bool(
+        _env_api_key_for_provider(name)
+        or auth and (auth.api_key or auth.oauth or auth.managed_auth)
+    )
+
+
+def _provider_has_saved_credentials(provider: str) -> bool:
+    name = normalize_provider(provider)
+    auth = get_provider_auth(load_auth_store(), name)
+    return bool(auth and (auth.api_key or auth.oauth or auth.managed_auth))
 
 
 def _set_runtime_default_provider(provider: str, model: str | None = None) -> None:
@@ -1120,6 +1179,25 @@ def _resolved_provider_model() -> tuple[str, str]:
     return provider, str(model)
 
 
+def _runtime_auth_state(
+    ready: bool,
+    provider: str,
+    model: str,
+    auth_type: str,
+    credential_source: str,
+    reason: str | None = None,
+) -> AuthRuntimeState:
+    return AuthRuntimeState(
+        ready,
+        provider,
+        model,
+        auth_type,
+        credential_source,
+        reason,
+        model_display_name(provider, model),
+    )
+
+
 def _llm_auth_state() -> AuthRuntimeState:
     """Prepares llm auth state for an internal Sonex flow.
 
@@ -1131,16 +1209,16 @@ def _llm_auth_state() -> AuthRuntimeState:
 
     capability = get_provider_capability(provider)
     if not capability.requires_auth:
-        return AuthRuntimeState(True, provider, model, "local", "local")
+        return _runtime_auth_state(True, provider, model, "local", "local")
 
     if _env_api_key_for_provider(provider):
-        return AuthRuntimeState(True, provider, model, "api_key", "env")
+        return _runtime_auth_state(True, provider, model, "api_key", "env")
 
     try:
         store = load_auth_store()
         auth = get_provider_auth(store, provider)
     except Exception as exc:
-        return AuthRuntimeState(
+        return _runtime_auth_state(
             False,
             provider,
             model,
@@ -1149,16 +1227,45 @@ def _llm_auth_state() -> AuthRuntimeState:
             sanitize_error_message(exc),
         )
 
-    if auth and auth.api_key:
-        return AuthRuntimeState(True, provider, auth.model or model, "api_key", "auth.json")
-    if auth and auth.oauth and auth.oauth.access_token:
+    if auth and auth.auth_method in {"auto", "api_key"} and auth.api_key:
+        return _runtime_auth_state(True, provider, auth.model or model, "api_key", "auth.json")
+    if (
+        auth
+        and auth.auth_method == "oauth"
+        and auth.managed_auth == "codex_app_server"
+        and provider == "openai"
+    ):
+        available, reason = codex_app_server_status()
+        return _runtime_auth_state(
+            available,
+            provider,
+            auth.model or model,
+            "oauth",
+            "auth.json",
+            reason,
+        )
+    if auth and auth.auth_method in {"auto", "oauth"} and auth.oauth:
         try:
-            ensure_oauth_token_usable(provider, auth.oauth)
+            ensure_oauth_token_usable(provider, auth.oauth, project_id=auth.project_id)
         except Exception as exc:
-            return AuthRuntimeState(False, provider, auth.model or model, "oauth", "auth.json", sanitize_error_message(exc))
-        return AuthRuntimeState(True, provider, auth.model or model, "oauth", "auth.json")
+            return _runtime_auth_state(False, provider, auth.model or model, "oauth", "auth.json", sanitize_error_message(exc))
+        return _runtime_auth_state(True, provider, auth.model or model, "oauth", "auth.json")
+    if (
+        auth
+        and provider.startswith("custom__")
+        and auth.base_url
+        and auth.model
+        and not auth.needs_review
+    ):
+        return _runtime_auth_state(
+            True,
+            provider,
+            auth.model,
+            "api_key" if auth.api_key else "none",
+            "auth.json",
+        )
 
-    return AuthRuntimeState(
+    return _runtime_auth_state(
         False,
         provider,
         model,
@@ -1185,7 +1292,7 @@ def _format_runtime_info(state: AuthRuntimeState, cwd: Path | None = None) -> st
     return "\n".join(
         (
             "Sonex runtime:",
-            f"Model: {state.model}",
+            f"Model: {state.model_label or state.model}",
             f"Provider: {state.provider}",
             f"Auth: {state.auth_type}",
             f"CWD: {_display_working_directory(cwd)}",
@@ -1212,12 +1319,86 @@ def _auth_methods_for_provider(provider: str) -> list[dict[str, str]]:
     Example: _auth_methods_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     capability = get_provider_capability(provider)
+    name = normalize_provider(provider)
+    auth = get_provider_auth(load_auth_store(), name)
     methods: list[dict[str, str]] = []
-    if capability.supports_oauth and browser_oauth_supported(provider):
-        methods.append({"value": "oauth", "label": "OAuth"})
+    if name == "custom":
+        return [
+            {"value": "none", "label": "No authentication"},
+            {"value": "api_key", "label": "Bearer API key"},
+        ]
+    if name == "openai":
+        available, reason = codex_app_server_status()
+        label = "ChatGPT Subscription (Experimental)"
+        if auth and auth.managed_auth == "codex_app_server":
+            label += " — Connected"
+        if available:
+            methods.append({"value": "oauth", "label": label})
+        else:
+            methods.append({
+                "value": "__unavailable_oauth__",
+                "label": f"{label} — Unavailable",
+                "description": reason or "Codex App Server is unavailable.",
+            })
+    elif capability.supports_oauth and browser_oauth_supported(provider):
+        base_label = "Google OAuth (Preview)" if name == "gemini" else "OAuth"
+        label = f"{base_label} — Connected" if auth and auth.oauth else base_label
+        methods.append({"value": "oauth", "label": label})
     if capability.supports_api_key:
-        methods.append({"value": "api_key", "label": "API key"})
+        api_key_connected = bool(_env_api_key_for_provider(name) or auth and auth.api_key)
+        label = "API key — Connected" if api_key_connected else "API key"
+        methods.append({"value": "api_key", "label": label})
+    if auth and auth.managed_auth:
+        methods.append({"value": "disconnect_oauth", "label": "Disconnect ChatGPT Subscription"})
+    elif auth and auth.oauth:
+        methods.append({"value": "disconnect_oauth", "label": "Disconnect OAuth"})
+    if auth and auth.api_key:
+        methods.append({"value": "disconnect_api_key", "label": "Disconnect API key"})
     return methods
+
+
+def _provider_choices_with_status() -> list[dict[str, Any]]:
+    """Build the /login provider picker with connection status."""
+    active_provider = _default_provider_name()
+    choices: list[dict[str, Any]] = []
+    for choice in LLM_AUTH_PROVIDER_CHOICES:
+        value = choice["value"]
+        available = _provider_credentials_available(value)
+        active = available and active_provider == value
+        if value == "custom":
+            active = available and active_provider.startswith("custom__")
+        status = "active" if active else "saved" if available else "missing"
+        suffix = {"active": "Active", "saved": "Saved", "missing": "Not connected"}[status]
+        label = f"{choice['label']} — {suffix}"
+        choices.append({
+            **choice,
+            "label": label,
+            "connected": available,
+            "connection_status": status,
+        })
+    return choices
+
+
+_API_KEY_SIGNUP_URLS = {
+    "openai": "https://platform.openai.com/api-keys",
+    "gemini": "https://aistudio.google.com/app/apikey",
+    "anthropic": "https://platform.claude.com/settings/keys",
+    "deepseek": "https://platform.deepseek.com/",
+    "openrouter": "https://openrouter.ai/keys",
+    "zai": "https://z.ai/",
+    "kimi_global": "https://platform.kimi.ai/",
+    "kimi_cn": "https://platform.moonshot.cn/",
+    "minimax_global": "https://platform.minimax.io/",
+    "minimax_cn": "https://platform.minimaxi.com/",
+    "xai": "https://console.x.ai/",
+}
+
+
+def _api_key_help_text(provider: str) -> str | None:
+    signup_url = _API_KEY_SIGNUP_URLS.get(normalize_provider(provider))
+    if not signup_url:
+        return None
+    return f"Haven't got an API Key? Get one at {signup_url}."
 
 
 def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
@@ -1228,7 +1409,18 @@ def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
     Example: _model_choices_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     name = normalize_provider(provider)
-    if name in {"openai", "anthropic", "gemini", "deepseek"}:
+    if name.startswith("custom__"):
+        auth = get_provider_auth(load_auth_store(), name)
+        if auth:
+            label = auth.display_name or "Custom"
+            return [
+                {"value": f"{name}::{model}", "label": model, "provider": label}
+                for model in auth.model_ids
+            ]
+    if name in {
+        "openai", "anthropic", "gemini", "deepseek", "openrouter", "zai",
+        "kimi_global", "kimi_cn", "minimax_global", "minimax_cn", "xai",
+    }:
         ThinkingConfig.reload()
         config = ThinkingConfig.get_provider_config(name)
         return model_choices_for_provider(config)
@@ -1375,6 +1567,8 @@ class SpotifySetupSession:
         self.client_id: str | None = None
         self.step = "client_id"
         self.oauth_task: asyncio.Task[None] | None = None
+        self.browser_oauth_pending: BrowserOAuthPending | None = None
+        self.codex_server: CodexAppServer | None = None
         self.on_connected = on_connected
         self.on_completed = on_completed
 
@@ -1828,6 +2022,11 @@ class OpenAudioSetupSession:
         """
         value = value.strip()
         if value.casefold() in {"__cancel__", "cancel"}:
+            if self.oauth_task and not self.oauth_task.done():
+                self.oauth_task.cancel()
+            if self.codex_server:
+                await asyncio.to_thread(self.codex_server.close)
+                self.codex_server = None
             await self.ui.send_auth_setup(
                 provider=self.provider,
                 step="cancelled",
@@ -1923,21 +2122,23 @@ class ModelSelectionSession:
         Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         self.provider = _default_provider_name()
-        if normalize_provider(self.provider) == "deepseek":
+        if not _provider_credentials_available(self.provider):
+            await self._append_not_connected_caution(self.provider)
+            setattr(self.ui, "_model_setup", None)
+            return
+        provider_name = normalize_provider(self.provider)
+        if provider_name in {
+            "deepseek", "openrouter", "zai", "kimi_global", "kimi_cn",
+            "minimax_global", "minimax_cn", "xai",
+        }:
             self.model_choices = await asyncio.to_thread(_model_choices_for_provider, self.provider)
         else:
             self.model_choices = _model_choices_for_provider(self.provider)
-        await self.ui.append_activity(
-            kind="status",
-            title="Switch model",
-            detail=f"Choose a {self.provider} model for the current session.",
-            status="pending",
-        )
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="model",
             title="Switch model",
-            message=f"Choose a {self.provider} model. Use Up/Down to see more options.",
+            message=f"Choose a {provider_display_name(self.provider)} model.",
             prompt="Model",
             models=self.model_choices,
         )
@@ -1967,27 +2168,38 @@ class ModelSelectionSession:
             return
 
         provider, model = parsed
+        if provider != normalize_provider(self.provider) or not _provider_credentials_available(provider):
+            await self._append_not_connected_caution(provider)
+            setattr(self.ui, "_model_setup", None)
+            return
         _set_runtime_default_provider(provider, model)
         ThinkingConfig.reload()
         state = _llm_auth_state()
-        ready_detail = f"Using {model} via {provider}."
-        if not state.ready:
-            ready_detail = f"Using {model} via {provider}. Credentials are needed before the next agent turn."
-        await self.ui.append_activity(
-            kind="status",
-            title="Model switched",
-            detail=ready_detail,
-            status="success",
+        selected_choice = next(
+            (choice for choice in self.model_choices if choice.get("value") == f"{provider}::{model}"),
+            None,
+        )
+        display_model = str((selected_choice or {}).get("label") or state.model_label or model)
+        display_provider = str(
+            (selected_choice or {}).get("provider") or provider_display_name(provider)
+        )
+        await self.ui.append_system_message(
+            f"✔  Model has been switched to {display_provider}: {display_model.rstrip('.')}."
         )
         await self.ui.send_auth_state(state)
         await self.ui.send_auth_setup(
             provider=provider,
-            step="done",
-            title="Model switched",
-            message=ready_detail,
+            step="model",
+            title="Switch model",
+            message="",
             active=False,
         )
         setattr(self.ui, "_model_setup", None)
+
+    async def _append_not_connected_caution(self, provider: str) -> None:
+        await self.ui.append_caution_message(
+            f'✖  {provider_display_name(provider)} is not connected. Try "/login" to connect.'
+        )
 
 class AuthSetupSession:
     """Represents auth setup session.
@@ -2008,6 +2220,15 @@ class AuthSetupSession:
         self.step = "method"
         self.method: str | None = None
         self.oauth_task: asyncio.Task[None] | None = None
+        self.custom_name: str | None = None
+        self.custom_base_url: str | None = None
+        self.custom_api_key: str | None = None
+        self.custom_models: list[str] = []
+        self.custom_allow_insecure_http = False
+        self.custom_timeout: float | None = None
+        self.google_project_id: str | None = None
+        self.provider_base_url: str | None = None
+        self.credential_fallback_warned = False
 
     async def start(self, reason: str | None = None) -> None:
         """Coordinates start for the current Sonex flow.
@@ -2028,8 +2249,8 @@ class AuthSetupSession:
 
         await self.ui.append_activity(
             kind="status",
-            title=f"{self.provider} sign-in required",
-            detail=reason or f"Sign in to {self.provider} before chatting.",
+            title=f"{provider_display_name(self.provider)} sign-in required",
+            detail=reason or f"Sign in to {provider_display_name(self.provider)} before chatting.",
             status="pending",
         )
         await self._continue_provider_auth(reason)
@@ -2046,9 +2267,9 @@ class AuthSetupSession:
             provider=self.provider,
             step="provider",
             title="Connect Sonex",
-            message=reason or "Choose a model provider. Type openai, anthropic, gemini, deepseek, or ollama.",
+            message=reason or "Choose a model provider.",
             prompt="Model provider",
-            providers=LLM_AUTH_PROVIDER_CHOICES,
+            providers=_provider_choices_with_status(),
         )
 
     async def _continue_provider_auth(self, reason: str | None = None) -> None:
@@ -2058,6 +2279,24 @@ class AuthSetupSession:
 
         Example: await _continue_provider_auth(reason=...) -> returns the value used by the surrounding Sonex flow.
         """
+        if self.provider == "custom":
+            await self._prompt_custom_profiles(reason)
+            return
+
+        if self.pending_input is None and _provider_credentials_available(self.provider):
+            is_active = _default_provider_name() == self.provider
+            if not is_active or not _provider_has_saved_credentials(self.provider):
+                await self._finish()
+                return
+
+        if (
+            self.provider == "zai"
+            and self.provider_base_url is None
+            and not _provider_credentials_available(self.provider)
+        ):
+            await self._prompt_zai_service()
+            return
+
         capability = get_provider_capability(self.provider)
         if not capability.requires_auth:
             await self._finish()
@@ -2069,7 +2308,7 @@ class AuthSetupSession:
             await self.ui.send_auth_setup(
                 provider=self.provider,
                 step="method",
-                title=f"Connect {self.provider}",
+                title=f"Connect {provider_display_name(self.provider)}",
                 message="Choose an authentication method. Type oauth or api_key.",
                 prompt="oauth or api_key",
                 methods=methods,
@@ -2105,25 +2344,222 @@ class AuthSetupSession:
         if not value:
             await self._repeat("Input cannot be empty.")
             return
+        if value.casefold() in {"__cancel__", "cancel"}:
+            await self.ui.send_auth_setup(
+                provider=self.provider,
+                step="done",
+                title="Provider connection canceled",
+                message="No provider settings were changed.",
+                active=False,
+            )
+            setattr(self.ui, "_auth_setup", None)
+            return
 
         if self.step == "provider":
             normalized = normalize_provider(value)
             if normalized not in LLM_AUTH_PROVIDER_VALUES:
-                await self._prompt_provider("Type one of: openai, anthropic, gemini, deepseek, or ollama.")
+                await self._prompt_provider("Choose a listed model provider.")
                 return
             self.provider = normalized
             self.method = None
-            try:
-                _set_runtime_default_provider(self.provider)
-                ThinkingConfig.reload()
-            except Exception as exc:
-                await self._prompt_provider(sanitize_error_message(exc))
-                return
             await self._continue_provider_auth()
+            return
+
+        if self.step == "zai_service":
+            endpoints = {
+                "api": "https://api.z.ai/api/paas/v4",
+                "coding_plan": "https://api.z.ai/api/coding/paas/v4",
+            }
+            self.provider_base_url = endpoints.get(value)
+            if self.provider_base_url is None:
+                await self._prompt_zai_service("Choose API or Coding Plan.")
+                return
+            self.method = "api_key"
+            await self._prompt_api_key()
+            return
+
+        if self.step == "custom_profile":
+            if value == "__add_custom__":
+                self.step = "custom_name"
+                await self.ui.send_auth_setup(
+                    provider="custom",
+                    step="custom_name",
+                    title="Add custom connection",
+                    message="Enter a unique connection name.",
+                    prompt="Connection name",
+                )
+                return
+            if value.startswith("__disconnect_custom__:"):
+                profile_id = value.partition(":")[2]
+                auth = get_provider_auth(load_auth_store(), profile_id)
+                if not auth or not profile_id.startswith("custom__"):
+                    await self._prompt_custom_profiles("That Custom connection no longer exists.")
+                    return
+                remove_provider(profile_id)
+                ThinkingConfig.reload()
+                await self._prompt_custom_profiles(
+                    f"{auth.display_name or profile_id} disconnected and removed."
+                )
+                return
+            auth = get_provider_auth(load_auth_store(), value)
+            if not value.startswith("custom__") or not auth or not auth.base_url or not auth.model:
+                await self._prompt_custom_profiles("Choose a saved connection or Add custom connection.")
+                return
+            if auth.needs_review:
+                await self._prompt_custom_profiles(
+                    f"{auth.display_name or value} needs review before it can be used."
+                )
+                return
+            self.provider = value
+            await self._finish()
+            return
+
+        if self.step == "custom_name":
+            try:
+                profile_id = custom_profile_id(value)
+            except ValueError as exc:
+                await self._repeat(sanitize_error_message(exc))
+                return
+            if profile_id in load_auth_store().providers:
+                await self._repeat("That Custom connection name already exists.")
+                return
+            self.provider = profile_id
+            self.custom_name = value
+            self.step = "custom_base_url"
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_base_url",
+                title=f"Connect {value}",
+                message="Enter an OpenAI-compatible base URL, for example http://127.0.0.1:11434/v1.",
+                prompt="Base URL",
+            )
+            return
+
+        if self.step == "custom_base_url":
+            try:
+                endpoint = normalize_custom_base_url(value)
+            except ValueError as exc:
+                await self._repeat(sanitize_error_message(exc))
+                return
+            self.custom_base_url = endpoint.base_url
+            if endpoint.insecure_remote:
+                self.step = "custom_insecure"
+                await self.ui.send_auth_setup(
+                    provider="custom",
+                    step="method",
+                    title="Insecure Custom endpoint",
+                    message=(
+                        "This remote endpoint uses plain HTTP. Credentials and prompts can be intercepted. "
+                        "Continue only if you trust the network."
+                    ),
+                    prompt="Continue or go back",
+                    methods=[
+                        {"value": "continue_insecure", "label": "Continue insecurely"},
+                        {"value": "back", "label": "Back"},
+                    ],
+                )
+                return
+            await self._prompt_custom_auth()
+            return
+
+        if self.step == "custom_insecure":
+            if value == "back":
+                self.step = "custom_base_url"
+                await self.ui.send_auth_setup(
+                    provider="custom",
+                    step="custom_base_url",
+                    title=f"Connect {self.custom_name or 'Custom'}",
+                    message="Enter an HTTPS endpoint or a localhost HTTP endpoint.",
+                    prompt="Base URL",
+                )
+                return
+            if value != "continue_insecure":
+                await self._repeat("Choose Continue insecurely or Back.")
+                return
+            self.custom_allow_insecure_http = True
+            await self._prompt_custom_auth()
+            return
+
+        if self.step == "custom_auth":
+            if value not in {"none", "api_key"}:
+                await self._repeat("Choose No authentication or Bearer API key.")
+                return
+            self.method = value
+            if value == "api_key":
+                self.step = "custom_api_key"
+                await self.ui.send_auth_setup(
+                    provider="custom",
+                    step="custom_api_key",
+                    title=f"Authenticate {self.custom_name or 'Custom'}",
+                    message="Enter the Bearer API key for this endpoint.",
+                    prompt="API Key",
+                    placeholder="paste your key here",
+                    mask=True,
+                )
+                return
+            self.custom_api_key = None
+            await self._prompt_custom_timeout()
+            return
+
+        if self.step == "custom_api_key":
+            self.custom_api_key = value
+            await self._prompt_custom_timeout()
+            return
+
+        if self.step == "custom_timeout":
+            if value.casefold() == "default":
+                self.custom_timeout = None
+            else:
+                try:
+                    timeout = float(value)
+                except ValueError:
+                    await self._repeat("Enter a timeout from 1 to 600 seconds, or type default.")
+                    return
+                if not 1 <= timeout <= 600:
+                    await self._repeat("Enter a timeout from 1 to 600 seconds, or type default.")
+                    return
+                self.custom_timeout = timeout
+            await self._discover_custom_models()
+            return
+
+        if self.step == "custom_model":
+            if value == "__manual_model__":
+                await self._prompt_custom_model()
+                return
+            if value not in self.custom_models:
+                await self._repeat("Choose a discovered model or enter a Model ID.")
+                return
+            await self._save_custom_profile(value)
+            return
+
+        if self.step == "custom_model_manual":
+            await self._save_custom_profile(value)
             return
 
         if self.step == "method":
             normalized = value.lower().replace("-", "_")
+            if normalized == "__unavailable_oauth__":
+                _available, reason = codex_app_server_status()
+                await self._repeat(reason or "OpenAI ChatGPT Subscription is unavailable.")
+                return
+            if normalized in {"disconnect_oauth", "disconnect_api_key"}:
+                method = normalized.removeprefix("disconnect_")
+                try:
+                    if self.provider == "openai" and method == "oauth":
+                        await asyncio.to_thread(logout_chatgpt_subscription)
+                    removed = remove_provider_method(self.provider, method)
+                    if method == "oauth":
+                        clear_oauth_access_cache(self.provider)
+                    ThinkingConfig.reload()
+                except Exception as exc:
+                    await self._repeat(sanitize_error_message(exc))
+                    return
+                await self._continue_provider_auth(
+                    f"{method.replace('_', ' ').title()} disconnected."
+                    if removed
+                    else "That authentication method was not connected."
+                )
+                return
             if normalized not in {"oauth", "api_key"}:
                 await self._repeat("Type oauth or api_key.")
                 return
@@ -2136,14 +2572,83 @@ class AuthSetupSession:
                 return
             self.method = normalized
             if normalized == "oauth":
-                await self._start_browser_oauth()
+                if self.provider == "openai":
+                    auth = get_provider_auth(load_auth_store(), "openai")
+                    if not auth or not auth.experimental_confirmed:
+                        self.step = "openai_experimental_confirm"
+                        await self.ui.send_auth_setup(
+                            provider="openai",
+                            step="method",
+                            title="ChatGPT Subscription (Experimental)",
+                            message=(
+                                "This connection uses Sonex's isolated Codex App Server runtime. "
+                                "It may change with upstream protocol updates and does not use API-key billing."
+                            ),
+                            prompt="Continue or go back",
+                            methods=[
+                                {"value": "continue_experimental", "label": "Continue"},
+                                {"value": "back", "label": "Back"},
+                            ],
+                        )
+                    else:
+                        await self._start_openai_oauth()
+                elif self.provider == "gemini":
+                    configured_project = (
+                        os.getenv("SONEX_GOOGLE_CLOUD_PROJECT")
+                        or os.getenv("SONEX_GEMINI_PROJECT_ID")
+                    )
+                    if configured_project:
+                        self.google_project_id = configured_project.strip()
+                        await self._start_browser_oauth()
+                    else:
+                        self.step = "google_project"
+                        await self.ui.send_auth_setup(
+                            provider=self.provider,
+                            step="google_project",
+                            title="Google Cloud project",
+                            message=(
+                                "Enter the Google Cloud project ID that owns Gemini API access and billing. "
+                                "Sonex will validate access but will not create a project or enable billing."
+                            ),
+                            prompt="Google Cloud project ID",
+                        )
+                else:
+                    await self._start_browser_oauth()
             else:
                 await self._prompt_api_key()
             return
 
+        if self.step == "openai_experimental_confirm":
+            if value == "back":
+                self.step = "method"
+                self.method = None
+                await self._continue_provider_auth()
+                return
+            if value != "continue_experimental":
+                await self._repeat("Choose Continue or Back.")
+                return
+            set_experimental_confirmation("openai")
+            await self._start_openai_oauth()
+            return
+
+        if self.step == "google_project":
+            if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", value):
+                await self._repeat(
+                    "Enter a valid Google Cloud project ID (6-30 lowercase letters, digits, or hyphens)."
+                )
+                return
+            self.google_project_id = value
+            await self._start_browser_oauth()
+            return
         if self.step == "api_key":
             try:
-                set_api_key(self.provider, value)
+                capability = get_provider_capability(self.provider)
+                set_api_key(
+                    self.provider,
+                    value,
+                    base_url=self.provider_base_url or capability.default_base_url,
+                    custom_llm_provider=capability.default_custom_llm_provider,
+                )
                 _set_runtime_default_provider(self.provider)
                 ThinkingConfig.reload()
             except Exception as exc:
@@ -2158,6 +2663,147 @@ class AuthSetupSession:
                 await self._prompt_api_key()
                 return
             await self._repeat("OAuth is already in progress. Finish the browser flow, or type api_key to use an API key.")
+            return
+
+        if self.step == "oauth_callback":
+            if self.browser_oauth_pending is None:
+                self.method = None
+                self.step = "method"
+                await self._repeat("OAuth session expired. Start OAuth again.")
+                return
+            try:
+                await asyncio.to_thread(
+                    complete_browser_oauth,
+                    self.browser_oauth_pending,
+                    value,
+                    project_id=self.google_project_id,
+                )
+                _set_runtime_default_provider(self.provider)
+                ThinkingConfig.reload()
+            except Exception as exc:
+                await self._repeat(sanitize_error_message(exc))
+                return
+            await self._finish()
+
+    async def _prompt_custom_profiles(self, reason: str | None = None) -> None:
+        self.step = "custom_profile"
+        profiles = []
+        for name, auth in sorted(load_auth_store().providers.items()):
+            if not name.startswith("custom__"):
+                continue
+            status = "Needs review" if auth.needs_review else "Connected"
+            profiles.append({
+                "value": name,
+                "label": f"{auth.display_name or name} — {status}",
+            })
+            profiles.append({
+                "value": f"__disconnect_custom__:{name}",
+                "label": f"Disconnect {auth.display_name or name}",
+            })
+        profiles.append({"value": "__add_custom__", "label": "Add custom connection"})
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="provider",
+            title="Custom connections",
+            message=reason or "Choose a saved connection or add an OpenAI-compatible endpoint.",
+            prompt="Custom connection",
+            providers=profiles,
+        )
+
+    async def _prompt_custom_auth(self) -> None:
+        self.step = "custom_auth"
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="method",
+            title=f"Authenticate {self.custom_name or 'Custom'}",
+            message="Choose how this endpoint authenticates requests.",
+            prompt="Authentication",
+            methods=_auth_methods_for_provider("custom"),
+        )
+
+    async def _discover_custom_models(self) -> None:
+        assert self.custom_base_url is not None
+        try:
+            self.custom_models = await asyncio.to_thread(
+                discover_custom_models,
+                self.custom_base_url,
+                api_key=self.custom_api_key,
+                timeout=self.custom_timeout or 15.0,
+            )
+        except Exception:
+            self.custom_models = []
+        if not self.custom_models:
+            await self._prompt_custom_model()
+            return
+        self.step = "custom_model"
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="model",
+            title=f"Choose a model for {self.custom_name or 'Custom'}",
+            message="Choose a discovered model or enter a Model ID manually.",
+            prompt="Model",
+            models=[
+                {"value": model, "label": model, "provider": self.custom_name or "Custom"}
+                for model in self.custom_models
+            ] + [
+                {"value": "__manual_model__", "label": "Enter Model ID manually", "provider": "Custom"}
+            ],
+        )
+
+    async def _prompt_custom_model(self) -> None:
+        self.step = "custom_model_manual"
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="custom_model_manual",
+            title=f"Configure {self.custom_name or 'Custom'}",
+            message="Enter the exact model ID accepted by the endpoint.",
+            prompt="Model ID",
+        )
+
+    async def _save_custom_profile(self, model: str) -> None:
+        assert self.custom_base_url is not None
+        try:
+            await asyncio.to_thread(
+                test_custom_connection,
+                self.custom_base_url,
+                model,
+                api_key=self.custom_api_key,
+                timeout=self.custom_timeout or 30.0,
+            )
+        except Exception as exc:
+            self.step = "custom_model_manual"
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_model_manual",
+                title="Custom connection failed",
+                message=(
+                    f"{sanitize_error_message(exc)} "
+                    "Check the endpoint and Model ID; the connection was not saved."
+                ),
+                prompt="Model ID",
+            )
+            return
+        set_custom_profile(
+            self.provider,
+            display_name=self.custom_name or "Custom",
+            base_url=self.custom_base_url,
+            model=model,
+            api_key=self.custom_api_key,
+            model_ids=[*self.custom_models, model],
+            allow_insecure_http=self.custom_allow_insecure_http,
+            timeout=self.custom_timeout,
+        )
+        await self._finish()
+
+    async def _prompt_custom_timeout(self) -> None:
+        self.step = "custom_timeout"
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="custom_timeout",
+            title=f"Configure {self.custom_name or 'Custom'}",
+            message="Enter a request timeout in seconds, or type default to use Sonex defaults.",
+            prompt="Timeout seconds or default",
+        )
 
     async def _prompt_api_key(self) -> None:
         """Prepares prompt api key for an internal Sonex flow.
@@ -2170,11 +2816,27 @@ class AuthSetupSession:
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="api_key",
-            title=f"{self.provider} API key",
-            message=f"Paste your {self.provider} API key. It will be saved to auth.json.",
-            prompt=f"{self.provider} API key",
+            title=f"{provider_display_name(self.provider)} API key",
+            message=f"Paste your {provider_display_name(self.provider)} API key. It will be saved to auth.json.",
+            prompt="API Key",
+            placeholder="paste your key here",
+            help_text=_api_key_help_text(self.provider),
             mask=True,
             methods=_auth_methods_for_provider(self.provider),
+        )
+
+    async def _prompt_zai_service(self, message: str | None = None) -> None:
+        self.step = "zai_service"
+        await self.ui.send_auth_setup(
+            provider="zai",
+            step="method",
+            title="Connect Z.AI",
+            message=message or "Choose the Z.AI service attached to this API Key.",
+            prompt="Service",
+            methods=[
+                {"value": "api", "label": "API"},
+                {"value": "coding_plan", "label": "Coding Plan"},
+            ],
         )
 
     async def _start_browser_oauth(self) -> None:
@@ -2184,38 +2846,83 @@ class AuthSetupSession:
 
         Example: await _start_browser_oauth() -> returns the value used by the surrounding Sonex flow.
         """
-        self.step = "oauth_wait"
+        if self.provider == "gemini" and credential_storage_backend() == "file":
+            self.credential_fallback_warned = True
+            await self.ui.append_system_message(
+                "Warning: No usable system keyring is available. Continuing will store the Google OAuth "
+                "refresh token in ~/.sonex/oauth-secrets.json with 0600 permissions."
+            )
+        try:
+            self.browser_oauth_pending = begin_browser_oauth(self.provider)
+        except Exception as exc:
+            self.method = None
+            self.step = "method"
+            await self._repeat(sanitize_error_message(exc))
+            return
+        self.step = "oauth_callback"
+        webbrowser.open(self.browser_oauth_pending.authorize_url)
         await self.ui.send_auth_setup(
             provider=self.provider,
-            step="oauth_wait",
+            step="oauth_callback",
             title=f"Authorize {self.provider}",
-            message="Opening browser OAuth. Approve access in the browser, then return to Sonex.",
-            active=False,
+            message=(
+                "Open the authorization URL below. After Google redirects to localhost, "
+                "copy the complete URL from the browser address bar and paste it here.\n"
+                f"{self.browser_oauth_pending.authorize_url}"
+            ),
+            prompt="Full localhost callback URL",
             methods=_auth_methods_for_provider(self.provider),
         )
-        self.oauth_task = asyncio.create_task(self._finish_browser_oauth())
 
-    async def _finish_browser_oauth(self) -> None:
-        """Prepares finish browser oauth for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs finish browser oauth without duplicating the local rules.
-
-        Example: await _finish_browser_oauth() -> returns the value used by the surrounding Sonex flow.
-        """
+    async def _start_openai_oauth(self) -> None:
+        """Start the official managed ChatGPT device-code flow."""
+        self.step = "oauth_wait"
         try:
-            await asyncio.to_thread(run_browser_oauth, self.provider)
-            _set_runtime_default_provider(self.provider)
-            ThinkingConfig.reload()
-        except BrowserOAuthConfigError as exc:
+            server = await asyncio.to_thread(CodexAppServer, timeout=300)
+            login = await asyncio.to_thread(start_chatgpt_device_login, server)
+        except Exception as exc:
             self.step = "method"
             self.method = None
             await self._repeat(sanitize_error_message(exc))
+            return
+        self.codex_server = server
+        await self.ui.send_auth_setup(
+            provider="openai",
+            step="oauth_wait",
+            title="Connect ChatGPT Subscription",
+            message=(
+                "Open the verification URL and enter the device code.\n"
+                f"{login['verificationUrl']}\n"
+                f"Code: {login['userCode']}"
+            ),
+            active=True,
+            methods=_auth_methods_for_provider("openai"),
+        )
+        self.oauth_task = asyncio.create_task(
+            self._finish_openai_oauth(server, login["loginId"])
+        )
+
+    async def _finish_openai_oauth(
+        self,
+        server: CodexAppServer,
+        login_id: str,
+    ) -> None:
+        try:
+            await asyncio.to_thread(wait_for_chatgpt_login, server, login_id)
+            set_managed_auth("openai", "codex_app_server")
+            _set_runtime_default_provider("openai")
+            ThinkingConfig.reload()
+        except asyncio.CancelledError:
             return
         except Exception as exc:
             self.step = "method"
             self.method = None
             await self._repeat(sanitize_error_message(exc))
             return
+        finally:
+            await asyncio.to_thread(server.close)
+            if self.codex_server is server:
+                self.codex_server = None
         await self._finish()
 
     async def _repeat(self, message: str) -> None:
@@ -2225,13 +2932,89 @@ class AuthSetupSession:
 
         Example: await _repeat(message=...) -> returns the value used by the surrounding Sonex flow.
         """
-        if self.method == "oauth" and self.step == "oauth_wait":
+        if self.step == "google_project":
             await self.ui.send_auth_setup(
                 provider=self.provider,
-                step="method",
-                title=f"Connect {self.provider}",
+                step="google_project",
+                title="Google Cloud project",
                 message=message,
-                prompt="oauth or api_key",
+                prompt="Google Cloud project ID",
+            )
+            return
+        if self.step == "zai_service":
+            await self._prompt_zai_service(message)
+            return
+        if self.step == "openai_experimental_confirm":
+            await self.ui.send_auth_setup(
+                provider="openai",
+                step="method",
+                title="ChatGPT Subscription (Experimental)",
+                message=message,
+                prompt="Continue or go back",
+                methods=[
+                    {"value": "continue_experimental", "label": "Continue"},
+                    {"value": "back", "label": "Back"},
+                ],
+            )
+            return
+        if self.step == "custom_name":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_name",
+                title="Add custom connection",
+                message=message,
+                prompt="Connection name",
+            )
+            return
+        if self.step == "custom_base_url":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_base_url",
+                title=f"Connect {self.custom_name or 'Custom'}",
+                message=message,
+                prompt="Base URL",
+            )
+            return
+        if self.step == "custom_timeout":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_timeout",
+                title=f"Configure {self.custom_name or 'Custom'}",
+                message=message,
+                prompt="Timeout seconds or default",
+            )
+            return
+        if self.step in {"custom_model", "custom_model_manual"}:
+            await self._prompt_custom_model()
+            return
+        if self.step == "custom_auth":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="method",
+                title=f"Authenticate {self.custom_name or 'Custom'}",
+                message=message,
+                prompt="Authentication",
+                methods=_auth_methods_for_provider("custom"),
+            )
+            return
+        if self.step == "custom_api_key":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_api_key",
+                title=f"Authenticate {self.custom_name or 'Custom'}",
+                message=message,
+                prompt="API Key",
+                placeholder="paste your key here",
+                mask=True,
+            )
+            return
+        if self.method == "oauth" and self.step in {"oauth_wait", "oauth_callback"}:
+            await self.ui.send_auth_setup(
+                provider=self.provider,
+                step="oauth_callback",
+                title=f"Authorize {self.provider}",
+                message=message,
+                prompt="Full localhost callback URL",
                 methods=_auth_methods_for_provider(self.provider),
             )
             return
@@ -2239,9 +3022,11 @@ class AuthSetupSession:
             await self.ui.send_auth_setup(
                 provider=self.provider,
                 step="api_key",
-                title=f"{self.provider} API key",
+                title=f"{provider_display_name(self.provider)} API key",
                 message=message,
-                prompt=f"{self.provider} API key",
+                prompt="API Key",
+                placeholder="paste your key here",
+                help_text=_api_key_help_text(self.provider),
                 mask=True,
                 methods=_auth_methods_for_provider(self.provider),
             )
@@ -2249,11 +3034,11 @@ class AuthSetupSession:
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="method",
-            title=f"Connect {self.provider}",
+            title=f"Connect {provider_display_name(self.provider)}",
             message=message,
             prompt="oauth or api_key",
             methods=_auth_methods_for_provider(self.provider),
-            providers=LLM_AUTH_PROVIDER_CHOICES if self.pending_input is None else None,
+            providers=_provider_choices_with_status() if self.pending_input is None else None,
         )
 
     async def _finish(self) -> None:
@@ -2272,15 +3057,31 @@ class AuthSetupSession:
         state = _llm_auth_state()
         await self.ui.append_activity(
             kind="status",
-            title=f"{self.provider} connected",
+            title=f"{provider_display_name(self.provider)} connected",
             detail="Continuing your message." if self.pending_input else "Sign-in complete.",
             status="success",
         )
         await self.ui.send_auth_state(state)
+        if self.provider == "gemini" and self.method == "oauth":
+            google_auth = get_provider_auth(load_auth_store(), "gemini")
+            refresh_ref = (
+                google_auth.oauth.refresh_token_ref
+                if google_auth and google_auth.oauth
+                else None
+            )
+            if (
+                refresh_ref
+                and refresh_ref.startswith("file://")
+                and not self.credential_fallback_warned
+            ):
+                await self.ui.append_system_message(
+                    "Warning: No usable system keyring is available. The Google OAuth refresh token is "
+                    "stored in ~/.sonex/oauth-secrets.json with 0600 permissions."
+                )
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="done",
-            title=f"{self.provider} connected",
+            title=f"{provider_display_name(self.provider)} connected",
             message="Sign-in complete. Continuing your message." if self.pending_input else "Sign-in complete.",
             active=False,
         )
@@ -3699,8 +4500,8 @@ SPOTIFY_MODE_REQUIRED_SCOPES = {
     "user-library-read",
 }
 
-SPOTIFY_MODE_COMMANDS = {"apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend", "sandbox", "spotify"}
-APPLE_MODE_COMMANDS = {"apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "queue", "random", "recommend", "sandbox", "spotify"}
+SPOTIFY_MODE_COMMANDS = {"apple", "bye", "connect", "exit", "info", "lang", "login", "logout", "model", "playlist", "queue", "random", "recommend", "sandbox", "spotify"}
+APPLE_MODE_COMMANDS = {"apple", "bye", "connect", "exit", "info", "lang", "login", "logout", "model", "queue", "random", "recommend", "sandbox", "spotify"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS = 5.0
 SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS = 15.0
@@ -4852,6 +5653,7 @@ class WebSocketRunner:
         apple_playback_sync_task = asyncio.create_task(self._sync_apple_playback(ui))
 
         unexpected_disconnect = False
+        usage_observer_token = set_token_usage_observer(ui.record_token_usage)
         try:
             while True:
                 raw = await ws.receive_text()
@@ -4988,6 +5790,7 @@ class WebSocketRunner:
                     },
                 )
             )
+            reset_token_usage_observer(usage_observer_token)
 
     async def _handle_confirm_result(self, ui: WebSocketUIAdapter, confirm_id: str, decision: Any) -> bool:
         provider_mode_exit = getattr(ui, "_provider_mode_exit", None)
@@ -5529,6 +6332,21 @@ class WebSocketRunner:
         setattr(ui, "_spotify_library_synced", False)
         await _send_spotify_mode(ui, mode)
 
+    async def _clear_provider_modes_for_logout(self, ui: WebSocketUIAdapter) -> None:
+        """Reset provider-mode state before ending an authenticated session."""
+        setattr(ui, "_spotify_mode", None)
+        setattr(ui, "_spotify_library_synced", False)
+        setattr(ui, "_spotify_device_selection", None)
+        setattr(ui, "_spotify_play_selection", None)
+        setattr(ui, "_apple_mode", None)
+        setattr(ui, "_apple_play_selection", None)
+        setattr(ui, "_provider_mode_exit", None)
+        _clear_persistent_spotify_mode()
+        clear_provider_mode_intent()
+        await self.provider_modes.restore(ProviderModeState())
+        await _send_spotify_mode(ui, None)
+        await _send_provider_mode(ui, ProviderMode.NORMAL)
+
     async def _handle_spotify_random_command(self, ui: WebSocketUIAdapter) -> None:
         try:
             async def fetch_recent() -> Any:
@@ -5872,6 +6690,15 @@ class WebSocketRunner:
 
         if command_name == "info":
             await ui.append_system_message(_format_runtime_info(_llm_auth_state()))
+            return
+
+        if command_name == "login":
+            if args.strip():
+                await ui.append_system_message("Usage: /login")
+                return
+            setup = AuthSetupSession(ui, _default_provider_name(), None, self)
+            setattr(ui, "_auth_setup", setup)
+            await setup.start("Choose a model provider to connect or switch.")
             return
 
         if command_name == "queue":
@@ -7327,11 +8154,13 @@ class WebSocketRunner:
             await ui.append_system_message(
                 "Cannot clear environment variable credentials from the TUI. Remove the provider API key from your environment, then restart Sonex."
             )
+            await self._clear_provider_modes_for_logout(ui)
             await self._handle_bye(ui, messages=ui.transcript, reason="logout")
             return
 
         if state.credential_source == "local" or state.auth_type == "local":
             await ui.append_system_message(f"Provider '{state.provider}' does not require login.")
+            await self._clear_provider_modes_for_logout(ui)
             await self._handle_bye(ui, messages=ui.transcript, reason="logout")
             return
 
@@ -7340,7 +8169,15 @@ class WebSocketRunner:
             return
 
         try:
-            removed = remove_provider(state.provider)
+            if state.provider == "openai" and state.auth_type == "oauth":
+                await asyncio.to_thread(logout_chatgpt_subscription)
+            if state.auth_type in {"api_key", "oauth"}:
+                removed = remove_provider_method(state.provider, state.auth_type)
+                if state.auth_type == "oauth":
+                    clear_oauth_access_cache(state.provider)
+            else:
+                removed = True
+            clear_default()
             os.environ.pop("SONEX_DEFAULT_PROVIDER", None)
             os.environ.pop("SONEX_DEFAULT_MODEL", None)
             ThinkingConfig._state = None
@@ -7352,8 +8189,11 @@ class WebSocketRunner:
             await ui.append_system_message("You are not logged in.")
             return
 
+        await self._clear_provider_modes_for_logout(ui)
         await ui.send_auth_state(_llm_auth_state())
-        await ui.append_system_message("Signed out successfully.")
+        await ui.append_system_message(
+            "Signed out of the active LLM connection. Other saved provider credentials were preserved."
+        )
         await self._handle_bye(ui, messages=ui.transcript, reason="logout")
 
     async def _handle_bye(
@@ -8450,7 +9290,13 @@ class WebSocketRunner:
             activity_id=planning_activity_id,
         )
 
-        producer_thread = threading.Thread(target=producer, name="sonex-agent-turn", daemon=True)
+        producer_context = copy_context()
+        producer_thread = threading.Thread(
+            target=producer_context.run,
+            args=(producer,),
+            name="sonex-agent-turn",
+            daemon=True,
+        )
         producer_thread.start()
         active_tool_activity_id: str | None = None
         active_tool_name: str | None = None

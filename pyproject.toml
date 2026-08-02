@@ -24,6 +24,7 @@ dependencies = [
     "numpy",
     "mutagen",
     "cryptography",
+    "keyring",
     "dbus-next"
 ]
 

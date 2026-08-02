@@ -13,6 +13,15 @@ from typing import Any, Literal
 AuthMethod = Literal["auto", "oauth", "api_key", "none"]
 
 
+def _optional_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 @dataclass(slots=True)
 class OAuthToken:
     """Represents oauth token.
@@ -21,6 +30,7 @@ class OAuthToken:
     """
     access_token: str
     refresh_token: str | None = None
+    refresh_token_ref: str | None = None
     expires_at: str | None = None
     scopes: list[str] = field(default_factory=list)
 
@@ -35,12 +45,14 @@ class OAuthToken:
         if not data:
             return None
         access_token = str(data.get("access_token") or "")
-        if not access_token:
+        refresh_token_ref = str(data.get("refresh_token_ref") or "") or None
+        if not access_token and not refresh_token_ref:
             return None
         scopes = data.get("scopes") or []
         return cls(
             access_token=access_token,
             refresh_token=data.get("refresh_token"),
+            refresh_token_ref=refresh_token_ref,
             expires_at=data.get("expires_at"),
             scopes=[str(scope) for scope in scopes],
         )
@@ -52,9 +64,13 @@ class OAuthToken:
 
         Example: to_dict() -> returns the value used by the surrounding Sonex flow.
         """
-        data: dict[str, Any] = {"access_token": self.access_token}
-        if self.refresh_token:
+        data: dict[str, Any] = {}
+        if self.access_token and not self.refresh_token_ref:
+            data["access_token"] = self.access_token
+        if self.refresh_token and not self.refresh_token_ref:
             data["refresh_token"] = self.refresh_token
+        if self.refresh_token_ref:
+            data["refresh_token_ref"] = self.refresh_token_ref
         if self.expires_at:
             data["expires_at"] = self.expires_at
         if self.scopes:
@@ -93,9 +109,17 @@ class ProviderAuth:
     auth_method: AuthMethod = "auto"
     api_key: str | None = None
     oauth: OAuthToken | None = None
+    managed_auth: str | None = None
     model: str | None = None
     base_url: str | None = None
     custom_llm_provider: str | None = None
+    project_id: str | None = None
+    display_name: str | None = None
+    model_ids: list[str] = field(default_factory=list)
+    needs_review: bool = False
+    allow_insecure_http: bool = False
+    experimental_confirmed: bool = False
+    timeout: float | None = None
     updated_at: str | None = None
 
     @classmethod
@@ -115,9 +139,21 @@ class ProviderAuth:
             auth_method=method,  # type: ignore[arg-type]
             api_key=data.get("api_key"),
             oauth=OAuthToken.from_dict(data.get("oauth")),
+            managed_auth=data.get("managed_auth"),
             model=data.get("model"),
             base_url=data.get("base_url"),
             custom_llm_provider=data.get("custom_llm_provider"),
+            project_id=data.get("project_id"),
+            display_name=data.get("display_name"),
+            model_ids=[
+                str(item).strip()
+                for item in (data.get("model_ids") or [])
+                if str(item).strip()
+            ],
+            needs_review=bool(data.get("needs_review", False)),
+            allow_insecure_http=bool(data.get("allow_insecure_http", False)),
+            experimental_confirmed=bool(data.get("experimental_confirmed", False)),
+            timeout=_optional_float(data.get("timeout")),
             updated_at=data.get("updated_at"),
         )
 
@@ -133,12 +169,28 @@ class ProviderAuth:
             data["api_key"] = self.api_key
         if self.oauth:
             data["oauth"] = self.oauth.to_dict()
+        if self.managed_auth:
+            data["managed_auth"] = self.managed_auth
         if self.model:
             data["model"] = self.model
         if self.base_url:
             data["base_url"] = self.base_url
         if self.custom_llm_provider:
             data["custom_llm_provider"] = self.custom_llm_provider
+        if self.project_id:
+            data["project_id"] = self.project_id
+        if self.display_name:
+            data["display_name"] = self.display_name
+        if self.model_ids:
+            data["model_ids"] = self.model_ids
+        if self.needs_review:
+            data["needs_review"] = True
+        if self.allow_insecure_http:
+            data["allow_insecure_http"] = True
+        if self.experimental_confirmed:
+            data["experimental_confirmed"] = True
+        if self.timeout is not None:
+            data["timeout"] = self.timeout
         if self.updated_at:
             data["updated_at"] = self.updated_at
         return data

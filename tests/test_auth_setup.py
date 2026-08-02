@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, patch
 from src.api.music_intent import MusicIntentDecision, MusicIntentRoute
 from src.api.ws_runner import PlayRequestParse, WebSocketRunner
 from src.auth.models import OAuthToken
-from src.auth.store import load_auth_store, set_api_key, set_oauth_token
+from src.auth.store import load_auth_store, set_api_key, set_default, set_oauth_token
 from src.thinking.config import ThinkingConfig
 
 
@@ -42,6 +42,13 @@ class FakeUI:
         Example: append_user_message() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "chat", "role": "user", "text": text})
+
+    async def append_system_message(self, text: str) -> None:
+        """Collects local System notices appended to the chat transcript."""
+        self.events.append({"type": "chat", "role": "agent", "tone": "system", "text": text})
+
+    async def append_caution_message(self, text: str) -> None:
+        self.events.append({"type": "chat", "role": "agent", "tone": "error", "text": text})
 
     async def append_activity(self, **kwargs: object) -> str:
         """Verifies that append activity behaves as expected.
@@ -127,8 +134,12 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(runner._run_agent_turn.called)
             auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
             self.assertEqual(auth_events[-1]["provider"], "openai")
-            self.assertEqual(auth_events[-1]["step"], "api_key")
-            self.assertTrue(auth_events[-1]["mask"])
+            self.assertEqual(auth_events[-1]["step"], "method")
+            self.assertEqual(
+                [method["value"] for method in auth_events[-1]["methods"][:2]],
+                ["oauth", "api_key"],
+            )
+            self.assertNotIn("mask", auth_events[-1])
 
     async def test_api_key_login_saves_auth_and_continues_pending_input(self) -> None:
         """Verifies that api key login saves auth and continues pending input behaves as expected.
@@ -144,6 +155,15 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
 
             await runner._handle_user_input(ui, "continue me")
             setup = getattr(ui, "_auth_setup")
+            await setup.handle_input("api_key")
+            api_key_event = [event for event in ui.events if event.get("type") == "auth_setup"][-1]
+            self.assertEqual(api_key_event["title"], "OpenAI API key")
+            self.assertEqual(api_key_event["prompt"], "API Key")
+            self.assertEqual(api_key_event["placeholder"], "paste your key here")
+            self.assertEqual(
+                api_key_event["help_text"],
+                "Haven't got an API Key? Get one at https://platform.openai.com/api-keys.",
+            )
             await setup.handle_input("sk-test")
             await asyncio.sleep(0)
 
@@ -154,7 +174,7 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(call.args[:2], (ui, "continue me"))
             self.assertEqual(call.kwargs["command_intent"].command, "general")
 
-    async def test_ollama_default_provider_does_not_require_login(self) -> None:
+    async def test_retired_ollama_default_is_ignored(self) -> None:
         """Verifies that ollama default provider does not require login behaves as expected.
 
         Typical use: Use this in automated tests when guarding the ollama default provider does not require login behavior against regressions.
@@ -169,9 +189,9 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_user_input(ui, "hello")
             await asyncio.sleep(0)
 
-            runner._run_agent_turn.assert_called_once()
-            self.assertEqual(runner._run_agent_turn.call_args.args[:2], (ui, "hello"))
-            self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
+            runner._run_agent_turn.assert_not_called()
+            auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+            self.assertEqual(auth_events[-1]["provider"], "openai")
 
     async def test_existing_auth_store_key_does_not_require_login(self) -> None:
         """Verifies that existing auth store key does not require login behaves as expected.
@@ -240,7 +260,10 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(auth_events[-1]["step"], "provider")
             self.assertEqual(
                 [choice["value"] for choice in auth_events[-1]["providers"]],
-                ["openai", "anthropic", "gemini", "deepseek", "ollama"],
+                [
+                    "openai", "gemini", "anthropic", "deepseek", "openrouter", "zai",
+                    "kimi_global", "kimi_cn", "minimax_global", "minimax_cn", "xai", "custom",
+                ],
             )
 
     async def test_startup_existing_auth_store_key_skips_setup(self) -> None:
@@ -325,7 +348,7 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(auth_states[-1]["credential_source"], "env")
             self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
 
-    async def test_startup_ollama_skips_setup_as_local(self) -> None:
+    async def test_startup_retired_ollama_falls_back_to_openai_login(self) -> None:
         """Verifies that startup ollama skips setup as local behaves as expected.
 
         Typical use: Use this in automated tests when guarding the startup ollama skips setup as local behavior against regressions.
@@ -339,10 +362,9 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_startup_auth(ui)
 
             auth_states = [event for event in ui.events if event.get("type") == "auth_state"]
-            self.assertTrue(auth_states[-1]["ready"])
-            self.assertEqual(auth_states[-1]["auth_type"], "local")
-            self.assertEqual(auth_states[-1]["credential_source"], "local")
-            self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
+            self.assertFalse(auth_states[-1]["ready"])
+            self.assertEqual(auth_states[-1]["provider"], "openai")
+            self.assertTrue([event for event in ui.events if event.get("type") == "auth_setup"])
 
     async def test_startup_api_key_login_saves_auth_without_agent_turn(self) -> None:
         """Verifies that startup api key login saves auth without agent turn behaves as expected.
@@ -359,6 +381,7 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             await runner._handle_startup_auth(ui)
             setup = getattr(ui, "_auth_setup")
             await setup.handle_input("openai")
+            await setup.handle_input("api_key")
             await setup.handle_input("sk-test")
             await asyncio.sleep(0)
 
@@ -390,7 +413,95 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(auth_events[-1]["provider"], "gemini")
             self.assertEqual(auth_events[-1]["step"], "method")
             self.assertEqual([choice["value"] for choice in auth_events[-1]["methods"]], ["oauth", "api_key"])
-            self.assertEqual(load_auth_store().default_provider, "gemini")
+            self.assertIsNone(load_auth_store().default_provider)
+
+    async def test_login_provider_status_counts_environment_api_keys(self) -> None:
+        with self._isolated_auth_env({"SONEX_OPENAI_API_KEY": "sk-env"}):
+            runner = WebSocketRunner()
+            runner._run_agent_turn = AsyncMock()
+            ui = FakeUI()
+
+            await runner._handle_user_input(ui, "/login")
+
+            event = [event for event in ui.events if event.get("type") == "auth_setup"][-1]
+            providers = {choice["value"]: choice for choice in event["providers"]}
+            self.assertEqual(providers["openai"]["connection_status"], "active")
+            self.assertEqual(providers["openai"]["label"], "OpenAI — Active")
+            self.assertEqual(providers["deepseek"]["connection_status"], "missing")
+            self.assertEqual(providers["deepseek"]["label"], "DeepSeek — Not connected")
+
+    async def test_login_distinguishes_active_saved_and_missing_providers(self) -> None:
+        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": ""}):
+            set_api_key("openai", "sk-openai")
+            set_api_key("deepseek", "sk-deepseek")
+            set_default("openai", "gpt-5.5")
+            runner = WebSocketRunner()
+            ui = FakeUI()
+
+            await runner._handle_user_input(ui, "/login")
+
+            event = [event for event in ui.events if event.get("type") == "auth_setup"][-1]
+            providers = {choice["value"]: choice for choice in event["providers"]}
+            self.assertEqual(providers["openai"]["connection_status"], "active")
+            self.assertEqual(providers["deepseek"]["connection_status"], "saved")
+            self.assertEqual(providers["openrouter"]["connection_status"], "missing")
+
+    async def test_login_reactivates_saved_provider_without_asking_for_key(self) -> None:
+        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": ""}):
+            set_api_key("openai", "sk-openai")
+            set_api_key("deepseek", "sk-deepseek")
+            set_default("openai", "gpt-5.5")
+            runner = WebSocketRunner()
+            ui = FakeUI()
+
+            await runner._handle_user_input(ui, "/login")
+            setup = getattr(ui, "_auth_setup")
+            await setup.handle_input("deepseek")
+
+            store = load_auth_store()
+            self.assertEqual(store.default_provider, "deepseek")
+            self.assertEqual(store.providers["openai"].api_key, "sk-openai")
+            self.assertEqual(store.providers["deepseek"].api_key, "sk-deepseek")
+            self.assertFalse(any(
+                event.get("type") == "auth_setup" and event.get("step") == "api_key"
+                for event in ui.events
+            ))
+
+    async def test_zai_login_saves_selected_service_endpoint(self) -> None:
+        with self._isolated_auth_env():
+            runner = WebSocketRunner()
+            ui = FakeUI()
+
+            await runner._handle_user_input(ui, "/login")
+            setup = getattr(ui, "_auth_setup")
+            await setup.handle_input("zai")
+            service_event = [event for event in ui.events if event.get("type") == "auth_setup"][-1]
+            self.assertEqual([choice["value"] for choice in service_event["methods"]], ["api", "coding_plan"])
+            await setup.handle_input("coding_plan")
+            await setup.handle_input("zai-key")
+
+            auth = load_auth_store().providers["zai"]
+            self.assertEqual(auth.base_url, "https://api.z.ai/api/coding/paas/v4")
+            self.assertEqual(load_auth_store().default_provider, "zai")
+
+    async def test_custom_bearer_key_prompt_uses_shared_api_key_copy_without_signup_link(self) -> None:
+        with self._isolated_auth_env():
+            runner = WebSocketRunner()
+            ui = FakeUI()
+
+            await runner._handle_user_input(ui, "/login")
+            setup = getattr(ui, "_auth_setup")
+            await setup.handle_input("custom")
+            await setup.handle_input("__add_custom__")
+            await setup.handle_input("Local Test")
+            await setup.handle_input("http://127.0.0.1:11434/v1")
+            await setup.handle_input("api_key")
+
+            event = [event for event in ui.events if event.get("type") == "auth_setup"][-1]
+            self.assertEqual(event["step"], "custom_api_key")
+            self.assertEqual(event["prompt"], "API Key")
+            self.assertEqual(event["placeholder"], "paste your key here")
+            self.assertNotIn("help_text", event)
 
     async def test_startup_anthropic_api_key_sets_default_provider(self) -> None:
         """Verifies that startup anthropic api key sets default provider behaves as expected.
@@ -418,7 +529,7 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(auth_states[-1]["provider"], "anthropic")
             self.assertTrue(auth_states[-1]["ready"])
 
-    async def test_startup_ollama_selection_completes_as_local(self) -> None:
+    async def test_retired_ollama_is_not_a_provider_choice(self) -> None:
         """Verifies that startup ollama selection completes as local behaves as expected.
 
         Typical use: Use this in automated tests when guarding the startup ollama selection completes as local behavior against regressions.
@@ -436,14 +547,10 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0)
 
             store = load_auth_store()
-            self.assertEqual(store.default_provider, "ollama")
-            self.assertEqual(store.default_model, "Gemma4-31b:cloud")
+            self.assertIsNone(store.default_provider)
             self.assertFalse(runner._run_agent_turn.called)
-            auth_states = [event for event in ui.events if event.get("type") == "auth_state"]
-            self.assertTrue(auth_states[-1]["ready"])
-            self.assertEqual(auth_states[-1]["provider"], "ollama")
-            self.assertEqual(auth_states[-1]["model"], "Gemma4-31b:cloud")
-            self.assertEqual(auth_states[-1]["auth_type"], "local")
+            auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+            self.assertEqual(auth_events[-1]["step"], "provider")
 
     async def test_provider_defaults_apply_to_runtime_config(self) -> None:
         """Verifies that provider defaults apply to runtime config behaves as expected.
@@ -458,8 +565,15 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(ThinkingConfig.get_model(), "claude-fable-5")
             self.assertEqual(ThinkingConfig.get_provider_config("openai").model, "gpt-5.5")
             self.assertEqual(ThinkingConfig.get_provider_config("gemini").model, "gemini-3.5-flash")
-            self.assertEqual(ThinkingConfig.get_provider_config("ollama").model, "Gemma4-31b:cloud")
+            self.assertEqual(ThinkingConfig.get_provider_config("custom").custom_llm_provider, "openai")
             self.assertEqual(ThinkingConfig.get_provider_config("deepseek").model, "deepseek-v4-pro")
+            self.assertEqual(ThinkingConfig.get_provider_config("openrouter").base_url, "https://openrouter.ai/api/v1")
+            self.assertEqual(ThinkingConfig.get_provider_config("zai").base_url, "https://api.z.ai/api/paas/v4")
+            self.assertEqual(ThinkingConfig.get_provider_config("kimi_global").base_url, "https://api.moonshot.ai/v1")
+            self.assertEqual(ThinkingConfig.get_provider_config("kimi_cn").base_url, "https://api.moonshot.cn/v1")
+            self.assertEqual(ThinkingConfig.get_provider_config("minimax_global").base_url, "https://api.minimax.io/v1")
+            self.assertEqual(ThinkingConfig.get_provider_config("minimax_cn").base_url, "https://api.minimaxi.com/v1")
+            self.assertEqual(ThinkingConfig.get_provider_config("xai").base_url, "https://api.x.ai/v1")
 
     async def test_model_command_opens_model_choices(self) -> None:
         """Verifies that model command opens model choices behaves as expected.
@@ -476,7 +590,7 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             with patch(
                 "src.api.ws_runner._model_choices_for_provider",
                 return_value=[
-                    {"value": "openai::gpt-5.5", "label": "gpt-5.5", "provider": "OpenAI"},
+                    {"value": "openai::gpt-5.5", "label": "GPT-5.5", "provider": "OpenAI"},
                     {"value": "openai::gpt-5.4", "label": "gpt-5.4", "provider": "OpenAI"},
                     {"value": "openai::gpt-5.4-mini", "label": "gpt-5.4-mini", "provider": "OpenAI"},
                 ],
@@ -504,7 +618,7 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             with patch(
                 "src.api.ws_runner._model_choices_for_provider",
                 return_value=[
-                    {"value": "openai::gpt-5.5", "label": "gpt-5.5", "provider": "OpenAI"},
+                    {"value": "openai::gpt-5.5", "label": "GPT-5.5", "provider": "OpenAI"},
                 ],
             ):
                 await runner._handle_user_input(ui, "/model")
@@ -519,6 +633,58 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(auth_states[-1]["ready"])
             self.assertEqual(auth_states[-1]["provider"], "openai")
             self.assertEqual(auth_states[-1]["model"], "gpt-5.5")
+            confirmation_panels = [
+                event
+                for event in ui.events
+                if event.get("type") == "auth_setup" and event.get("title") == "Model switched"
+            ]
+            self.assertEqual(confirmation_panels, [])
+            dismissal_events = [
+                event
+                for event in ui.events
+                if event.get("type") == "auth_setup"
+                and event.get("step") == "model"
+                and event.get("active") is False
+            ]
+            self.assertEqual(len(dismissal_events), 1)
+            switch_messages = [
+                event
+                for event in ui.events
+                if event.get("type") == "chat"
+                and event.get("tone") == "system"
+                and str(event.get("text", "")).startswith("✔  ")
+            ]
+            self.assertEqual(
+                switch_messages,
+                [
+                    {
+                        "type": "chat",
+                        "role": "agent",
+                        "tone": "system",
+                        "text": "✔  Model has been switched to OpenAI: GPT-5.5.",
+                    }
+                ],
+            )
+
+    async def test_model_command_rejects_unconnected_provider_without_mutation(self) -> None:
+        with self._isolated_auth_env():
+            runner = WebSocketRunner()
+            ui = FakeUI()
+
+            await runner._handle_user_input(ui, "/model")
+
+            self.assertIsNone(getattr(ui, "_model_setup"))
+            self.assertFalse(any(event.get("type") == "auth_setup" for event in ui.events))
+            self.assertEqual(
+                [event for event in ui.events if event.get("tone") == "error"],
+                [{
+                    "type": "chat",
+                    "role": "agent",
+                    "tone": "error",
+                    "text": '✖  OpenAI is not connected. Try "/login" to connect.',
+                }],
+            )
+            self.assertIsNone(load_auth_store().default_model)
 
     async def test_model_selection_cancel_closes_setup(self) -> None:
         """Verifies that model selection cancel closes setup without changing model.

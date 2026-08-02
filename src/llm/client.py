@@ -11,9 +11,9 @@ from src.llm.adapter import LLMAdapter
 from src.llm.adapter.base import DefaultAdapter
 from src.llm.adapter.anthropic_adapter import AnthropicAdapter
 from src.llm.adapter.gemini_adapter import GeminiAdapter
-from src.llm.adapter.ollama_adapter import OllamaAdapter
 from src.llm.transport import (
     AnthropicOfficialTransport,
+    CodexAppServerTransport,
     GeminiOfficialTransport,
     LLMTransport,
     ChatRequest,
@@ -22,6 +22,7 @@ from src.llm.transport import (
     OpenAICompatibleTransport,
 )
 from src.llm.transport.deepseek import DeepSeekTransport
+from src.llm.usage import report_token_usage
 from src.log import get_logger
 
 logger = get_logger(__name__)
@@ -31,7 +32,29 @@ _DEFAULT_ADAPTERS = {
     "anthropic": AnthropicAdapter(),
     "gemini": GeminiAdapter(),
     "deepseek": DefaultAdapter(),
-    "ollama": OllamaAdapter(),
+    "custom": DefaultAdapter(),
+    **{
+        provider: DefaultAdapter()
+        for provider in (
+            "openrouter",
+            "zai",
+            "kimi_global",
+            "kimi_cn",
+            "minimax_global",
+            "minimax_cn",
+            "xai",
+        )
+    },
+}
+
+_OPENAI_COMPATIBLE_PROVIDERS = {
+    "openrouter",
+    "zai",
+    "kimi_global",
+    "kimi_cn",
+    "minimax_global",
+    "minimax_cn",
+    "xai",
 }
 
 class ProviderClient:
@@ -40,7 +63,7 @@ class ProviderClient:
     Args:
         runtime_config: include provider and model for resolve.
         transport: the transport for sending request to provider.
-        adapters: list of adapters. Default adapters: "anthropic", "gemini", "ollama".
+        adapters: list of adapters. Default adapters include official providers and Custom.
     """
     def __init__(
         self,
@@ -62,6 +85,10 @@ class ProviderClient:
             "anthropic": AnthropicOfficialTransport(),
             "gemini": GeminiOfficialTransport(),
             "deepseek": DeepSeekTransport(),
+            **{
+                provider: OpenAICompatibleTransport(default_base_url="")
+                for provider in _OPENAI_COMPATIBLE_PROVIDERS
+            },
         }
         if adapters is None:
             adapters = _DEFAULT_ADAPTERS
@@ -84,11 +111,18 @@ class ProviderClient:
             raise RuntimeError(message)
 
         provider_request = adapter.to_provider_request(request, provider_config)
-        transport = self.provider_transports.get(provider_name, self.transport)
+        transport = (
+            OpenAICompatibleTransport(default_base_url=provider_config.base_url or "")
+            if provider_name == "custom" or provider_name.startswith("custom__")
+            else CodexAppServerTransport()
+            if provider_name == "openai" and provider_config.billing_mode == "chatgpt_subscription"
+            else self.provider_transports.get(provider_name, self.transport)
+        )
         raw_response = transport.send(provider_request, provider_config)
         if raw_response is None:
             raise RuntimeError(f"Provider '{provider_name}' returned an empty response.")
         response = adapter.from_provider_response(raw_response)
+        report_token_usage(response.usage)
         if not response.tool_calls and not response.output_text:
             raise RuntimeError(f"Provider '{provider_name}' returned no text or tool call.")
         if response.raw_output is None:

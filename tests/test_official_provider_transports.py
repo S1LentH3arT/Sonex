@@ -189,6 +189,28 @@ class ProviderClientRoutingTests(unittest.TestCase):
         official.send.assert_called_once()
         fallback.send.assert_not_called()
 
+    def test_first_class_compatible_providers_use_openai_compatible_transport(self) -> None:
+        providers = {
+            "openrouter", "zai", "kimi_global", "kimi_cn",
+            "minimax_global", "minimax_cn", "xai",
+        }
+        runtime = RuntimeConfig(
+            default_provider="openrouter",
+            default_model="openrouter/auto",
+            providers={
+                provider: ProviderConfig(name=provider, model="model", api_key="key", base_url="https://example.test/v1")
+                for provider in providers
+            },
+        )
+
+        client = ProviderClient(runtime_config=runtime)
+
+        self.assertEqual(set(client.provider_transports).intersection(providers), providers)
+        self.assertTrue(all(
+            isinstance(client.provider_transports[provider], OpenAICompatibleTransport)
+            for provider in providers
+        ))
+
     def test_anthropic_client_builds_native_payload_for_official_transport(self) -> None:
         """Verifies that anthropic client builds native payload for official transport behaves as expected.
 
@@ -220,9 +242,9 @@ class ProviderClientRoutingTests(unittest.TestCase):
         Example: test_unknown_provider_uses_litellm_fallback() -> passes without assertion failures when the behavior remains correct.
         """
         runtime = RuntimeConfig(
-            default_provider="custom",
+            default_provider="unknown",
             default_model="custom-model",
-            providers={"custom": ProviderConfig(name="custom", model="custom-model", api_key="sk-test")},
+            providers={"unknown": ProviderConfig(name="unknown", model="custom-model", api_key="sk-test")},
         )
         fallback = Mock()
         fallback.send.return_value = {"choices": [{"message": {"content": "ok"}}]}

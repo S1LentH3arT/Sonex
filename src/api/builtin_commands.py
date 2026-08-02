@@ -90,6 +90,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("info", "/info", "show current runtime information"),
     BuiltinCommand("keymap", "/keymap [on|off|toggle|status]", "enable or disable mini-player playback shortcuts"),
     BuiltinCommand("lang", "/lang", "choose the TUI display language", enabled=False),
+    BuiltinCommand("login", "/login", "connect or switch the active LLM provider"),
     BuiltinCommand("model", "/model", "switch the active model for this session"),
     BuiltinCommand("logout", "/logout", "sign out from the current LLM provider and exit"),
     BuiltinCommand("playlist", "/playlist [name]|save [name]", "browse playlists or save the current song"),

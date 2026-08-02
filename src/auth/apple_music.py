@@ -165,7 +165,7 @@ def apple_music_credentials() -> AppleMusicCredentials:
     provider = get_provider_auth(load_auth_store(), APPLE_MUSIC_PROVIDER)
     if not provider or not provider.api_key:
         raise AppleMusicConfigMissingError(
-            "Apple Music developer credentials are missing. Run `sonex auth set-key apple_music --api-key '<json-or-path>'`."
+            "Apple Music developer credentials are missing. Open /apple to configure Apple Music."
         )
     return AppleMusicCredentials.from_dict(_load_json_or_file(provider.api_key))
 
@@ -204,7 +204,7 @@ def ensure_apple_music_user_token() -> OAuthToken:
     token = load_apple_music_user_token()
     if not token or not token.access_token:
         raise AppleMusicUserTokenRequiredError(
-            "Apple Music user token is missing. Run `sonex auth login apple_music --access-token <music-user-token>`."
+            "Apple Music user token is missing. Open /apple to authorize Apple Music."
         )
     return token
 

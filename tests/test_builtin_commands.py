@@ -339,7 +339,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertIn("/exit", format_help())
         self.assertIn("/model", format_help())
         self.assertNotIn("/quit", format_help())
-        self.assertEqual([command.name for command in command_suggestions("/log")], ["logout"])
+        self.assertEqual([command.name for command in command_suggestions("/log")], ["login", "logout"])
         self.assertIn("/logout", format_help("log"))
 
     def test_suggestions_are_sorted(self) -> None:

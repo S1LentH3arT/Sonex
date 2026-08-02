@@ -13,6 +13,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from src.auth.providers import provider_display_name
 from src.llm.config import ProviderConfig
 from src.llm.transport import LLMTransportError, sanitize_error_message
 
@@ -63,44 +64,54 @@ class ModelCatalog(Protocol):
 DEEPSEEK_FALLBACK_MODELS = [
     ModelInfo(
         id="deepseek-v4-pro",
-        label="deepseek-v4-pro",
+        label="DeepSeek-V4-Pro",
         provider="deepseek",
         description="DeepSeek V4 Pro",
         source="fallback",
     ),
     ModelInfo(
         id="deepseek-v4-flash",
-        label="deepseek-v4-flash",
+        label="DeepSeek-V4-Flash",
         provider="deepseek",
         description="DeepSeek V4 Flash",
         source="fallback",
     ),
 ]
 OPENAI_FALLBACK_MODELS = [
-    ModelInfo(id="gpt-5.5", label="gpt-5.5", provider="openai", source="fallback"),
-    ModelInfo(id="gpt-5.4", label="gpt-5.4", provider="openai", source="fallback"),
-    ModelInfo(id="gpt-5.4-mini", label="gpt-5.4-mini", provider="openai", source="fallback"),
-    ModelInfo(id="gpt-5.4-nano", label="gpt-5.4-nano", provider="openai", source="fallback"),
+    ModelInfo(id="gpt-5.5", label="GPT-5.5", provider="openai", source="fallback"),
+    ModelInfo(id="gpt-5.4", label="GPT-5.4", provider="openai", source="fallback"),
+    ModelInfo(id="gpt-5.4-mini", label="GPT-5.4 mini", provider="openai", source="fallback"),
+    ModelInfo(id="gpt-5.4-nano", label="GPT-5.4 nano", provider="openai", source="fallback"),
 ]
 ANTHROPIC_FALLBACK_MODELS = [
-    ModelInfo(id="claude-fable-5", label="claude-fable-5", provider="anthropic", source="fallback"),
+    ModelInfo(id="claude-fable-5", label="Claude Fable 5", provider="anthropic", source="fallback"),
     ModelInfo(
         id="claude-opus-4-8",
-        label="claude-opus-4-8",
+        label="Claude Opus 4.8",
         provider="anthropic",
         source="fallback",
     ),
-    ModelInfo(id="claude-sonnet-4-6", label="claude-sonnet-4-6", provider="anthropic", source="fallback"),
-    ModelInfo(id="claude-haiku-4-5-20251001", label="claude-haiku-4-5-20251001", provider="anthropic", source="fallback"),
+    ModelInfo(id="claude-sonnet-4-6", label="Claude Sonnet 4.6", provider="anthropic", source="fallback"),
+    ModelInfo(id="claude-haiku-4-5-20251001", label="Claude Haiku 4.5", provider="anthropic", source="fallback"),
 ]
 GEMINI_FALLBACK_MODELS = [
-    ModelInfo(id="gemini-3.5-flash", label="gemini-3.5-flash", provider="gemini", source="fallback"),
-    ModelInfo(id="gemini-3.1-pro", label="gemini-3.1-pro", provider="gemini", source="fallback"),
-    ModelInfo(id="gemini-3.1-flash-lite", label="gemini-3.1-flash-lite", provider="gemini", source="fallback"),
-    ModelInfo(id="gemini-2.5-pro", label="gemini-2.5-pro", provider="gemini", source="fallback"),
-    ModelInfo(id="gemini-2.5-flash", label="gemini-2.5-flash", provider="gemini", source="fallback"),
-    ModelInfo(id="gemini-2.5-flash-lite", label="gemini-2.5-flash-lite", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-3.5-flash", label="Gemini 3.5 Flash", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-3.1-pro", label="Gemini 3.1 Pro", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-3.1-flash-lite", label="Gemini 3.1 Flash-Lite", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-2.5-pro", label="Gemini 2.5 Pro", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-2.5-flash", label="Gemini 2.5 Flash", provider="gemini", source="fallback"),
+    ModelInfo(id="gemini-2.5-flash-lite", label="Gemini 2.5 Flash-Lite", provider="gemini", source="fallback"),
 ]
+
+OPENAI_COMPATIBLE_FALLBACK_MODELS: dict[str, list[ModelInfo]] = {
+    "openrouter": [ModelInfo(id="openrouter/auto", label="Auto", provider="openrouter", source="fallback")],
+    "zai": [ModelInfo(id="glm-5.1", label="GLM-5.1", provider="zai", source="fallback")],
+    "kimi_global": [ModelInfo(id="kimi-k2.6", label="Kimi K2.6", provider="kimi_global", source="fallback")],
+    "kimi_cn": [ModelInfo(id="kimi-k2.5", label="Kimi K2.5", provider="kimi_cn", source="fallback")],
+    "minimax_global": [ModelInfo(id="MiniMax-M2.7", label="MiniMax M2.7", provider="minimax_global", source="fallback")],
+    "minimax_cn": [ModelInfo(id="MiniMax-M2.7", label="MiniMax M2.7", provider="minimax_cn", source="fallback")],
+    "xai": [ModelInfo(id="grok-4.5", label="Grok 4.5", provider="xai", source="fallback")],
+}
 
 class DeepSeekModelCatalog(ModelCatalog):
     """Represents deep seek model catalog.
@@ -178,6 +189,18 @@ class GeminiModelCatalog(ModelCatalog):
         return models or list(GEMINI_FALLBACK_MODELS)
 
 
+class OpenAICompatibleModelCatalog(ModelCatalog):
+    """Discover chat models exposed by a first-class OpenAI-compatible provider."""
+
+    def list_models(self, config: ProviderConfig) -> list[ModelInfo]:
+        fallback = OPENAI_COMPATIBLE_FALLBACK_MODELS.get(config.name, [])
+        try:
+            models = _fetch_openai_compatible_models(config)
+        except Exception:
+            return list(fallback)
+        return models or list(fallback)
+
+
 def list_provider_models(config: ProviderConfig) -> list[ModelInfo]:
     """Coordinates list provider models for the current Sonex flow.
 
@@ -190,11 +213,41 @@ def list_provider_models(config: ProviderConfig) -> list[ModelInfo]:
         "anthropic": AnthropicModelCatalog(),
         "gemini": GeminiModelCatalog(),
         "deepseek": DeepSeekModelCatalog(),
+        **{
+            provider: OpenAICompatibleModelCatalog()
+            for provider in OPENAI_COMPATIBLE_FALLBACK_MODELS
+        },
     }
     catalog = catalogs.get(config.name)
-    if catalog:
-        return catalog.list_models(config)
-    return _static_provider_models(config)
+    models = catalog.list_models(config) if catalog else _static_provider_models(config)
+    _remember_model_labels(models)
+    return models
+
+
+_MODEL_LABELS: dict[tuple[str, str], str] = {}
+
+
+def _remember_model_labels(models: list[ModelInfo]) -> None:
+    for model in models:
+        _MODEL_LABELS[(model.provider, model.id)] = model.label
+
+
+def model_display_name(provider: str, model_id: str) -> str:
+    """Return an explicit provider display name, or the exact API model ID."""
+    remembered = _MODEL_LABELS.get((provider, model_id))
+    if remembered:
+        return remembered
+    for models in (
+        DEEPSEEK_FALLBACK_MODELS,
+        OPENAI_FALLBACK_MODELS,
+        ANTHROPIC_FALLBACK_MODELS,
+        GEMINI_FALLBACK_MODELS,
+        *OPENAI_COMPATIBLE_FALLBACK_MODELS.values(),
+    ):
+        for model in models:
+            if model.provider == provider and model.id == model_id:
+                return model.label
+    return model_id
 
 
 def model_choices_for_provider(config: ProviderConfig) -> list[dict[str, str]]:
@@ -237,10 +290,11 @@ def _fetch_deepseek_models(config: ProviderConfig) -> list[ModelInfo]:
         model_id = str(item.get("id") or "").strip()
         if not model_id or not _is_supported_deepseek_model(model_id):
             continue
+        label = _model_label_from_metadata(item, "deepseek", model_id)
         models.append(
             ModelInfo(
                 id=model_id,
-                label=model_id,
+                label=label,
                 provider="deepseek",
                 source="api",
             )
@@ -272,7 +326,8 @@ def _fetch_openai_models(config: ProviderConfig) -> list[ModelInfo]:
         model_id = str(item.get("id") or "").strip()
         if not model_id or not _is_supported_openai_model(model_id):
             continue
-        models.append(ModelInfo(id=model_id, label=model_id, provider="openai", source="api"))
+        label = _model_label_from_metadata(item, "openai", model_id)
+        models.append(ModelInfo(id=model_id, label=label, provider="openai", source="api"))
     return _sort_models(models)
 
 
@@ -301,7 +356,8 @@ def _fetch_anthropic_models(config: ProviderConfig) -> list[ModelInfo]:
         model_id = str(item.get("id") or "").strip()
         if not model_id or not _is_supported_anthropic_model(model_id):
             continue
-        models.append(ModelInfo(id=model_id, label=model_id, provider="anthropic", source="api"))
+        label = _model_label_from_metadata(item, "anthropic", model_id)
+        models.append(ModelInfo(id=model_id, label=label, provider="anthropic", source="api"))
     return _sort_models(models)
 
 
@@ -321,6 +377,8 @@ def _fetch_gemini_models(config: ProviderConfig) -> list[ModelInfo]:
     request = urllib.request.Request(url, method="GET")
     if authorization:
         request.add_header("Authorization", authorization)
+    if config.extra_headers.get("x-goog-user-project"):
+        request.add_header("x-goog-user-project", config.extra_headers["x-goog-user-project"])
 
     data = _read_json_response(request, config.timeout)
     raw_models = data.get("models") if isinstance(data, dict) else None
@@ -339,40 +397,127 @@ def _fetch_gemini_models(config: ProviderConfig) -> list[ModelInfo]:
             model_id = model_id.removeprefix("models/")
         if not model_id or not _is_supported_gemini_model(model_id):
             continue
-        models.append(ModelInfo(id=model_id, label=model_id, provider="gemini", source="api"))
+        label = str(item.get("displayName") or model_id).strip() or model_id
+        models.append(ModelInfo(id=model_id, label=label, provider="gemini", source="api"))
+    return _sort_models(models)
+
+
+def _fetch_openai_compatible_models(config: ProviderConfig) -> list[ModelInfo]:
+    if not config.api_key:
+        raise LLMTransportError(f"{provider_display_name(config.name)} model list failed: missing API key")
+    if not config.base_url:
+        raise LLMTransportError(f"{provider_display_name(config.name)} model list failed: missing base URL")
+    request = urllib.request.Request(_join_url(config.base_url, "models"), method="GET")
+    request.add_header("Authorization", f"Bearer {config.api_key}")
+    for key, value in config.extra_headers.items():
+        request.add_header(key, value)
+
+    data = _read_json_response(request, config.timeout)
+    raw_models = data.get("data") if isinstance(data, dict) else None
+    if not isinstance(raw_models, list):
+        return []
+
+    models: list[ModelInfo] = []
+    for item in raw_models:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("id") or "").strip()
+        if not model_id or not _is_agent_text_model(item, model_id):
+            continue
+        label = _model_label_from_metadata(item, config.name, model_id)
+        models.append(ModelInfo(id=model_id, label=label, provider=config.name, source="api"))
     return _sort_models(models)
 
 
 def _is_supported_deepseek_model(model_id: str) -> bool:
-    return model_id in {"deepseek-v4-pro", "deepseek-v4-flash"}
+    normalized = model_id.lower()
+    if normalized in {"deepseek-chat", "deepseek-reasoner"}:
+        return False
+    return not any(token in normalized for token in ("embedding", "image", "rerank", "tts"))
 
 
 def _is_supported_openai_model(model_id: str) -> bool:
-    return model_id in {"gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
+    normalized = model_id.lower()
+    excluded = (
+        "babbage",
+        "curie",
+        "dall-e",
+        "davinci",
+        "audio",
+        "embedding",
+        "image",
+        "moderation",
+        "realtime",
+        "search",
+        "transcribe",
+        "tts",
+        "whisper",
+    )
+    return not any(token in normalized for token in excluded)
 
 
 def _is_supported_anthropic_model(model_id: str) -> bool:
-    if model_id in {"claude-mythos-5", "claude-mythos-preview"}:
-        return False
-    return model_id in {
-        "claude-fable-5",
-        "claude-opus-4-8",
-        "claude-sonnet-4-6",
-        "claude-haiku-4-5-20251001",
-    }
+    return bool(model_id.strip())
 
 
 def _is_supported_gemini_model(model_id: str) -> bool:
-    if any(token in model_id for token in ("embedding", "live", "tts", "imagen", "veo", "lyria", "banana")):
+    return not any(
+        token in model_id.lower()
+        for token in ("embedding", "live", "tts", "imagen", "veo", "lyria", "banana")
+    )
+
+
+def _is_agent_text_model(item: dict[str, Any], model_id: str) -> bool:
+    normalized = model_id.casefold()
+    excluded = (
+        "audio", "embed", "embedding", "image", "imagen", "moderation",
+        "rerank", "realtime", "speech", "transcrib", "tts", "veo", "whisper",
+    )
+    if any(token in normalized for token in excluded):
         return False
-    return model_id in {
-        "gemini-3.5-flash",
-        "gemini-3.1-pro",
-        "gemini-3.1-flash-lite",
-        "gemini-2.5-pro",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
+    architecture = item.get("architecture")
+    modalities = item.get("output_modalities")
+    if modalities is None and isinstance(architecture, dict):
+        modalities = architecture.get("output_modalities")
+    if isinstance(modalities, list) and modalities:
+        normalized_modalities = {str(value).casefold() for value in modalities}
+        if "text" not in normalized_modalities:
+            return False
+    supported_parameters = item.get("supported_parameters")
+    if isinstance(supported_parameters, list) and supported_parameters:
+        normalized_parameters = {str(value).casefold() for value in supported_parameters}
+        supports_tools = any(
+            parameter.startswith("tool")
+            or parameter in {"functions", "function_calling"}
+            for parameter in normalized_parameters
+        )
+        if not supports_tools:
+            return False
+    return True
+
+
+def _model_label_from_metadata(item: dict[str, Any], provider: str, model_id: str) -> str:
+    for key in ("display_name", "displayName", "name"):
+        value = str(item.get(key) or "").strip()
+        if value and value != model_id:
+            return value
+    known = {
+        (model.provider, model.id): model.label
+        for models in (
+            DEEPSEEK_FALLBACK_MODELS,
+            OPENAI_FALLBACK_MODELS,
+            ANTHROPIC_FALLBACK_MODELS,
+            GEMINI_FALLBACK_MODELS,
+            *OPENAI_COMPATIBLE_FALLBACK_MODELS.values(),
+        )
+        for model in models
     }
+    if (provider, model_id) in known:
+        return known[(provider, model_id)]
+    if provider == "deepseek" and model_id.casefold().startswith("deepseek-"):
+        parts = model_id.split("-")
+        return "-".join(["DeepSeek", *[part.upper() if part[:1].casefold() == "v" and part[1:].isdigit() else part.title() for part in parts[1:]]])
+    return model_id
 
 
 def _read_json_response(request: urllib.request.Request, timeout: float | None) -> dict[str, Any]:
@@ -433,75 +578,6 @@ def _join_deepseek_url(base_url: str, path: str) -> str:
     return f"{normalized}/{path.lstrip('/')}"
 
 
-def _deepseek_label(model_id: str) -> str:
-    """Prepares deepseek label for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs deepseek label without duplicating the local rules.
-
-    Example: _deepseek_label(model_id=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    labels = {
-        "deepseek-v4-pro": "DeepSeek V4 Pro",
-        "deepseek-v4-flash": "DeepSeek V4 Flash",
-        "deepseek-chat": "deepseek-chat",
-        "deepseek-reasoner": "deepseek-reasoner",
-    }
-    return labels.get(model_id, model_id)
-
-
-def _openai_label(model_id: str) -> str:
-    """Prepares openai label for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs openai label without duplicating the local rules.
-
-    Example: _openai_label(model_id=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    labels = {model.id: model.label for model in OPENAI_FALLBACK_MODELS}
-    return labels.get(model_id, _title_model_id(model_id, upper_tokens={"gpt"}))
-
-
-def _anthropic_label(model_id: str) -> str:
-    """Prepares anthropic label for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs anthropic label without duplicating the local rules.
-
-    Example: _anthropic_label(model_id=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    labels = {model.id: model.label for model in ANTHROPIC_FALLBACK_MODELS}
-    return labels.get(model_id, _title_model_id(model_id, upper_tokens={"claude"}))
-
-
-def _gemini_label(model_id: str) -> str:
-    """Prepares gemini label for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs gemini label without duplicating the local rules.
-
-    Example: _gemini_label(model_id=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    labels = {model.id: model.label for model in GEMINI_FALLBACK_MODELS}
-    return labels.get(model_id, _title_model_id(model_id, upper_tokens={"gemini"}))
-
-
-def _title_model_id(model_id: str, *, upper_tokens: set[str]) -> str:
-    """Prepares title model id for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs title model id without duplicating the local rules.
-
-    Example: _title_model_id(model_id=..., upper_tokens=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    words: list[str] = []
-    for token in model_id.replace("_", "-").split("-"):
-        if not token:
-            continue
-        if token.lower() in upper_tokens:
-            words.append(token.upper())
-        elif token.replace(".", "").isdigit():
-            words.append(token)
-        else:
-            words.append(token.capitalize())
-    return " ".join(words) or model_id
-
-
 def _provider_label(provider: str) -> str:
     """Prepares provider label for an internal Sonex flow.
 
@@ -509,14 +585,7 @@ def _provider_label(provider: str) -> str:
 
     Example: _provider_label(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
-    labels = {
-        "openai": "OpenAI",
-        "anthropic": "Anthropic",
-        "gemini": "Gemini",
-        "deepseek": "Deepseek",
-        "ollama": "Ollama",
-    }
-    return labels.get(provider, provider)
+    return provider_display_name(provider)
 
 
 def _sort_models(models: list[ModelInfo]) -> list[ModelInfo]:

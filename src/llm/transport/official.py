@@ -40,8 +40,11 @@ class OpenAICompatibleTransport:
 
         Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
         """
-        if not config.api_key:
+        is_custom = config.name == "custom" or config.name.startswith("custom__")
+        if not config.api_key and not is_custom:
             raise LLMTransportError(f"LLM provider '{config.name}' request failed: missing API key")
+        if not (config.base_url or self.default_base_url):
+            raise LLMTransportError(f"LLM provider '{config.name}' request failed: missing base URL")
 
         payload = dict(request.payload)
         payload["model"] = request.model
@@ -53,7 +56,8 @@ class OpenAICompatibleTransport:
             payload,
             timeout=config.timeout,
         )
-        http_request.add_header("Authorization", f"Bearer {config.api_key}")
+        if config.api_key:
+            http_request.add_header("Authorization", f"Bearer {config.api_key}")
         for key, value in config.extra_headers.items():
             http_request.add_header(key, value)
         return _send_json(http_request, config.name, timeout=config.timeout)

@@ -22,6 +22,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 from src.auth.oauth import save_oauth_token
+from src.auth.models import OAuthToken
 from src.auth.providers import normalize_provider
 from src.log import sonex_home
 
@@ -65,9 +66,18 @@ class BrowserOAuthConfig:
     redirect_uri: str
 
 
+@dataclass(frozen=True, slots=True)
+class BrowserOAuthPending:
+    """State required to finish a PKCE browser authorization."""
+
+    config: BrowserOAuthConfig
+    state: str
+    verifier: str
+    authorize_url: str
+
+
 GEMINI_DEFAULT_SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
-    "https://www.googleapis.com/auth/generative-language.retriever",
 ]
 
 
@@ -98,7 +108,7 @@ def browser_oauth_requirements(provider: str) -> str:
     return f"Provider '{name}' does not have browser OAuth wired in Sonex yet."
 
 
-def run_browser_oauth(provider: str) -> None:
+def run_browser_oauth(provider: str, *, project_id: str | None = None) -> None:
     """Coordinates run browser oauth for the current Sonex flow.
 
     Typical use: Use this function when runtime code needs run browser oauth as part of a Sonex command, playback, auth, llm, or ui path.
@@ -112,7 +122,112 @@ def run_browser_oauth(provider: str) -> None:
     authorize_url = _authorize_url(config, state=state, challenge=challenge)
     code = _wait_for_authorization_code(config.redirect_uri, authorize_url, state)
     token_info = _exchange_code(config, code=code, verifier=verifier)
-    _save_token_info(config.provider, token_info, config.scopes)
+    _save_token_info(config.provider, token_info, config.scopes, project_id=project_id)
+
+
+def begin_browser_oauth(provider: str) -> BrowserOAuthPending:
+    """Begin a PKCE flow without requiring a callback listener."""
+    config = load_browser_oauth_config(provider)
+    state = secrets.token_urlsafe(24)
+    verifier = _pkce_verifier()
+    return BrowserOAuthPending(
+        config=config,
+        state=state,
+        verifier=verifier,
+        authorize_url=_authorize_url(
+            config,
+            state=state,
+            challenge=_pkce_challenge(verifier),
+        ),
+    )
+
+
+def complete_browser_oauth(
+    pending: BrowserOAuthPending,
+    callback_url: str,
+    *,
+    project_id: str | None = None,
+) -> None:
+    """Finish PKCE from the full localhost callback URL copied by the user."""
+    callback = urlparse(callback_url.strip())
+    expected = urlparse(pending.config.redirect_uri)
+    if (
+        callback.scheme != expected.scheme
+        or callback.hostname != expected.hostname
+        or callback.port != expected.port
+        or callback.path != expected.path
+    ):
+        raise BrowserOAuthError(
+            f"Paste the complete callback URL beginning with {pending.config.redirect_uri}."
+        )
+    params = parse_qs(callback.query)
+    if params.get("error"):
+        raise BrowserOAuthError(f"OAuth authorization failed: {params['error'][0]}")
+    if not params.get("code"):
+        raise BrowserOAuthError("The callback URL does not contain an authorization code.")
+    if not params.get("state") or params["state"][0] != pending.state:
+        raise BrowserOAuthError("OAuth authorization state mismatch.")
+    token_info = _exchange_code(
+        pending.config,
+        code=params["code"][0],
+        verifier=pending.verifier,
+    )
+    _save_token_info(
+        pending.config.provider,
+        token_info,
+        pending.config.scopes,
+        project_id=project_id,
+    )
+
+
+def refresh_browser_oauth_token(
+    provider: str,
+    token: OAuthToken,
+    *,
+    project_id: str | None = None,
+) -> OAuthToken:
+    """Refresh a Google OAuth access token using its securely stored refresh token."""
+    if not token.refresh_token:
+        raise BrowserOAuthError("OAuth refresh token is unavailable. Connect Google Gemini again.")
+    config = load_browser_oauth_config(provider)
+    payload: dict[str, str] = {
+        "client_id": config.client_id,
+        "refresh_token": token.refresh_token,
+        "grant_type": "refresh_token",
+    }
+    if config.client_secret:
+        payload["client_secret"] = config.client_secret
+    request = Request(
+        config.token_url,
+        data=urlencode(payload).encode("utf-8"),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=30) as response:
+            token_info = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        raise BrowserOAuthError(f"OAuth token refresh failed: {exc}") from exc
+    if not isinstance(token_info, dict) or not token_info.get("access_token"):
+        raise BrowserOAuthError("OAuth token refresh returned no access token.")
+    token_info.setdefault("refresh_token", token.refresh_token)
+    _save_token_info(config.provider, token_info, token.scopes or config.scopes, project_id=project_id)
+    expires_in = token_info.get("expires_in")
+    expires_at = (
+        datetime.fromtimestamp(time.time() + int(expires_in), timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+        if expires_in not in (None, "")
+        else None
+    )
+    return OAuthToken(
+        access_token=str(token_info["access_token"]),
+        refresh_token=token.refresh_token,
+        refresh_token_ref=token.refresh_token_ref,
+        expires_at=expires_at,
+        scopes=_coerce_scopes(token_info.get("scope")) or token.scopes or config.scopes,
+    )
 
 
 def load_browser_oauth_config(provider: str) -> BrowserOAuthConfig:
@@ -340,7 +455,13 @@ def _exchange_code(config: BrowserOAuthConfig, *, code: str, verifier: str) -> d
     return token_info
 
 
-def _save_token_info(provider: str, token_info: dict[str, Any], default_scopes: list[str]) -> None:
+def _save_token_info(
+    provider: str,
+    token_info: dict[str, Any],
+    default_scopes: list[str],
+    *,
+    project_id: str | None = None,
+) -> None:
     """Prepares save token info for an internal Sonex flow.
 
     Typical use: Use this helper when nearby code needs save token info without duplicating the local rules.
@@ -365,4 +486,5 @@ def _save_token_info(provider: str, token_info: dict[str, Any], default_scopes: 
         refresh_token=token_info.get("refresh_token"),
         expires_at=expires_at_value,
         scopes=scopes,
+        project_id=project_id,
     )

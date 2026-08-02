@@ -957,6 +957,35 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(command.usage == "/recommend [taste]" for command in help_events[0]["commands"]))
         self.assertFalse(any("Available commands" in str(event.get("text")) for event in ui.events))
 
+    async def test_login_opens_provider_picker_without_agent_turn(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/login")
+
+        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertEqual(auth_events[-1]["step"], "provider")
+        self.assertEqual(
+            [choice["value"] for choice in auth_events[-1]["providers"]],
+            [
+                "openai", "gemini", "anthropic", "deepseek", "openrouter", "zai",
+                "kimi_global", "kimi_cn", "minimax_global", "minimax_cn", "xai", "custom",
+            ],
+        )
+
+    async def test_login_rejects_provider_arguments(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/login openai")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
+        self.assertTrue(any(event.get("text") == "Usage: /login" for event in ui.events))
+
     async def test_lang_is_treated_as_an_unknown_command(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -1527,12 +1556,131 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             payload = _read_jsonl(transcripts[0])
 
         self.assertFalse(runner._run_agent_turn.called)
-        self.assertNotIn("openai", store.providers)
+        self.assertIn("openai", store.providers)
+        self.assertIsNone(store.providers["openai"].api_key)
+        self.assertIsNone(store.default_provider)
         self.assertIsNone(store.default_provider)
         self.assertIsNone(store.default_model)
         self.assertTrue(all(item["reason"] == "logout" for item in payload))
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
-        self.assertTrue(any(event.get("text") == "Signed out successfully." for event in ui.events))
+        self.assertTrue(any(
+            event.get("text")
+            == "Signed out of the active LLM connection. Other saved provider credentials were preserved."
+            for event in ui.events
+        ))
+
+    async def test_logout_clears_spotify_mode_before_next_startup(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        token = OAuthToken(
+            access_token="access",
+            expires_at=expires_at,
+            scopes=sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES),
+        )
+        mode = {
+            "version": 1,
+            "enabled": True,
+            "device_id": "desktop",
+            "device_name": "Studio Desktop",
+            "entered_at": 1,
+            "updated_at": 2,
+            "token_expires_at": expires_at,
+            "scopes": sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES),
+        }
+
+        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai"}) as home:
+            set_api_key("openai", "sk-test")
+            set_default("openai", model="gpt-5.5")
+            setattr(ui, "_spotify_mode", mode)
+            await runner.provider_modes.restore(
+                ws_runner.ProviderModeState(provider=ws_runner.ProviderMode.SPOTIFY)
+            )
+            spotify_mode_path = Path(home) / "spotify-mode.json"
+            spotify_mode_path.write_text(json.dumps(mode), encoding="utf-8")
+            ws_runner.save_provider_mode_intent(
+                ws_runner.ProviderModeState(provider=ws_runner.ProviderMode.SPOTIFY)
+            )
+
+            await runner._handle_user_input(ui, "/logout")
+
+            restarted_runner = WebSocketRunner()
+            restarted_ui = FakeUI()
+            with patch("src.api.ws_runner.load_spotify_token", return_value=token):
+                await restarted_runner._restore_persistent_spotify_mode(restarted_ui)
+                await restarted_runner._restore_provider_mode(restarted_ui)
+
+            provider_events = [
+                event for event in restarted_ui.events
+                if event.get("type") == "provider_mode"
+            ]
+            logout_spotify_events = [
+                event for event in ui.events
+                if event.get("type") == "spotify_mode"
+            ]
+            logout_provider_events = [
+                event for event in ui.events
+                if event.get("type") == "provider_mode"
+            ]
+            self.assertEqual(
+                {
+                    "logout_spotify_enabled": runner._spotify_mode_enabled(ui),
+                    "logout_provider": runner.provider_modes.state.provider.value,
+                    "logout_spotify_event": logout_spotify_events[-1]["enabled"],
+                    "logout_provider_event": logout_provider_events[-1]["provider"],
+                    "spotify_mode_file": spotify_mode_path.exists(),
+                    "provider_mode_file": (Path(home) / "provider-mode.json").exists(),
+                    "restart_spotify_enabled": restarted_runner._spotify_mode_enabled(restarted_ui),
+                    "restart_provider": restarted_runner.provider_modes.state.provider.value,
+                    "restart_event": provider_events[-1]["provider"],
+                },
+                {
+                    "logout_spotify_enabled": False,
+                    "logout_provider": "normal",
+                    "logout_spotify_event": False,
+                    "logout_provider_event": "normal",
+                    "spotify_mode_file": False,
+                    "provider_mode_file": False,
+                    "restart_spotify_enabled": False,
+                    "restart_provider": "normal",
+                    "restart_event": "normal",
+                },
+            )
+
+    async def test_logout_clears_apple_mode_state(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai"}) as home:
+            set_api_key("openai", "sk-test")
+            set_default("openai", model="gpt-5.5")
+            setattr(
+                ui,
+                "_apple_mode",
+                {
+                    "enabled": True,
+                    "storefront": "us",
+                    "connection_status": "ready",
+                },
+            )
+            await runner.provider_modes.restore(
+                ws_runner.ProviderModeState(provider=ws_runner.ProviderMode.APPLE)
+            )
+            ws_runner.save_provider_mode_intent(
+                ws_runner.ProviderModeState(provider=ws_runner.ProviderMode.APPLE)
+            )
+
+            await runner._handle_user_input(ui, "/logout")
+
+            self.assertIsNone(getattr(ui, "_apple_mode", None))
+            self.assertEqual(runner.provider_modes.state.provider, ws_runner.ProviderMode.NORMAL)
+            self.assertFalse((Path(home) / "provider-mode.json").exists())
+
+        provider_events = [
+            event for event in ui.events
+            if event.get("type") == "provider_mode"
+        ]
+        self.assertEqual(provider_events[-1]["provider"], "normal")
 
     async def test_logout_env_credentials_warns_and_exits_without_success_message(self) -> None:
         """Verifies that logout env credentials warns and exits without success message behaves as expected.
@@ -2126,7 +2274,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("src.api.ws_runner.spotify_recent_tracks", return_value={
                 "status": "fail",
-                "message": "Spotify recently played scope is missing. Run `sonex auth login spotify` again.",
+                "message": "Spotify recently played scope is missing. Open /spotify to reconnect.",
                 "error_code": "SPOTIFY_SCOPE_MISSING",
             }),
             patch("src.api.ws_runner.registry.invoke") as invoke,

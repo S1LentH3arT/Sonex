@@ -110,7 +110,7 @@ class AppleMusicAuthTests(unittest.TestCase):
 
         self.assertEqual(result["status"], "fail")
         self.assertEqual(result["error_code"], "APPLE_MUSIC_CONFIG_MISSING")
-        self.assertIn("sonex auth set-key apple_music", result["message"])
+        self.assertIn("Open /apple", result["message"])
 
 
 class AppleMusicToolTests(unittest.TestCase):

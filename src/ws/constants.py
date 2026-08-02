@@ -72,20 +72,26 @@ APPLE_MUSIC_SETUP_TRIGGERS = {
 
 LLM_AUTH_PROVIDER_CHOICES = [
     {"value": "openai", "label": "OpenAI"},
+    {"value": "gemini", "label": "Google Gemini"},
     {"value": "anthropic", "label": "Anthropic"},
-    {"value": "gemini", "label": "Gemini"},
-    {"value": "deepseek", "label": "Deepseek"},
-    {"value": "ollama", "label": "Ollama"},
+    {"value": "deepseek", "label": "DeepSeek"},
+    {"value": "openrouter", "label": "OpenRouter"},
+    {"value": "zai", "label": "Z.AI"},
+    {"value": "kimi_global", "label": "Kimi Global"},
+    {"value": "kimi_cn", "label": "Kimi CN"},
+    {"value": "minimax_global", "label": "MiniMax Global"},
+    {"value": "minimax_cn", "label": "MiniMax CN"},
+    {"value": "xai", "label": "xAI"},
+    {"value": "custom", "label": "Custom"},
 ]
 
 LLM_AUTH_PROVIDER_VALUES = {choice["value"] for choice in LLM_AUTH_PROVIDER_CHOICES}
 
 LLM_MODEL_CHOICES = [
-    {"value": "openai::gpt-5.5", "label": "gpt-5.5", "provider": "OpenAI"},
-    {"value": "anthropic::claude-fable-5", "label": "claude-fable-5", "provider": "Anthropic"},
-    {"value": "gemini::gemini-3.5-flash", "label": "gemini-3.5-flash", "provider": "Gemini"},
-    {"value": "deepseek::deepseek-v4-pro", "label": "deepseek-v4-pro", "provider": "Deepseek"},
-    {"value": "ollama::Gemma4-31b:cloud", "label": "Gemma4-31b:cloud", "provider": "Ollama"},
+    {"value": "openai::gpt-5.5", "label": "GPT-5.5", "provider": "OpenAI"},
+    {"value": "anthropic::claude-fable-5", "label": "Claude Fable 5", "provider": "Anthropic"},
+    {"value": "gemini::gemini-3.5-flash", "label": "Gemini 3.5 Flash", "provider": "Google Gemini"},
+    {"value": "deepseek::deepseek-v4-pro", "label": "DeepSeek-V4-Pro", "provider": "DeepSeek"},
 ]
 
 LLM_MODEL_CHOICE_VALUES = {choice["value"].lower(): choice for choice in LLM_MODEL_CHOICES}

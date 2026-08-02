@@ -29,6 +29,7 @@ class AuthRuntimeState:
     auth_type: str
     credential_source: str
     reason: str | None = None
+    model_label: str | None = None
 
     def to_event(self) -> dict[str, Any]:
         """Coordinates to event for the current Sonex flow.
@@ -42,6 +43,7 @@ class AuthRuntimeState:
             "ready": self.ready,
             "provider": self.provider,
             "model": self.model,
+            "model_label": self.model_label,
             "auth_type": self.auth_type,
             "credential_source": self.credential_source,
             "reason": self.reason,

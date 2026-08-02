@@ -28,7 +28,7 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
     "openai": ProviderCapability(
         name="openai",
         supports_api_key=True,
-        supports_oauth=False,
+        supports_oauth=True,
         default_base_url="https://api.openai.com/v1",
         default_model="gpt-5.5",
     ),
@@ -56,13 +56,67 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         default_custom_llm_provider="deepseek",
         default_model="deepseek-v4-pro",
     ),
-    "ollama": ProviderCapability(
-        name="ollama",
-        supports_api_key=False,
+    "openrouter": ProviderCapability(
+        name="openrouter",
+        supports_api_key=True,
         supports_oauth=False,
-        requires_auth=False,
-        default_custom_llm_provider="ollama",
-        default_model="Gemma4-31b:cloud",
+        default_base_url="https://openrouter.ai/api/v1",
+        default_custom_llm_provider="openai",
+        default_model="openrouter/auto",
+    ),
+    "zai": ProviderCapability(
+        name="zai",
+        supports_api_key=True,
+        supports_oauth=False,
+        default_base_url="https://api.z.ai/api/paas/v4",
+        default_custom_llm_provider="openai",
+        default_model="glm-5.1",
+    ),
+    "kimi_global": ProviderCapability(
+        name="kimi_global",
+        supports_api_key=True,
+        supports_oauth=False,
+        default_base_url="https://api.moonshot.ai/v1",
+        default_custom_llm_provider="openai",
+        default_model="kimi-k2.6",
+    ),
+    "kimi_cn": ProviderCapability(
+        name="kimi_cn",
+        supports_api_key=True,
+        supports_oauth=False,
+        default_base_url="https://api.moonshot.cn/v1",
+        default_custom_llm_provider="openai",
+        default_model="kimi-k2.5",
+    ),
+    "minimax_global": ProviderCapability(
+        name="minimax_global",
+        supports_api_key=True,
+        supports_oauth=False,
+        default_base_url="https://api.minimax.io/v1",
+        default_custom_llm_provider="openai",
+        default_model="MiniMax-M2.7",
+    ),
+    "minimax_cn": ProviderCapability(
+        name="minimax_cn",
+        supports_api_key=True,
+        supports_oauth=False,
+        default_base_url="https://api.minimaxi.com/v1",
+        default_custom_llm_provider="openai",
+        default_model="MiniMax-M2.7",
+    ),
+    "xai": ProviderCapability(
+        name="xai",
+        supports_api_key=True,
+        supports_oauth=False,
+        default_base_url="https://api.x.ai/v1",
+        default_custom_llm_provider="openai",
+        default_model="grok-4.5",
+    ),
+    "custom": ProviderCapability(
+        name="custom",
+        supports_api_key=True,
+        supports_oauth=False,
+        default_custom_llm_provider="openai",
     ),
     "spotify": ProviderCapability(
         name="spotify",
@@ -97,18 +151,32 @@ def normalize_provider_model(provider: str, model: str | None) -> str | None:
     if model is None:
         return None
 
-    normalized_provider = normalize_provider(provider)
-    normalized_model = model.strip()
-    if normalized_provider == "deepseek":
-        aliases = {
-            "deepseek-v4-pro": "deepseek-v4-pro",
-            "deepseek-v4": "deepseek-v4-pro",
-            "deepseek-v3": "deepseek-v4-flash",
-            "deepseek-chat": "deepseek-v4-flash",
-            "deepseek-reasoner": "deepseek-v4-flash",
-        }
-        return aliases.get(normalized_model.lower(), normalized_model)
-    return normalized_model
+    del provider
+    return model.strip()
+
+
+_PROVIDER_DISPLAY_NAMES = {
+    "openai": "OpenAI",
+    "anthropic": "Anthropic",
+    "gemini": "Google Gemini",
+    "deepseek": "DeepSeek",
+    "openrouter": "OpenRouter",
+    "zai": "Z.AI",
+    "kimi_global": "Kimi Global",
+    "kimi_cn": "Kimi CN",
+    "minimax_global": "MiniMax Global",
+    "minimax_cn": "MiniMax CN",
+    "xai": "xAI",
+    "custom": "Custom",
+}
+
+
+def provider_display_name(provider: str) -> str:
+    """Return the formal product name shown in Sonex UI copy."""
+    name = normalize_provider(provider)
+    if name.startswith("custom__"):
+        return "Custom"
+    return _PROVIDER_DISPLAY_NAMES.get(name, provider.strip() or name)
 
 
 def get_provider_capability(name: str) -> ProviderCapability:
@@ -119,6 +187,13 @@ def get_provider_capability(name: str) -> ProviderCapability:
     Example: get_provider_capability(name=...) -> returns the value used by the surrounding Sonex flow.
     """
     normalized = normalize_provider(name)
+    if normalized.startswith("custom__"):
+        return ProviderCapability(
+            name=normalized,
+            supports_api_key=True,
+            supports_oauth=False,
+            default_custom_llm_provider="openai",
+        )
     return PROVIDER_CAPABILITIES.get(
         normalized,
         ProviderCapability(

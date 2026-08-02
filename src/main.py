@@ -54,7 +54,6 @@ SERVER_START_TIMEOUT = 15.0
 app = typer.Typer(no_args_is_help=False, add_completion=False)
 auth_app = typer.Typer(no_args_is_help=True, help="Manage Sonex provider credentials.")
 console = Console()
-app.add_typer(auth_app, name="auth")
 
 
 def _project_root() -> Path:
