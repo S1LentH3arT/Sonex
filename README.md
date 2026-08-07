@@ -182,15 +182,19 @@ Advanced users can still override per-provider `base_url`, `model`,
 
 ## Music Service Setup
 
-Run `/connect` to open the interactive music-account panel. The first release
-offers Spotify and Apple Music because Sonex can complete their supported
-authorization flows. NetEase Cloud Music is not listed until the official
-`ncm-cli` adapter is implemented and validated.
+Run `/connect` to open the interactive music-account panel. It lists Spotify,
+NetEase Cloud Music, Jamendo, and Audius. Availability checks stay specific to
+each service and do not silently change the active playback provider.
 
 > [!NOTE]
 > Connection records contain only non-secret account and health metadata.
-> OAuth tokens and MusicKit authorization remain with their existing local
-> owners.
+> OAuth tokens remain with their existing local owners.
+
+> [!NOTE]
+> Sonex automatically removes saved `apple_music` and `apple_mode` credentials,
+> connection records, and mode intent from its own state. If you previously set
+> `SONEX_APPLE_*` environment variables, remove them from your shell profile
+> manually. Sonex does not delete external `.p8` files.
 
 ### Spotify
 
@@ -234,25 +238,6 @@ read-timeout failures are reported separately. If the saved token is missing
 newly required Spotify scopes, Sonex starts the Spotify authorization guide in
 the current chat so you can grant the updated permissions.
 
-### Apple Music
-
-Apple Mode obtains short-lived developer tokens from a token service. Configure
-the service URL from the terminal, then enter Apple Mode:
-
-Run `/connect`, choose Apple Music, then run `/apple`.
-
-The environment variable remains available and takes precedence over the saved
-terminal configuration:
-
-```bash
-export SONEX_APPLE_TOKEN_BROKER_URL=https://tokens.example.com
-```
-
-Developer tokens remain in memory, while MusicKit keeps the Music User Token in
-the local browser companion. Advanced local development can explicitly select
-the local signer with `SONEX_APPLE_TOKEN_SOURCE=local` and configure signing
-credentials through the `/apple` configuration flow.
-
 ### Local and YouTube Playback
 
 Install `mpv` or VLC if you want controllable local-file or online playback.
@@ -260,15 +245,15 @@ The first `/player` call in a session detects installed applications supported
 by Sonex. Managed mpv/VLC and supported external applications such as
 Clementine, Rhythmbox, and Audacious can become the device default. Other
 running MPRIS applications remain visible as remote-control-only when they
-cannot accept audio. Spotify Connect and Apple Music remain separate provider
-modes and do not use these local players.
+cannot accept audio. Spotify Connect remains a separate provider mode and does
+not use these local players.
 
 ### Online Audio Fallback
 
 In normal mode, Sonex uses local files first and then resolves selected songs
-through online audio sources. Spotify playback belongs to Spotify Mode; Apple
-Music playback belongs to Apple Mode. Configure at least one online audio
-provider:
+through online audio sources. Spotify playback belongs to Spotify Mode.
+iTunes Search remains part of metadata discovery in the normal search chain; it
+is not a playback mode. Configure at least one online audio provider:
 
 Use `/connect` and choose Jamendo or Audius.
 

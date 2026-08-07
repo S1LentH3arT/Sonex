@@ -171,13 +171,16 @@ Sonex 会加载 `.env`，然后按以下顺序解析运行时配置：环境变�
 
 ## 音乐服务设置
 
-执行 `/connect` 会打开交互式音乐账号连接面板。首版只展示 Spotify 与 Apple Music，
-因为 Sonex 已能完成它们支持的授权流程。在官方 `ncm-cli` 适配器完成并通过验证前，
-网易云音乐不会作为虚假的可连接选项出现。
+执行 `/connect` 会打开交互式音乐账号连接面板，其中列出 Spotify、网易云音乐、
+Jamendo 和 Audius。可用性检查由各服务独立完成，不会静默改变当前播放 provider。
 
 > [!NOTE]
-> 连接记录只保存非敏感的账号标识与健康状态；OAuth token 和 MusicKit 授权仍由
-> 现有本地组件持有。
+> 连接记录只保存非敏感的账号标识与健康状态；OAuth token 仍由现有本地组件持有。
+
+> [!NOTE]
+> Sonex 会自动清除自身状态中已保存的 `apple_music`、`apple_mode` 凭据、连接记录和
+> 模式意图。如果此前设置过 `SONEX_APPLE_*` 环境变量，需要从 shell 配置中手动移除；
+> Sonex 不会删除外部 `.p8` 文件。
 
 ### Spotify
 
@@ -218,35 +221,19 @@ Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你�
 如果已保存 token 缺少新增的 Spotify scopes，Sonex 会在当前聊天区启动 Spotify 授权引导，
 帮助你授予更新后的权限。
 
-### Apple Music
-
-Apple Mode 通过 token 服务获取短期 developer token。可以直接在终端内配置服务
-URL，然后进入 Apple Mode：
-
-先执行 `/connect` 并选择 Apple Music，再执行 `/apple`。
-
-环境变量配置仍然保留，并且优先于终端保存的配置：
-
-```bash
-export SONEX_APPLE_TOKEN_BROKER_URL=https://tokens.example.com
-```
-
-developer token 只保留在内存中，Music User Token 则由本地浏览器 companion 中的
-MusicKit 管理。高级本地开发可以显式设置 `SONEX_APPLE_TOKEN_SOURCE=local`，并用
-`sonex auth set-key apple_music --api-key '<json-or-path>'` 配置本地签名凭据。
-
 ### 本地和 YouTube 播放
 
 如果需要可控制的本地文件或在线播放，请安装 `mpv` 或 VLC。每个会话初次执行
 `/player` 时，Sonex 会检测已安装且受支持的应用。Sonex 管理的 mpv/VLC，以及
 Clementine、Rhythmbox、Audacious 等受支持的独立播放器，都可以设为设备默认播放器；
-只能遥控、不能接收音频的 MPRIS 应用仍会显示为不可选项。Spotify Connect 和 Apple
-Music 仍使用各自独立的 provider mode，不使用这些本地播放器。
+只能遥控、不能接收音频的 MPRIS 应用仍会显示为不可选项。Spotify Connect 仍使用
+独立的 provider mode，不使用这些本地播放器。
 
 ### 在线音频回退
 
 普通模式会优先使用本地文件，随后通过在线音频源解析选中的歌曲。Spotify 播放归属
-Spotify Mode；Apple Music 播放归属 Apple Mode。至少配置一个在线音频 provider：
+Spotify Mode。iTunes Search 仍属于普通搜索链路中的元数据发现能力，不是播放模式。
+至少配置一个在线音频 provider：
 
 执行 `/connect` 并选择 Jamendo 或 Audius。
 
