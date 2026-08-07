@@ -107,8 +107,8 @@ assert.match(compactConfirmBody, /color: choice\.disabled \? PANEL_SECONDARY : P
 assert.match(compactConfirmBody, /if \(confirm\.tool_name === "playlist_browse"\)/);
 assert.match(compactConfirmBody, /formatPlaylistBrowseName\(choice\.label\)/);
 assert.match(compactConfirmBody, /playlistBrowseTrackCount\(choice\)/);
-assert.equal((compactConfirmBody.match(/<PanelFrame/g) ?? []).length, 5);
-assert.equal((compactConfirmBody.match(/<PanelChoiceList/g) ?? []).length, 4);
+assert.equal((compactConfirmBody.match(/<PanelFrame/g) ?? []).length, 6);
+assert.equal((compactConfirmBody.match(/<PanelChoiceList/g) ?? []).length, 5);
 assert.match(compactConfirmBody, /confirm\.tool_name === "provider_mode_exit"/);
 assert.match(compactConfirmBody, /const includeCancelChoice = confirm\.tool_name === "provider_mode_exit"/);
 assert.match(compactConfirmBody, /getVisibleConfirmChoices\(confirm\.choices, includeCancelChoice\)/);
@@ -126,12 +126,8 @@ assert.match(languageBody, /<PanelChoiceList/);
 assert.match(languageBody, /choice === panel\.selected \? `\* \$\{languageLabel\(choice\)\}`/);
 assert.doesNotMatch(languageBody, /borderStyle=|<ChoicePanel|selected \? "> "/);
 
-// Spotify and Apple setup flows now share the visual frame; provider behavior stays local.
-assert.match(compactSetupBody, /const isAppleTokenSetup = "provider" in setupPanel && setupPanel\.provider === "apple_music"/);
-assert.match(
-    compactSetupBody,
-    /<PanelFrame[\s\S]*width=\{panelWidth\}[\s\S]*title=\{setupPanel\.title\}[\s\S]*hint=\{isAppleTokenSetup && setupPanel\.active \? "press Esc to cancel" : null\}/,
-);
+// Setup flows share the visual frame; provider behavior stays local.
+assert.match(compactSetupBody, /<PanelFrame[\s\S]*width=\{panelWidth\}[\s\S]*title=\{setupPanel\.title\}/);
 assert.match(compactSetupBody, /setupMessageColor\(setupPanel\)/);
 assert.match(compactSetupBody, /setupDoneHint\(setupPanel, language\)/);
 assert.match(
@@ -170,15 +166,7 @@ assert.match(inputDockBody, /setupPanel \? <CompactSetup/);
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
 assert.match(appSource, /const choices = filterModelChoices\(authSetup\?\.models \?\? \[\], input\)/);
 assert.match(appSource, /key\.backspace \|\| key\.delete/);
-assert.match(appSource, /const isAppleTokenSetupActive = authSetup\?\.active && authSetup\.provider === "apple_music"/);
-assert.match(
-    appSource,
-    /if \(!isAppleTokenSetupActive \|\| !key\.escape\) return;[\s\S]*setAuthSetup\(null\);[\s\S]*setInput\(""\);[\s\S]*send\(\{ type: "auth_setup_input", value: "__cancel__" \}\);/,
-);
-assert.match(
-    appSource,
-    /evt\.active === false[\s\S]*evt\.step === "model"[\s\S]*evt\.provider === "apple_music"[\s\S]*evt\.step === "companion_done" \|\| evt\.step === "cancelled"[\s\S]*setAuthSetup\(null\)/,
-);
+assert.match(appSource, /evt\.active === false && evt\.step === "model"/);
 assert.match(appSource, /const selectableConfirmChoices = React\.useMemo\(\(\) => confirm \? getSelectableConfirmChoices\(confirm\.choices, confirm\.tool_name === "provider_mode_exit"\) : \[\], \[confirm\]\)/);
 assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, selectableConfirmChoices\)/);
 assert.match(appSource, /setConfirmIndex\(\(prev\) => selectableConfirmChoices\.length > 0 \? Math\.min\(selectableConfirmChoices\.length - 1, prev \+ 1\) : 0\)/);

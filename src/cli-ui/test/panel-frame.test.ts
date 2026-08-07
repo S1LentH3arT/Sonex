@@ -18,8 +18,8 @@ assert.equal(PANEL_TITLE, '#c8a6ff');
 assert.equal(PANEL_PRIMARY, '#fff4f6');
 assert.equal(PANEL_SECONDARY, '#808791');
 assert.equal(
-    withPanelBackground('Apple token input row'),
-    withTrueColorBackground('Apple token input row', '#48273e'),
+    withPanelBackground('provider input row'),
+    withTrueColorBackground('provider input row', '#48273e'),
 );
 assert.equal(
     withPanelBackground('panel row'),

@@ -159,10 +159,14 @@ def test_local_track_reference_is_opaque_and_resolvable_by_call() -> None:
 
 
 def test_connect_rejects_unregistered_provider() -> None:
-    result = Connect("qq_music")
+    result = Connect("apple_music")
 
     assert result["status"] == "fail"
     assert result["error_code"] == "PROVIDER_UNSUPPORTED"
+
+    query = Query("apple_music", "catalog", "Song")
+    assert query["status"] == "fail"
+    assert query["error_code"] == "PROVIDER_UNSUPPORTED"
 
 
 def test_query_requires_catalog_query() -> None:
@@ -242,23 +246,13 @@ def test_recommend_reads_recent_once_and_aggregates_connected_authoritative_prov
         "artist": "方大同",
         "uri": "spotify:track:bb88",
     }
-    apple_track = {
-        "name": "特别的人",
-        "artist": "方大同",
-        "id": "apple-special",
-    }
-    apple_duplicate = {
-        "name": "BB88",
-        "artist": "方大同",
-        "id": "apple-bb88",
-    }
     manager = type(
         "Manager",
         (),
         {
             "preferred_provider_id": "spotify",
             "record": lambda self, provider: type("Record", (), {"status": "connected"})()
-            if provider in {"spotify", "apple_music"}
+            if provider in {"spotify", "netease"}
             else None,
         },
     )()
@@ -269,15 +263,11 @@ def test_recommend_reads_recent_once_and_aggregates_connected_authoritative_prov
         patch("src.tools.agent_surface.spotify_recommend", return_value={
             "status": "success",
             "data": {"tracks": [spotify_track]},
-        }) as spotify, \
-        patch("src.tools.agent_surface.apple_music_recommend", return_value={
-            "status": "success",
-            "data": {"tracks": [apple_duplicate, apple_track]},
-        }) as apple:
+        }) as spotify:
         result = Recommend("方大同", provider="spotify", limit=5)
 
     assert result["status"] == "success"
-    assert [item["name"] for item in result["data"]["tracks"]] == ["BB88", "特别的人"]
+    assert [item["name"] for item in result["data"]["tracks"]] == ["BB88"]
     assert all(item.get("ref") for item in result["data"]["tracks"])
     assert result["data"]["failed"] == []
     recent.assert_called_once_with()
@@ -288,12 +278,9 @@ def test_recommend_reads_recent_once_and_aggregates_connected_authoritative_prov
         recent_tracks=[{"name": "Recent"}],
         preferences="R&B",
     )
-    apple.assert_called_once_with(
-        query="方大同",
-        limit=5,
-        recent_tracks=[{"name": "Recent"}],
-        preferences="R&B",
-    )
+    assert result["data"]["skipped"] == [
+        {"provider": "netease", "reason": "recommendation_capability_unavailable"},
+    ]
 
 
 def test_recommend_skips_unconnected_providers_without_connection_flow() -> None:
@@ -307,18 +294,16 @@ def test_recommend_skips_unconnected_providers_without_connection_flow() -> None
     )()
     with patch("src.tools.agent_surface.MusicConnectionManager", return_value=manager), \
         patch("src.tools.agent_surface.playback_queue_snapshot", return_value=[]), \
-        patch("src.tools.agent_surface.spotify_recommend") as spotify, \
-        patch("src.tools.agent_surface.apple_music_recommend") as apple:
+        patch("src.tools.agent_surface.spotify_recommend") as spotify:
         result = Recommend("jazz")
 
     assert result["status"] == "fail"
     assert result["error_code"] == "NO_RECOMMENDATIONS"
     assert {item["provider"] for item in result["data"]["skipped"]} >= {
         "spotify",
-        "apple_music",
+        "netease",
     }
     spotify.assert_not_called()
-    apple.assert_not_called()
 
 
 def test_guardrail_denies_sensitive_and_boundary_attempts() -> None:

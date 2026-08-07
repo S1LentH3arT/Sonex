@@ -70,7 +70,7 @@ export function trackPanelTrackKey(track: TrackPanelTrack): string {
         "cache_id",
         "uri",
         "spotify_url",
-        "apple_music_url",
+        "requires_resolution",
         "youtube_url",
         "url",
         "stream_url",

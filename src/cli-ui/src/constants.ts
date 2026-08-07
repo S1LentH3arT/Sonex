@@ -9,9 +9,6 @@ export const BORDER_BLUE_SOFT = "#9fd9ff";
 export const TOOL_NAVY = "#182e66";
 export const TOOL_VALUE = "#ffffff";
 export const SPOTIFY_GREEN = "#1db954";
-export const APPLE_SILVER = "#C7CAD1";
-export const APPLE_PEARL_PINK = "#D8C4CE";
-export const APPLE_BLUSH = "#F0D2DF";
 export const APP_TIP_PLACEHOLDER = "Tip: use /random to play a recent song.";
 export const MAX_ACTIVITY_ITEMS = 80;
 export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
@@ -38,7 +35,6 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "recommend", usage: "/recommend", description: "recommend songs", needsArgument: false },
     { name: "resume", usage: "/resume", description: "resume playback", needsArgument: false },
     { name: "sandbox", usage: "/sandbox", description: "check Agent Bash sandbox", needsArgument: false },
-    { name: "apple", usage: "/apple", description: "toggle Apple Mode", needsArgument: false },
     { name: "spotify", usage: "/spotify", description: "toggle Spotify mode", needsArgument: false },
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";

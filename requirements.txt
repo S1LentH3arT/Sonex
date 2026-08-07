@@ -8,7 +8,6 @@ textual
 fastapi
 mcp[cli]
 uvicorn[standard]
-cryptography
 Pillow
 numpy
 mutagen

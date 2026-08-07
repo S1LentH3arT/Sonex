@@ -98,7 +98,7 @@ def _managed_play(backend: str, uri: str, track: dict[str, object]) -> dict[str,
     from src.tools.playback_controller import controller
 
     source = str(track.get("source") or track.get("provider") or "local")
-    if source not in {"local", "youtube", "spotify", "apple_music"}:
+    if source not in {"local", "youtube", "spotify"}:
         source = "youtube"
     state = controller.play(
         source_url=_source_url(uri),

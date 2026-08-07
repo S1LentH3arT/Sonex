@@ -23,18 +23,15 @@ dependencies = [
     "Pillow",
     "numpy",
     "mutagen",
-    "cryptography",
     "keyring",
     "dbus-next"
 ]
 
 [tool.setuptools.package-data]
 "src.tools.bead_catalog_data" = ["*.json"]
-"src.apple_mode" = ["*.html"]
 
 [project.scripts]
 sonex = "src.main:app"
-sonex-apple-token-broker = "src.apple_mode.broker:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

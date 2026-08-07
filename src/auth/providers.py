@@ -123,11 +123,6 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
         supports_api_key=True,
         supports_oauth=True,
     ),
-    "apple_music": ProviderCapability(
-        name="apple_music",
-        supports_api_key=True,
-        supports_oauth=True,
-    ),
 }
 
 

@@ -169,7 +169,7 @@ export function resolveRegionAfterPlayerEvent({
     wasSessionActive: boolean;
     player: PlayerState;
     spotifyModeEnabled?: boolean;
-    providerMode?: "spotify" | "apple" | null;
+    providerMode?: "spotify" | null;
 }): PlayerRegionTransition {
     const sessionActive = hasActivePlaybackSession(player, wasSessionActive);
     if (!sessionActive) {

@@ -26,7 +26,7 @@ assert.match(
 );
 assert.match(
     appSource,
-    /if \(confirm\.variant !== "tool_call_review"\) \{\s*appendPanelHiddenNotice/,
+    /if \(!isMusicConnection && confirm\.variant !== "tool_call_review"\) \{\s*appendPanelHiddenNotice/,
 );
 assert.match(typesSource, /variant\?: "tool_call_review"/);
 assert.match(typesSource, /segments\?: ChatSegment\[\]/);

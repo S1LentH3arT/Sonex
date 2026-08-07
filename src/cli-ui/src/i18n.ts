@@ -67,7 +67,7 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "language.simplifiedChinese": "简体中文",
         "language.title": "Language",
         "launch.preparing": "Preparing playback",
-        "login.continue": "↑/↓ to navigate • Enter to continue",
+        "login.continue": "↑/↓ to select · Enter to continue · Esc to close",
         "login.warmup": "Complete setup to continue.",
         "methods.label": "Methods",
         "panel.confirmHidden": "Confirmation panel hidden.",
@@ -109,7 +109,7 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "language.simplifiedChinese": "简体中文",
         "language.title": "语言",
         "launch.preparing": "启动准备中",
-        "login.continue": "↑/↓ to navigate • Enter to continue",
+        "login.continue": "↑/↓ to select · Enter to continue · Esc to close",
         "login.warmup": "开始前先完成一个小设置。",
         "methods.label": "方式",
         "panel.confirmHidden": "确认面板已收起。",
@@ -148,7 +148,6 @@ const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = 
     recommend: { en: "recommend songs", "zh-CN": "按偏好的音乐口味推荐歌曲" },
     resume: { en: "resume playback", "zh-CN": "继续当前播放" },
     sandbox: { en: "check Agent Bash sandbox", "zh-CN": "检查 Agent Bash 沙箱" },
-    apple: { en: "toggle Apple Mode", "zh-CN": "进入或退出持久化 Apple 模式" },
     spotify: { en: "toggle Spotify mode", "zh-CN": "进入或退出持久化 Spotify 模式" },
 };
 
@@ -169,7 +168,6 @@ const helpCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     recommend: { en: "recommend songs based on a taste hint", "zh-CN": "按偏好的音乐口味推荐歌曲" },
     resume: { en: "resume current local playback", "zh-CN": "继续当前播放" },
     sandbox: { en: "check or configure the Agent Bash sandbox", "zh-CN": "检查或配置 Agent Bash 沙箱" },
-    apple: { en: "enter or exit persistent Apple Mode", "zh-CN": "进入或退出持久化 Apple 模式" },
     spotify: { en: "enter or exit persistent Spotify mode", "zh-CN": "进入或退出持久化 Spotify 模式" },
 };
 

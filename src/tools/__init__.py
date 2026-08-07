@@ -12,18 +12,6 @@ from src.tools.playback_controller import (
 from src.tools.registry import ToolRegistry, registry
 from src.tools.result import ToolResult
 from src.tools.playback_request import request_playback_selection
-from src.tools.apple_music import (
-    apple_music_account,
-    apple_music_current_playback,
-    apple_music_next,
-    apple_music_pause,
-    apple_music_play,
-    apple_music_previous,
-    apple_music_recent_tracks,
-    apple_music_recommend,
-    apple_music_resume,
-    apple_music_search,
-)
 from src.tools.spotify_play import (
     search_albums,
     search_artists,
@@ -64,16 +52,6 @@ __all__ = [
     "local_playback_status",
     "local_playback_stop",
     "local_playback_volume",
-    "apple_music_search",
-    "apple_music_account",
-    "apple_music_current_playback",
-    "apple_music_recent_tracks",
-    "apple_music_recommend",
-    "apple_music_play",
-    "apple_music_pause",
-    "apple_music_resume",
-    "apple_music_next",
-    "apple_music_previous",
     "search_tracks",
     "search_artists",
     "search_albums",

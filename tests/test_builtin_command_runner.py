@@ -741,8 +741,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         "test_recommend_uses_other_provider_when_one_provider_fails",
         "test_recommend_without_args_uses_empty_query_intro",
         "test_recommendation_route_uses_restricted_agent_without_confirm",
-        "test_setup_apple_cancel_hides_panel_and_appends_system_message",
-        "test_setup_apple_stores_token_service_url_from_terminal_panel",
         "test_setup_audius_guides_api_key_input_and_repeats_empty_values",
         "test_setup_jamendo_stores_open_audio_api_key",
         "test_setup_spotify_starts_spotify_setup",
@@ -986,6 +984,19 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
         self.assertTrue(any(event.get("text") == "Usage: /login" for event in ui.events))
 
+    async def test_login_cancel_is_completely_silent(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env():
+            await runner._handle_user_input(ui, "/login")
+            setup = getattr(ui, "_auth_setup")
+            before = len(ui.events)
+            await setup.handle_input("__cancel__")
+
+        self.assertEqual(len(ui.events), before)
+        self.assertIsNone(getattr(ui, "_auth_setup"))
+
     async def test_lang_is_treated_as_an_unknown_command(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -997,6 +1008,19 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
         self.assertTrue(any(
             event.get("text") == "Unknown command: /lang. Type /help to view available commands."
+            for event in ui.events
+        ))
+
+    async def test_apple_is_treated_as_an_unknown_command(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/apple")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any(
+            event.get("text") == "Unknown command: /apple. Type /help to view available commands."
             for event in ui.events
         ))
 
@@ -1647,40 +1671,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 },
             )
 
-    async def test_logout_clears_apple_mode_state(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai"}) as home:
-            set_api_key("openai", "sk-test")
-            set_default("openai", model="gpt-5.5")
-            setattr(
-                ui,
-                "_apple_mode",
-                {
-                    "enabled": True,
-                    "storefront": "us",
-                    "connection_status": "ready",
-                },
-            )
-            await runner.provider_modes.restore(
-                ws_runner.ProviderModeState(provider=ws_runner.ProviderMode.APPLE)
-            )
-            ws_runner.save_provider_mode_intent(
-                ws_runner.ProviderModeState(provider=ws_runner.ProviderMode.APPLE)
-            )
-
-            await runner._handle_user_input(ui, "/logout")
-
-            self.assertIsNone(getattr(ui, "_apple_mode", None))
-            self.assertEqual(runner.provider_modes.state.provider, ws_runner.ProviderMode.NORMAL)
-            self.assertFalse((Path(home) / "provider-mode.json").exists())
-
-        provider_events = [
-            event for event in ui.events
-            if event.get("type") == "provider_mode"
-        ]
-        self.assertEqual(provider_events[-1]["provider"], "normal")
 
     async def test_logout_env_credentials_warns_and_exits_without_success_message(self) -> None:
         """Verifies that logout env credentials warns and exits without success message behaves as expected.
@@ -1728,97 +1718,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any(event.get("text") == "You are not logged in." for event in ui.events))
 
-    async def test_recommend_queues_visible_recommendations_without_agent_turn(self) -> None:
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-        spotify_tracks = [
-            {"name": "七里香", "artist": "周杰伦", "uri": "spotify:track:1", "recommendation_reason": "recent match"},
-            {"name": "晴天", "artist": "周杰伦", "uri": "spotify:track:2", "recommendation_reason": "same mood"},
-            {"name": "重复", "artist": "A", "uri": "spotify:track:dup"},
-        ]
-        apple_tracks = [
-            {"name": "重复", "artist": "A", "url": "https://music.apple.com/dup"},
-            {"name": "倒带", "artist": "蔡依林", "url": "https://music.apple.com/1", "recommendation_reason": "pop fit"},
-            {"name": "红色高跟鞋", "artist": "蔡健雅", "url": "https://music.apple.com/2"},
-            {"name": "如果云知道", "artist": "许茹芸", "url": "https://music.apple.com/3"},
-        ]
 
-        with patch("src.api.ws_runner.spotify_recommend", return_value={
-            "status": "success",
-            "data": {"tracks": spotify_tracks},
-        }) as spotify_recommend, patch("src.api.ws_runner.apple_music_recommend", return_value={
-            "status": "success",
-            "data": {"tracks": apple_tracks},
-        }) as apple_recommend, patch("src.api.ws_runner.playback_queue_snapshot", return_value=[
-            {"name": "稻香", "artist": "周杰伦"}
-        ]), patch("src.api.ws_runner.remember_playback_track", side_effect=lambda track: [track]) as remember, patch(
-            "src.api.ws_runner.asyncio.to_thread",
-            side_effect=_to_thread_inline,
-        ):
-            await runner._handle_user_input(ui, "/recommend 华语女声")
-            self.assertIsNotNone(runner._running_task)
-            assert runner._running_task is not None
-            await runner._running_task
 
-        self.assertFalse(runner._run_agent_turn.called)
-        spotify_recommend.assert_called_once_with(query="华语女声", limit=5, recent_tracks=[{"name": "稻香", "artist": "周杰伦"}])
-        apple_recommend.assert_called_once_with(query="华语女声", limit=5, recent_tracks=[{"name": "稻香", "artist": "周杰伦"}])
-        self.assertEqual(remember.call_count, 5)
-        saved = getattr(ui, "_last_recommendation_tracks")
-        self.assertEqual([track["name"] for track in saved], ["七里香", "晴天", "重复", "倒带", "红色高跟鞋"])
-        self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
-        self.assertTrue(any(event.get("type") == "queue" for event in ui.events))
-        chat = [event for event in ui.events if event.get("type") == "chat" and event.get("role") == "agent"][-1]
-        self.assertIn('Recommended 5 tracks for "华语女声"', str(chat.get("text")))
-        self.assertIn("1. 七里香 - 周杰伦: recent match", str(chat.get("text")))
-        self.assertFalse(any(event.get("type") == "player" for event in ui.events))
-
-    async def test_recommend_without_args_uses_empty_query_intro(self) -> None:
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-        track = {"name": "Song", "artist": "Artist", "uri": "spotify:track:1"}
-
-        with patch("src.api.ws_runner.spotify_recommend", return_value={"status": "success", "data": {"tracks": [track]}}) as spotify_recommend, patch(
-            "src.api.ws_runner.apple_music_recommend",
-            return_value={"status": "success", "data": {"tracks": []}},
-        ), patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]), patch(
-            "src.api.ws_runner.remember_playback_track",
-            return_value=[track],
-        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await runner._handle_user_input(ui, "/recommend")
-            self.assertIsNotNone(runner._running_task)
-            assert runner._running_task is not None
-            await runner._running_task
-
-        spotify_recommend.assert_called_once_with(query="", limit=5, recent_tracks=[])
-        chat = [event for event in ui.events if event.get("type") == "chat" and event.get("role") == "agent"][-1]
-        self.assertIn("Recommended 1 track based on recent playback and USER.md", str(chat.get("text")))
-
-    async def test_recommend_uses_other_provider_when_one_provider_fails(self) -> None:
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-        track = {"name": "倒带", "artist": "蔡依林", "url": "https://music.apple.com/1"}
-
-        with patch("src.api.ws_runner.spotify_recommend", side_effect=RuntimeError("spotify unavailable")), patch(
-            "src.api.ws_runner.apple_music_recommend",
-            return_value={"status": "success", "data": {"tracks": [track]}},
-        ), patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]), patch(
-            "src.api.ws_runner.remember_playback_track",
-            return_value=[track],
-        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await runner._handle_user_input(ui, "/recommend R&B")
-            self.assertIsNotNone(runner._running_task)
-            assert runner._running_task is not None
-            await runner._running_task
-
-        self.assertFalse(runner._run_agent_turn.called)
-        saved = getattr(ui, "_last_recommendation_tracks")
-        self.assertEqual([item["name"] for item in saved], ["倒带"])
-        self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
-        self.assertTrue(any('Recommended 1 track for "R&B"' in str(event.get("text")) for event in ui.events))
 
     async def test_recommend_returns_immediately_while_providers_load(self) -> None:
         runner = WebSocketRunner()
@@ -1998,12 +1899,10 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
              patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result), \
              patch("src.api.ws_runner.spotify_account") as spotify_account_check, \
-             patch("src.api.ws_runner.load_apple_music_user_token") as apple_music_account_check, \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "play song")
 
         spotify_account_check.assert_not_called()
-        apple_music_account_check.assert_not_called()
         confirms = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertEqual(confirms[-1]["tool_name"], "song_candidate")
         self.assertFalse(any(event.get("tool_args", {}).get("stage") == "method_choice" for event in confirms))
@@ -2335,8 +2234,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         recent.assert_not_called()
         intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
         self.assertIn("spotify_recent_tracks", intent.allowed_tools)
-        self.assertNotIn("apple_music_recent_tracks", intent.allowed_tools)
-        self.assertNotIn("apple_music_play", intent.allowed_tools)
         self.assertIn("play_youtube_song", intent.allowed_tools)
 
     async def test_spotify_mode_rejects_non_spotify_mode_command_in_chat(self) -> None:
@@ -3118,7 +3015,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
         self.assertIn("request_playback_selection", intent.allowed_tools)
         self.assertNotIn("spotify_play", intent.allowed_tools)
-        self.assertNotIn("apple_music_play", intent.allowed_tools)
         self.assertNotIn("play_youtube_song", intent.allowed_tools)
         self.assertNotIn("play_local_song", intent.allowed_tools)
         self.assertIsNone(getattr(ui, "_play_selection", None))
@@ -3418,79 +3314,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.providers["audius"].api_key, "audius-api-key")
         self.assertFalse(auth_events[-1].get("active", True))
 
-    async def test_setup_apple_stores_token_service_url_from_terminal_panel(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
 
-        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
-            await runner._handle_user_input(ui, "/setup apple")
-            setup = getattr(ui, "_apple_music_setup")
-            auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-            self.assertEqual(auth_events[-1]["title"], "Apple Music token setup")
-            self.assertIn("developer-token service URL", str(auth_events[-1]["message"]))
-            self.assertEqual(auth_events[-1]["prompt"], "Apple token service URL")
-            self.assertFalse(auth_events[-1].get("mask", False))
 
-            await setup.handle_input("not-a-url")
-            self.assertIn("must be an http(s) URL", str(
-                [event for event in ui.events if event.get("type") == "auth_setup"][-1]["message"]
-            ))
-
-            await setup.handle_input("https://tokens.example.test/")
-            store = load_auth_store()
-
-        self.assertEqual(store.providers["apple_mode"].base_url, "https://tokens.example.test")
-        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-        self.assertEqual(auth_events[-1]["title"], "Apple Music token configured")
-        self.assertFalse(auth_events[-1].get("active", True))
-        self.assertIsNone(getattr(ui, "_apple_music_setup"))
-
-    async def test_setup_apple_cancel_hides_panel_and_appends_system_message(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
-            await runner._handle_user_input(ui, "/setup apple")
-            setup = getattr(ui, "_apple_music_setup")
-            await setup.handle_input("__cancel__")
-
-        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-        self.assertEqual(auth_events[-1]["step"], "cancelled")
-        self.assertFalse(auth_events[-1].get("active", True))
-        self.assertIsNone(getattr(ui, "_apple_music_setup"))
-
-        system_events = [
-            event
-            for event in ui.events
-            if event.get("type") == "chat" and event.get("tone") == "system"
-        ]
-        self.assertTrue(system_events)
-        self.assertIn("canceled", str(system_events[-1]["text"]).lower())
-        self.assertIn("panel hidden", str(system_events[-1]["text"]).lower())
-
-    async def test_apple_without_token_configuration_opens_terminal_setup_panel(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        with self._isolated_auth_env({
-            "SONEX_DEFAULT_PROVIDER": "openai",
-            "SONEX_OPENAI_API_KEY": "sk-test",
-            "SONEX_APPLE_TOKEN_BROKER_URL": "",
-        }):
-            await runner._handle_user_input(ui, "/apple")
-
-        setup = getattr(ui, "_apple_music_setup", None)
-        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-        self.assertIsNotNone(setup)
-        self.assertTrue(auth_events)
-        self.assertEqual(auth_events[-1]["title"], "Apple Music token setup")
-        self.assertEqual(auth_events[-1]["prompt"], "Apple token service URL")
-        self.assertIsNot(auth_events[-1].get("active"), False)
-        self.assertFalse(any(
-            "Apple Mode token service is not configured" in str(event.get("text"))
-            for event in ui.events
-            if event.get("type") == "chat"
-        ))
 
     def test_queue_payload_reads_dedicated_up_next_snapshot(self) -> None:
         queue_tracks = [
@@ -4397,7 +4222,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["provider"], "youtube")
         self.assertEqual(player_events[-1]["state"]["name"], "Song")
         self.assertEqual(player_events[-1]["state"]["youtube_url"], "https://www.youtube.com/watch?v=abc")
-        self.assertIsNone(player_events[-1]["state"]["apple_music_url"])
         remember_playback_track.assert_called_once()
         self.assertTrue(cover_events)
         self.assertEqual(cover_events[-1]["url"], "https://coverartarchive.org/release-group/mbid/front-500")
@@ -5975,11 +5799,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             labels,
             [
                 "Spotify",
-                "Apple Music",
                 "NetEase Cloud Music",
                 "Jamendo",
                 "Audius",
-                "Cancel",
             ],
         )
         self.assertFalse(any(label.startswith(("🎵", "🍎", "🟢")) for label in labels))

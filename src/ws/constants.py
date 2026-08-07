@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 
-SEARCH_RESULT_TOOLS = {"spotify_search", "search_track", "spotify_recommend", "apple_music_search", "apple_music_recommend", "Recommend"}
+SEARCH_RESULT_TOOLS = {"spotify_search", "search_track", "spotify_recommend", "Recommend"}
 
-RECOMMENDATION_TOOLS = {"spotify_recommend", "apple_music_recommend", "Recommend"}
+RECOMMENDATION_TOOLS = {"spotify_recommend", "Recommend"}
 
-PLAYBACK_AGENT_TOOLS = {"spotify_play", "apple_music_play", "play_youtube_song", "play_local_song"}
+PLAYBACK_AGENT_TOOLS = {"spotify_play", "play_youtube_song", "play_local_song"}
 
 PLAYBACK_ROUTER_TOOLS = {"request_playback_selection"}
 
@@ -32,13 +32,6 @@ SPOTIFY_PLAYBACK_CONTROL_TOOLS = {
     "resume": "spotify_resume",
 }
 
-APPLE_PLAYBACK_CONTROL_ACTIONS = {
-    "pause": "pause",
-    "resume": "resume",
-    "next": "next",
-    "previous": "previous",
-}
-
 LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
 
 LOCAL_PLAYBACK_CHOICES = [
@@ -55,19 +48,6 @@ SPOTIFY_SETUP_TRIGGERS = {
     "接入 spotify",
     "连接 spotify",
     "配置 spotify",
-}
-
-APPLE_MUSIC_SETUP_TRIGGERS = {
-    "apple music setup",
-    "setup apple music",
-    "connect apple music",
-    "apple music connect",
-    "接入 apple music",
-    "连接 apple music",
-    "配置 apple music",
-    "接入苹果音乐",
-    "连接苹果音乐",
-    "配置苹果音乐",
 }
 
 LLM_AUTH_PROVIDER_CHOICES = [

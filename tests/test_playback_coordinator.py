@@ -108,10 +108,6 @@ class PlaybackCoordinatorTests(unittest.IsolatedAsyncioTestCase):
                 active_mode=True, verified_success_rate=0.6,
                 startup_latency_ms=500, capability_score=3,
             ),
-            ProviderReadiness(
-                "apple_music", True, True, True, False,
-                active_mode=True, reason="MusicKit bridge is unavailable.",
-            ),
         ]
 
         ranked = rank_authoritative_providers(providers)

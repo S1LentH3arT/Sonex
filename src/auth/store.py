@@ -18,6 +18,9 @@ from src.auth.secure_store import delete_refresh_token, load_refresh_token, stor
 from src.log import sonex_home
 
 
+_RETIRED_PROVIDER_NAMES = frozenset({"apple_music", "apple_mode"})
+
+
 class AuthStoreError(RuntimeError):
     """Represents auth store error.
 
@@ -69,6 +72,21 @@ def load_auth_store(path: Path | None = None) -> AuthStore:
     for provider in store.providers.values():
         if provider.oauth and provider.oauth.refresh_token_ref:
             provider.oauth.refresh_token = load_refresh_token(provider.oauth.refresh_token_ref)
+    retired = [
+        store.providers.pop(name)
+        for name in _RETIRED_PROVIDER_NAMES
+        if name in store.providers
+    ]
+    retired_default = store.default_provider in _RETIRED_PROVIDER_NAMES
+    if retired:
+        for provider in retired:
+            if provider.oauth:
+                delete_refresh_token(provider.oauth.refresh_token_ref)
+    if retired_default:
+        store.default_provider = None
+        store.default_model = None
+    if retired or retired_default:
+        save_auth_store(store, resolved)
     return store
 
 

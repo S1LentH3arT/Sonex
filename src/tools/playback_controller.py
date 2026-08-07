@@ -27,7 +27,7 @@ from src.tools.mpv_diagnostics import MpvDiagnosticSession, MpvPlaybackHealthMon
 
 PlayerName = Literal["mpv", "cvlc"]
 PlayerBackend = Literal["auto", "mpv", "cvlc"]
-PlaybackSource = Literal["local", "youtube", "spotify", "apple_music"]
+PlaybackSource = Literal["local", "youtube", "spotify"]
 
 LOCAL_PLAYBACK_APPLICATIONS: tuple[dict[str, Any], ...] = (
     {

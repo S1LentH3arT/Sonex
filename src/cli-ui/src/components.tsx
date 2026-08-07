@@ -3,7 +3,7 @@ import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
 import { CHAT_SYSTEM_MARKER_COLOR, CHAT_USER_MARKER_COLOR, resolveChatContentColor, resolveChatMarkerColor, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
-import { APPLE_BLUSH, APPLE_PEARL_PINK, APPLE_SILVER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
+import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
@@ -152,8 +152,7 @@ export const HeaderFrame = ({ authState, cwd, sessionId, tokenUsage, variant, la
 };
 
 export const isGenericAuthSetup = (setup: AuthSetupState): boolean => {
-    if (!setup?.active) return false;
-    return setup.provider !== "apple_music";
+    return Boolean(setup?.active);
 };
 
 const LoginChoiceList = ({ choices, selectedIndex, visibleLimit, showConnectionStatus = false }: {
@@ -196,6 +195,8 @@ const LoginChoiceList = ({ choices, selectedIndex, visibleLimit, showConnectionS
     );
 };
 
+export const MAX_VISIBLE_LOGIN_PROVIDERS = 8;
+
 export const LoginScreen = ({
     authSetup,
     selectedIndex,
@@ -234,7 +235,7 @@ export const LoginScreen = ({
                     <LoginChoiceList
                         choices={choices}
                         selectedIndex={selectedIndex}
-                        visibleLimit={isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
+                        visibleLimit={isProviderStep ? MAX_VISIBLE_LOGIN_PROVIDERS : isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
                         showConnectionStatus={showProviderConnectionStatus}
                     />
                     <PanelRow
@@ -1016,7 +1017,23 @@ const confirmCancelHint = (choices: ConfirmChoice[]): string => (
         : "press Esc to close"
 );
 
-const CompactConfirm = ({
+const MUSIC_CONNECTION_PROVIDER_WIDTH = 24;
+const MUSIC_CONNECTION_WARNING = "#facc15";
+const MUSIC_CONNECTION_MISSING = "#ef4444";
+
+const truncateConnectionDescription = (value: string, width: number): string => {
+    if (stringWidth(value) <= width) return value;
+    if (width <= 0) return "";
+    const ellipsisWidth = stringWidth("…");
+    let rendered = "";
+    for (const character of Array.from(value)) {
+        if (stringWidth(rendered + character) + ellipsisWidth > width) break;
+        rendered += character;
+    }
+    return `${rendered}${"…".slice(0, width)}`;
+};
+
+export const CompactConfirm = ({
     confirm,
     confirmIndex,
     input,
@@ -1037,6 +1054,23 @@ const CompactConfirm = ({
     panelWidth: number;
     spotifyTheme?: boolean;
 }) => {
+    const checkingConnection = Boolean(
+        confirm?.tool_name === "music_connection"
+        && confirm.choices.some((choice) => choice.connection_status === "checking"),
+    );
+    const [connectionBlinkFilled, setConnectionBlinkFilled] = React.useState(false);
+
+    React.useEffect(() => {
+        if (!checkingConnection) {
+            setConnectionBlinkFilled(false);
+            return;
+        }
+        const timer = setInterval(() => {
+            setConnectionBlinkFilled((current) => !current);
+        }, 500);
+        return () => clearInterval(timer);
+    }, [checkingConnection, confirm?.id]);
+
     if (!confirm) return null;
     const includeCancelChoice = confirm.tool_name === "provider_mode_exit";
     const visibleChoices = getVisibleConfirmChoices(confirm.choices, includeCancelChoice);
@@ -1129,6 +1163,58 @@ const CompactConfirm = ({
                         </React.Fragment>
                     );
                 })}
+            </PanelFrame>
+        );
+    }
+
+    if (confirm.tool_name === "music_connection") {
+        const contentWidth = Math.max(1, panelWidth - 2);
+        const descriptionWidth = Math.max(
+            0,
+            contentWidth - 2 - MUSIC_CONNECTION_PROVIDER_WIDTH,
+        );
+        const connectionItems: PanelChoiceItem[] = visibleChoices.map((choice) => {
+            const status = choice.connection_status ?? "missing";
+            const statusColor = status === "connected"
+                ? SPOTIFY_GREEN
+                : status === "missing"
+                    ? MUSIC_CONNECTION_MISSING
+                    : MUSIC_CONNECTION_WARNING;
+            const marker = status === "checking"
+                ? connectionBlinkFilled ? "•" : "◦"
+                : "•";
+            const markerColor = status === "checking" ? PANEL_PRIMARY : statusColor;
+            return {
+                key: choice.value,
+                segments: [
+                    {
+                        text: `${marker} `,
+                        color: markerColor,
+                        preserveColorWhenSelected: true,
+                    },
+                    {
+                        text: fitDisplayWidth(choice.label, MUSIC_CONNECTION_PROVIDER_WIDTH),
+                        color: PANEL_PRIMARY,
+                    },
+                    {
+                        text: truncateConnectionDescription(choice.description ?? "", descriptionWidth),
+                        color: statusColor,
+                        bold: status === "warning" || status === "checking",
+                        preserveColorWhenSelected: true,
+                    },
+                ],
+            };
+        });
+        const hint = typeof confirm.tool_args.hint === "string"
+            ? confirm.tool_args.hint
+            : "↑/↓ to select · Enter to connect/check · Esc to close";
+        return (
+            <PanelFrame width={panelWidth} title={confirm.message} hint={hint}>
+                <PanelChoiceList
+                    items={connectionItems}
+                    selectedIndex={selectedDisplayIndex}
+                    width={panelWidth}
+                />
             </PanelFrame>
         );
     }
@@ -1273,7 +1359,6 @@ const CompactSetup = ({
 }) => {
     if (!setupPanel) return null;
 
-    const isAppleTokenSetup = "provider" in setupPanel && setupPanel.provider === "apple_music";
     const panelWidth = Math.max(3, Math.floor(terminalColumns ?? 80));
     const contentWidth = Math.max(1, panelWidth - 2);
     const messageRows = wrapChatMessageContent(setupPanel.message, contentWidth);
@@ -1282,7 +1367,6 @@ const CompactSetup = ({
         <PanelFrame
             width={panelWidth}
             title={setupPanel.title}
-            hint={isAppleTokenSetup && setupPanel.active ? "press Esc to cancel" : null}
         >
             {messageRows.map((row, index) => (
                 <PanelRow
@@ -1290,7 +1374,7 @@ const CompactSetup = ({
                     width={panelWidth}
                     segments={[{
                         text: row,
-                        color: isAppleTokenSetup ? PANEL_PRIMARY : setupMessageColor(setupPanel),
+                        color: setupMessageColor(setupPanel),
                     }]}
                 />
             ))}
@@ -1414,7 +1498,6 @@ const InputDock = ({
         && !modelPanel
         && (!confirm || Boolean(selectedChoice?.input) && !isSongCandidateConfirm);
     const spotifyModeBorderLabel = " 🎧 Spotify Mode ";
-    const appleModeEnabled = providerMode.enabled && providerMode.provider === "apple";
 
     return (
         <Box flexDirection="column">
@@ -1517,8 +1600,6 @@ const InputDock = ({
                         <Box flexShrink={0}>
                             {spotifyMode?.enabled ? (
                                 <Text bold color={SPOTIFY_GREEN}>{spotifyModeBorderLabel}</Text>
-                            ) : appleModeEnabled ? (
-                                <AppleModeLabel padded={true} />
                             ) : null}
                         </Box>
                     </Box>
@@ -1680,26 +1761,6 @@ const MiniPlayerRegion = ({
     );
 };
 
-const hasTrueColor = (): boolean => {
-    const colorTerm = String(process.env.COLORTERM || "").toLowerCase();
-    return colorTerm.includes("truecolor") || colorTerm.includes("24bit");
-};
-
-const AppleModeLabel = ({ padded = false }: { padded?: boolean }) => {
-    const colors = hasTrueColor()
-        ? [APPLE_SILVER, APPLE_PEARL_PINK, APPLE_BLUSH]
-        : [APPLE_PEARL_PINK, APPLE_PEARL_PINK, APPLE_PEARL_PINK];
-    return (
-        <Text bold>
-            {padded ? <Text color={colors[0]}> 🎧 </Text> : null}
-            <Text color={colors[0]}>Apple</Text>
-            <Text color={colors[1]}> Mo</Text>
-            <Text color={colors[2]}>de</Text>
-            {padded ? <Text color={colors[2]}> </Text> : null}
-        </Text>
-    );
-};
-
 const ProviderImmersiveRegion = ({
     player,
     spotifyMode,
@@ -1711,10 +1772,7 @@ const ProviderImmersiveRegion = ({
     providerMode: ProviderModeState;
     spotifyImmersiveLayout: SpotifyImmersiveLayout;
 }) => {
-    const isApple = providerMode.provider === "apple";
-    const deviceName = isApple
-        ? `MusicKit · ${(providerMode.storefront || "storefront").toUpperCase()}`
-        : spotifyMode.device_name ?? "Spotify Connect";
+    const deviceName = spotifyMode.device_name ?? "Spotify Connect";
     const deviceStatus = player.is_playing ? "playing" : "paused";
     const topPadding = spotifyImmersiveLayout.topPadding;
     const deviceWidth = spotifyImmersiveLayout.deviceSlot.width;
@@ -1722,7 +1780,7 @@ const ProviderImmersiveRegion = ({
     return (
         <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingX={2} paddingTop={topPadding}>
             <Box justifyContent="center">
-                {isApple ? <AppleModeLabel /> : <Text bold color={SPOTIFY_GREEN}>Spotify Mode</Text>}
+                <Text bold color={SPOTIFY_GREEN}>Spotify Mode</Text>
             </Box>
             <Box justifyContent="center" marginTop={1}>
                 <Text color="#fff4f6" wrap="truncate-end">{player.name}</Text>
@@ -1733,7 +1791,7 @@ const ProviderImmersiveRegion = ({
             <Box height={1} marginTop={1} />
             <Box justifyContent="center">
                 <Box width={deviceWidth > 0 ? deviceWidth : undefined} justifyContent="center">
-                    <Text color={isApple ? APPLE_PEARL_PINK : SPOTIFY_GREEN} wrap="truncate-end">
+                    <Text color={SPOTIFY_GREEN} wrap="truncate-end">
                         {providerMode.connection_status === "disconnected" ? "reconnecting" : `${deviceStatus} on ${deviceName}`}
                     </Text>
                 </Box>

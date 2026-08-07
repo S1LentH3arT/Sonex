@@ -75,14 +75,39 @@ test('renders compact provider connection rows without lowercase aliases', async
     assert.match(plain, /• OpenRouter — Not connected/);
     assert.doesNotMatch(plain, /Not connected\s+openai/);
     assert.doesNotMatch(plain, /Connected\s+gemini/);
-    assert.match(plain, /↑\/↓ to navigate • Enter to continue/);
+    assert.match(plain, /↑\/↓ to select · Enter to continue · Esc to close/);
     assert.match(frame, /\u001b\[(?:38;2;29;185;84|38;5;78)m•/);
     assert.match(frame, /\u001b\[(?:38;2;128;135;145|38;5;145)m•/);
     assert.match(frame, /\u001b\[(?:38;2;239;68;68|38;5;203)m•/);
     assert.match(
         frame,
-        /\u001b\[1m\u001b\[(?:38;2;128;135;145|38;5;145)m↑\/↓ to navigate • Enter to continue/,
+        /\u001b\[1m\u001b\[(?:38;2;128;135;145|38;5;145)m↑\/↓ to select · Enter to continue · Esc to close/,
     );
+});
+
+test('shows at most eight providers and follows the active selection window', async () => {
+    const providers = Array.from({ length: 10 }, (_unused, index) => ({
+        value: `provider-${index + 1}`,
+        label: `Provider ${index + 1}${index === 8 ? ' — Active' : ' — Not connected'}`,
+        connected: index === 8,
+        connection_status: index === 8 ? 'active' as const : 'missing' as const,
+    }));
+
+    const { plain } = await renderLoginScreen({
+        provider: 'provider-9',
+        step: 'provider',
+        title: 'Connect Sonex',
+        message: 'Choose a provider.',
+        active: true,
+        providers,
+    }, 8);
+
+    const visibleProviders = new Set(
+        Array.from(plain.matchAll(/• Provider (\d+)/g), (match) => match[1]),
+    );
+    assert.equal(visibleProviders.size, 8);
+    assert.doesNotMatch(plain, /Provider 1 —/);
+    assert.match(plain, /Provider 9 — Active/);
 });
 
 test('does not add account-status bullets to the Custom profile subpage', async () => {

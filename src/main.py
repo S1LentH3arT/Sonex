@@ -22,11 +22,6 @@ from rich.console import Console
 from rich.table import Table
 
 from src.auth.oauth import save_oauth_token
-from src.auth.apple_music import (
-    apple_music_setup_message,
-    save_apple_music_credentials,
-    save_apple_music_user_token,
-)
 from src.auth.providers import get_provider_capability, normalize_provider
 from src.auth.spotify import (
     save_spotify_token_info,
@@ -54,6 +49,7 @@ SERVER_START_TIMEOUT = 15.0
 app = typer.Typer(no_args_is_help=False, add_completion=False)
 auth_app = typer.Typer(no_args_is_help=True, help="Manage Sonex provider credentials.")
 console = Console()
+_RETIRED_PROVIDERS = {"apple_music", "apple_mode"}
 
 
 def _project_root() -> Path:
@@ -111,6 +107,12 @@ def _normalize_auth_method(method: str) -> str:
     if normalized not in {"auto", "oauth", "api-key"}:
         raise typer.BadParameter("method must be one of: auto, oauth, api-key")
     return normalized
+
+
+def _reject_retired_provider(provider: str) -> None:
+    if provider in _RETIRED_PROVIDERS:
+        console.print(f"[red]Unknown provider: {provider}.[/red]")
+        raise typer.Exit(1)
 
 
 def _prompt_api_key(provider: str, api_key: str | None) -> str:
@@ -233,18 +235,12 @@ def login(
 ) -> None:
     """Login to a provider or import provider credentials."""
     name = normalize_provider(provider)
+    _reject_retired_provider(name)
     selected_method = _normalize_auth_method(method)
     capability = get_provider_capability(name)
 
     if name == "spotify" and selected_method in {"auto", "oauth"} and not access_token:
         _spotify_loopback_login()
-        return
-
-    if name == "apple_music" and selected_method in {"auto", "oauth"}:
-        console.print(f"[yellow]{apple_music_setup_message()}[/yellow]")
-        if access_token:
-            console.print("[red]Refusing to persist a Music User Token. Authorize through /apple instead.[/red]")
-            raise typer.Exit(1)
         return
 
     if selected_method == "oauth" or (
@@ -289,10 +285,7 @@ def login(
         raise typer.Exit(1)
 
     key = _prompt_api_key(name, api_key)
-    if name == "apple_music":
-        path = save_apple_music_credentials(key)
-    else:
-        path = set_api_key(name, key, model=model, base_url=base_url)
+    path = set_api_key(name, key, model=model, base_url=base_url)
     _print_auth_store_path(path)
 
 
@@ -305,15 +298,13 @@ def set_key(
 ) -> None:
     """Store or update a provider API key."""
     name = normalize_provider(provider)
+    _reject_retired_provider(name)
     capability = get_provider_capability(name)
     if not capability.supports_api_key:
         console.print(f"[red]Provider '{name}' does not support API key login.[/red]")
         raise typer.Exit(1)
     key = _prompt_api_key(name, api_key)
-    if name == "apple_music":
-        path = save_apple_music_credentials(key)
-    else:
-        path = set_api_key(name, key, model=model, base_url=base_url)
+    path = set_api_key(name, key, model=model, base_url=base_url)
     _print_auth_store_path(path)
 
 
@@ -345,6 +336,7 @@ def list_auth() -> None:
 def logout(provider: str) -> None:
     """Remove stored credentials for a provider."""
     name = normalize_provider(provider)
+    _reject_retired_provider(name)
     removed = remove_provider(name)
     if removed:
         console.print(f"[green]Removed credentials for {name}.[/green]")
@@ -358,6 +350,7 @@ def set_default_auth(
     model: str | None = typer.Option(None, "--model", help="Default model."),
 ) -> None:
     """Set the default LLM provider and optional default model."""
+    _reject_retired_provider(normalize_provider(provider))
     path = set_default(provider, model=model)
     _print_auth_store_path(path)
 

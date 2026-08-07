@@ -14,7 +14,7 @@ assert.match(appSource, /authSetupActiveRef\.current/);
 assert.match(appSource, /slashMenuActiveRef\.current/);
 assert.match(appSource, /const localShortcut = activeRegionRef\.current === "miniPlayer"[\s\S]*isLocalPlaybackShortcutSource\(playerRef\.current\)/);
 assert.match(appSource, /const spotifyShortcut = activeRegionRef\.current === "spotifyImmersive"[\s\S]*spotifyModeRef\.current\.enabled[\s\S]*action === "togglePlayback"[\s\S]*isSpotifyPlaybackShortcutSource\(playerRef\.current\)/);
-assert.match(appSource, /const providerShortcut = activeRegionRef\.current === "providerImmersive"[\s\S]*isApplePlaybackShortcutSource\(playerRef\.current\)/);
+assert.match(appSource, /const providerShortcut = activeRegionRef\.current === "providerImmersive"[\s\S]*providerModeRef\.current\.provider === "spotify"[\s\S]*isSpotifyPlaybackShortcutSource\(playerRef\.current\)/);
 assert.match(appSource, /if \(!localShortcut && !spotifyShortcut && !providerShortcut\) return;/);
 assert.match(appSource, /send\(\{ type: "internal_command", text: command \}\)/);
 assert.match(appSource, /case "track_panel":/);

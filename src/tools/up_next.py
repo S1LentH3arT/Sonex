@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from src.log import sonex_home
+from src.music.legacy_tracks import downgrade_retired_provider_track, is_retired_provider_track
 
 
 MAX_UP_NEXT = 100
@@ -37,8 +38,16 @@ def _empty_state() -> dict[str, Any]:
 def _coerce_state(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         return _empty_state()
-    items = [dict(item) for item in value.get("items", []) if isinstance(item, dict)]
-    failed = [dict(item) for item in value.get("failed", []) if isinstance(item, dict)]
+    items = [
+        downgrade_retired_provider_track(item)[0]
+        for item in value.get("items", [])
+        if isinstance(item, dict)
+    ]
+    failed = [
+        downgrade_retired_provider_track(item)[0]
+        for item in value.get("failed", [])
+        if isinstance(item, dict)
+    ]
     try:
         revision = max(0, int(value.get("revision") or 0))
     except (TypeError, ValueError):
@@ -52,9 +61,23 @@ def _coerce_state(value: Any) -> dict[str, Any]:
 
 def _load(path: Path) -> dict[str, Any]:
     try:
-        return _coerce_state(json.loads(path.read_text(encoding="utf-8")))
+        loaded = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return _empty_state()
+    loaded_items = loaded.get("items") if isinstance(loaded, dict) else None
+    loaded_failed = loaded.get("failed") if isinstance(loaded, dict) else None
+    persisted_tracks = (
+        (loaded_items if isinstance(loaded_items, list) else [])
+        + (loaded_failed if isinstance(loaded_failed, list) else [])
+    )
+    needs_migration = any(
+        isinstance(item, dict) and is_retired_provider_track(item)
+        for item in persisted_tracks
+    )
+    state = _coerce_state(loaded)
+    if needs_migration:
+        _save(path, state)
+    return state
 
 
 def _save(path: Path, state: dict[str, Any]) -> None:
@@ -137,7 +160,7 @@ def append_up_next_track(
         ref = str(track.get("ref") or "").strip()
         if not ref:
             raise ValueError("Up-next tracks require a structured ref.")
-        if not track.get("playable"):
+        if not track.get("playable") and not track.get("requires_resolution"):
             raise ValueError("Up-next tracks require an available playback route.")
         if any(str(item.get("ref") or "") == ref for item in current["items"]):
             return current

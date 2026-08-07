@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Box, useApp, useInput, useStdin } from 'ink';
 import { upsertActivity } from './activity.js';
-import { appleModeSlashCommands, completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands, unknownSlashCommandMessage } from './commands.js';
+import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands, unknownSlashCommandMessage } from './commands.js';
 import { getSelectableConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
@@ -14,7 +14,8 @@ import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPl
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { formatModelStatus } from './model-status.js';
 import { filterModelChoices } from './model-selection.js';
-import { isApplePlaybackShortcutSource, isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
+import { resolveLoginProviderSelectionIndex } from './login-navigation.js';
+import { isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
 import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer } from './transcript.js';
@@ -96,6 +97,7 @@ export const App: React.FC<{
     const playbackKeymapEnabledRef = React.useRef(true);
     const playerRef = React.useRef<PlayerState>(player);
     const confirmRef = React.useRef<ConfirmState>(null);
+    const dismissedConfirmIdsRef = React.useRef(new Set<string>());
     const spotifyModeRef = React.useRef<SpotifyModeState>(spotifyMode);
     const providerModeRef = React.useRef<ProviderModeState>(providerMode);
     const spotifySetupActiveRef = React.useRef(false);
@@ -105,14 +107,11 @@ export const App: React.FC<{
     const tokenUsageRef = React.useRef<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
     const startupInfoCapturedRef = React.useRef(false);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
-    const isAppleTokenSetupActive = authSetup?.active && authSetup.provider === "apple_music";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
     const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
     const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive;
     const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active
         ? []
-        : providerMode.provider === "apple" && providerMode.enabled
-            ? appleModeSlashCommands(input, language)
         : spotifyMode.enabled
             ? spotifyModeSlashCommands(input, language)
             : slashCommandSuggestions(input, language);
@@ -271,7 +270,6 @@ export const App: React.FC<{
     }, [authSetup?.active, isSlashInput, slashSuggestions.length, spotifySetup?.active]);
 
     React.useEffect(() => {
-        setLoginSelectionIndex(0);
         setLoginApiKeyInput("");
     }, [authSetup?.step, authSetup?.provider]);
 
@@ -473,7 +471,6 @@ export const App: React.FC<{
                 const nextMode: ProviderModeState = {
                     provider: evt.provider,
                     enabled: evt.enabled,
-                    storefront: evt.storefront,
                     connection_status: evt.connection_status,
                 };
                 providerModeRef.current = nextMode;
@@ -507,13 +504,20 @@ export const App: React.FC<{
                 });
                 break;
             case "confirm":
+                if (dismissedConfirmIdsRef.current.has(evt.id)) {
+                    break;
+                }
                 setLaunchPreparing(false);
                 setInput("");
                 switchRegion("chat");
+                if (evt.tool_name === "music_connection") {
+                    setSpotifySetup(null);
+                    setAuthSetup(null);
+                }
                 setConfirm({
                     id: evt.id,
                     tool_name: evt.tool_name,
-                    tool_args: evt.tool_args,
+                    tool_args: evt.tool_args ?? {},
                     message: evt.message || `Confirm ${evt.tool_name}`,
                     warning: evt.warning,
                     hide_hint: evt.hide_hint === true,
@@ -523,8 +527,22 @@ export const App: React.FC<{
                     page_index: evt.page_index,
                     page_count: evt.page_count,
                 });
-                setConfirmIndex(0);
+                if (evt.tool_args?.preserve_selection !== true) {
+                    setConfirmIndex(0);
+                }
                 break;
+            case "confirm_dismiss": {
+                const currentConfirm = confirmRef.current;
+                dismissedConfirmIdsRef.current.add(evt.id);
+                if (currentConfirm?.id === evt.id) {
+                    if (currentConfirm.tool_name === "music_connection") {
+                        setSpotifySetup(null);
+                        setAuthSetup(null);
+                    }
+                    setConfirm(null);
+                }
+                break;
+            }
             case "spotify_setup":
                 setLaunchPreparing(false);
                 setHelpPanel(null);
@@ -544,16 +562,7 @@ export const App: React.FC<{
             case "auth_setup":
                 setLaunchPreparing(false);
                 setHelpPanel(null);
-                if (
-                    evt.active === false
-                    && (
-                        evt.step === "model"
-                        || (
-                            evt.provider === "apple_music"
-                            && (evt.step === "companion_done" || evt.step === "cancelled")
-                        )
-                    )
-                ) {
+                if (evt.active === false && evt.step === "model") {
                     setAuthSetup(null);
                     setInput("");
                     break;
@@ -575,9 +584,14 @@ export const App: React.FC<{
                     providers: evt.providers,
                     models: evt.models,
                 });
+                if (evt.step === "provider") {
+                    const providers = evt.providers ?? [];
+                    setLoginSelectionIndex(resolveLoginProviderSelectionIndex(providers, evt.provider));
+                } else {
+                    setLoginSelectionIndex(0);
+                }
                 if (evt.step === "model") {
                     setInput("");
-                    setLoginSelectionIndex(0);
                 }
                 setStatusText(evt.title);
                 break;
@@ -657,10 +671,8 @@ export const App: React.FC<{
             const providerShortcut = activeRegionRef.current === "providerImmersive"
                 && providerModeRef.current.enabled
                 && action === "togglePlayback"
-                && (
-                    (providerModeRef.current.provider === "spotify" && isSpotifyPlaybackShortcutSource(playerRef.current))
-                    || (providerModeRef.current.provider === "apple" && isApplePlaybackShortcutSource(playerRef.current))
-                );
+                && providerModeRef.current.provider === "spotify"
+                && isSpotifyPlaybackShortcutSource(playerRef.current);
             if (!localShortcut && !spotifyShortcut && !providerShortcut) return;
 
             const command = playbackCommandForShortcut(action, playerRef.current);
@@ -898,16 +910,15 @@ export const App: React.FC<{
         }
     }, { isActive: rawModeAvailable });
 
-    useInput((_inputKey, key) => {
-        if (!isAppleTokenSetupActive || !key.escape) return;
-        setAuthSetup(null);
-        setInput("");
-        send({ type: "auth_setup_input", value: "__cancel__" });
-    }, { isActive: rawModeAvailable && Boolean(isAppleTokenSetupActive) });
-
     useInput((inputKey, key) => {
         if (!isLoginScreenActive) return;
         if (key.escape) {
+            const connectionConfirm = confirmRef.current;
+            if (connectionConfirm?.tool_name === "music_connection") {
+                dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+                send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+                setConfirm(null);
+            }
             setAuthSetup(null);
             setLoginSelectionIndex(0);
             setLoginApiKeyInput("");
@@ -926,6 +937,19 @@ export const App: React.FC<{
             }
         }
     }, { isActive: rawModeAvailable && isLoginScreenActive });
+
+    useInput((_inputKey, key) => {
+        if (!spotifySetup?.active || !key.escape) return;
+        const connectionConfirm = confirmRef.current;
+        if (connectionConfirm?.tool_name === "music_connection") {
+            dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+            send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+            setConfirm(null);
+        }
+        setSpotifySetup(null);
+        setInput("");
+        send({ type: "setup_input", value: "__cancel__" });
+    }, { isActive: rawModeAvailable && Boolean(spotifySetup?.active) });
 
     useInput((inputKey, key) => {
         if (!isModelPanelActive) return;
@@ -1000,16 +1024,35 @@ export const App: React.FC<{
 
     useInput((inputKey, key) => {
         if (spotifySetup && spotifySetup.active === false && key.escape) {
+            const connectionConfirm = confirmRef.current;
+            if (connectionConfirm?.tool_name === "music_connection") {
+                dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+                send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+                setConfirm(null);
+            }
             setSpotifySetup(null);
-            appendPanelHiddenNotice(t(language, "panel.spotifySetupHidden"));
+            if (connectionConfirm?.tool_name !== "music_connection") {
+                appendPanelHiddenNotice(t(language, "panel.spotifySetupHidden"));
+            }
         } else if (authSetup && authSetup.active === false && key.escape) {
+            const connectionConfirm = confirmRef.current;
+            if (connectionConfirm?.tool_name === "music_connection") {
+                dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+                send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+                setConfirm(null);
+            }
             setAuthSetup(null);
-            appendPanelHiddenNotice(t(language, "panel.setupHidden"));
+            if (connectionConfirm?.tool_name !== "music_connection") {
+                appendPanelHiddenNotice(t(language, "panel.setupHidden"));
+            }
         }
     }, { isActive: rawModeAvailable && (Boolean(spotifySetup && spotifySetup.active === false) || Boolean(authSetup && authSetup.active === false)) });
 
     useInput((inputKey, key) => {
         if (!confirm) return;
+        const isMusicConnection = confirm.tool_name === "music_connection";
+        const musicConnectionBusy = isMusicConnection
+            && confirm.choices.some((choice) => choice.connection_status === "checking");
 
         if (key.upArrow) {
             setInput("");
@@ -1020,20 +1063,42 @@ export const App: React.FC<{
         } else if (key.return) {
             if (selectableConfirmChoices.length === 0) return;
             if (selectedConfirmChoice?.input) return;
+            if (musicConnectionBusy) return;
             send({
                 type: "confirm_result",
                 id: confirm.id,
                 decision: selectedConfirmChoice?.value ?? "allow_once",
             });
-            setConfirm(null);
+            if (isMusicConnection && selectedConfirmChoice) {
+                setConfirm((current) => current && current.id === confirm.id
+                    ? {
+                        ...current,
+                        choices: current.choices.map((choice) => choice.value === selectedConfirmChoice.value
+                            ? {
+                                ...choice,
+                                connection_status: "checking",
+                                description: "Checking connection...",
+                            }
+                            : choice),
+                    }
+                    : current);
+            } else {
+                setConfirm(null);
+            }
         } else if (key.escape) {
+            dismissedConfirmIdsRef.current.add(confirm.id);
             send({ type: "confirm_result", id: confirm.id, decision: "deny" });
             setConfirm(null);
-            if (confirm.variant !== "tool_call_review") {
+            if (!isMusicConnection && confirm.variant !== "tool_call_review") {
                 appendPanelHiddenNotice(t(language, "panel.confirmHidden"));
             }
         }
-    }, { isActive: Boolean(confirm) && rawModeAvailable });
+    }, {
+        isActive: Boolean(confirm)
+            && rawModeAvailable
+            && !authSetup?.active
+            && !spotifySetup?.active,
+    });
 
     useInput((inputKey, key) => {
         if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active) return;

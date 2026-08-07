@@ -1,4 +1,4 @@
-"""Single-owner lifecycle coordination for external playback provider modes."""
+"""Single-owner lifecycle coordination for persistent playback provider modes."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ PROVIDER_MODE_STATE_VERSION = 1
 class ProviderMode(StrEnum):
     NORMAL = "normal"
     SPOTIFY = "spotify"
-    APPLE = "apple"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,10 +79,10 @@ class ProviderModeCoordinator:
                     paused = True
                 await commit(target)
             except Exception as exc:
-                # The target was never published. A paused old provider remains
-                # the authoritative mode and may be resumed explicitly.
                 detail = " after pausing the previous provider" if paused else ""
-                raise ProviderModeTransitionError(f"Could not commit provider mode{detail}: {exc}") from exc
+                raise ProviderModeTransitionError(
+                    f"Could not commit provider mode{detail}: {exc}"
+                ) from exc
 
             self._state = ProviderModeState(provider=target)
             return self._state
@@ -118,7 +117,10 @@ def save_provider_mode_intent(state: ProviderModeState) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+        temporary.write_text(
+            json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
         temporary.replace(path)
     except OSError:
         return

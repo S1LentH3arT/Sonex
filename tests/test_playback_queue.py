@@ -20,9 +20,6 @@ class PlaybackQueueTests(unittest.TestCase):
             ), patch(
                 "src.tools.playback_queue.spotify_recent_tracks_snapshot",
                 return_value=[{"name": "Spotify Song", "artist": "Spotify Artist", "duration_ms": 62_000}],
-            ), patch(
-                "src.tools.playback_queue.apple_recent_tracks_snapshot",
-                return_value=[{"name": "Apple Song", "artist": "Apple Artist", "duration_ms": 63_000}],
             ):
                 queue = playback_queue_snapshot()
                 queue_path = Path(home) / "cache" / "playback_queue.json"
@@ -42,7 +39,7 @@ class PlaybackQueueTests(unittest.TestCase):
                         "played_at": "2026-06-17T09:17:48Z",
                     }
                 ],
-            ), patch("src.tools.playback_queue.apple_recent_tracks_snapshot", return_value=[]):
+            ):
                 queue = playback_queue_snapshot()
 
         self.assertEqual(queue[0]["name"], "Spotify Recent")
@@ -63,7 +60,7 @@ class PlaybackQueueTests(unittest.TestCase):
 
             with patch("src.tools.playback_queue.recent_cached_songs", side_effect=AssertionError("should not reseed")), patch(
                 "src.tools.playback_queue.spotify_recent_tracks_snapshot", side_effect=AssertionError("should not reseed")
-            ), patch("src.tools.playback_queue.apple_recent_tracks_snapshot", side_effect=AssertionError("should not reseed")):
+            ):
                 queue = playback_queue_snapshot()
 
         self.assertEqual([item["name"] for item in queue], ["Persisted Song"])

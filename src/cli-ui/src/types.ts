@@ -11,12 +11,13 @@ export type ServerEvent =
     | { type: "search_results"; tracks: TrackSummary[] }
     | { type: "player"; state: PlayerState }
     | { type: "spotify_mode"; enabled: boolean; device_id?: string | null; device_name?: string | null }
-    | { type: "provider_mode"; provider: "normal" | "spotify" | "apple"; enabled: boolean; storefront?: string | null; connection_status?: string | null }
+    | { type: "provider_mode"; provider: "normal" | "spotify"; enabled: boolean; connection_status?: string | null }
     | { type: "cover"; url: string }
     | CoverPatternEvent
     | CoverPatternUnavailableEvent
     | { type: "error"; message: string; detail?: string | null; recoverable?: boolean | null }
     | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; warning?: string | null; hide_hint?: boolean | null; choices?: ConfirmChoice[] | null; variant?: "tool_call_review" | null; commands?: string[] | null; page_index?: number | null; page_count?: number | null }
+    | { type: "confirm_dismiss"; id: string }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
     | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; placeholder?: string | null; help_text?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
     | { type: "auth_state"; ready: boolean; provider: string; model: string; model_label?: string | null; auth_type: string; credential_source: string; reason?: string | null }
@@ -79,6 +80,7 @@ export type ConfirmChoice = {
     value: string;
     label: string;
     description?: string;
+    connection_status?: "connected" | "missing" | "warning" | "checking";
     disabled?: boolean;
     disabled_reason?: string;
     display?: ConfirmChoiceDisplay;
@@ -118,9 +120,8 @@ export type SpotifyModeState = {
 };
 
 export type ProviderModeState = {
-    provider: "normal" | "spotify" | "apple";
+    provider: "normal" | "spotify";
     enabled: boolean;
-    storefront?: string | null;
     connection_status?: string | null;
 };
 
@@ -200,7 +201,7 @@ export type PlayerState = {
     volume_percent?: number | null;
     is_liked?: boolean | null;
     is_in_playlist?: boolean | null;
-    source?: "local" | "youtube" | "spotify" | "apple_music" | string | null;
+    source?: "local" | "youtube" | "spotify" | string | null;
 };
 
 export type TrackSummary = {
@@ -286,7 +287,7 @@ export type TrackPanelTrack = {
     stream_url?: string;
     youtube_url?: string;
     spotify_url?: string;
-    apple_music_url?: string;
+    requires_resolution?: boolean;
     audio_path?: string;
     file_path?: string;
     path?: string;

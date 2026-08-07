@@ -295,6 +295,10 @@ class WebSocketUIAdapter:
             }
         )
 
+    async def dismiss_confirm(self, confirm_id: str) -> None:
+        """Dismiss one live confirmation without adding transcript output."""
+        await self._send({"type": "confirm_dismiss", "id": confirm_id})
+
     async def send_spotify_setup(
         self,
         *,

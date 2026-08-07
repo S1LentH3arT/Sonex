@@ -36,5 +36,4 @@ assert.match(playerPermissionSource, /"confirm_message": f"Allow Sonex to open \
 assert.match(websocketConstantsSource, /"连接 spotify"/);
 
 // Provider modes must not restore their retired natural-language direct routers.
-assert.doesNotMatch(runnerSource, /def _handle_apple_mode_input/);
 assert.doesNotMatch(runnerSource, /def _handle_spotify_mode_input/);
