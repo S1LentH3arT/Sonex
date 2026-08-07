@@ -2,11 +2,12 @@ import assert from 'node:assert/strict';
 
 import {
     CHAT_ERROR_MARKER_COLOR,
+    CHAT_MESSAGE_TEXT_COLOR,
     CHAT_SYSTEM_MARKER_COLOR,
     CHAT_USER_MARKER_COLOR,
     CHAT_WARNING_MARKER_COLOR,
+    resolveChatContentColor,
     resolveChatMarkerColor,
-    resolveChatSubject,
     wrapChatMessageContent,
     wrapChatMessageSegments,
 } from '../src/chat-message.js';
@@ -50,9 +51,10 @@ assert.notEqual(resolveChatMarkerColor('agent', null, 'system'), BORDER_BLUE_SOF
 assert.equal(resolveChatMarkerColor('agent', 'spotify', null), SPOTIFY_GREEN);
 assert.equal(resolveChatMarkerColor('agent', null, null), BORDER_BLUE);
 
-assert.equal(resolveChatSubject('user', null), 'User');
-assert.equal(resolveChatSubject('user', 'error'), 'User');
-assert.equal(resolveChatSubject('agent', null), 'Agent');
-assert.equal(resolveChatSubject('agent', 'system'), 'System');
-assert.equal(resolveChatSubject('agent', 'warning'), 'Warning');
-assert.equal(resolveChatSubject('agent', 'error'), 'Caution');
+assert.equal(CHAT_MESSAGE_TEXT_COLOR, '#ffffff');
+assert.equal(resolveChatContentColor('user', null), CHAT_MESSAGE_TEXT_COLOR);
+assert.equal(resolveChatContentColor('user', 'error'), CHAT_MESSAGE_TEXT_COLOR);
+assert.equal(resolveChatContentColor('agent', null), CHAT_MESSAGE_TEXT_COLOR);
+assert.equal(resolveChatContentColor('agent', 'system'), CHAT_MESSAGE_TEXT_COLOR);
+assert.equal(resolveChatContentColor('agent', 'warning'), CHAT_WARNING_MARKER_COLOR);
+assert.equal(resolveChatContentColor('agent', 'error'), CHAT_ERROR_MARKER_COLOR);

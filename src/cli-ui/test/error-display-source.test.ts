@@ -21,5 +21,6 @@ assert.match(source, /spotifyModeRef\.current\.enabled \? "spotify" : undefined/
 assert.match(componentsSource, /<ChatBubble[\s\S]*theme=\{record\.item\.theme\}/);
 assert.match(componentsSource, /tone=\{record\.item\.tone\}/);
 assert.doesNotMatch(componentsSource, /theme === "spotify" && !isUser \? SPOTIFY_GREEN/);
-assert.match(componentsSource, /theme === "muted" && !isUser \? "#9ca3af"/);
+assert.doesNotMatch(componentsSource, /theme === "muted" && !isUser \? "#9ca3af"/);
 assert.match(componentsSource, /resolveChatMarkerColor\(role, theme, tone\)/);
+assert.match(componentsSource, /resolveChatContentColor\(role, tone\)/);

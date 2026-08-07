@@ -2,7 +2,7 @@ import React from 'react';
 import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
-import { CHAT_SYSTEM_MARKER_COLOR, resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
+import { CHAT_SYSTEM_MARKER_COLOR, CHAT_USER_MARKER_COLOR, resolveChatContentColor, resolveChatMarkerColor, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
 import { APPLE_BLUSH, APPLE_PEARL_PINK, APPLE_SILVER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
@@ -483,9 +483,9 @@ const HelpPanel = ({ panel, selectedIndex, width, language = "en" }: {
 
 const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, segments = null }: ChatBubbleProps) => {
     const isUser = role === "user";
-    const color = theme === "muted" && !isUser ? "#9ca3af" : isUser ? "#fff6f8" : "#f6e9ee";
     const markerColor = resolveChatMarkerColor(role, theme, tone);
-    const subject = resolveChatSubject(role, tone);
+    const contentColor = resolveChatContentColor(role, tone);
+    const useToolSegmentStyles = !isUser && tone === null;
     const validSegments = segments && segments.map((segment) => segment.text).join("") === content
         ? segments
         : null;
@@ -494,26 +494,25 @@ const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, se
 
     return (
         <Box marginBottom={1} flexDirection="column" width="100%">
-            <Text bold color={markerColor}>{subject}</Text>
             {lines.map((line, index) => {
-                const marker = index === lines.length - 1 ? "└" : "│";
+                const marker = index === 0 ? "•" : " ";
                 if (typeof line === "string") {
                     return (
                         <Text key={`${index}_${line}`}>
                             <Text color={markerColor}>{marker}</Text>
-                            <Text color={color}>{` ${line}`}</Text>
+                            <Text color={contentColor}>{` ${line}`}</Text>
                         </Text>
                     );
                 }
                 return (
                     <Text key={`${index}_${line.map((segment) => segment.text).join("")}`}>
                         <Text color={markerColor}>{marker}</Text>
-                        <Text color={color}>{" "}</Text>
+                        <Text color={contentColor}>{" "}</Text>
                         {line.map((segment, segmentIndex) => (
                             <Text
                                 key={`${segmentIndex}_${segment.text}`}
-                                color={segment.style === "tool_name" ? TOOL_NAVY : TOOL_VALUE}
-                                bold={segment.style === "tool_name"}
+                                color={useToolSegmentStyles && segment.style === "tool_name" ? TOOL_NAVY : contentColor}
+                                bold={useToolSegmentStyles && segment.style === "tool_name"}
                             >
                                 {segment.text}
                             </Text>
@@ -521,6 +520,11 @@ const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, se
                     </Text>
                 );
             })}
+            {isUser ? (
+                <Box marginTop={1}>
+                    <Text color={CHAT_USER_MARKER_COLOR}>{"─".repeat(contentWidth + 2)}</Text>
+                </Box>
+            ) : null}
         </Box>
     );
 };

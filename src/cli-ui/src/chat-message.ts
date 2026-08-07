@@ -7,6 +7,7 @@ export const CHAT_USER_MARKER_COLOR = "#808791";
 export const CHAT_SYSTEM_MARKER_COLOR = "#c8a6ff";
 export const CHAT_WARNING_MARKER_COLOR = "#d4a72c";
 export const CHAT_ERROR_MARKER_COLOR = "#ef4444";
+export const CHAT_MESSAGE_TEXT_COLOR = "#ffffff";
 
 export function wrapChatMessageContent(content: string, width: number): string[] {
     const boundedWidth = Math.max(1, Math.floor(width));
@@ -81,17 +82,6 @@ export function wrapChatMessageSegments(
     return lines.length > 0 ? lines : [[]];
 }
 
-export function resolveChatSubject(
-    role: ChatRole,
-    tone: ChatTone | null,
-): "User" | "Agent" | "System" | "Warning" | "Caution" {
-    if (role === "user") return "User";
-    if (tone === "error") return "Caution";
-    if (tone === "warning") return "Warning";
-    if (tone === "system") return "System";
-    return "Agent";
-}
-
 export function resolveChatMarkerColor(
     role: ChatRole,
     theme: ChatTheme | null,
@@ -103,4 +93,11 @@ export function resolveChatMarkerColor(
     if (tone === "system") return CHAT_SYSTEM_MARKER_COLOR;
     if (theme === "spotify") return SPOTIFY_GREEN;
     return BORDER_BLUE;
+}
+
+export function resolveChatContentColor(role: ChatRole, tone: ChatTone | null): string {
+    if (role === "user") return CHAT_MESSAGE_TEXT_COLOR;
+    if (tone === "error") return CHAT_ERROR_MARKER_COLOR;
+    if (tone === "warning") return CHAT_WARNING_MARKER_COLOR;
+    return CHAT_MESSAGE_TEXT_COLOR;
 }
