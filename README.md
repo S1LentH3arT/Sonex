@@ -23,7 +23,7 @@ Install these system runtimes before running the Sonex installer:
 | Python 3.12 | Must be available as `python3.12` |
 | Node.js and `npm` | Required to install and build the terminal UI |
 | Linux or WSL | A compatible shell environment is required |
-| `vlc` or `mpv` | Optional; enables local-file and YouTube playback |
+| `mpv` | Optional; enables local-file and online audio playback |
 
 > [!NOTE]
 > The installer checks for Python, Node.js, and npm, but it does not install
@@ -238,15 +238,11 @@ read-timeout failures are reported separately. If the saved token is missing
 newly required Spotify scopes, Sonex starts the Spotify authorization guide in
 the current chat so you can grant the updated permissions.
 
-### Local and YouTube Playback
+### Local and Online Playback
 
-Install `mpv` or VLC if you want controllable local-file or online playback.
-The first `/player` call in a session detects installed applications supported
-by Sonex. Managed mpv/VLC and supported external applications such as
-Clementine, Rhythmbox, and Audacious can become the device default. Other
-running MPRIS applications remain visible as remote-control-only when they
-cannot accept audio. Spotify Connect remains a separate provider mode and does
-not use these local players.
+Install `mpv` if you want controllable local-file or online playback. Sonex uses
+mpv directly for these routes. Spotify Connect remains a separate provider mode
+and does not use the local player.
 
 ### Online Audio Fallback
 
@@ -294,13 +290,7 @@ While a local or online track is playing, use:
 /stop
 /progress
 /volume 65
-/player
 ```
-
-`/player` detects supported installed applications on its first call in the
-session and opens a default-player panel. After you choose a compatible player,
-local and online-audio playback uses that device-persistent default directly
-without asking you to choose again. Cancel keeps the current default unchanged.
 
 ## Cover Bead Art
 
@@ -341,7 +331,7 @@ stored in that cache.
 - **Spotify cannot play:** Follow the TUI reauthorization guide when scopes are
   missing, or open `/spotify` and reconnect. Check account product and
   make sure Spotify is open on a device.
-- **Local or online playback cannot start:** Install `mpv` or VLC, start a new
-  session, run `/player`, and choose one of the detected applications.
+- **Local or online playback cannot start:** Install `mpv` and ensure it is
+  available on `PATH`.
 - **Cover bead art does not appear:** Check `beads.brand`, rerun playback with an
   official cover source, and inspect `~/.sonex/log` for cover generation errors.

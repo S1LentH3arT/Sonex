@@ -22,7 +22,7 @@ FastAPI/WebSocket 后端。正常使用时只需要运行一个命令：`sonex` 
 | Python 3.12 | 必须可以通过 `python3.12` 调用 |
 | Node.js 和 `npm` | 用于安装并构建终端界面 |
 | Linux 或 WSL | 需要兼容的 shell 环境 |
-| `vlc` 或 `mpv` | 可选；用于本地文件和 YouTube 播放 |
+| `mpv` | 可选；用于本地文件和在线播放 |
 
 > [!NOTE]
 > 安装脚本会检查 Python、Node.js 和 npm，但不会替你安装系统软件包。
@@ -221,13 +221,10 @@ Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你�
 如果已保存 token 缺少新增的 Spotify scopes，Sonex 会在当前聊天区启动 Spotify 授权引导，
 帮助你授予更新后的权限。
 
-### 本地和 YouTube 播放
+### 本地和在线播放
 
-如果需要可控制的本地文件或在线播放，请安装 `mpv` 或 VLC。每个会话初次执行
-`/player` 时，Sonex 会检测已安装且受支持的应用。Sonex 管理的 mpv/VLC，以及
-Clementine、Rhythmbox、Audacious 等受支持的独立播放器，都可以设为设备默认播放器；
-只能遥控、不能接收音频的 MPRIS 应用仍会显示为不可选项。Spotify Connect 仍使用
-独立的 provider mode，不使用这些本地播放器。
+如果需要可控制的本地文件或在线播放，请安装 `mpv`。Sonex 会直接使用 mpv
+处理这些播放链路。Spotify Connect 仍使用独立的 provider mode，不使用本地播放器。
 
 ### 在线音频回退
 
@@ -271,12 +268,7 @@ Sonex 会先检查匹配的本地文件；没有本地结果或跳过本地后�
 /stop
 /progress
 /volume 65
-/player
 ```
-
-每个会话初次执行 `/player` 时会检测受支持且已安装的应用，并打开默认播放器面板。
-选择兼容播放器后，后续本地和在线音频播放会直接使用持久化的设备默认项，不再重复
-选择；取消则保持当前默认值不变。
 
 ## 封面珠子图
 
@@ -313,7 +305,6 @@ Mard 的品牌/色号身份来自打包的官方品牌参考，RGB 近似值继�
   `sonex tui`。
 - **Spotify 无法播放：**scope 缺失时按 TUI 中的重授权引导操作，或重新运行
   `sonex auth login spotify`；检查账号 product，并确认 Spotify 已在某个设备上打开。
-- **本地或在线播放无法启动：**安装 `mpv` 或 VLC，启动新会话后执行 `/player`，
-  再选择检测到的应用。
+- **本地或在线播放无法启动：**安装 `mpv`，并确认它位于 `PATH` 中。
 - **封面珠子图没有出现：**检查 `beads.brand`，用带官方封面的曲目重新播放，并查看
   `~/.sonex/log` 中的封面生成错误。
