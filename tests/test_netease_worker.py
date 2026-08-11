@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.music.netease_worker import NetEaseProviderWorker
 
@@ -50,7 +51,103 @@ class NetEaseWorkerTests(unittest.TestCase):
         flattened = " ".join(part for call in calls for part in call)
         self.assertNotIn("configure", flattened)
         self.assertNotIn("play", flattened)
-        self.assertEqual(calls[-1][-2:], ["login", "--check"])
+        self.assertEqual(calls[-2][-2:], ["login", "--check"])
+        self.assertEqual(calls[-1][-1], "commands")
+
+    def test_health_rejects_login_check_json_failure_even_with_zero_exit_code(self) -> None:
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            if argv[-1] == "--version":
+                stdout = "ncm-cli 0.1.6"
+            elif argv[-2:] == ["login", "--check"]:
+                stdout = '{"success":false,"message":"not logged in"}'
+            else:
+                stdout = ""
+            return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "src.music.netease_worker.shutil.which",
+            return_value="/usr/bin/mpv",
+        ):
+            health = NetEaseProviderWorker(
+                executable="/usr/bin/ncm-cli",
+                config_dir=Path(directory),
+                run_command=run,
+            ).health()
+
+        self.assertFalse(health.login_ready)
+        self.assertFalse(health.ready)
+
+    def test_health_requires_the_dynamic_search_command_before_routing(self) -> None:
+        calls: list[list[str]] = []
+
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            calls.append(argv)
+            if argv[-1] == "--version":
+                stdout = "ncm-cli 0.1.6"
+            elif argv[-2:] == ["login", "--check"]:
+                stdout = '{"success":true}'
+            elif argv[-1] == "commands":
+                stdout = "play  Play a song\nstate  Show playback state\n"
+            else:
+                stdout = ""
+            return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "src.music.netease_worker.shutil.which",
+            return_value="/usr/bin/mpv",
+        ):
+            health = NetEaseProviderWorker(
+                executable="/usr/bin/ncm-cli",
+                config_dir=Path(directory),
+                run_command=run,
+            ).health()
+
+        self.assertFalse(health.ready)
+        self.assertIn("search", str(health.reason).casefold())
+        self.assertIn(["/usr/bin/ncm-cli", "commands"], calls)
+
+    def test_health_accepts_logged_in_cli_with_search_and_mpv(self) -> None:
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            if argv[-1] == "--version":
+                stdout = "ncm-cli 0.1.6"
+            elif argv[-2:] == ["login", "--check"]:
+                stdout = '{"success":true}'
+            elif argv[-1] == "commands":
+                stdout = "search  Search songs\nplay  Play a song\n"
+            else:
+                stdout = ""
+            return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "src.music.netease_worker.shutil.which",
+            return_value="/usr/bin/mpv",
+        ):
+            health = NetEaseProviderWorker(
+                executable="/usr/bin/ncm-cli",
+                config_dir=Path(directory),
+                run_command=run,
+            ).health()
+
+        self.assertTrue(health.login_ready)
+        self.assertTrue(health.ready)
+        self.assertIsNone(health.reason)
+
+    def test_play_rejects_json_failure_even_with_zero_exit_code(self) -> None:
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout='{"success":false,"message":"login required"}',
+                stderr="",
+            )
+
+        worker = NetEaseProviderWorker(
+            executable="/usr/bin/ncm-cli",
+            run_command=run,
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "playback failed"):
+            worker.play(encrypted_id="enc", original_id="88")
 
 
 if __name__ == "__main__":

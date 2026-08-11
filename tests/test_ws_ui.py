@@ -21,11 +21,11 @@ class WebSocketUIAdapterTests(unittest.IsolatedAsyncioTestCase):
         ws = RecordingWebSocket()
         ui = WebSocketUIAdapter(ws, session_id="session-1")  # type: ignore[arg-type]
 
-        await ui.append_system_message("player: VLC")
+        await ui.append_system_message("player: mpv")
 
         self.assertEqual(
             ui.transcript,
-            [{"role": "agent", "content": "player: VLC"}],
+            [{"role": "agent", "content": "player: mpv"}],
         )
         self.assertEqual(
             ws.sent,
@@ -34,7 +34,7 @@ class WebSocketUIAdapterTests(unittest.IsolatedAsyncioTestCase):
                     "type": "chat",
                     "role": "agent",
                     "tone": "system",
-                    "text": "player: VLC",
+                    "text": "player: mpv",
                 }
             ],
         )
@@ -106,3 +106,28 @@ class WebSocketUIAdapterTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(ws.sent[0]["segments"], segments)
+
+    async def test_append_agent_message_persists_chat_document(self) -> None:
+        ws = RecordingWebSocket()
+        ui = WebSocketUIAdapter(ws, session_id="session-1")  # type: ignore[arg-type]
+        document = {
+            "version": 1,
+            "blocks": [{"type": "heading", "spans": [{"text": "Result", "style": "plain"}]}],
+        }
+
+        await ui.append_agent_message("Result", document=document)
+
+        self.assertEqual(ui.transcript[0]["document"], document)
+        self.assertEqual(ws.sent[0]["document"], document)
+
+    async def test_append_agent_message_marks_streamed_delivery_without_persisting_ui_state(self) -> None:
+        ws = RecordingWebSocket()
+        ui = WebSocketUIAdapter(ws, session_id="session-1")  # type: ignore[arg-type]
+
+        await ui.append_agent_message("A longer answer", stream=True)
+
+        self.assertEqual(
+            ui.transcript,
+            [{"role": "agent", "content": "A longer answer"}],
+        )
+        self.assertIs(ws.sent[0]["stream"], True)

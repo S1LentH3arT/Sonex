@@ -6,7 +6,7 @@ Key public entry points include AgentState, agent_loop.
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Generator
 
 from src.api.builtin_commands import CommandIntent
@@ -172,6 +172,27 @@ def _safe_memory_call(label: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
         logger.warning("%s failed: %s", label, _format_error(exc))
         return None
 
+
+def _planning_command_intent(
+    command_intent: CommandIntent | None,
+    *,
+    tool_call_count: int,
+    tool_call_limit: int,
+) -> CommandIntent | None:
+    """Return a text-only intent after a bounded command uses its tool budget."""
+    if command_intent is None or tool_call_count < tool_call_limit:
+        return command_intent
+    return replace(
+        command_intent,
+        allowed_tools=(),
+        max_tool_calls=0,
+        intent_prompt=(
+            f"{command_intent.intent_prompt} The tool-call budget is now exhausted. "
+            "Do not call another tool. Answer now using the tool results already returned."
+        ),
+    )
+
+
 def agent_loop(
     user_input: str,
     tools: ToolRegistry,
@@ -199,13 +220,23 @@ def agent_loop(
     tool_call_count = 0
     tool_call_counts: dict[str, int] = {}
     identical_call_counts: dict[str, int] = {}
+    tool_call_limit = (
+        command_intent.max_tool_calls
+        if command_intent is not None and command_intent.max_tool_calls is not None
+        else MAX_TOOL_CALLS_PER_TURN
+    )
 
     while True:
         try:
+            planning_intent = _planning_command_intent(
+                command_intent,
+                tool_call_count=tool_call_count,
+                tool_call_limit=tool_call_limit,
+            )
             plan_args: dict[str, Any] = {
                 "user_input": user_input,
                 "tools": tools,
-                "command_intent": command_intent,
+                "command_intent": planning_intent,
             }
             if planning_feedback:
                 plan_args["planning_feedback"] = planning_feedback
@@ -240,11 +271,6 @@ def agent_loop(
             yield AgentState(type="complete", content=answer)
             return
 
-        tool_call_limit = (
-            command_intent.max_tool_calls
-            if command_intent is not None and command_intent.max_tool_calls is not None
-            else MAX_TOOL_CALLS_PER_TURN
-        )
         if tool_call_count + len(calls) > tool_call_limit:
             warning = "Agent turn stopped after reaching the tool-call limit."
             _safe_memory_call(

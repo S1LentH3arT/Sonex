@@ -66,3 +66,30 @@ class SessionTranscriptTests(unittest.TestCase):
             record = json.loads(path.read_text(encoding="utf-8").strip())
             self.assertEqual(record["segments"], segments)
             self.assertEqual(record["tone"], "system")
+
+    def test_chat_document_survives_coercion_and_persistence(self) -> None:
+        document = {
+            "version": 1,
+            "blocks": [
+                {
+                    "type": "paragraph",
+                    "spans": [{"text": "Listen", "style": "strong"}],
+                }
+            ],
+        }
+        messages = _coerce_transcript_messages(
+            [{"role": "agent", "content": "Listen", "document": document}]
+        )
+        self.assertEqual(messages[0]["document"], document)
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "src.ws.transcript.sonex_home",
+            return_value=Path(directory),
+        ):
+            path = _save_session_transcript(
+                messages,
+                reason="bye",
+                session_id="session-document",
+            )
+            record = json.loads(path.read_text(encoding="utf-8").strip())
+            self.assertEqual(record["document"], document)

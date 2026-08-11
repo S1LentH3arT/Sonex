@@ -9,7 +9,7 @@ import unittest
 from dataclasses import dataclass
 from unittest.mock import patch
 
-from src.agent.action import Action
+from src.agent.action import Action, ToolAction
 from src.agent.core import agent_loop
 from src.api.builtin_commands import CommandIntent
 from src.tools.registry import Params, ToolRegistry
@@ -89,6 +89,23 @@ def _search_intent() -> CommandIntent:
         intent_prompt="Treat this as an interactive search request.",
         allowed_tools=("spotify_search",),
     )
+
+
+def _recommend_registry() -> ToolRegistry:
+    tools = ToolRegistry()
+    tools.register(
+        name="Recommend",
+        kind="agent",
+        domain="recommendation",
+        description="Recommend tracks.",
+        parameters=Params(type="object", properties={}, required=[]),
+        fn=lambda **kwargs: {
+            "status": "success",
+            "data": {"tracks": [{"name": "Song", "artist": "Artist"}]},
+        },
+        read_only=True,
+    )
+    return tools
 
 
 def _search_premium_error_registry() -> ToolRegistry:
@@ -321,28 +338,73 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         self.assertEqual(states[-1].type, "warning")
         self.assertIn("repeated without progress", states[-1].content)
 
-    def test_command_intent_enforces_smaller_tool_call_budget(self) -> None:
-        tools = _registry()
+    def test_command_intent_finishes_without_tools_after_reaching_call_budget(self) -> None:
+        tools = _recommend_registry()
         intent = CommandIntent(
             command="recommend",
             raw="/recommend jazz",
             args="jazz",
             intent_prompt="Call Recommend once.",
-            allowed_tools=("spotify_search",),
+            allowed_tools=("Recommend",),
             max_tool_calls=1,
         )
-        actions = [
-            Action(tool="spotify_search", args={"query": "jazz"}, usage=1),
-            Action(tool="spotify_search", args={"query": "more jazz"}, usage=1),
-        ]
 
-        with patch("src.agent.core.append_context"), \
+        def plan(**kwargs: object) -> Action:
+            current_intent = kwargs["command_intent"]
+            assert isinstance(current_intent, CommandIntent)
+            if current_intent.allowed_tools:
+                return Action(tool="Recommend", args={"query": "jazz"}, usage=1)
+            return Action(output="1. Song — Artist\n\nWhat would you like to hear?", usage=1)
+
+        with patch("src.agent.core.append_context") as append, \
             patch("src.agent.core.append_tool_summary"), \
-            patch("src.agent.core.llm_plan", side_effect=actions), \
+            patch("src.agent.core.finalize_turn"), \
+            patch("src.agent.core.llm_plan", side_effect=plan) as planner, \
             patch.object(tools, "invoke_agent", wraps=tools.invoke_agent) as invoke:
             states = list(agent_loop("/recommend jazz", tools, command_intent=intent))
 
         self.assertEqual(invoke.call_count, 1)
+        self.assertEqual(planner.call_count, 2)
+        final_intent = planner.call_args_list[-1].kwargs["command_intent"]
+        self.assertEqual(final_intent.allowed_tools, ())
+        self.assertEqual(final_intent.max_tool_calls, 0)
+        self.assertIn("Answer now using the tool results", final_intent.intent_prompt)
+        self.assertEqual(intent.allowed_tools, ("Recommend",))
+        tool_contexts = [
+            call.args[1]
+            for call in append.call_args_list
+            if call.args and call.args[0] == "tool"
+        ]
+        self.assertEqual(len(tool_contexts), 1)
+        self.assertEqual(tool_contexts[0]["result"]["status"], "success")
+        self.assertEqual(states[-1].type, "complete")
+        self.assertIn("Song — Artist", states[-1].content)
+        self.assertFalse(any(state.type == "warning" for state in states))
+
+    def test_command_intent_rejects_a_batch_above_the_tool_call_budget(self) -> None:
+        tools = _recommend_registry()
+        intent = CommandIntent(
+            command="recommend",
+            raw="/recommend jazz",
+            args="jazz",
+            intent_prompt="Call Recommend once.",
+            allowed_tools=("Recommend",),
+            max_tool_calls=1,
+        )
+        action = Action(
+            tool_calls=[
+                ToolAction(tool="Recommend", args={"query": "jazz"}),
+                ToolAction(tool="Recommend", args={"query": "more jazz"}),
+            ],
+            usage=1,
+        )
+
+        with patch("src.agent.core.append_context"), \
+            patch("src.agent.core.llm_plan", return_value=action), \
+            patch.object(tools, "invoke_agent", wraps=tools.invoke_agent) as invoke:
+            states = list(agent_loop("/recommend jazz", tools, command_intent=intent))
+
+        invoke.assert_not_called()
         self.assertEqual(states[-1].type, "warning")
         self.assertIn("tool-call limit", states[-1].content)
 

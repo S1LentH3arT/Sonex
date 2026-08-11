@@ -34,6 +34,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 logger = logging.getLogger(__name__)
 
 from src.agent.core import agent_loop
+from src.agent.chat_document import guard_agent_answer, normalize_agent_answer
 from src.agent.events import RunnerEvent, UiStatus
 from src.agent.interactions import (
     INTERRUPTED_INTERACTION_MESSAGE,
@@ -115,7 +116,13 @@ from src.llm.models import model_choices_for_provider, model_display_name
 from src.llm.transport import ChatRequest, sanitize_error_message
 from src.llm.usage import reset_token_usage_observer, set_token_usage_observer
 from src.log import sonex_home
-from src.memory.memory import memory_store
+from src.memory.memory import bind_memory_scope, memory_store
+from src.memory.curator import (
+    curate_completed_turn,
+    explicit_memory_operation,
+    memory_operation_message,
+    safe_memory_content,
+)
 from src.music.connections import MusicConnectionManager
 from src.music.netease_worker import NetEaseProviderWorker
 from src.music.playback_coordinator import (
@@ -126,8 +133,6 @@ from src.music.playback_coordinator import (
     rank_authoritative_providers,
     recording_identity_matches,
 )
-from src.music.player_sink_runtime import build_player_sink_manager
-from src.music.player_sinks import PlayerSinkManager, PlayerSinkOption
 from src.sandbox.tool import sandbox_manager
 from src.thinking.config import ThinkingConfig
 from src.tools import registry
@@ -259,7 +264,6 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 from src.tools.player_permission import complete_player_confirm
 from src.tools.playback_controller import (
-    available_local_playback_backends,
     local_playback_status,
     start_local_playback,
 )
@@ -287,9 +291,9 @@ from src.ws.constants import (
     LLM_AUTH_PROVIDER_CHOICES,
     LLM_AUTH_PROVIDER_VALUES,
     LLM_MODEL_CHOICES,
-    LOCAL_PLAYBACK_BACKENDS,
     LOCAL_PLAYBACK_CHOICES,
     LOCAL_PLAYBACK_CONTROL_TOOLS,
+    PLAYBACK_AGENT_TOOLS,
     RECOMMENDATION_TOOLS,
     SEARCH_RESULT_TOOLS,
     SPOTIFY_PLAYBACK_CONTROL_TOOLS,
@@ -869,6 +873,30 @@ def _remember_actual_playback(player_state: dict[str, Any]) -> None:
     """Updates persisted queue state from accepted playback state."""
     remember_playback_track(player_state)
     remember_recent_track(player_state)
+
+
+def _record_playback_behavior(
+    ui: WebSocketUIAdapter,
+    player_state: dict[str, Any],
+    *,
+    force: bool = False,
+) -> None:
+    """Records one real playback start, without counting status/control refreshes."""
+    if not player_state.get("is_playing"):
+        return
+    name = str(player_state.get("name") or player_state.get("title") or "").strip()
+    artist = str(player_state.get("artist") or "").strip()
+    provider = str(player_state.get("provider") or player_state.get("source") or "").strip()
+    if not name or name == "-":
+        return
+    behavior_key = (provider.casefold(), name.casefold(), artist.casefold())
+    if not force and getattr(ui, "_last_playback_behavior_key", None) == behavior_key:
+        return
+    setattr(ui, "_last_playback_behavior_key", behavior_key)
+    try:
+        memory_store.record_behavior_signal("played", player_state)
+    except Exception:
+        logger.debug("Unable to persist playback behavior signal.", exc_info=True)
 
 
 def _is_spotify_setup_request(text: str) -> bool:
@@ -4341,7 +4369,7 @@ SPOTIFY_MODE_REQUIRED_SCOPES = {
     "user-library-read",
 }
 
-SPOTIFY_MODE_COMMANDS = {"bye", "connect", "exit", "info", "lang", "login", "logout", "model", "playlist", "queue", "random", "recommend", "sandbox", "spotify"}
+SPOTIFY_MODE_COMMANDS = {"bye", "connect", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "sandbox", "spotify"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS = 5.0
 SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS = 15.0
@@ -5006,180 +5034,6 @@ class SpotifyPlaylistSelectionSession:
         await self.ui.append_activity(kind="status", title="Spotify playlists", detail=f"Showing {title}.", status="success")
 
 
-class PlayerSinkRecoverySession:
-    """Offer bounded recovery actions after the persisted default fails twice."""
-
-    def __init__(
-        self,
-        ui: WebSocketUIAdapter,
-        runner: "WebSocketRunner",
-        tool_name: str,
-        recovery: dict[str, Any],
-    ) -> None:
-        self.ui = ui
-        self.runner = runner
-        self.tool_name = tool_name
-        self.recovery = recovery
-        self.confirm_id = _new_event_id("player_recovery")
-
-    async def start(self) -> None:
-        await self.ui.append_activity(
-            kind="confirm",
-            title="Default player unavailable",
-            detail="Choose how to continue this playback.",
-            status="pending",
-            activity_id=self.confirm_id,
-        )
-        await self.ui.ask_confirm(
-            {
-                "type": "confirm",
-                "id": self.confirm_id,
-                "tool_name": self.tool_name,
-                "tool_args": {"stage": "player_sink_recovery"},
-                "message": "Default player unavailable",
-                "choices": [
-                    {
-                        "value": "retry",
-                        "label": "Retry",
-                        "description": "Retry the same default player.",
-                    },
-                    {
-                        "value": "change_default",
-                        "label": "Change default player",
-                        "description": "Choose a different device default.",
-                    },
-                    {
-                        "value": "mpv_once",
-                        "label": "Use mpv this time",
-                        "description": "Use managed mpv once without changing the default.",
-                    },
-                    {"value": "deny", "label": "Cancel"},
-                ],
-            }
-        )
-
-    def owns_confirm(self, confirm_id: str) -> bool:
-        return confirm_id == self.confirm_id
-
-    async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_player_sink_recovery", None)
-        action = str(decision or "deny").strip().casefold()
-        if action == "change_default":
-            await self.runner._handle_local_playback_player(self.ui, "")
-            return
-        if action not in {"retry", "mpv_once"}:
-            await self.ui.append_system_message("Playback recovery cancelled.")
-            return
-
-        metadata = self.recovery.get("metadata")
-        result = await asyncio.to_thread(
-            start_local_playback,
-            tool=self.tool_name,
-            source_url=str(self.recovery.get("source_url") or ""),
-            source=str(self.recovery.get("source") or "local"),
-            metadata=dict(metadata) if isinstance(metadata, dict) else {},
-            player="mpv" if action == "mpv_once" else "auto",
-            success_message=str(
-                self.recovery.get("success_message") or "Playback started."
-            ),
-        )
-        await self.runner._sync_tool_result_ui(self.ui, self.tool_name, result)
-        if _is_failed_tool_result(result):
-            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
-            await self.ui.append_agent_message(message)
-            await self.ui.send_error(message)
-
-
-class PlayerBackendSelectionSession:
-    """Render Player Sink options and delegate selection to the manager."""
-
-    def __init__(
-        self,
-        ui: WebSocketUIAdapter,
-        manager: PlayerSinkManager,
-        options: tuple[PlayerSinkOption, ...],
-    ) -> None:
-        self.ui = ui
-        self.manager = manager
-        self.options = options
-        self.confirm_id = _new_event_id("player_backend")
-
-    async def start(self) -> None:
-        await self.ui.append_activity(
-            kind="confirm",
-            title="Default player",
-            detail="Choose the device default player.",
-            status="pending",
-            activity_id=self.confirm_id,
-        )
-        choices = [
-            {
-                "value": item.sink_id,
-                "label": item.label,
-                "description": item.description,
-                "disabled": item.disabled,
-                "disabled_reason": item.disabled_reason,
-            }
-            for item in self.options
-        ]
-        choices.append({"value": "deny", "label": "Cancel"})
-        await self.ui.ask_confirm(
-            {
-                "type": "confirm",
-                "id": self.confirm_id,
-                "tool_name": "local_playback_player",
-                "tool_args": {"stage": "player_backend_selection"},
-                "message": "Choose the default player",
-                "choices": choices,
-            }
-        )
-
-    def owns_confirm(self, confirm_id: str) -> bool:
-        return confirm_id == self.confirm_id
-
-    async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_player_backend_selection", None)
-        sink_id = str(decision or "deny").strip().casefold()
-        option = next((item for item in self.options if item.sink_id == sink_id), None)
-        if sink_id == "deny" or option is None or option.disabled:
-            message = "Default player unchanged."
-            await self.ui.append_system_message(message)
-            await self.ui.append_activity(kind="status", title="Default player", detail=message, status="success")
-            return
-
-        try:
-            result = await self.manager.select(sink_id)
-        except Exception as exc:
-            message = sanitize_error_message(exc)
-            await self.ui.append_activity(
-                kind="error",
-                title="Default player",
-                detail=message,
-                status="error",
-            )
-            await self.ui.append_system_message(message)
-            return
-        if result.status == "failed":
-            await self.ui.append_activity(
-                kind="error",
-                title="Default player",
-                detail=result.message,
-                status="error",
-            )
-            await self.ui.append_system_message(result.message)
-            return
-        await self.ui.append_activity(
-            kind="status",
-            title="Default player",
-            detail=result.message,
-            status="success",
-        )
-        if result.status == "deferred":
-            await self.ui.append_system_message(result.message)
-            return
-        await self.ui.append_system_message(format_player_feedback(option.label))
-
-
 class ConnectionSelectionSession:
     """Own the interactive `/connect` provider chooser."""
 
@@ -5399,6 +5253,85 @@ class ProviderModeExitSession:
         await self.runner._exit_spotify_mode(self.ui)
 
 
+class MemorySettingsSession:
+    """Manage the minimal long-term memory panel and destructive reset confirmation."""
+
+    def __init__(self, ui: WebSocketUIAdapter, store: Any) -> None:
+        self.ui = ui
+        self.store = store
+        self.confirm_id = _new_event_id("memory_settings")
+        self.stage = "settings"
+
+    async def start(self) -> None:
+        enabled = self.store.long_term_enabled()
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "memory_settings",
+                "tool_args": {"stage": "memory_settings", "enabled": enabled},
+                "message": f"Long-term memory: {'On' if enabled else 'Off'}",
+                "hide_hint": True,
+                "choices": [
+                    {
+                        "value": "disable" if enabled else "enable",
+                        "label": "Disable long-term memory" if enabled else "Enable long-term memory",
+                    },
+                    {"value": "reset", "label": "Reset long-term memory"},
+                    {"value": "deny", "label": "Cancel"},
+                ],
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        value = str(decision or "deny")
+        if self.stage == "reset":
+            setattr(self.ui, "_memory_settings", None)
+            if value != "confirm_reset":
+                return
+            result = self.store.reset_long_term()
+            if result.get("success"):
+                await self.ui.append_system_message("Long-term memory reset.")
+            else:
+                await self.ui.append_warning_message(
+                    str(result.get("error") or "Long-term memory could not be reset.")
+                )
+            return
+
+        if value == "enable":
+            self.store.set_long_term_enabled(True)
+            setattr(self.ui, "_memory_settings", None)
+            await self.ui.append_system_message("Long-term memory enabled.")
+            return
+        if value == "disable":
+            self.store.set_long_term_enabled(False)
+            setattr(self.ui, "_memory_settings", None)
+            await self.ui.append_system_message("Long-term memory disabled.")
+            return
+        if value != "reset":
+            setattr(self.ui, "_memory_settings", None)
+            return
+
+        self.stage = "reset"
+        self.confirm_id = _new_event_id("memory_reset")
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "memory_settings",
+                "tool_args": {"stage": "memory_reset"},
+                "message": "Reset long-term memory?",
+                "warning": "This permanently clears every entry in USER.md and MEMORY.md.",
+                "hide_hint": True,
+                "choices": [
+                    {"value": "confirm_reset", "label": "Yes, reset long-term memory"},
+                    {"value": "deny", "label": "No, return"},
+                ],
+            }
+        )
+
+
 class WebSocketRunner:
     """Represents web socket runner.
 
@@ -5407,7 +5340,6 @@ class WebSocketRunner:
     def __init__(
         self,
         *,
-        player_sink_manager_factory: Callable[[], PlayerSinkManager] | None = None,
         music_connection_manager_factory: Callable[[], MusicConnectionManager] = MusicConnectionManager,
     ) -> None:
         """Init for web socket runner.
@@ -5419,15 +5351,6 @@ class WebSocketRunner:
         self._running_task: asyncio.Task[None] | None = None
         self._confirm_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.provider_modes = ProviderModeCoordinator()
-        self._player_sink_manager_factory = (
-            player_sink_manager_factory
-            or (
-                lambda: build_player_sink_manager(
-                    available_managed=tuple(available_local_playback_backends())
-                )
-            )
-        )
-        self._player_sink_manager_instance: PlayerSinkManager | None = None
         self._music_connection_manager_factory = music_connection_manager_factory
         self._music_connection_manager_instance: MusicConnectionManager | None = None
         self._playback_coordinator = MusicPlaybackCoordinator(SelectionStore())
@@ -5441,12 +5364,21 @@ class WebSocketRunner:
         """
         await ws.accept()
         ui = WebSocketUIAdapter(ws, session_id=create_session_id())
+        bind_memory_scope(ui.session_id)
         await ui.send_session_state()
         if has_interrupted_interaction():
             await ui.append_system_message(INTERRUPTED_INTERACTION_MESSAGE)
             clear_interrupted_interaction()
         await ui._send({"type": "queue", "tracks": _queue_payload()})
         await self._handle_startup_auth(ui)
+        with suppress(OSError):
+            if self.memory_store.consume_first_notice():
+                await ui.append_system_message(
+                    "Sonex stores stable music preferences locally. Use /memory to configure long-term memory."
+                )
+        ready, _provider, _reason = _llm_auth_ready()
+        if ready and self.memory_store.long_term_enabled():
+            asyncio.create_task(self._resume_pending_memory(ui))
         await self._restore_persistent_spotify_mode(ui)
         await self._restore_provider_mode(ui)
         playback_sync_task = asyncio.create_task(self._sync_spotify_playback(ui))
@@ -5577,6 +5509,10 @@ class WebSocketRunner:
             reset_token_usage_observer(usage_observer_token)
 
     async def _handle_confirm_result(self, ui: WebSocketUIAdapter, confirm_id: str, decision: Any) -> bool:
+        memory_settings = getattr(ui, "_memory_settings", None)
+        if memory_settings and memory_settings.owns_confirm(confirm_id):
+            await memory_settings.handle_choice(decision)
+            return True
         provider_mode_exit = getattr(ui, "_provider_mode_exit", None)
         if provider_mode_exit and provider_mode_exit.owns_confirm(confirm_id):
             await provider_mode_exit.handle_choice(decision)
@@ -5604,14 +5540,6 @@ class WebSocketRunner:
         playlist_browse = getattr(ui, "_playlist_browse", None)
         if playlist_browse and playlist_browse.owns_confirm(confirm_id):
             await playlist_browse.handle_choice(decision)
-            return True
-        player_backend = getattr(ui, "_player_backend_selection", None)
-        if player_backend and player_backend.owns_confirm(confirm_id):
-            await player_backend.handle_choice(decision)
-            return True
-        player_recovery = getattr(ui, "_player_sink_recovery", None)
-        if player_recovery and player_recovery.owns_confirm(confirm_id):
-            await player_recovery.handle_choice(decision)
             return True
         music_connection = getattr(ui, "_music_connection_selection", None)
         if music_connection and music_connection.owns_confirm(confirm_id):
@@ -5692,6 +5620,7 @@ class WebSocketRunner:
                         player_state = _spotify_live_player_state(player_state)
                         player_state = _decorate_player_state(player_state)
                         _remember_actual_playback(player_state)
+                        _record_playback_behavior(ui, player_state)
                         signature = _player_sync_signature(player_state)
                         if signature != last_signature:
                             setattr(ui, "_last_player_state", player_state)
@@ -5737,6 +5666,7 @@ class WebSocketRunner:
                     if player_state:
                         player_state = _local_live_player_state(player_state)
                         player_state = _decorate_player_state(player_state)
+                        _record_playback_behavior(ui, player_state)
                         last_player_state = player_state
                         sync_lost = False
                         setattr(ui, "_last_player_state", player_state)
@@ -5758,6 +5688,7 @@ class WebSocketRunner:
                 elif isinstance(result, dict) and result.get("error_code") == "NO_ACTIVE_PLAYBACK":
                     last_player_state = None
                     sync_lost = False
+                    setattr(ui, "_last_playback_behavior_key", None)
             except Exception:
                 pass
             await _wait_for_local_playback_sync(ui, LOCAL_PLAYBACK_POLL_SECONDS)
@@ -5886,6 +5817,46 @@ class WebSocketRunner:
         setattr(ui, "_agent_turn_task", task)
         self._running_task = task
         return task
+
+    async def _collect_turn_memory(
+        self,
+        ui: WebSocketUIAdapter,
+        user_input: str,
+        *,
+        explicit: bool,
+    ) -> None:
+        """Run the bounded post-turn memory hook without failing the Agent answer."""
+        try:
+            operations = await asyncio.to_thread(
+                curate_completed_turn,
+                user_input,
+                store=self.memory_store,
+            )
+        except Exception as exc:
+            logger.warning("Memory Curator failed: %s", sanitize_error_message(exc))
+            if explicit and not ui.closed:
+                await ui.append_warning_message("Long-term memory could not be updated.")
+            return
+        for operation in operations:
+            if not ui.closed:
+                await ui.append_system_message(memory_operation_message(operation))
+
+    async def _resume_pending_memory(self, ui: WebSocketUIAdapter) -> None:
+        """Best-effort replay of durable Curator candidates after startup."""
+        try:
+            candidates = await asyncio.to_thread(self.memory_store.pending_memory_candidates)
+        except Exception as exc:
+            logger.warning("Pending memory discovery failed: %s", sanitize_error_message(exc))
+            return
+        for candidate in candidates:
+            if ui.closed or not self.memory_store.long_term_enabled():
+                return
+            bind_memory_scope(candidate["session_id"], candidate["turn_id"])
+            await self._collect_turn_memory(
+                ui,
+                candidate["user_input"],
+                explicit=explicit_memory_operation(candidate["user_input"]) is not None,
+            )
 
     def _spotify_mode_enabled(self, ui: WebSocketUIAdapter) -> bool:
         mode = getattr(ui, "_spotify_mode", None)
@@ -6265,6 +6236,15 @@ class WebSocketRunner:
             await ui.append_system_message(_format_runtime_info(_llm_auth_state()))
             return
 
+        if command_name == "memory":
+            if args.strip():
+                await ui.append_system_message("Usage: /memory")
+                return
+            session = MemorySettingsSession(ui, self.memory_store)
+            setattr(ui, "_memory_settings", session)
+            await session.start()
+            return
+
         if command_name == "login":
             if args.strip():
                 await ui.append_system_message("Usage: /login")
@@ -6317,10 +6297,6 @@ class WebSocketRunner:
 
         if command_name == "volume":
             await self._handle_local_playback_volume(ui, args)
-            return
-
-        if command_name == "player":
-            await self._handle_local_playback_player(ui, args)
             return
 
         if command_name in {"bye", "exit"}:
@@ -7051,33 +7027,6 @@ class WebSocketRunner:
             }
         await self._sync_tool_result_ui(ui, tool_name, result)
 
-    async def _handle_local_playback_player(self, ui: WebSocketUIAdapter, args: str) -> None:
-        """Prepares handle local playback player for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs handle local playback player without duplicating the local rules.
-
-        Example: await _handle_local_playback_player(ui=..., args=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        if self._player_sink_manager_instance is None:
-            self._player_sink_manager_instance = await asyncio.to_thread(
-                self._player_sink_manager_factory
-            )
-        manager = self._player_sink_manager_instance
-        options = await manager.options()
-        if not options:
-            message = "No supported player was found. Install mpv, VLC, Clementine, Rhythmbox, or Audacious, then run /player again."
-            await ui.append_activity(
-                kind="error",
-                title="Default player",
-                detail=message,
-                status="error",
-            )
-            await ui.append_system_message(message)
-            return
-        session = PlayerBackendSelectionSession(ui, manager, options)
-        setattr(ui, "_player_backend_selection", session)
-        await session.start()
-
     async def _handle_music_connect(
         self,
         ui: WebSocketUIAdapter,
@@ -7535,22 +7484,13 @@ class WebSocketRunner:
             await ui._send({"type": "player", "state": player_state})
             if tool_name not in SEARCH_RESULT_TOOLS and player_state.get("playback_status") != "starting":
                 _remember_actual_playback(player_state)
+                if tool_name in PLAYBACK_AGENT_TOOLS:
+                    _record_playback_behavior(ui, player_state, force=True)
                 await ui._send({"type": "queue", "tracks": _queue_payload()})
         if should_sync_player and cover_url:
             await ui.send_cover(cover_url)
         if result_status == "success" and is_spotify_play_tool:
             _request_spotify_sync(ui)
-        if (
-            isinstance(tool_result, dict)
-            and tool_result.get("error_code") == "DEFAULT_PLAYER_FAILED"
-        ):
-            data = tool_result.get("data")
-            recovery = data.get("player_recovery") if isinstance(data, dict) else None
-            if isinstance(recovery, dict):
-                session = PlayerSinkRecoverySession(ui, self, tool_name, recovery)
-                setattr(ui, "_player_sink_recovery", session)
-                await session.start()
-
     async def _commit_agent_playback_selection(
         self,
         ui: WebSocketUIAdapter,
@@ -8244,6 +8184,7 @@ class WebSocketRunner:
         """
         event_queue: asyncio.Queue[RunnerEvent] = asyncio.Queue()
         turn_id = _new_event_id("agent_turn")
+        bind_memory_scope(ui.session_id, turn_id)
         interrupt_event = threading.Event()
         setattr(ui, "_active_agent_turn_id", turn_id)
         setattr(ui, "_agent_turn_interrupt_event", interrupt_event)
@@ -8257,6 +8198,7 @@ class WebSocketRunner:
         planning_activity_id = _new_event_id("activity")
         planning_finished = False
         interaction_suspended = False
+        completed_tool_results: list[Any] = []
 
         def emit(event: RunnerEvent) -> None:
             """Coordinates emit for the current Sonex flow.
@@ -8654,6 +8596,7 @@ class WebSocketRunner:
                     continue
 
                 await self._sync_tool_result_ui(ui, tool_name, tool_result, active_tool_activity_id)
+                completed_tool_results.append(tool_result)
                 if (
                     tool_name == "Recommend"
                     and isinstance(tool_result, dict)
@@ -8703,7 +8646,30 @@ class WebSocketRunner:
                 await finish_planning("success", "Planning complete.")
                 content = str(event.data.get("content") or "")
                 if content:
-                    await ui.append_agent_message(content)
+                    guarded = guard_agent_answer(content, completed_tool_results)
+                    plain, document = normalize_agent_answer(guarded)
+                    if isinstance(ui, WebSocketUIAdapter):
+                        await ui.append_agent_message(plain, document=document, stream=True)
+                    else:
+                        await ui.append_agent_message(plain)
+                if not isinstance(ui, WebSocketUIAdapter):
+                    continue
+                explicit_operation = explicit_memory_operation(user_input)
+                explicit_memory = explicit_operation is not None
+                memory_enabled = self.memory_store.long_term_enabled()
+                if memory_enabled:
+                    self.memory_store.enqueue_memory_candidate(user_input, turn_id)
+                if explicit_memory:
+                    if explicit_operation is not None and not safe_memory_content(explicit_operation.content):
+                        await ui.append_warning_message("Sensitive information cannot be saved to long-term memory.")
+                    elif memory_enabled:
+                        await self._collect_turn_memory(ui, user_input, explicit=True)
+                    else:
+                        await ui.append_warning_message("Long-term memory is disabled.")
+                else:
+                    asyncio.create_task(
+                        self._collect_turn_memory(ui, user_input, explicit=False)
+                    )
 
         if producer_thread.is_alive() and not interrupt_event.is_set():
             await asyncio.to_thread(producer_thread.join)

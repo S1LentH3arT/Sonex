@@ -7,6 +7,7 @@ Key public entry points include PlanningContextBuilder, build_planning_context, 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,6 +41,10 @@ class PlanningContextBuilder:
         Example: build(user_input=...) -> returns the value used by the surrounding Sonex flow.
         """
         budget = max(500, min(int(self.token_budget), MAX_PLANNING_TOKEN_BUDGET))
+        user_memory = _search_memory_terms(user_input, target="user", limit=4)
+        project_memory = _search_memory_terms(user_input, target="memory", limit=6)
+        cache = _search_context_terms(user_input, limit=6)
+        recent = _select_recent_events(memory_store.search_context("", table="context", limit=18))
         payload = {
             "purpose": (
                 "This is a compact model-only planning buffer, not the complete "
@@ -47,19 +52,19 @@ class PlanningContextBuilder:
             ),
             "current_input": user_input,
             "relevant_user_memory": _trim_items(
-                memory_store.search_memory(user_input, target="user", limit=4),
+                user_memory,
                 max_text=600,
             ),
             "relevant_project_memory": _trim_items(
-                memory_store.search_memory(user_input, target="memory", limit=6),
+                project_memory,
                 max_text=700,
             ),
             "relevant_cache": _trim_items(
-                memory_store.search_context(user_input, table="cache", limit=6),
+                cache,
                 max_text=700,
             ),
             "recent_buffer": _trim_items(
-                _select_recent_events(memory_store.search_context("", table="context", limit=18)),
+                recent,
                 max_text=650,
             ),
             "retrieval_policy": (
@@ -67,7 +72,10 @@ class PlanningContextBuilder:
                 "search_context defaults to cache-first and falls back to full context."
             ),
         }
-        return _fit_budget(payload, budget)
+        _dedupe_payload(payload)
+        has_tool_state = any(item.get("type") in {"tool", "error"} for item in recent)
+        adaptive_budget = 4500 if has_tool_state else 2400
+        return _fit_budget(payload, min(budget, adaptive_budget))
 
 
 def build_planning_context(user_input: str, token_budget: int = DEFAULT_PLANNING_TOKEN_BUDGET) -> str:
@@ -100,19 +108,9 @@ def _select_recent_events(events: list[dict[str, Any]], limit: int = 8) -> list[
 
     Example: _select_recent_events(events=..., limit=...) -> returns the value used by the surrounding Sonex flow.
     """
-    def score(item: dict[str, Any]) -> tuple[int, int, int]:
-        """Coordinates score for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs score as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: score(item=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        event_type = str(item.get("type") or "")
-        access_count = int(item.get("access_count") or 0)
-        item_id = int(item.get("id") or 0)
-        return _EVENT_WEIGHTS.get(event_type, 1), access_count, item_id
-
-    selected = sorted(events, key=score, reverse=True)[:limit]
+    # The hot window is recency-first. Older high-value events belong in the
+    # summarized cache and must not displace the latest conversational state.
+    selected = sorted(events, key=lambda item: int(item.get("id") or 0), reverse=True)[:limit]
     return sorted(selected, key=lambda item: int(item.get("id") or 0))
 
 
@@ -132,6 +130,59 @@ def _trim_items(items: list[dict[str, Any]], max_text: int) -> list[dict[str, An
                 next_item[key] = _clip(value, max_text)
         trimmed.append(next_item)
     return trimmed
+
+
+def _retrieval_terms(text: str, limit: int = 5) -> list[str]:
+    terms = re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z0-9][A-Za-z0-9_.-]{2,}", text)
+    ignored = {"please", "could", "would", "about", "这个", "那个", "请问", "帮我"}
+    return list(dict.fromkeys(term for term in terms if term.casefold() not in ignored))[:limit]
+
+
+def _search_memory_terms(text: str, *, target: str, limit: int) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    for term in _retrieval_terms(text):
+        found.extend(memory_store.search_memory(term, target=target, limit=limit))
+    return _dedupe_items(found, limit)
+
+
+def _search_context_terms(text: str, limit: int) -> list[dict[str, Any]]:
+    found: list[dict[str, Any]] = []
+    for term in _retrieval_terms(text):
+        found.extend(memory_store.search_context(term, table="cache", limit=limit))
+    return _dedupe_items(found, limit)
+
+
+def _dedupe_items(items: list[dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        identity = str(item.get("entry_id") or item.get("key") or item.get("id") or item)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        unique.append(item)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
+def _dedupe_payload(payload: dict[str, Any]) -> None:
+    """Avoid injecting the same normalized text through multiple memory tiers."""
+    seen: set[str] = set()
+    for section in ("recent_buffer", "relevant_cache", "relevant_user_memory", "relevant_project_memory"):
+        items = payload.get(section)
+        if not isinstance(items, list):
+            continue
+        kept: list[dict[str, Any]] = []
+        for item in items:
+            text = str(item.get("content") or item.get("summary") or "")
+            normalized = re.sub(r"\s+", " ", text).strip().casefold()
+            if normalized and normalized in seen:
+                continue
+            if normalized:
+                seen.add(normalized)
+            kept.append(item)
+        payload[section] = kept
 
 
 def _fit_budget(payload: dict[str, Any], budget: int) -> str:

@@ -32,8 +32,6 @@ SPOTIFY_PLAYBACK_CONTROL_TOOLS = {
     "resume": "spotify_resume",
 }
 
-LOCAL_PLAYBACK_BACKENDS = {"auto", "mpv", "cvlc"}
-
 LOCAL_PLAYBACK_CHOICES = [
     {"value": "play_local", "label": "Play local file"},
     {"value": "skip_local", "label": "Choose another source"},

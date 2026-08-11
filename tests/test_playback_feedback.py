@@ -71,7 +71,6 @@ def test_feedback_helpers_normalize_provider_player_and_playing_name() -> None:
     assert metadata_provider_label("deezer") == "Deezer"
     assert metadata_provider_label("") == "Metadata"
     assert format_player_feedback("mpv") == "player: mpv"
-    assert format_player_feedback("cvlc") == "player: VLC"
     assert format_player_feedback("auto") == "player: auto"
     assert format_player_feedback(None) == "player: —"
     assert format_playing_feedback(

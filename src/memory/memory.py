@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,6 +38,7 @@ class MemoryPaths:
     """
     memory: Path
     user: Path
+    state: Path
 
 
 @dataclass(frozen=True)
@@ -50,6 +52,19 @@ class MemoryEntry:
     content: str
     source_path: str
     line_no: int
+    source: str = "legacy"
+    confidence: float = 1.0
+    updated_at: str | None = None
+
+
+_ACTIVE_SESSION_ID: ContextVar[str | None] = ContextVar("sonex_memory_session_id", default=None)
+_ACTIVE_TURN_ID: ContextVar[str | None] = ContextVar("sonex_memory_turn_id", default=None)
+
+
+def bind_memory_scope(session_id: str, turn_id: str | None = None) -> None:
+    """Bind memory operations in the current async/thread context to one chat turn."""
+    _ACTIVE_SESSION_ID.set(str(session_id).strip() or None)
+    _ACTIVE_TURN_ID.set(str(turn_id).strip() or None)
 
 
 class MemoryStore:
@@ -65,17 +80,18 @@ class MemoryStore:
         self.paths = MemoryPaths(
             memory=sonex_home() / "MEMORY.md",
             user=sonex_home() / "USER.md",
+            state=sonex_home() / "memory-state.json",
         )
         self.memory_entries: list[str] = []
         self.user_entries: list[str] = []
         self._session_store: dict[str, Path] = {}
         self.current_session_id: str | None = None
 
-    def init_session(self) -> None:
+    def init_session(self, session_id: str | None = None) -> None:
         """Initialize the current session database and rebuild markdown indexes."""
         self._ensure_markdown_files()
-        session_id = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%fZ")
-        root = sonex_home() / "sessions" / session_id
+        session_id = session_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%fZ")
+        root = self.paths.memory.parent / "sessions" / session_id
         root.mkdir(parents=True, exist_ok=True)
 
         db_path = root / "agent.db"
@@ -94,9 +110,12 @@ class MemoryStore:
 
         Example: get_db() -> returns the value used by the surrounding Sonex flow.
         """
-        if self.current_session_id is None:
-            self.init_session()
-        return self._session_store[self.current_session_id]
+        scoped_session_id = _ACTIVE_SESSION_ID.get()
+        session_id = scoped_session_id or self.current_session_id
+        if session_id is None or session_id not in self._session_store:
+            self.init_session(session_id)
+            session_id = scoped_session_id or self.current_session_id
+        return self._session_store[session_id]
 
     def load_markdown(self, target: MemoryTarget) -> list[MemoryEntry]:
         """Loads markdown from persistent state.
@@ -110,10 +129,25 @@ class MemoryStore:
         if not path.exists():
             return []
 
-        for line_no, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for line_no, raw_line in enumerate(lines, start=1):
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#") or stripped.startswith("<!--"):
+                continue
             content = self._clean_markdown_line(raw_line)
             if not content:
                 continue
+            source = "legacy"
+            confidence = 1.0
+            updated_at: str | None = None
+            if line_no < len(lines):
+                metadata = self._parse_metadata(lines[line_no].strip())
+                source = metadata.get("source", source)
+                updated_at = metadata.get("updated")
+                try:
+                    confidence = float(metadata.get("confidence", confidence))
+                except (TypeError, ValueError):
+                    confidence = 1.0
             entries.append(
                 MemoryEntry(
                     entry_id=self._entry_id(target, content),
@@ -121,6 +155,9 @@ class MemoryStore:
                     content=content,
                     source_path=str(path),
                     line_no=line_no,
+                    source=source,
+                    confidence=max(0.0, min(confidence, 1.0)),
+                    updated_at=updated_at,
                 )
             )
         return entries
@@ -142,12 +179,22 @@ class MemoryStore:
             cursor.executemany(
                 """
                 INSERT OR REPLACE INTO memory_entries(
-                    entry_id, target, content, source_path, line_no, updated_at
+                    entry_id, target, content, source_path, line_no,
+                    source, confidence, memory_updated_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 """,
                 [
-                    (entry.entry_id, entry.target, entry.content, entry.source_path, entry.line_no)
+                    (
+                        entry.entry_id,
+                        entry.target,
+                        entry.content,
+                        entry.source_path,
+                        entry.line_no,
+                        entry.source,
+                        self._effective_confidence(entry),
+                        entry.updated_at,
+                    )
                     for entry in entries
                 ],
             )
@@ -172,6 +219,8 @@ class MemoryStore:
 
         Example: search_memory(query=..., target=..., limit=...) -> returns the value used by the surrounding Sonex flow.
         """
+        if not self.long_term_enabled():
+            return []
         if target not in SUPPORTED_MEMORY_TARGETS:
             raise ValueError(f"Unsupported memory target: {target}")
 
@@ -203,16 +252,168 @@ class MemoryStore:
         with sqlite3.connect(self.get_db()) as conn:
             cursor = conn.execute(
                 """
-                INSERT INTO context(type, content, tags)
-                VALUES (?, ?, ?)
+                INSERT INTO context(type, content, tags, turn_id)
+                VALUES (?, ?, ?, ?)
                 """,
                 (
                     role,
                     json.dumps(content, ensure_ascii=False, default=str),
                     json.dumps(tags, ensure_ascii=False),
+                    _ACTIVE_TURN_ID.get(),
                 ),
             )
             return int(cursor.lastrowid)
+
+    def events_for_turn(self, turn_id: str | None = None) -> list[dict[str, Any]]:
+        """Return events belonging to exactly one Agent turn in chronological order."""
+        resolved_turn_id = str(turn_id or _ACTIVE_TURN_ID.get() or "").strip()
+        if not resolved_turn_id:
+            return []
+        with sqlite3.connect(self.get_db()) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT id, type, content, tags, turn_id, created_at, access_count,
+                       last_accessed, promoted_cache_key
+                FROM context
+                WHERE turn_id = ?
+                ORDER BY id ASC
+                """,
+                (resolved_turn_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def enqueue_memory_candidate(self, user_input: str, turn_id: str | None = None) -> str | None:
+        """Persist a post-turn curation candidate before asynchronous processing."""
+        resolved_turn_id = str(turn_id or _ACTIVE_TURN_ID.get() or "").strip()
+        text = str(user_input or "").strip()
+        if not resolved_turn_id or not text:
+            return None
+        created_at = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.get_db()) as conn:
+            conn.execute(
+                """
+                INSERT INTO memory_candidates(turn_id, user_input, status, created_at)
+                VALUES (?, ?, 'pending', ?)
+                ON CONFLICT(turn_id) DO NOTHING
+                """,
+                (resolved_turn_id, text, created_at),
+            )
+        return resolved_turn_id
+
+    def memory_candidate_allowed(self, turn_id: str | None = None) -> bool:
+        """Return false when a retained candidate predates the latest Markdown reset."""
+        resolved_turn_id = str(turn_id or _ACTIVE_TURN_ID.get() or "").strip()
+        if not resolved_turn_id:
+            return True
+        with sqlite3.connect(self.get_db()) as conn:
+            row = conn.execute(
+                "SELECT created_at FROM memory_candidates WHERE turn_id = ?",
+                (resolved_turn_id,),
+            ).fetchone()
+        if row is None:
+            return True
+        reset_epoch = self.reset_epoch()
+        return reset_epoch is None or str(row[0]) > reset_epoch
+
+    def mark_memory_candidate(self, status: str, turn_id: str | None = None) -> None:
+        resolved_turn_id = str(turn_id or _ACTIVE_TURN_ID.get() or "").strip()
+        if not resolved_turn_id:
+            return
+        with sqlite3.connect(self.get_db()) as conn:
+            conn.execute(
+                "UPDATE memory_candidates SET status = ? WHERE turn_id = ?",
+                (str(status), resolved_turn_id),
+            )
+
+    def pending_memory_candidates(self, limit: int = 8) -> list[dict[str, str]]:
+        """Discover retained asynchronous candidates across prior session databases."""
+        candidates: list[dict[str, str]] = []
+        reset_epoch = self.reset_epoch()
+        sessions_root = self.paths.memory.parent / "sessions"
+        if not sessions_root.exists():
+            return []
+        for db_path in sorted(sessions_root.glob("*/agent.db"), reverse=True):
+            try:
+                with sqlite3.connect(db_path) as conn:
+                    rows = conn.execute(
+                        """
+                        SELECT turn_id, user_input, created_at
+                        FROM memory_candidates
+                        WHERE status = 'pending'
+                        ORDER BY id ASC
+                        LIMIT ?
+                        """,
+                        (limit,),
+                    ).fetchall()
+            except sqlite3.OperationalError:
+                continue
+            for turn_id, user_input, created_at in rows:
+                if reset_epoch is not None and str(created_at) <= reset_epoch:
+                    continue
+                candidates.append(
+                    {
+                        "session_id": db_path.parent.name,
+                        "turn_id": str(turn_id),
+                        "user_input": str(user_input),
+                    }
+                )
+                if len(candidates) >= limit:
+                    return candidates
+        return candidates
+
+    def record_behavior_signal(self, kind: str, item: dict[str, Any]) -> int:
+        """Accumulate provider-neutral music behavior without asserting a preference."""
+        name = str(item.get("name") or item.get("title") or "").strip()
+        artist = str(item.get("artist") or "").strip()
+        if not name:
+            return 0
+        normalized_kind = str(kind or "played").strip().casefold()
+        identity = f"{normalized_kind}:{name.casefold()}:{artist.casefold()}"
+        signal_key = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        payload = json.dumps(
+            {"kind": normalized_kind, "name": name, "artist": artist},
+            ensure_ascii=False,
+        )
+        seen_at = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.get_db()) as conn:
+            conn.execute(
+                """
+                INSERT INTO behavior_signals(signal_key, kind, payload, count, last_seen)
+                VALUES (?, ?, ?, 1, ?)
+                ON CONFLICT(signal_key) DO UPDATE SET
+                    count = behavior_signals.count + 1,
+                    payload = excluded.payload,
+                    last_seen = excluded.last_seen
+                """,
+                (signal_key, normalized_kind, payload, seen_at),
+            )
+            row = conn.execute(
+                "SELECT count FROM behavior_signals WHERE signal_key = ?",
+                (signal_key,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def promotable_behavior_signals(self, minimum_count: int = 3, limit: int = 8) -> list[dict[str, Any]]:
+        """Return repeated behavior as evidence, never as an already-proven preference."""
+        with sqlite3.connect(self.get_db()) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT signal_key, kind, payload, count, last_seen
+                FROM behavior_signals
+                WHERE count >= ?
+                ORDER BY count DESC, last_seen DESC
+                LIMIT ?
+                """,
+                (max(2, int(minimum_count)), max(1, int(limit))),
+            ).fetchall()
+        reset_epoch = self.reset_epoch()
+        return [
+            dict(row)
+            for row in rows
+            if reset_epoch is None or str(row["last_seen"]) > reset_epoch
+        ]
 
     def search_context(
         self,
@@ -376,7 +577,14 @@ class MemoryStore:
                 self._record_context_accesses(conn, [int(row["id"]) for row in rows])
         return [dict(row) for row in rows]
 
-    def add(self, target: MemoryTarget, content: str) -> dict[str, Any]:
+    def add(
+        self,
+        target: MemoryTarget,
+        content: str,
+        *,
+        source: str = "explicit",
+        confidence: float = 1.0,
+    ) -> dict[str, Any]:
         """Coordinates add for the current Sonex flow.
 
         Typical use: Use this function when runtime code needs add as part of a Sonex command, playback, auth, llm, or ui path.
@@ -387,13 +595,25 @@ class MemoryStore:
         if not content:
             return {"success": False, "error": "Content must not be empty."}
 
-        entries = self.memory_entries if target == "memory" else self.user_entries
-        if content in entries:
+        loaded = self.load_markdown(target)
+        if any(entry.content == content for entry in loaded):
             return {"success": False, "error": "Memory entry already exists."}
 
         path = self._path_for_target(target)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(f"{content}\n")
+        self._ensure_legacy_backup(path)
+        loaded.append(
+            MemoryEntry(
+                entry_id=self._entry_id(target, content),
+                target=target,
+                content=content,
+                source_path=str(path),
+                line_no=0,
+                source=source,
+                confidence=max(0.0, min(float(confidence), 1.0)),
+                updated_at=datetime.now(timezone.utc).isoformat(),
+            )
+        )
+        self._save_entries(path, target, loaded)
         self.rebuild_memory_index()
 
         return {
@@ -413,19 +633,64 @@ class MemoryStore:
         if not content:
             return {"success": False, "error": "Content must not be empty."}
 
-        entries = self.memory_entries if target == "memory" else self.user_entries
-        if content not in entries:
+        current = self.load_markdown(target)
+        if not any(entry.content == content for entry in current):
             return {"success": False, "error": "Entry not found."}
 
-        entries = [entry for entry in entries if entry != content]
-        self._set_entries(target, entries)
-        self._save_file(self._path_for_target(target), entries)
+        path = self._path_for_target(target)
+        loaded = [entry for entry in current if entry.content != content]
+        self._save_entries(path, target, loaded)
         self.rebuild_memory_index()
 
         return {
             "success": True,
-            "current_entries": entries,
+            "current_entries": self.memory_entries if target == "memory" else self.user_entries,
             "message": "Entry removed.",
+        }
+
+    def update(
+        self,
+        target: MemoryTarget,
+        content: str,
+        *,
+        previous_content: str | None = None,
+        source: str = "explicit",
+        confidence: float = 1.0,
+    ) -> dict[str, Any]:
+        """Replace or refresh one authoritative Markdown memory entry."""
+        content = content.strip()
+        previous = str(previous_content or content).strip()
+        if not content:
+            return {"success": False, "error": "Content must not be empty."}
+        current = self.load_markdown(target)
+        match_index = next(
+            (index for index, entry in enumerate(current) if entry.content == previous),
+            None,
+        )
+        if match_index is None:
+            return self.add(
+                target,
+                content,
+                source=source,
+                confidence=confidence,
+            )
+        path = self._path_for_target(target)
+        current[match_index] = MemoryEntry(
+            entry_id=self._entry_id(target, content),
+            target=target,
+            content=content,
+            source_path=str(path),
+            line_no=0,
+            source=source,
+            confidence=max(0.0, min(float(confidence), 1.0)),
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self._save_entries(path, target, current)
+        self.rebuild_memory_index()
+        return {
+            "success": True,
+            "current_entries": self.memory_entries if target == "memory" else self.user_entries,
+            "message": "Entry updated.",
         }
 
     def _init_schema(self, conn: sqlite3.Connection) -> None:
@@ -446,6 +711,7 @@ class MemoryStore:
                 access_count INTEGER DEFAULT 0,
                 last_accessed TIMESTAMP,
                 promoted_cache_key TEXT,
+                turn_id TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
@@ -473,7 +739,32 @@ class MemoryStore:
                 content TEXT NOT NULL,
                 source_path TEXT NOT NULL,
                 line_no INTEGER NOT NULL,
+                source TEXT DEFAULT 'legacy',
+                confidence REAL DEFAULT 1.0,
+                memory_updated_at TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS memory_candidates(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                turn_id TEXT NOT NULL UNIQUE,
+                user_input TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS behavior_signals(
+                signal_key TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
@@ -493,9 +784,13 @@ class MemoryStore:
         self._ensure_column(cursor, "context", "access_count", "INTEGER DEFAULT 0")
         self._ensure_column(cursor, "context", "last_accessed", "TIMESTAMP")
         self._ensure_column(cursor, "context", "promoted_cache_key", "TEXT")
+        self._ensure_column(cursor, "context", "turn_id", "TEXT")
         self._ensure_column(cursor, "cache", "source", "TEXT")
         self._ensure_column(cursor, "cache", "source_context_id", "INTEGER")
         self._ensure_column(cursor, "cache", "kind", "TEXT DEFAULT 'turn_summary'")
+        self._ensure_column(cursor, "memory_entries", "source", "TEXT DEFAULT 'legacy'")
+        self._ensure_column(cursor, "memory_entries", "confidence", "REAL DEFAULT 1.0")
+        self._ensure_column(cursor, "memory_entries", "memory_updated_at", "TEXT")
 
     @staticmethod
     def _ensure_column(cursor: sqlite3.Cursor, table: str, column: str, ddl: str) -> None:
@@ -559,11 +854,14 @@ class MemoryStore:
         params.append(limit)
         return conn.execute(
             f"""
-            SELECT e.entry_id, e.target, e.content, e.source_path, e.line_no, e.updated_at
+            SELECT e.entry_id, e.target, e.content, e.source_path, e.line_no,
+                   e.source, e.confidence, e.memory_updated_at, e.updated_at
             FROM memory_fts f
             JOIN memory_entries e ON e.entry_id = f.entry_id
             WHERE memory_fts MATCH ? {target_clause}
-            ORDER BY bm25(memory_fts), e.updated_at DESC
+            ORDER BY bm25(memory_fts),
+                     CASE WHEN e.source = 'explicit' THEN 0 ELSE 1 END,
+                     e.confidence DESC, e.updated_at DESC
             LIMIT ?
             """,
             params,
@@ -590,10 +888,12 @@ class MemoryStore:
         params.append(limit)
         return conn.execute(
             f"""
-            SELECT entry_id, target, content, source_path, line_no, updated_at
+            SELECT entry_id, target, content, source_path, line_no,
+                   source, confidence, memory_updated_at, updated_at
             FROM memory_entries
             WHERE content LIKE ? {target_clause}
-            ORDER BY updated_at DESC
+            ORDER BY CASE WHEN source = 'explicit' THEN 0 ELSE 1 END,
+                     confidence DESC, updated_at DESC
             LIMIT ?
             """,
             params,
@@ -737,6 +1037,41 @@ class MemoryStore:
             if not path.exists():
                 path.write_text("", encoding="utf-8")
 
+    def long_term_enabled(self) -> bool:
+        """Return whether long-term Markdown retrieval and collection are enabled."""
+        return bool(self._read_state().get("enabled", True))
+
+    def set_long_term_enabled(self, enabled: bool) -> bool:
+        """Persist the long-term memory collection preference."""
+        state = self._read_state()
+        state["enabled"] = bool(enabled)
+        self._write_state(state)
+        return bool(enabled)
+
+    def consume_first_notice(self) -> bool:
+        """Persist and return whether the local-memory disclosure should be shown once."""
+        state = self._read_state()
+        if state.get("notice_shown"):
+            return False
+        state["notice_shown"] = True
+        self._write_state(state)
+        return True
+
+    def reset_long_term(self) -> dict[str, Any]:
+        """Clear only authoritative Markdown memory and advance the reset epoch."""
+        self._ensure_markdown_files()
+        for path in (self.paths.memory, self.paths.user):
+            self._atomic_write(path, "")
+        state = self._read_state()
+        state["reset_epoch"] = datetime.now(timezone.utc).isoformat()
+        self._write_state(state)
+        self.rebuild_memory_index()
+        return {"success": True, "message": "Long-term memory reset."}
+
+    def reset_epoch(self) -> str | None:
+        value = self._read_state().get("reset_epoch")
+        return str(value) if value else None
+
     def _path_for_target(self, target: MemoryTarget) -> Path:
         """Prepares path for target for an internal Sonex flow.
 
@@ -762,18 +1097,66 @@ class MemoryStore:
         else:
             self.user_entries = entries
 
+    def _save_entries(self, path: Path, target: MemoryTarget, entries: list[MemoryEntry]) -> None:
+        title = "User memory" if target == "user" else "Agent memory"
+        explicit = [entry for entry in entries if entry.source in {"explicit", "legacy"}]
+        inferred = [entry for entry in entries if entry.source not in {"explicit", "legacy"}]
+        lines = [f"# {title}", ""]
+        for heading, grouped in (("Explicit", explicit), ("Inferred", inferred)):
+            if not grouped:
+                continue
+            lines.extend((f"## {heading}", ""))
+            for entry in grouped:
+                updated = entry.updated_at or datetime.now(timezone.utc).isoformat()
+                lines.append(f"- {entry.content}")
+                lines.append(
+                    "  <!-- sonex:"
+                    f"id={entry.entry_id} source={entry.source} "
+                    f"confidence={entry.confidence:.2f} updated={updated} -->"
+                )
+            lines.append("")
+        self._atomic_write(path, "\n".join(lines).rstrip() + "\n")
+
     @staticmethod
-    def _save_file(path: Path, entries: list[str]) -> None:
-        """Prepares save file for an internal Sonex flow.
+    def _parse_metadata(line: str) -> dict[str, str]:
+        match = re.fullmatch(r"<!--\s*sonex:(.*?)\s*-->", line)
+        if match is None:
+            return {}
+        return {
+            key: value
+            for key, value in re.findall(r"([a-z_]+)=([^\s]+)", match.group(1))
+        }
 
-        Typical use: Use this helper when nearby code needs save file without duplicating the local rules.
+    @staticmethod
+    def _atomic_write(path: Path, text: str) -> None:
+        temporary = path.with_name(f".{path.name}.tmp")
+        temporary.write_text(text, encoding="utf-8")
+        temporary.replace(path)
 
-        Example: _save_file(path=..., entries=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        text = "\n".join(entries)
-        if text:
-            text = f"{text}\n"
-        path.write_text(text, encoding="utf-8")
+    @staticmethod
+    def _ensure_legacy_backup(path: Path) -> None:
+        if not path.exists():
+            return
+        text = path.read_text(encoding="utf-8")
+        if not text.strip() or "<!-- sonex:" in text:
+            return
+        backup = path.with_suffix(f"{path.suffix}.legacy.bak")
+        if not backup.exists():
+            backup.write_text(text, encoding="utf-8")
+
+    def _read_state(self) -> dict[str, Any]:
+        try:
+            value = json.loads(self.paths.state.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"enabled": True}
+        return value if isinstance(value, dict) else {"enabled": True}
+
+    def _write_state(self, state: dict[str, Any]) -> None:
+        self.paths.state.parent.mkdir(parents=True, exist_ok=True)
+        self._atomic_write(
+            self.paths.state,
+            json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        )
 
     @staticmethod
     def _clean_markdown_line(line: str) -> str:
@@ -800,6 +1183,20 @@ class MemoryStore:
         normalized = re.sub(r"\s+", " ", content.strip().lower())
         payload = f"{target}:{normalized}".encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
+
+    @staticmethod
+    def _effective_confidence(entry: MemoryEntry) -> float:
+        if entry.source in {"explicit", "legacy"} or not entry.updated_at:
+            return entry.confidence
+        try:
+            updated = datetime.fromisoformat(entry.updated_at)
+            if updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            age_days = max(0.0, (datetime.now(timezone.utc) - updated).total_seconds() / 86400)
+        except ValueError:
+            return entry.confidence
+        half_life = 180.0 if entry.source == "inferred" else 365.0
+        return max(0.0, min(entry.confidence * (0.5 ** (age_days / half_life)), 1.0))
 
     @staticmethod
     def _loads_dict(value: Any) -> dict[str, Any]:

@@ -50,8 +50,6 @@ def check_player(player: str) -> bool:
 
     Example: check_player(player=...) -> returns the value used by the surrounding Sonex flow.
     """
-    if player == "cvlc":
-        return shutil.which("cvlc") is not None or shutil.which("vlc") is not None
     return shutil.which(player) is not None
 
 def _player_command(player: str, file: str) -> list[str] | None:
@@ -61,15 +59,9 @@ def _player_command(player: str, file: str) -> list[str] | None:
 
     Example: _player_command(player=..., file=...) -> returns the value used by the surrounding Sonex flow.
     """
-    if player == "auto":
-        return ["sonex-local-playback", "auto", file]
-    if player == "cvlc":
-        return [shutil.which("cvlc") or shutil.which("vlc") or "cvlc", "--no-video", file]
-    if player == "vlc":
-        return ["vlc", "--play-and-exit", file]
     if player == "mpv":
         return ["mpv", "--no-video", file]
-    return [player, file]
+    return None
 
 # 使用本地播放器播放音乐(默认策略为auto)
 def play_local_song(query: str, player: str = "auto") -> dict:
@@ -97,8 +89,7 @@ def play_local_song(query: str, player: str = "auto") -> dict:
 
     player = resolve_local_playback_backend(player)
 
-    # `auto` is resolved by the playback controller; concrete adapters validate binaries.
-    if player != "auto" and not check_player(player):
+    if not check_player(player):
         return ToolResult.fail(
             tool="play_local_song",
             message=f"{player} is not ready.",

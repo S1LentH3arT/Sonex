@@ -113,32 +113,23 @@ class BuiltinCommandParserTests(unittest.TestCase):
         self.assertNotIn("search", commands)
         self.assertNotIn("play", commands)
 
-    def test_volume_is_internal_and_player_is_public_local_command(self) -> None:
-        """Verifies that volume and player are local commands behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the volume and player are local commands behavior against regressions.
-
-        Example: test_volume_and_player_are_local_commands() -> passes without assertion failures when the behavior remains correct.
-        """
+    def test_volume_is_internal_and_player_command_is_removed(self) -> None:
         volume = parse_builtin_command("/volume 50")
-        player = parse_builtin_command("/player cvlc")
+        player = parse_builtin_command("/player")
 
         self.assertIsNotNone(volume)
         self.assertIsNotNone(player)
         assert volume is not None
         assert player is not None
         self.assertTrue(volume.known)
-        self.assertTrue(player.known)
+        self.assertFalse(player.known)
         self.assertFalse(volume.command.visible)
-        self.assertTrue(player.command.visible)
         self.assertIsNone(volume.command_intent())
         self.assertIsNone(player.command_intent())
         self.assertEqual(volume.args, "50")
-        self.assertEqual(player.args, "cvlc")
 
         commands = {command.name: command for command in command_suggestions()}
-        self.assertEqual(commands["player"].usage, "/player")
-        self.assertEqual(commands["player"].description, "detect available players and set the device default")
+        self.assertNotIn("player", commands)
 
     def test_connect_is_a_visible_interactive_local_command(self) -> None:
         parsed = parse_builtin_command("/connect spotify")
@@ -380,7 +371,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        for name in ["help", "info", "model", "logout", "sandbox", "bye", "exit", "player", "keymap"]:
+        for name in ["help", "info", "model", "logout", "sandbox", "bye", "exit", "keymap"]:
             with self.subTest(name=name):
                 self.assertEqual(commands[name].mode, "local")
 

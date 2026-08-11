@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,9 @@ def _coerce_transcript_messages(messages: Any) -> list[dict[str, Any]]:
         segments = _coerce_chat_segments(message.get("segments"))
         if segments:
             item["segments"] = segments
+        document = _coerce_chat_document(message.get("document"))
+        if document:
+            item["document"] = document
         transcript.append(item)
     return transcript
 
@@ -62,6 +66,50 @@ def _coerce_chat_segments(value: Any) -> list[dict[str, str]]:
             return []
         segments.append({"text": text, "style": style})
     return segments
+
+
+def _coerce_chat_document(value: Any) -> dict[str, Any] | None:
+    """Keep only the bounded semantic document produced by the server normalizer."""
+    if not isinstance(value, dict) or value.get("version") != 1:
+        return None
+    raw_blocks = value.get("blocks")
+    if not isinstance(raw_blocks, list) or len(raw_blocks) > 100:
+        return None
+    allowed_blocks = {"paragraph", "heading", "list_item", "code_block", "spacer"}
+    allowed_styles = {"plain", "strong", "highlight", "link"}
+    blocks: list[dict[str, Any]] = []
+    for raw_block in raw_blocks:
+        if not isinstance(raw_block, dict) or raw_block.get("type") not in allowed_blocks:
+            return None
+        block_type = str(raw_block["type"])
+        block: dict[str, Any] = {"type": block_type}
+        if block_type == "code_block":
+            block["text"] = str(raw_block.get("text") or "")[:12000]
+            if raw_block.get("language"):
+                block["language"] = str(raw_block["language"])[:40]
+        elif block_type != "spacer":
+            spans = raw_block.get("spans")
+            if not isinstance(spans, list):
+                return None
+            safe_spans: list[dict[str, str]] = []
+            for span in spans:
+                if not isinstance(span, dict) or span.get("style") not in allowed_styles:
+                    return None
+                safe_span = {
+                    "text": str(span.get("text") or ""),
+                    "style": str(span["style"]),
+                }
+                href = str(span.get("href") or "")
+                if span.get("style") == "link" and href.startswith(("https://", "http://")):
+                    safe_span["href"] = href
+                safe_spans.append(safe_span)
+            block["spans"] = safe_spans
+            if block_type == "list_item":
+                marker = str(raw_block.get("marker") or "-")
+                block["marker"] = marker if marker == "-" or re.fullmatch(r"\d+\.", marker) else "-"
+                block["level"] = max(0, min(int(raw_block.get("level") or 0), 2))
+        blocks.append(block)
+    return {"version": 1, "blocks": blocks}
 
 
 def _save_session_transcript(
@@ -91,7 +139,7 @@ def _save_session_transcript(
             "role": message["role"],
             "content": message["content"],
         }
-        for key in ("theme", "tone", "segments"):
+        for key in ("theme", "tone", "segments", "document"):
             if key in message:
                 payload[key] = message[key]
         lines.append(json.dumps(payload, ensure_ascii=False, default=str))

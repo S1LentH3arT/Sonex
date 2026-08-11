@@ -105,6 +105,8 @@ class WebSocketUIAdapter:
         text: str,
         *,
         segments: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+        document: dict[str, Any] | None = None,
+        stream: bool = False,
     ) -> None:
         """Append an LLM answer or agent/tool-call explanation."""
         transcript_item: dict[str, Any] = {"role": "agent", "content": text}
@@ -113,6 +115,12 @@ class WebSocketUIAdapter:
             safe_segments = [dict(segment) for segment in segments]
             transcript_item["segments"] = safe_segments
             payload["segments"] = safe_segments
+        if document:
+            safe_document = dict(document)
+            transcript_item["document"] = safe_document
+            payload["document"] = safe_document
+        if stream:
+            payload["stream"] = True
         mode = getattr(self, "_spotify_mode", None)
         if isinstance(mode, dict) and mode.get("enabled"):
             transcript_item["theme"] = "spotify"

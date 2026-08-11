@@ -3,7 +3,6 @@ from src.tools.netease import netease_account, netease_play, netease_search
 from src.tools.online_play import play_youtube_song
 from src.tools.playback_controller import (
     local_playback_pause,
-    local_playback_player,
     local_playback_resume,
     local_playback_status,
     local_playback_stop,
@@ -47,7 +46,6 @@ __all__ = [
     "netease_play",
     "play_youtube_song",
     "local_playback_pause",
-    "local_playback_player",
     "local_playback_resume",
     "local_playback_status",
     "local_playback_stop",

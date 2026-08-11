@@ -14,7 +14,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.music.player_sinks import PlayerSinkPlayback
 from src.tools import playback_controller as playback
 
 
@@ -279,12 +278,12 @@ class PlaybackControllerTests(unittest.TestCase):
             "current-ao": "pulse",
         }
 
-        def read_property(name: str) -> object:
-            if name == "time-pos":
-                raise RuntimeError("property unavailable")
-            return properties[name]
+        snapshot = {
+            "time-pos": RuntimeError("property unavailable"),
+            **properties,
+        }
 
-        with patch.object(adapter, "_property", side_effect=read_property):
+        with patch.object(adapter, "_properties", return_value=snapshot):
             state = adapter.status(default_playing=True)
 
         self.assertEqual(state.progress_ms, 0)
@@ -297,42 +296,68 @@ class PlaybackControllerTests(unittest.TestCase):
             ipc_ok=True,
         )
 
-    def test_cvlc_start_uses_network_buffering_options(self) -> None:
-        """Verifies that cvlc start uses network buffering options behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the cvlc start uses network buffering options behavior against regressions.
-
-        Example: test_cvlc_start_uses_network_buffering_options() -> passes without assertion failures when the behavior remains correct.
-        """
-        adapter = playback.CvlcRcPlaybackAdapter(
-            source_url="https://stream.example/audio",
+    def test_mpv_status_reads_one_snapshot_over_one_ipc_connection(self) -> None:
+        adapter = playback.MpvPlaybackAdapter(
+            source_url="song.webm",
             source="youtube",
-            metadata={"name": "Song"},
+            metadata={"name": "Song", "duration_ms": 180000},
         )
-        expected_state = playback.PlayerState(
-            provider="youtube",
-            source="youtube",
-            player="cvlc",
-            session_id=adapter.session_id,
-            name="Song",
-            artist="-",
-            album="-",
-            duration_ms=0,
-            progress_ms=0,
-            timestamp=1,
-            is_playing=True,
-        )
-        process = Mock()
-        process.poll.return_value = None
+        adapter.process = Mock()
+        adapter.process.poll.return_value = None
+        properties = {
+            "time-pos": 1.5,
+            "duration": 180.0,
+            "pause": False,
+            "paused-for-cache": False,
+            "current-ao": "pulse",
+        }
+        socket_count = 0
 
-        with patch.object(playback.shutil, "which", return_value="/usr/bin/cvlc"), \
-             patch.object(playback.subprocess, "Popen", return_value=process) as popen, \
-             patch.object(playback.os.path, "exists", return_value=True), \
-             patch.object(adapter, "status", return_value=expected_state):
-            adapter.start()
+        class FakeIpcSocket:
+            def __init__(self) -> None:
+                nonlocal socket_count
+                socket_count += 1
+                self.property_name = ""
+                self.request_id = 0
 
-        command = popen.call_args.args[0]
-        self.assertIn("--network-caching=5000", command)
+            def __enter__(self) -> "FakeIpcSocket":
+                return self
+
+            def __exit__(self, *_args: object) -> None:
+                return None
+
+            def settimeout(self, _timeout: float) -> None:
+                return None
+
+            def connect(self, _path: str) -> None:
+                return None
+
+            def sendall(self, payload: bytes) -> None:
+                request = json.loads(payload)
+                self.property_name = str(request["command"][-1])
+                self.request_id = int(request["request_id"])
+
+            def recv(self, _size: int) -> bytes:
+                return (
+                    json.dumps(
+                        {
+                            "error": "success",
+                            "data": properties[self.property_name],
+                            "request_id": self.request_id,
+                        }
+                    )
+                    + "\n"
+                ).encode()
+
+        with patch.object(
+            playback.socket,
+            "socket",
+            side_effect=lambda *_args, **_kwargs: FakeIpcSocket(),
+        ):
+            state = adapter.status()
+
+        self.assertEqual(state.progress_ms, 1500)
+        self.assertEqual(socket_count, 1)
 
     def test_auto_play_tries_mpv_only_when_mpv_fails(self) -> None:
         """Verifies that auto play tries mpv only when mpv fails behaves as expected.
@@ -344,66 +369,33 @@ class PlaybackControllerTests(unittest.TestCase):
         mpv_adapter = Mock()
         mpv_adapter.start.side_effect = RuntimeError("mpv missing")
 
-        with (
-            patch.object(playback, "MpvPlaybackAdapter", return_value=mpv_adapter),
-            patch.object(playback, "CvlcRcPlaybackAdapter") as cvlc_adapter,
-        ):
-            with self.assertRaisesRegex(RuntimeError, r"mpv missing.*\/player.*choose VLC"):
+        with patch.object(playback, "MpvPlaybackAdapter", return_value=mpv_adapter):
+            with self.assertRaisesRegex(RuntimeError, "mpv missing"):
                 self.controller.play(source_url="song.mp3", source="youtube", metadata={"name": "Song"})
 
         mpv_adapter.stop.assert_called_once()
-        cvlc_adapter.assert_not_called()
         self.assertIsNone(self.controller.current_session_id)
 
-    def test_explicit_mpv_failure_does_not_fall_back_to_cvlc(self) -> None:
-        """Verifies that explicit mpv failure does not fall back to cvlc behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the explicit mpv failure does not fall back to cvlc behavior against regressions.
-
-        Example: test_explicit_mpv_failure_does_not_fall_back_to_cvlc() -> passes without assertion failures when the behavior remains correct.
-        """
+    def test_explicit_mpv_failure_is_reported(self) -> None:
         mpv_adapter = Mock()
         mpv_adapter.start.side_effect = RuntimeError("mpv failed")
 
-        with (
-            patch.object(playback, "MpvPlaybackAdapter", return_value=mpv_adapter),
-            patch.object(playback, "CvlcRcPlaybackAdapter") as cvlc_adapter,
-        ):
+        with patch.object(playback, "MpvPlaybackAdapter", return_value=mpv_adapter):
             with self.assertRaisesRegex(RuntimeError, "mpv failed"):
                 self.controller.play(source_url="song.mp3", source="youtube", metadata={"name": "Song"}, player="mpv")
 
-        cvlc_adapter.assert_not_called()
-
-    def test_explicit_cvlc_uses_cvlc_adapter(self) -> None:
-        """Verifies that explicit cvlc uses cvlc adapter behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the explicit cvlc uses cvlc adapter behavior against regressions.
-
-        Example: test_explicit_cvlc_uses_cvlc_adapter() -> passes without assertion failures when the behavior remains correct.
-        """
-        cvlc_adapter = Mock()
-        cvlc_adapter.start.return_value = playback.PlayerState(
-            provider="local",
-            source="local",
-            player="cvlc",
-            session_id="cvlc-session",
-            name="Song",
-            artist="-",
-            album="-",
-            duration_ms=1000,
-            progress_ms=0,
-            timestamp=10,
-            is_playing=True,
-        )
-
-        with (
-            patch.object(playback, "MpvPlaybackAdapter") as mpv_adapter,
-            patch.object(playback, "CvlcRcPlaybackAdapter", return_value=cvlc_adapter),
-        ):
-            state = self.controller.play(source_url="song.mp3", source="local", metadata={"name": "Song"}, player="cvlc")
-
-        mpv_adapter.assert_not_called()
-        self.assertEqual(state.player, "cvlc")
+    def test_explicit_vlc_backends_are_rejected(self) -> None:
+        for backend in ("vlc", "cvlc"):
+            with self.subTest(backend=backend), self.assertRaisesRegex(
+                ValueError,
+                "Sonex uses mpv",
+            ):
+                self.controller.play(
+                    source_url="song.mp3",
+                    source="local",
+                    metadata={"name": "Song"},
+                    player=backend,
+                )
 
     def test_new_play_stops_previous_session(self) -> None:
         """Verifies that new play stops previous session behaves as expected.
@@ -534,17 +526,9 @@ class PlaybackControllerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "No active local playback session"):
             self.controller.status()
 
-    def test_player_backend_strategy_can_be_changed_for_session(self) -> None:
-        """Verifies that player backend strategy can be changed for session behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the player backend strategy can be changed for session behavior against regressions.
-
-        Example: test_player_backend_strategy_can_be_changed_for_session() -> passes without assertion failures when the behavior remains correct.
-        """
-        self.assertEqual(self.controller.set_player_backend("cvlc"), "cvlc")
-        self.assertEqual(self.controller.player_backend, "cvlc")
-        with self.assertRaisesRegex(ValueError, "Unsupportedlocal playback backend"):
-            self.controller.set_player_backend("vlc")
+    def test_auto_and_mpv_both_resolve_to_mpv(self) -> None:
+        self.assertEqual(playback.resolve_local_playback_backend("auto"), "mpv")
+        self.assertEqual(playback.resolve_local_playback_backend("mpv"), "mpv")
 
     def test_available_local_playback_backends_lists_only_installed_adapters(self) -> None:
         installed = {
@@ -557,15 +541,11 @@ class PlaybackControllerTests(unittest.TestCase):
 
         self.assertEqual(
             [(item["backend"], item["label"], item["executable"]) for item in available],
-            [
-                ("mpv", "mpv", "/usr/bin/mpv"),
-                ("cvlc", "VLC", "/usr/bin/vlc"),
-            ],
+            [("mpv", "mpv", "/usr/bin/mpv")],
         )
 
-    def test_explicit_tool_player_overrides_legacy_in_memory_default(self) -> None:
-        mpv = Mock()
-        mpv.start.return_value = playback.PlayerState(
+    def test_start_local_playback_ignores_legacy_persisted_player_sink(self) -> None:
+        state = playback.PlayerState(
             provider="local",
             source="local",
             player="mpv",
@@ -578,89 +558,13 @@ class PlaybackControllerTests(unittest.TestCase):
             timestamp=10,
             is_playing=True,
         )
-        self.controller.set_player_backend("cvlc")
-
-        with (
-            patch.object(playback, "MpvPlaybackAdapter", return_value=mpv),
-            patch.object(playback, "CvlcRcPlaybackAdapter") as cvlc_adapter,
-        ):
-            state = self.controller.play(
-                source_url="song.mp3",
-                source="local",
-                metadata={"name": "Song"},
-                player="mpv",
-            )
-
-        cvlc_adapter.assert_not_called()
-        self.assertEqual(state.player, "mpv")
-
-    def test_setting_default_player_allows_direct_future_launches(self) -> None:
-        original_backend = playback.controller.player_backend
-        self.addCleanup(playback.controller.set_player_backend, original_backend)
-        with patch("src.tools.player_permission.remember_player") as remember:
-            result = playback.local_playback_player("cvlc")
-
-        self.assertEqual(result["status"], "success")
-        self.assertEqual(result["data"]["backend"], "cvlc")
-        self.assertEqual(playback.resolve_local_playback_backend("auto"), "auto")
-        remember.assert_called_once_with("cvlc")
-
-    def test_start_local_playback_uses_current_backend_when_player_is_omitted(self) -> None:
-        """Verifies that start local playback uses current backend when player is omitted behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the start local playback uses current backend when player is omitted behavior against regressions.
-
-        Example: test_start_local_playback_uses_current_backend_when_player_is_omitted() -> passes without assertion failures when the behavior remains correct.
-        """
-        cvlc_adapter = Mock()
-        cvlc_adapter.start.return_value = playback.PlayerState(
-            provider="local",
-            source="local",
-            player="cvlc",
-            session_id="cvlc-session",
-            name="Song",
-            artist="-",
-            album="-",
-            duration_ms=1000,
-            progress_ms=0,
-            timestamp=10,
-            is_playing=True,
-        )
-        self.controller.set_player_backend("cvlc")
-
-        with (
-            patch.object(playback, "controller", self.controller),
-            patch.object(playback, "MpvPlaybackAdapter") as mpv_adapter,
-            patch.object(playback, "CvlcRcPlaybackAdapter", return_value=cvlc_adapter),
-        ):
-            result = playback.start_local_playback(
-                tool="play_local_song",
-                source_url="song.mp3",
-                source="local",
-                metadata={"name": "Song"},
-                success_message="Playing started.",
-            )
-
-        mpv_adapter.assert_not_called()
-        self.assertEqual(result["status"], "success")
-        self.assertEqual(result["data"]["player"], "cvlc")
-
-    def test_start_local_playback_routes_through_persisted_player_sink(self) -> None:
-        routed = PlayerSinkPlayback(
-            sink_id="mpris:clementine",
-            state={
-                "name": "Song",
-                "artist": "Artist",
-                "album": "Album",
-                "is_playing": True,
-                "player": "Clementine",
-            },
-        )
-
         with patch(
             "src.music.player_sink_runtime.play_through_persisted_sink",
-            return_value=routed,
-        ) as dispatch, patch.object(self.controller, "play") as managed_play, patch.object(
+        ) as legacy_dispatch, patch.object(
+            self.controller,
+            "play",
+            return_value=state,
+        ) as managed_play, patch.object(
             playback,
             "controller",
             self.controller,
@@ -673,97 +577,36 @@ class PlaybackControllerTests(unittest.TestCase):
                 success_message="Playing started.",
             )
 
-        dispatch.assert_called_once_with(
+        legacy_dispatch.assert_not_called()
+        managed_play.assert_called_once_with(
             source_url="/music/song.flac",
-            track={"name": "Song", "artist": "Artist"},
-        )
-        managed_play.assert_not_called()
-        self.assertEqual(result["status"], "success")
-        self.assertEqual(result["data"]["sink_id"], "mpris:clementine")
-        self.assertEqual(result["data"]["player"], "Clementine")
-
-    def test_default_player_failure_carries_replay_context(self) -> None:
-        with patch(
-            "src.music.player_sink_runtime.play_through_persisted_sink",
-            side_effect=RuntimeError("sink unavailable"),
-        ):
-            result = playback.start_local_playback(
-                tool="play_local_song",
-                source_url="/music/song.flac",
-                source="local",
-                metadata={"name": "Song"},
-                success_message="Playing started.",
-            )
-
-        self.assertEqual(result["error_code"], "DEFAULT_PLAYER_FAILED")
-        self.assertEqual(
-            result["data"]["player_recovery"],
-            {
-                "source_url": "/music/song.flac",
-                "source": "local",
-                "metadata": {"name": "Song"},
-                "success_message": "Playing started.",
-            },
-        )
-
-    def test_explicit_player_is_a_one_time_override_of_persisted_default(self) -> None:
-        adapter = Mock()
-        adapter.start.return_value = playback.PlayerState(
-            provider="local",
             source="local",
+            metadata={"name": "Song", "artist": "Artist"},
             player="mpv",
-            session_id="mpv-session",
-            name="Song",
-            artist="-",
-            album="-",
-            duration_ms=0,
-            progress_ms=0,
-            timestamp=10,
-            is_playing=True,
         )
-        with patch(
-            "src.music.player_sink_runtime.play_through_persisted_sink",
-        ) as dispatch, patch.object(
-            playback,
-            "MpvPlaybackAdapter",
-            return_value=adapter,
-        ), patch.object(
-            playback,
-            "controller",
-            self.controller,
-        ):
-            result = playback.start_local_playback(
-                tool="play_local_song",
-                source_url="/music/song.flac",
-                source="local",
-                metadata={"name": "Song"},
-                player="mpv",
-                success_message="Playing started.",
-            )
-
-        dispatch.assert_not_called()
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["data"]["player"], "mpv")
 
-    def test_playback_control_targets_persisted_external_sink(self) -> None:
-        routed = PlayerSinkPlayback(
-            sink_id="mpris:rhythmbox",
-            state={"player": "Rhythmbox", "is_playing": False},
-        )
+    def test_playback_control_ignores_legacy_persisted_external_sink(self) -> None:
+        state = Mock()
+        state.to_dict.return_value = {"player": "mpv", "is_playing": False}
         with patch(
             "src.music.player_sink_runtime.control_persisted_player_sink",
-            return_value=routed,
-        ) as control, patch.object(self.controller, "pause") as managed_pause, patch.object(
+        ) as legacy_control, patch.object(
+            self.controller,
+            "pause",
+            return_value=state,
+        ) as managed_pause, patch.object(
             playback,
             "controller",
             self.controller,
         ):
             result = playback.local_playback_pause()
 
-        control.assert_called_once_with("pause")
-        managed_pause.assert_not_called()
+        legacy_control.assert_not_called()
+        managed_pause.assert_called_once_with()
         self.assertEqual(result["status"], "success")
-        self.assertEqual(result["data"]["sink_id"], "mpris:rhythmbox")
+        self.assertEqual(result["data"]["player"], "mpv")
 
     def test_volume_tool_validates_range_and_returns_state(self) -> None:
         """Verifies that volume tool validates range and returns state behaves as expected.

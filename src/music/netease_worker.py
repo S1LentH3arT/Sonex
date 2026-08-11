@@ -129,15 +129,41 @@ class NetEaseProviderWorker:
         if not config_writable:
             return NetEaseWorkerHealth(False, version, False, False, mpv_ready, "The ncm-cli config directory is not readable and writable.")
         login_result = self._run(("login", "--check"))
-        login_ready = login_result.returncode == 0
-        ready = login_ready and mpv_ready
-        reason = None if ready else "Run ncm-cli login and ensure mpv is installed."
+        login_ready = _login_check_succeeded(login_result)
+        if not login_ready:
+            return NetEaseWorkerHealth(
+                False,
+                version,
+                False,
+                True,
+                mpv_ready,
+                "Run ncm-cli login and ensure mpv is installed.",
+            )
+        commands_result = self._run(("commands",))
+        search_ready = (
+            commands_result.returncode == 0
+            and _command_is_available(commands_result.stdout, "search")
+        )
+        if not search_ready:
+            return NetEaseWorkerHealth(
+                False,
+                version,
+                True,
+                True,
+                mpv_ready,
+                (
+                    "ncm-cli catalog search is unavailable. "
+                    "Sign in again or repair the ncm-cli command manifest."
+                ),
+            )
+        ready = mpv_ready
+        reason = None if ready else "Install mpv before using ncm-cli playback."
         return NetEaseWorkerHealth(ready, version, login_ready, True, mpv_ready, reason)
 
     def search(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         bounded = min(20, max(1, int(limit)))
         result = self._run(("search", "song", "--keyword", query))
-        if result.returncode != 0:
+        if not _command_succeeded(result):
             raise RuntimeError("NetEase catalog search failed.")
         payload = _parse_json_output(result.stdout)
         raw_items = payload.get("songs") or payload.get("items") or payload.get("data") or []
@@ -159,7 +185,7 @@ class NetEaseProviderWorker:
             ),
             timeout_seconds=PLAY_TIMEOUT_SECONDS,
         )
-        if result.returncode != 0:
+        if not _command_succeeded(result):
             raise RuntimeError("NetEase playback failed.")
         return {
             "status": "success",
@@ -169,7 +195,7 @@ class NetEaseProviderWorker:
 
     def state(self) -> dict[str, Any]:
         result = self._run(("state",))
-        if result.returncode != 0:
+        if not _command_succeeded(result):
             raise RuntimeError("NetEase playback state is unavailable.")
         return _parse_json_output(result.stdout)
 
@@ -179,7 +205,7 @@ class NetEaseProviderWorker:
         if normalized not in allowed:
             raise ValueError("Unsupported NetEase playback control.")
         result = self._run((normalized,))
-        if result.returncode != 0:
+        if not _command_succeeded(result):
             raise RuntimeError(f"NetEase {normalized} failed.")
 
 
@@ -203,6 +229,30 @@ def _parse_json_output(output: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError("ncm-cli returned an unsupported JSON value.")
     return payload
+
+
+def _login_check_succeeded(result: subprocess.CompletedProcess[str]) -> bool:
+    return _command_succeeded(result)
+
+
+def _command_succeeded(result: subprocess.CompletedProcess[str]) -> bool:
+    if result.returncode != 0:
+        return False
+    try:
+        payload = _parse_json_output(result.stdout)
+    except RuntimeError:
+        return True
+    success = payload.get("success")
+    return bool(success) if isinstance(success, bool) else True
+
+
+def _command_is_available(output: str, command: str) -> bool:
+    expected = command.strip().casefold()
+    return any(
+        line.strip().split(maxsplit=1)[0].casefold() == expected
+        for line in output.splitlines()
+        if line.strip()
+    )
 
 
 def _normalize_song(item: dict[str, Any]) -> dict[str, Any]:
