@@ -20,6 +20,11 @@ assert.match(
 );
 assert.match(
     appSource,
-    /case "usage_state":[\s\S]*?inputTokens: evt\.input_tokens,[\s\S]*?outputTokens: evt\.output_tokens,[\s\S]*?setTokenUsage\(tokenUsageRef\.current\);[\s\S]*?break;/,
+    /case "usage_state":[\s\S]*?setTokenUsage\(\{[\s\S]*?inputTokens: evt\.input_tokens,[\s\S]*?outputTokens: evt\.output_tokens,[\s\S]*?\}\);[\s\S]*?break;/,
 );
-assert.match(appSource, /<HeaderFrame[\s\S]*?tokenUsage=\{tokenUsage\}/);
+assert.match(appSource, /const modelStatus = formatModelStatus\(authState, displayedTokenUsage\);/);
+assert.match(
+    appSource,
+    /setDisplayedTokenUsage\(\(current\) => nextAnimatedTokenUsage\(current, tokenUsage\)\)/,
+);
+assert.doesNotMatch(appSource, /<HeaderFrame[\s\S]*?tokenUsage=/);

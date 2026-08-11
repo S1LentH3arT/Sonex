@@ -1,6 +1,6 @@
 import { homedir } from 'node:os';
 
-import type { AuthRuntimeState, ChatItem, ChatMessageItem, ChatTranscriptMessage, InfoBannerItem, SessionTokenUsage } from './types.js';
+import type { AuthRuntimeState, ChatItem, ChatMessageItem, ChatTranscriptMessage, InfoBannerItem } from './types.js';
 
 export function formatWorkingDirectory(cwd: string, homeDirectory: string = homedir()): string {
     if (!homeDirectory) return cwd;
@@ -24,14 +24,12 @@ export function createInfoBannerItem(
     authState: AuthRuntimeState,
     cwd: string,
     sessionId: string | null,
-    tokenUsage: SessionTokenUsage,
 ): InfoBannerItem {
     return {
         type: "info_banner",
         authState: { ...authState },
         cwd,
         sessionId,
-        tokenUsage: { ...tokenUsage },
     };
 }
 
@@ -40,10 +38,11 @@ export function isChatMessageItem(item: ChatItem): item is ChatMessageItem {
 }
 
 export function chatMessagesForTranscript(items: ChatItem[]): ChatTranscriptMessage[] {
-    return items.filter(isChatMessageItem).map(({ role, content, theme, segments }) => ({
+    return items.filter(isChatMessageItem).map(({ role, content, theme, segments, document }) => ({
         role,
         content,
         ...(theme == null ? {} : { theme }),
         ...(segments == null ? {} : { segments }),
+        ...(document == null ? {} : { document }),
     }));
 }

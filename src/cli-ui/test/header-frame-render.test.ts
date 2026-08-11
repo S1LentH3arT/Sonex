@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 
-test('renders session token usage on two styled rows below the session id', async () => {
+test('renders the session id without token usage rows', async () => {
     process.env.FORCE_COLOR = '3';
     const [{ default: React }, { render }, { HeaderFrame }] = await Promise.all([
         import('react'),
@@ -33,7 +33,6 @@ test('renders session token usage on two styled rows below the session id', asyn
             },
             cwd: '/home/user/project',
             sessionId: 'session-1',
-            tokenUsage: { inputTokens: 120, outputTokens: 34 },
             variant: 'compact',
             language: 'en',
         }),
@@ -50,18 +49,12 @@ test('renders session token usage on two styled rows below the session id', asyn
     stdin.destroy();
     stdout.destroy();
 
-    const grayAnsi = String.raw`\u001b\[(?:38;2;128;135;145|38;5;145)m`;
-    const whiteAnsi = String.raw`\u001b\[(?:38;2;255;244;246|38;5;231)m`;
-    assert.match(output, new RegExp(`${grayAnsi}usage:`));
-    assert.match(output, new RegExp(`${whiteAnsi}input: 120 output: 34`));
-
     const plain = output.replaceAll(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
     assert.ok(plain.indexOf('session id:') < plain.indexOf('session-1'));
-    assert.ok(plain.indexOf('session-1') < plain.indexOf('usage:'));
-    assert.ok(plain.indexOf('usage:') < plain.indexOf('input: 120 output: 34'));
+    assert.doesNotMatch(plain, /usage:|input: 120|output: 34/);
 });
 
-test('places full-size usage details directly against the lower border', async () => {
+test('places the full-size session id directly against the lower border', async () => {
     process.env.FORCE_COLOR = '3';
     const [{ default: React }, { render }, { HeaderFrame }] = await Promise.all([
         import('react'),
@@ -93,7 +86,6 @@ test('places full-size usage details directly against the lower border', async (
             },
             cwd: '/home/user/project',
             sessionId: 'session-2',
-            tokenUsage: { inputTokens: 120, outputTokens: 34 },
             variant: 'full',
             language: 'en',
         }),
@@ -112,10 +104,10 @@ test('places full-size usage details directly against the lower border', async (
 
     const plain = output.replaceAll(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
     assert.match(plain, /Claude Sonnet 4\.6 • API billing/);
-    const usageRowIndex = plain.split('\n').findIndex((row) => row.includes('input: 120 output: 34'));
+    const sessionRowIndex = plain.split('\n').findIndex((row) => row.includes('session-2'));
     const rows = plain.split('\n');
-    assert.ok(usageRowIndex >= 0);
-    assert.match(rows[usageRowIndex + 1] ?? '', /^╰.*╯/);
+    assert.ok(sessionRowIndex >= 0);
+    assert.match(rows[sessionRowIndex + 1] ?? '', /^╰.*╯/);
 });
 
 test('renders the logged-out identity warning in bold yellow', async () => {
@@ -149,7 +141,6 @@ test('renders the logged-out identity warning in bold yellow', async () => {
             },
             cwd: '/home/user/project',
             sessionId: 'session-3',
-            tokenUsage: { inputTokens: 0, outputTokens: 0 },
             variant: 'compact',
             language: 'en',
         }),

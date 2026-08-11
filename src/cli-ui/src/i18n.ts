@@ -208,29 +208,13 @@ const knownText: Record<string, Record<UiLanguage, string>> = {
         en: "The /lang command is handled by the TUI for this session.",
         "zh-CN": "/lang 命令由本次 TUI 会话处理。",
     },
-    "Sonex wanna open auto local player (mpv default), confirm?": {
-        en: "Allow Sonex to open the automatic local player (mpv by default)?",
-        "zh-CN": "Sonex 想打开 auto 本地播放器（mpv 默认），是否确认？",
-    },
-    "Sonex wants to open auto local player (mpv default).": {
-        en: "Sonex wants to open auto local player (mpv default).",
-        "zh-CN": "Sonex 想打开 auto 本地播放器（mpv 默认）。",
-    },
     "Confirm player launch.": {
         en: "Confirm player launch.",
         "zh-CN": "确认启动播放器。",
     },
-    "Default player": {
-        en: "Default player",
-        "zh-CN": "默认播放器",
-    },
-    "Choose the default player": {
-        en: "Choose the default player",
-        "zh-CN": "选择默认播放器",
-    },
-    "Choose the default player for this session.": {
-        en: "Choose the default player for this session.",
-        "zh-CN": "选择本会话的默认播放器。",
+    "Allow Sonex to open mpv?": {
+        en: "Allow Sonex to open mpv?",
+        "zh-CN": "允许 Sonex 打开 mpv 吗？",
     },
 };
 
@@ -238,33 +222,6 @@ const playerConfirmChoices: Record<string, Record<UiLanguage, Partial<ConfirmCho
     mpv: {
         en: { label: "mpv", description: "default backend for smooth background playback" },
         "zh-CN": { label: "mpv", description: "默认播放后端，提供更丝滑的播放体验" },
-    },
-    cvlc: {
-        en: { label: "VLC", description: "diagnostic fallback when mpv is unavailable" },
-        "zh-CN": { label: "VLC", description: "备用播放后台，适配性较差，通常不建议选择" },
-    },
-    deny: {
-        en: { label: "Cancel" },
-        "zh-CN": { label: "取消" },
-    },
-};
-
-const defaultPlayerChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {
-    "managed:mpv": {
-        en: { label: "mpv", description: "Controllable local player for stable background playback." },
-        "zh-CN": { label: "mpv", description: "可控制的本地播放器，适合稳定的后台播放。" },
-    },
-    "managed:cvlc": {
-        en: { label: "VLC", description: "Controllable VLC playback through its RC interface." },
-        "zh-CN": { label: "VLC", description: "通过 RC 接口进行可控制的 VLC 播放。" },
-    },
-    mpv: {
-        en: { label: "mpv", description: "Controllable local player for stable background playback." },
-        "zh-CN": { label: "mpv", description: "可控制的本地播放器，适合稳定的后台播放。" },
-    },
-    cvlc: {
-        en: { label: "VLC", description: "Controllable VLC playback through its RC interface." },
-        "zh-CN": { label: "VLC", description: "通过 RC 接口进行可控制的 VLC 播放。" },
     },
     deny: {
         en: { label: "Cancel" },
@@ -305,13 +262,7 @@ function translateKnown(value: string | null | undefined, language: UiLanguage):
 
 function localizeConfirmChoice(choice: ConfirmChoice, stage: unknown, language: UiLanguage): ConfirmChoice {
     const value = String(choice.value || "");
-    const table = (
-        stage === "player_confirm"
-            ? playerConfirmChoices
-            : stage === "player_backend_selection"
-                ? defaultPlayerChoices
-                : null
-    );
+    const table = stage === "player_confirm" ? playerConfirmChoices : null;
     const mapped = table?.[value]?.[language];
     if (!mapped) return choice;
     return {

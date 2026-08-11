@@ -59,7 +59,12 @@ test('renders tool names in bold navy and values in white ANSI spans', async () 
     stdout.destroy();
 
     const navyAnsi = String.raw`\u001b\[(?:38;2;24;46;102|38;5;24)m`;
+    const blueAnsi = String.raw`\u001b\[(?:38;2;59;130;246|38;5;75)m`;
     const whiteAnsi = String.raw`\u001b\[(?:38;2;255;255;255|38;5;231)m`;
+    assert.match(
+        output,
+        new RegExp(String.raw`\u001b\[1m${blueAnsi}•\u001b\[22m`),
+    );
     assert.match(output, new RegExp(navyAnsi));
     assert.match(
         output,
@@ -70,7 +75,7 @@ test('renders tool names in bold navy and values in white ANSI spans', async () 
     assert.doesNotMatch(stripAnsi(output), /Agent|[└│]/);
 });
 
-test('renders user dividers, aligned continuations, and complete warning colors', async () => {
+test('renders message dividers, aligned continuations, and complete warning colors', async () => {
     process.env.FORCE_COLOR = '3';
     const [{ default: React }, { render }, { CommittedTranscript }] = await Promise.all([
         import('react'),
@@ -146,7 +151,7 @@ test('renders user dividers, aligned continuations, and complete warning colors'
     const plain = stripAnsi(output);
     assert.match(
         plain,
-        / • hello\n   wrapped\n\n ─{18}\n\n • Bash danger\n\n • caution\n\n • system/,
+        / • hello\n   wrapped\n\n ─{18}\n\n • Bash danger\n\n ─{18}\n\n • caution\n\n ─{18}\n\n • system\n\n ─{18}/,
     );
     assert.doesNotMatch(plain, /User|Agent|System|Warning|Caution|[└│]/);
 
@@ -155,9 +160,9 @@ test('renders user dividers, aligned continuations, and complete warning colors'
     const yellowAnsi = String.raw`\u001b\[(?:38;2;212;167;44|38;5;179)m`;
     const redAnsi = String.raw`\u001b\[(?:38;2;239;68;68|38;5;203)m`;
     const purpleAnsi = String.raw`\u001b\[(?:38;2;200;166;255|38;5;183)m`;
-    assert.match(output, new RegExp(`${grayAnsi}•${whiteAnsi} hello`));
     assert.match(output, new RegExp(`${grayAnsi}─{18}`));
-    assert.match(output, new RegExp(`${yellowAnsi}• Bash danger`));
-    assert.match(output, new RegExp(`${redAnsi}• caution`));
-    assert.match(output, new RegExp(`${purpleAnsi}•${whiteAnsi} system`));
+    assert.match(output, new RegExp(String.raw`\u001b\[1m${grayAnsi}•\u001b\[22m${whiteAnsi} hello`));
+    assert.match(output, new RegExp(String.raw`\u001b\[1m${yellowAnsi}•\u001b\[22m Bash danger`));
+    assert.match(output, new RegExp(String.raw`\u001b\[1m${redAnsi}•\u001b\[22m caution`));
+    assert.match(output, new RegExp(String.raw`\u001b\[1m${purpleAnsi}•\u001b\[22m${whiteAnsi} system`));
 });

@@ -18,11 +18,21 @@ import { resolveLoginProviderSelectionIndex } from './login-navigation.js';
 import { isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
-import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer } from './transcript.js';
+import { TEXT_STREAM_INTERVAL_MS, nextTextStreamOffset, streamedChatMessage, textStreamUnits } from './text-stream.js';
+import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer, type TranscriptPresentation } from './transcript.js';
 import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import { TOKEN_USAGE_ANIMATION_INTERVAL_MS, nextAnimatedTokenUsage } from './usage-animation.js';
 
 type InkInputKey = {
     ctrl?: boolean;
+};
+
+type ActiveTextStream = {
+    id: number;
+    item: ChatMessageItem;
+    units: string[];
+    visibleUnitCount: number;
+    presentation: TranscriptPresentation;
 };
 
 const RUNTIME_WORKING_DIRECTORY = process.env.SONEX_LAUNCH_CWD?.trim() || process.cwd();
@@ -43,6 +53,8 @@ export const App: React.FC<{
     const [inputRevision, setInputRevision] = useState(0);
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [tokenUsage, setTokenUsage] = useState<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
+    const [displayedTokenUsage, setDisplayedTokenUsage] = useState<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
+    const [activeTextStream, setActiveTextStream] = useState<ActiveTextStream | null>(null);
     const [agentWorkingTurnId, setAgentWorkingTurnId] = useState<string | null>(null);
     const [transcript, dispatchTranscript] = React.useReducer(
         transcriptReducer,
@@ -104,8 +116,9 @@ export const App: React.FC<{
     const authSetupActiveRef = React.useRef(false);
     const slashMenuActiveRef = React.useRef(false);
     const sessionIdRef = React.useRef<string | null>(null);
-    const tokenUsageRef = React.useRef<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
     const startupInfoCapturedRef = React.useRef(false);
+    const activeTextStreamRef = React.useRef<ActiveTextStream | null>(null);
+    const nextTextStreamIdRef = React.useRef(0);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
     const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
@@ -150,7 +163,15 @@ export const App: React.FC<{
         headerVariant,
         language,
     }), [headerVariant, language, transcriptContentWidth]);
-    const modelStatus = formatModelStatus(authState);
+    const modelStatus = formatModelStatus(authState, displayedTokenUsage);
+    const streamingMessage = React.useMemo<ChatMessageItem | null>(() => {
+        if (!activeTextStream) return null;
+        return streamedChatMessage(
+            activeTextStream.item,
+            activeTextStream.units,
+            activeTextStream.visibleUnitCount,
+        );
+    }, [activeTextStream]);
     const baseLanguageChoices = React.useMemo<UiLanguage[]>(() => ["en", "zh-CN"], []);
     const languageChoices = React.useMemo<UiLanguage[]>(
         () => [language, ...baseLanguageChoices.filter((choice) => choice !== language)],
@@ -227,10 +248,63 @@ export const App: React.FC<{
         };
     }, [stdout, terminalSurface]);
 
+    const finishActiveTextStream = React.useCallback(() => {
+        const active = activeTextStreamRef.current;
+        if (!active) return;
+        activeTextStreamRef.current = null;
+        setActiveTextStream(null);
+        dispatchTranscript({
+            type: "commit",
+            items: [active.item],
+            presentation: active.presentation,
+        });
+    }, []);
+
     const commitItems = React.useCallback((items: ChatItem[]) => {
         if (items.length === 0) return;
+        finishActiveTextStream();
         dispatchTranscript({ type: "commit", items, presentation: transcriptPresentation });
-    }, [transcriptPresentation]);
+    }, [finishActiveTextStream, transcriptPresentation]);
+
+    const startTextStream = React.useCallback((item: ChatMessageItem) => {
+        finishActiveTextStream();
+        const units = textStreamUnits(item.content);
+        if (units.length === 0) {
+            dispatchTranscript({ type: "commit", items: [item], presentation: transcriptPresentation });
+            return;
+        }
+        const active: ActiveTextStream = {
+            id: nextTextStreamIdRef.current,
+            item,
+            units,
+            visibleUnitCount: nextTextStreamOffset(0, units.length),
+            presentation: transcriptPresentation,
+        };
+        nextTextStreamIdRef.current += 1;
+        activeTextStreamRef.current = active;
+        setActiveTextStream(active);
+    }, [finishActiveTextStream, transcriptPresentation]);
+
+    React.useEffect(() => {
+        if (!activeTextStream) return;
+        if (activeTextStream.visibleUnitCount >= activeTextStream.units.length) {
+            finishActiveTextStream();
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            setActiveTextStream((current) => {
+                if (!current || current.id !== activeTextStream.id) return current;
+                const next = {
+                    ...current,
+                    visibleUnitCount: nextTextStreamOffset(current.visibleUnitCount, current.units.length),
+                };
+                activeTextStreamRef.current = next;
+                return next;
+            });
+        }, TEXT_STREAM_INTERVAL_MS);
+        return () => clearTimeout(timer);
+    }, [activeTextStream, finishActiveTextStream]);
 
     const switchRegion = React.useCallback((nextRegion: ShellRegion) => {
         if (activeRegionRef.current === nextRegion) return;
@@ -280,6 +354,18 @@ export const App: React.FC<{
         }, LAUNCH_PREPARING_INTERVAL_MS);
         return () => clearInterval(timer);
     }, [launchPreparing]);
+
+    React.useEffect(() => {
+        if (
+            displayedTokenUsage.inputTokens === tokenUsage.inputTokens
+            && displayedTokenUsage.outputTokens === tokenUsage.outputTokens
+        ) return;
+
+        const timer = setTimeout(() => {
+            setDisplayedTokenUsage((current) => nextAnimatedTokenUsage(current, tokenUsage));
+        }, TOKEN_USAGE_ANIMATION_INTERVAL_MS);
+        return () => clearTimeout(timer);
+    }, [displayedTokenUsage, tokenUsage]);
 
     const updateInput = React.useCallback((value: string) => {
         if (recommendInputLocked) return;
@@ -351,8 +437,14 @@ export const App: React.FC<{
                 theme: evt.theme,
                 tone: evt.tone,
                 segments: evt.segments,
+                document: evt.document,
             };
+            if (evt.role === "agent" && evt.stream) {
+                startTextStream(item);
+                return;
+            }
             if (evt.role === "user") {
+                finishActiveTextStream();
                 dispatchTranscript({
                     type: "receiveUser",
                     item,
@@ -374,11 +466,10 @@ export const App: React.FC<{
                 setSessionId(evt.session_id);
                 break;
             case "usage_state":
-                tokenUsageRef.current = {
+                setTokenUsage({
                     inputTokens: evt.input_tokens,
                     outputTokens: evt.output_tokens,
-                };
-                setTokenUsage(tokenUsageRef.current);
+                });
                 break;
             case "agent_working_state":
                 setAgentWorkingTurnId((current) => (
@@ -609,7 +700,7 @@ export const App: React.FC<{
                 setAuthState(nextAuthState);
                 if (!startupInfoCapturedRef.current) {
                     startupInfoCapturedRef.current = true;
-                    commitItems([createInfoBannerItem(nextAuthState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current, tokenUsageRef.current)]);
+                    commitItems([createInfoBannerItem(nextAuthState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
                 }
                 break;
             case "help_panel":
@@ -636,7 +727,7 @@ export const App: React.FC<{
                 setTimeout(() => exit(), 80);
                 break;
         }
-    }, [commitItems, exit, language, queueItems, showError, switchRegion, transcriptPresentation]);
+    }, [commitItems, exit, finishActiveTextStream, language, queueItems, showError, startTextStream, switchRegion, transcriptPresentation]);
 
     const { send } = useSonexSocket({
         url: wsUrl,
@@ -799,6 +890,7 @@ export const App: React.FC<{
         if (recommendInputLocked) return;
         const text = value.trim();
         if (!text) return;
+        finishActiveTextStream();
 
         if (confirm) {
             const inputDecision = resolveConfirmInputDecision(text, selectedConfirmChoice);
@@ -847,7 +939,7 @@ export const App: React.FC<{
             setTrackPanelIndex(0);
             setLanguagePanel(null);
             setHelpPanelIndex(0);
-            commitItems([createInfoBannerItem(authState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current, tokenUsageRef.current)]);
+            commitItems([createInfoBannerItem(authState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
             return;
         }
 
@@ -902,7 +994,7 @@ export const App: React.FC<{
                 showError(API_NOT_RUNNING_MESSAGE, API_NOT_RUNNING_DETAIL);
             }
         }
-    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation]);
+    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, finishActiveTextStream, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -1207,7 +1299,6 @@ export const App: React.FC<{
                         authState={authState}
                         cwd={RUNTIME_WORKING_DIRECTORY}
                         sessionId={sessionId}
-                        tokenUsage={tokenUsage}
                         variant={headerVariant}
                         language={language}
                     />
@@ -1255,6 +1346,7 @@ export const App: React.FC<{
                         spotifyImmersiveLayout={spotifyImmersiveLayout}
                         terminalSpace={terminalSize}
                         agentWorking={agentWorkingTurnId !== null}
+                        streamingMessage={streamingMessage}
                         language={language}
                     />
                 )}

@@ -32,16 +32,17 @@ test('ChatBubble renders one colored bullet with aligned white continuation line
     );
     assert.match(
         chatBubbleSource,
-        /<Text color=\{markerColor\}>\{marker\}<\/Text>\s*<Text color=\{contentColor\}>\{` \$\{line\}`\}<\/Text>/,
+        /<Text bold color=\{markerColor\}>\{marker\}<\/Text>\s*<Text color=\{contentColor\}>\{` \$\{line\}`\}<\/Text>/,
     );
     assert.doesNotMatch(chatBubbleSource, /paddingX=|borderLeft=|borderColor=|borderStyle=/);
 });
 
-test('ChatBubble renders a full-width input-style divider after user messages', () => {
+test('ChatBubble renders a full-width input-style divider after every message', () => {
     assert.match(
         chatBubbleSource,
-        /\{isUser \? \(\s*<Box marginTop=\{1\}>\s*<Text color=\{CHAT_USER_MARKER_COLOR\}>\{"─"\.repeat\(contentWidth \+ 2\)\}<\/Text>/,
+        /<Box marginTop=\{1\}>\s*<Text color=\{CHAT_USER_MARKER_COLOR\}>\{"─"\.repeat\(contentWidth \+ 2\)\}<\/Text>/,
     );
+    assert.doesNotMatch(chatBubbleSource, /\{isUser \? \(\s*<Box marginTop=\{1\}>/);
 });
 
 test('committed transcript appends records through Ink Static without a virtual viewport', () => {
@@ -56,10 +57,7 @@ test('committed transcript appends records through Ink Static without a virtual 
         committedRecordSource,
         /record\.item\.type === "info_banner" \? \([\s\S]*<HeaderFrame[\s\S]*sessionId=\{record\.item\.sessionId\}/,
     );
-    assert.match(
-        committedRecordSource,
-        /record\.item\.type === "info_banner" \? \([\s\S]*<HeaderFrame[\s\S]*tokenUsage=\{record\.item\.tokenUsage\}/,
-    );
+    assert.doesNotMatch(committedRecordSource, /tokenUsage/);
     assert.match(
         committedRecordSource,
         /<ChatBubble[\s\S]*role=\{record\.item\.role\}[\s\S]*contentWidth=\{record\.presentation\.contentWidth\}[\s\S]*tone=\{record\.item\.tone\}/,

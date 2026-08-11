@@ -1,5 +1,5 @@
 export type ServerEvent =
-    | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null; segments?: ChatSegment[] | null }
+    | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null; segments?: ChatSegment[] | null; document?: ChatDocument | null; stream?: boolean }
     | { type: "session_state"; session_id: string }
     | { type: "usage_state"; input_tokens: number; output_tokens: number }
     | { type: "agent_working_state"; turn_id: string; active: boolean }
@@ -195,7 +195,7 @@ export type PlayerState = {
     paused_for_cache?: boolean;
     diagnostic_notice?: "clock_drift" | "cache_pause" | "ipc_failure" | "audio_output_changed" | string | null;
     provider?: string | null;
-    player?: "mpv" | "cvlc" | string | null;
+    player?: "mpv" | string | null;
     session_id?: string | null;
     ended?: boolean | null;
     volume_percent?: number | null;
@@ -224,7 +224,25 @@ export type ChatTone = "system" | "warning" | "error";
 
 export type ChatSegment = {
     text: string;
-    style: "tool_name" | "tool_value";
+    style: "tool_name" | "tool_value" | "plain" | "heading" | "strong" | "highlight" | "link" | "list_marker" | "code";
+    href?: string;
+};
+
+export type ChatSpan = {
+    text: string;
+    style: "plain" | "strong" | "highlight" | "link";
+    href?: string;
+};
+
+export type ChatDocumentBlock =
+    | { type: "paragraph" | "heading"; spans: ChatSpan[] }
+    | { type: "list_item"; marker: string; level?: number; spans: ChatSpan[] }
+    | { type: "code_block"; text: string; language?: string }
+    | { type: "spacer" };
+
+export type ChatDocument = {
+    version: 1;
+    blocks: ChatDocumentBlock[];
 };
 
 export type ChatBubbleProps = {
@@ -234,6 +252,8 @@ export type ChatBubbleProps = {
     theme?: ChatTheme | null;
     tone?: ChatTone | null;
     segments?: ChatSegment[] | null;
+    document?: ChatDocument | null;
+    showDivider?: boolean;
 };
 
 export type ChatMessageItem = {
@@ -243,16 +263,16 @@ export type ChatMessageItem = {
     theme?: ChatTheme | null;
     tone?: ChatTone | null;
     segments?: ChatSegment[] | null;
+    document?: ChatDocument | null;
 };
 
-export type ChatTranscriptMessage = Pick<ChatMessageItem, "role" | "content" | "theme" | "tone" | "segments">;
+export type ChatTranscriptMessage = Pick<ChatMessageItem, "role" | "content" | "theme" | "tone" | "segments" | "document">;
 
 export type InfoBannerItem = {
     type: "info_banner";
     authState: AuthRuntimeState;
     cwd: string;
     sessionId: string | null;
-    tokenUsage: SessionTokenUsage;
 };
 
 export type ChatItem = ChatMessageItem | InfoBannerItem;

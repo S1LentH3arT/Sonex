@@ -1,3 +1,5 @@
+import type { SessionTokenUsage } from './types.js';
+
 export type ModelStatusInput = {
     ready: boolean;
     provider: string;
@@ -20,8 +22,14 @@ const PROVIDER_BRANDS: Readonly<Record<string, string>> = {
     custom: 'Custom',
 };
 
+export const formatTokenCount = (value: number): string => {
+    const tokens = Math.max(0, Math.floor(value));
+    return tokens > 1_000 ? `${Math.floor(tokens / 1_000)}k` : String(tokens);
+};
+
 export const formatModelStatus = (
     input: ModelStatusInput,
+    tokenUsage: SessionTokenUsage,
 ): string | null => {
     if (!input.ready) return null;
 
@@ -33,5 +41,7 @@ export const formatModelStatus = (
     const providerLabel = normalizedProvider.startsWith('custom__')
         ? 'Custom'
         : PROVIDER_BRANDS[normalizedProvider] ?? provider;
-    return `[${providerLabel}] ${model}`;
+    const modelLabel = `[${providerLabel}] ${model}`;
+    if (tokenUsage.inputTokens <= 0 && tokenUsage.outputTokens <= 0) return modelLabel;
+    return `↑${formatTokenCount(tokenUsage.inputTokens)} ↓${formatTokenCount(tokenUsage.outputTokens)} ${modelLabel}`;
 };

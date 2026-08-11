@@ -2,7 +2,9 @@ import React from 'react';
 import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
+import { chatDocumentSegments } from './chat-document.js';
 import { CHAT_SYSTEM_MARKER_COLOR, CHAT_USER_MARKER_COLOR, resolveChatContentColor, resolveChatMarkerColor, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
+import { resolveAgentChatTheme } from './chat-theme.js';
 import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
@@ -20,7 +22,7 @@ import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, Pane
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SessionTokenUsage, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -93,11 +95,10 @@ export const formatAuthLabel = (state: AuthRuntimeState): string => {
     return state.auth_type || state.credential_source || "auth";
 };
 
-export const HeaderFrame = ({ authState, cwd, sessionId, tokenUsage, variant, language = "en" }: {
+export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en" }: {
     authState: AuthRuntimeState;
     cwd: string;
     sessionId: string | null;
-    tokenUsage: SessionTokenUsage;
     variant: ChatHeaderVariant;
     language?: UiLanguage;
 }) => {
@@ -105,7 +106,7 @@ export const HeaderFrame = ({ authState, cwd, sessionId, tokenUsage, variant, la
     const displayCwd = formatWorkingDirectory(cwd);
     if (variant === 'compact') {
         return (
-            <Box width="100%" height={10} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
+            <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
                 <Text color="#d8bcc7" wrap="truncate-end">
@@ -118,8 +119,6 @@ export const HeaderFrame = ({ authState, cwd, sessionId, tokenUsage, variant, la
                     <>
                         <Text color="#808791">session id:</Text>
                         <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
-                        <Text color="#808791">usage:</Text>
-                        <Text color="#fff4f6" wrap="truncate-end">input: {tokenUsage.inputTokens} output: {tokenUsage.outputTokens}</Text>
                     </>
                 ) : null}
             </Box>
@@ -127,7 +126,7 @@ export const HeaderFrame = ({ authState, cwd, sessionId, tokenUsage, variant, la
     }
 
     return (
-        <Box width="100%" height={10} paddingX={1} borderStyle="round" borderColor="#808791">
+        <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791">
             <Mascot />
             <Box flexDirection="column" justifyContent="flex-start">
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
@@ -142,8 +141,6 @@ export const HeaderFrame = ({ authState, cwd, sessionId, tokenUsage, variant, la
                     <>
                         <Text color="#808791">session id:</Text>
                         <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
-                        <Text color="#808791">usage:</Text>
-                        <Text color="#fff4f6" wrap="truncate-end">input: {tokenUsage.inputTokens} output: {tokenUsage.outputTokens}</Text>
                     </>
                 ) : null}
             </Box>
@@ -482,13 +479,18 @@ const HelpPanel = ({ panel, selectedIndex, width, language = "en" }: {
     );
 };
 
-const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, segments = null }: ChatBubbleProps) => {
+export const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, segments = null, document = null, showDivider = true }: ChatBubbleProps) => {
     const isUser = role === "user";
     const markerColor = resolveChatMarkerColor(role, theme, tone);
     const contentColor = resolveChatContentColor(role, tone);
+    const semanticTheme = resolveAgentChatTheme(theme);
     const useToolSegmentStyles = !isUser && tone === null;
-    const validSegments = segments && segments.map((segment) => segment.text).join("") === content
-        ? segments
+    const semanticSegments = !isUser && tone === null && document?.version === 1
+        ? chatDocumentSegments(document)
+        : null;
+    const candidateSegments = semanticSegments ?? segments;
+    const validSegments = candidateSegments && candidateSegments.map((segment) => segment.text).join("") === content
+        ? candidateSegments
         : null;
     const richLines = validSegments ? wrapChatMessageSegments(validSegments, contentWidth) : null;
     const lines = richLines ?? wrapChatMessageContent(content, contentWidth);
@@ -500,20 +502,39 @@ const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, se
                 if (typeof line === "string") {
                     return (
                         <Text key={`${index}_${line}`}>
-                            <Text color={markerColor}>{marker}</Text>
+                            <Text bold color={markerColor}>{marker}</Text>
                             <Text color={contentColor}>{` ${line}`}</Text>
                         </Text>
                     );
                 }
                 return (
                     <Text key={`${index}_${line.map((segment) => segment.text).join("")}`}>
-                        <Text color={markerColor}>{marker}</Text>
+                        <Text bold color={markerColor}>{marker}</Text>
                         <Text color={contentColor}>{" "}</Text>
                         {line.map((segment, segmentIndex) => (
                             <Text
                                 key={`${segmentIndex}_${segment.text}`}
-                                color={useToolSegmentStyles && segment.style === "tool_name" ? TOOL_NAVY : contentColor}
-                                bold={useToolSegmentStyles && segment.style === "tool_name"}
+                                color={
+                                    useToolSegmentStyles && segment.style === "tool_name"
+                                        ? TOOL_NAVY
+                                        : segment.style === "heading" || segment.style === "strong" || segment.style === "list_marker"
+                                            ? semanticTheme.strongText
+                                            : segment.style === "link"
+                                                ? semanticTheme.linkText
+                                                : contentColor
+                                }
+                                backgroundColor={
+                                    segment.style === "highlight"
+                                        ? semanticTheme.highlightBackground
+                                        : segment.style === "code"
+                                            ? semanticTheme.codeBackground
+                                            : undefined
+                                }
+                                bold={
+                                    (useToolSegmentStyles && segment.style === "tool_name")
+                                    || ["heading", "strong", "highlight", "list_marker"].includes(segment.style)
+                                }
+                                underline={segment.style === "link"}
                             >
                                 {segment.text}
                             </Text>
@@ -521,7 +542,7 @@ const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, se
                     </Text>
                 );
             })}
-            {isUser ? (
+            {showDivider ? (
                 <Box marginTop={1}>
                     <Text color={CHAT_USER_MARKER_COLOR}>{"─".repeat(contentWidth + 2)}</Text>
                 </Box>
@@ -541,7 +562,6 @@ export const CommittedRecord = ({
                 authState={record.item.authState}
                 cwd={record.item.cwd}
                 sessionId={record.item.sessionId}
-                tokenUsage={record.item.tokenUsage}
                 variant={record.presentation.headerVariant}
                 language={record.presentation.language}
             />
@@ -553,6 +573,7 @@ export const CommittedRecord = ({
                 theme={record.item.theme}
                 tone={record.item.tone}
                 segments={record.item.segments}
+                document={record.item.document}
             />
         )}
     </Box>
@@ -1633,6 +1654,7 @@ export const DynamicTail = ({
     modelPanelIndex,
     terminalColumns,
     agentWorking,
+    streamingMessage,
     language = "en",
 }: {
     input: string;
@@ -1658,6 +1680,7 @@ export const DynamicTail = ({
     modelPanelIndex: number;
     terminalColumns: number | null;
     agentWorking: boolean;
+    streamingMessage: ChatMessageItem | null;
     language?: UiLanguage;
 }) => {
     const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
@@ -1669,6 +1692,18 @@ export const DynamicTail = ({
 
     return (
         <Box flexDirection="column">
+            {streamingMessage ? (
+                <Box flexDirection="column" paddingX={1}>
+                    <ChatBubble
+                        role={streamingMessage.role}
+                        content={streamingMessage.content}
+                        contentWidth={Math.max(1, (terminalColumns ?? 80) - 4)}
+                        theme={streamingMessage.theme}
+                        tone={streamingMessage.tone}
+                        showDivider={false}
+                    />
+                </Box>
+            ) : null}
             {showMiniMascotStatus ? (
                 agentWorking ? <AgentWorkingStatus /> : <MiniMascotStatus />
             ) : null}
@@ -1833,6 +1868,7 @@ export const DynamicShell = ({
     spotifyImmersiveLayout,
     terminalSpace,
     agentWorking,
+    streamingMessage,
     language = "en",
 }: {
     input: string;
@@ -1867,6 +1903,7 @@ export const DynamicShell = ({
     spotifyImmersiveLayout: SpotifyImmersiveLayout;
     terminalSpace: TerminalSpace;
     agentWorking: boolean;
+    streamingMessage: ChatMessageItem | null;
     language?: UiLanguage;
 }) => {
     if (activeRegion === "miniPlayer") {
@@ -1930,6 +1967,7 @@ export const DynamicShell = ({
             modelPanelIndex={modelPanelIndex}
             terminalColumns={terminalSpace.columns}
             agentWorking={agentWorking}
+            streamingMessage={streamingMessage}
             language={language}
         />
     );

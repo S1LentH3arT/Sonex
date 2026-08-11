@@ -22,7 +22,7 @@ assert.doesNotMatch(
 );
 assert.match(
     componentsSource,
-    /useToolSegmentStyles && segment\.style === "tool_name" \? TOOL_NAVY : contentColor[\s\S]*bold=\{useToolSegmentStyles && segment\.style === "tool_name"\}/,
+    /useToolSegmentStyles && segment\.style === "tool_name"\s*\? TOOL_NAVY[\s\S]*bold=\{[\s\S]*useToolSegmentStyles && segment\.style === "tool_name"/,
 );
 assert.match(
     appSource,

@@ -19,11 +19,6 @@ import {
 const allHelpCommands = helpPanelCommands(SLASH_COMMANDS);
 const localizedHelpCommands = helpPanelCommands([
     {
-        name: "player",
-        usage: "/player",
-        description: "检测并设置默认播放器",
-    },
-    {
         name: "help",
         usage: "/help",
         description: "显示命令列表",
@@ -72,11 +67,9 @@ for (const hiddenName of ["pause", "volume", "progress", "stop"]) {
 
 const helpPlayer = allHelpCommands.find((command) => command.name === "player");
 const slashPlayer = SLASH_COMMANDS.find((command) => command.name === "player");
-assert.equal(helpPlayer?.usage, "/player");
-assert.equal(helpPlayer?.description, "detect and set default player");
-assert.equal(slashPlayer?.needsArgument, false);
+assert.equal(helpPlayer, undefined);
+assert.equal(slashPlayer, undefined);
 assert.equal(localizedHelpCommands.find((command) => command.name === "help")?.description, "显示命令列表");
-assert.equal(localizedHelpCommands.find((command) => command.name === "player")?.description, "检测并设置默认播放器");
 
 const helpKeymap = allHelpCommands.find((command) => command.name === "keymap");
 assert.equal(helpKeymap?.usage, "/keymap [on|off|toggle|status]");
@@ -108,7 +101,7 @@ const helpQueue = allHelpCommands.find((command) => command.name === "queue");
 assert.equal(helpQueue?.usage, "/queue");
 assert.equal(helpQueue?.description, "show playback queue");
 
-assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["bye", "connect", "exit", "info", "lang", "login", "logout", "model", "playlist", "queue", "random", "recommend", "spotify"]);
+assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["bye", "connect", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "spotify"]);
 assert.deepEqual(spotifyModeSlashCommands().map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
 assert.deepEqual(spotifyModeSlashCommands("/").map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
 assert.deepEqual(spotifyModeSlashCommands("/p").map((command) => command.name), ["playlist"]);
