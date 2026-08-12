@@ -285,7 +285,14 @@ export type InfoBannerItem = {
     sessionId: string | null;
 };
 
-export type ChatItem = ChatMessageItem | InfoBannerItem;
+export type NetEaseQrItem = {
+    type: "netease_qr";
+    title: string;
+    output: string;
+    fallbackOnline: boolean;
+};
+
+export type ChatItem = ChatMessageItem | InfoBannerItem | NetEaseQrItem;
 
 export type HelpCommand = {
     name: string;

@@ -41,7 +41,10 @@ class NetEaseWorkerTests(unittest.TestCase):
             executable = Path(directory) / "ncm-cli"
             executable.write_text(
                 "#!/usr/bin/env python3\n"
-                "import signal, sys, time\n"
+                "import os, signal, sys, time\n"
+                "if not os.isatty(sys.stdin.fileno()):\n"
+                "    print('{\"success\":true,\"clickableUrl\":\"https://example.invalid/login\"}')\n"
+                "    raise SystemExit(0)\n"
                 "signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))\n"
                 "print('Scan with NetEase:')\n"
                 "print('\\x1b[47m  \\x1b[40m  \\x1b[0m')\n"
@@ -91,6 +94,32 @@ class NetEaseWorkerTests(unittest.TestCase):
         )
         self.assertIs(calls[0][1]["shell"], False)
         self.assertEqual(songs[0]["id"], "enc|88")
+
+    def test_search_parses_current_ncm_cli_records_schema(self) -> None:
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout=(
+                    '{"code":200,"data":{"recordCount":1,"records":['
+                    '{"originalId":81890,"id":"80D09E7B3E444310DAEE6B63344847C7",'
+                    '"name":"BB88","duration":198706,'
+                    '"artists":[{"name":"方大同"}],'
+                    '"album":{"name":"BB88"}}]}}'
+                ),
+                stderr="",
+            )
+
+        tracks = NetEaseProviderWorker(
+            executable="/usr/bin/ncm-cli",
+            run_command=run,
+        ).search("方大同 BB88")
+
+        self.assertEqual(len(tracks), 1)
+        self.assertEqual(tracks[0]["title"], "BB88")
+        self.assertEqual(tracks[0]["artist"], "方大同")
+        self.assertEqual(tracks[0]["encrypted_id"], "80D09E7B3E444310DAEE6B63344847C7")
+        self.assertEqual(tracks[0]["original_id"], "81890")
 
     def test_health_does_not_configure_or_play(self) -> None:
         calls: list[list[str]] = []

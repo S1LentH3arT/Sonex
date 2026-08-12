@@ -22,7 +22,7 @@ import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, Pane
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, NetEaseLoginState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, NetEaseLoginState, NetEaseQrItem, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -194,27 +194,18 @@ const LoginChoiceList = ({ choices, selectedIndex, visibleLimit, showConnectionS
 
 export const MAX_VISIBLE_LOGIN_PROVIDERS = 8;
 
-export const NetEaseLoginScreen = ({ login }: { login: NetEaseLoginState }) => {
-    if (!login) return null;
-    const waiting = login.status === "waiting";
+export const NetEaseQrMessage = ({ item }: { item: NetEaseQrItem }) => {
     return (
-        <PanelFrame
-            width={74}
-            paddingX={2}
-            title={login.title}
-            hint={
-                waiting
-                    ? login.fallback_online
-                        ? "press Esc to play online"
-                        : "press Esc to cancel"
-                    : login.status
-            }
-        >
-            <Box flexDirection="column" paddingX={2}>
-                <Text>{login.output}</Text>
-                {waiting ? <Text color={BORDER_BLUE_SOFT}>Waiting for scan...</Text> : null}
+        <Box flexDirection="row">
+            <Text color={CHAT_SYSTEM_MARKER_COLOR}>• </Text>
+            <Box flexDirection="column">
+                <Text bold color={BORDER_BLUE}>{item.title}</Text>
+                <Text>{item.output}</Text>
+                <Text color="#808791">
+                    {item.fallbackOnline ? "Esc to play online" : "Esc to cancel"}
+                </Text>
             </Box>
-        </PanelFrame>
+        </Box>
     );
 };
 
@@ -589,6 +580,8 @@ export const CommittedRecord = ({
                 variant={record.presentation.headerVariant}
                 language={record.presentation.language}
             />
+        ) : record.item.type === "netease_qr" ? (
+            <NetEaseQrMessage item={record.item} />
         ) : (
             <ChatBubble
                 role={record.item.role}

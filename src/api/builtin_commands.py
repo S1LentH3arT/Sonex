@@ -113,8 +113,10 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         mode="agent",
         intent_prompt=(
             "The user invoked /recommend. Treat the args as a music taste hint. "
-            "Call Recommend exactly once. Use only tracks returned by Recommend, return "
-            "a concise numbered text list, and end with a normal question about what the "
+            "Call Recommend exactly once. If it returns tracks, use only those tracks. "
+            "If it returns text_only=true, recommend from general music knowledge without "
+            "claiming catalog availability or playability. Return a concise numbered text "
+            "list, and end with a normal question about what the "
             "user wants to hear. Do not start playback or modify a playlist or queue."
         ),
         allowed_tools=("Recommend",),

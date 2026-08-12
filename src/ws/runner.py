@@ -6298,8 +6298,10 @@ class WebSocketRunner:
                 raw=user_input,
                 args=decision.query or user_input,
                 intent_prompt=(
-                    "Call Recommend exactly once. Use only its returned tracks, return a "
-                    "concise numbered text list, and end with a normal text question about "
+                    "Call Recommend exactly once. Use only its returned tracks when present. "
+                    "If it returns text_only=true, recommend from general music knowledge "
+                    "without claiming catalog availability or playability. Return a concise "
+                    "numbered text list, and end with a normal text question about "
                     "what the user wants to hear. Do not start playback or modify a playlist "
                     f"or queue.{mode_guidance}"
                 ),

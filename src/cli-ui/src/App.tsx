@@ -5,7 +5,7 @@ import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, s
 import { getSelectableConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
-import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen, NetEaseLoginScreen } from './components.js';
+import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
 import { useSonexSocket } from './hooks.js';
 import { chatMessagesForTranscript, createInfoBannerItem } from './info-banner.js';
 import { applyLanguageToServerEvent, helpCommandsForLanguage, localizeSlashCommands, OFFICIAL_UI_LANGUAGE, t } from './i18n.js';
@@ -118,12 +118,13 @@ export const App: React.FC<{
     const slashMenuActiveRef = React.useRef(false);
     const sessionIdRef = React.useRef<string | null>(null);
     const startupInfoCapturedRef = React.useRef(false);
+    const neteaseQrCommittedRef = React.useRef(false);
     const activeTextStreamRef = React.useRef<ActiveTextStream | null>(null);
     const nextTextStreamIdRef = React.useRef(0);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
-    const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active || neteaseLogin?.active);
-    const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive && !neteaseLogin?.active;
+    const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
+    const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive;
     const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active
         ? []
         : spotifyMode.enabled
@@ -655,6 +656,23 @@ export const App: React.FC<{
                 setLaunchPreparing(false);
                 setHelpPanel(null);
                 if (evt.active !== false) switchRegion("chat");
+                if (evt.status === "waiting" && evt.output === "Starting ncm-cli login...") {
+                    neteaseQrCommittedRef.current = false;
+                }
+                if (
+                    evt.active !== false
+                    && !neteaseQrCommittedRef.current
+                    && evt.output.includes("\u001b[47m")
+                    && evt.output.includes("https://")
+                ) {
+                    neteaseQrCommittedRef.current = true;
+                    commitItems([{
+                        type: "netease_qr",
+                        title: evt.title,
+                        output: evt.output,
+                        fallbackOnline: evt.fallback_online === true,
+                    }]);
+                }
                 setNetEaseLogin({
                     title: evt.title,
                     output: evt.output,
@@ -1328,9 +1346,7 @@ export const App: React.FC<{
                         language={language}
                     />
                 ) : null}
-                {neteaseLogin?.active ? (
-                    <NetEaseLoginScreen login={neteaseLogin} />
-                ) : isLoginScreenActive ? (
+                {isLoginScreenActive ? (
                     <LoginScreen
                         authSetup={authSetup}
                         selectedIndex={loginSelectionIndex}

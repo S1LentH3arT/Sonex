@@ -154,7 +154,7 @@ class NetEaseProviderWorker:
         process = subprocess.Popen(
             [self.executable, "login"],
             shell=False,
-            stdin=subprocess.DEVNULL,
+            stdin=slave,
             stdout=slave,
             stderr=slave,
             env=self._environment(),
@@ -295,7 +295,12 @@ class NetEaseProviderWorker:
         payload = _parse_json_output(result.stdout)
         raw_items = payload.get("songs") or payload.get("items") or payload.get("data") or []
         if isinstance(raw_items, dict):
-            raw_items = raw_items.get("songs") or raw_items.get("items") or []
+            raw_items = (
+                raw_items.get("songs")
+                or raw_items.get("items")
+                or raw_items.get("records")
+                or []
+            )
         if not isinstance(raw_items, list):
             raise RuntimeError("NetEase catalog returned an unsupported schema.")
         return [_normalize_song(item) for item in raw_items[:bounded] if isinstance(item, dict)]
@@ -411,6 +416,9 @@ def _command_is_available(output: str, command: str) -> bool:
 
 def _normalize_song(item: dict[str, Any]) -> dict[str, Any]:
     encrypted_id = item.get("encryptedId") or item.get("encrypted_id")
+    schema_id = item.get("id")
+    if not encrypted_id and re.fullmatch(r"[0-9A-Fa-f]{32}", str(schema_id or "")):
+        encrypted_id = schema_id
     original_id = item.get("originalId") or item.get("original_id") or item.get("id")
     artist = item.get("artist") or item.get("artistName")
     if not artist and isinstance(item.get("artists"), list):

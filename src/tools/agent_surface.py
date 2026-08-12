@@ -694,12 +694,14 @@ def Recommend(
         "providers": ordered,
     }
     if not tracks:
-        return _failure(
-            "Recommend",
-            "No credible recommendations are available from connected providers.",
-            "NO_RECOMMENDATIONS",
-            data=data,
-        )
+        return ToolResult.success(
+            tool="Recommend",
+            message=(
+                "No catalog-backed tracks are available. "
+                "Continue with text-only music recommendations."
+            ),
+            data={**data, "text_only": True},
+        ).to_dict()
     return ToolResult.success(
         tool="Recommend",
         message=f"Recommended {len(tracks)} track(s).",
@@ -926,8 +928,9 @@ def register_agent_surface(tool_registry: ToolRegistry = registry) -> None:
         kind="agent",
         domain="music",
         description=(
-            "Recommend real tracks once using recent listening context and connected "
-            "authoritative providers. This tool never starts playback or modifies queues."
+            "Recommend catalog-backed tracks once using recent listening context and "
+            "connected providers, or return text-only context when none are available. "
+            "This tool never starts playback or modifies queues."
         ),
         parameters=Params(
             type="object",

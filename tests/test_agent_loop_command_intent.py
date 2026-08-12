@@ -381,6 +381,48 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         self.assertIn("Song — Artist", states[-1].content)
         self.assertFalse(any(state.type == "warning" for state in states))
 
+    def test_text_only_recommendation_continues_to_agent_answer(self) -> None:
+        tools = ToolRegistry()
+        tools.register(
+            name="Recommend",
+            kind="agent",
+            domain="recommendation",
+            description="Recommend tracks or text-only context.",
+            parameters=Params(type="object", properties={}, required=[]),
+            fn=lambda **_kwargs: {
+                "status": "success",
+                "tool": "Recommend",
+                "data": {"tracks": [], "text_only": True, "query": "jazz"},
+            },
+            read_only=True,
+        )
+        intent = CommandIntent(
+            command="recommend",
+            raw="/recommend jazz",
+            args="jazz",
+            intent_prompt="Call Recommend once; text-only fallback is allowed.",
+            allowed_tools=("Recommend",),
+            max_tool_calls=1,
+        )
+
+        def plan(**kwargs: object) -> Action:
+            current_intent = kwargs["command_intent"]
+            assert isinstance(current_intent, CommandIntent)
+            if current_intent.allowed_tools:
+                return Action(tool="Recommend", args={"query": "jazz"}, usage=1)
+            return Action(output="1. Kind of Blue — Miles Davis\n\n想听哪一首？", usage=1)
+
+        with patch("src.agent.core.append_context"), patch(
+            "src.agent.core.append_tool_summary"
+        ), patch("src.agent.core.finalize_turn"), patch(
+            "src.agent.core.llm_plan", side_effect=plan
+        ) as planner:
+            states = list(agent_loop("/recommend jazz", tools, command_intent=intent))
+
+        self.assertEqual(planner.call_count, 2)
+        self.assertEqual(states[-1].type, "complete")
+        self.assertIn("Kind of Blue", states[-1].content)
+
     def test_command_intent_rejects_a_batch_above_the_tool_call_budget(self) -> None:
         tools = _recommend_registry()
         intent = CommandIntent(

@@ -10,17 +10,18 @@ assert.match(typesSource, /type: "netease_login_input"; value: "__cancel__"/);
 assert.match(appSource, /case "netease_login":/);
 assert.match(appSource, /key\.escape[\s\S]*netease_login_input[\s\S]*__cancel__/);
 assert.match(appSource, /connectionConfirm\?\.tool_name === "music_connection"[\s\S]*decision: "deny"/);
-assert.match(componentSource, /export const NetEaseLoginScreen/);
-assert.match(componentSource, /Waiting for scan\.\.\./);
-assert.match(componentSource, /press Esc to play online/);
-assert.match(componentSource, /press Esc to cancel/);
+assert.match(componentSource, /export const NetEaseQrMessage/);
+assert.match(componentSource, /Esc to play online/);
+assert.match(componentSource, /Esc to cancel/);
+assert.match(appSource, /type: "netease_qr"/);
+assert.match(appSource, /evt\.output\.includes\("https:\/\/"\)/);
 
 const test = (await import('node:test')).default;
 const { PassThrough } = await import('node:stream');
 
-test('renders the bridged terminal QR with its black and white cells', async () => {
+test('renders the bridged terminal QR as a chat record with black and white cells', async () => {
     process.env.FORCE_COLOR = '3';
-    const [{ default: React }, { render }, { NetEaseLoginScreen }] = await Promise.all([
+    const [{ default: React }, { render }, { NetEaseQrMessage }] = await Promise.all([
         import('react'),
         import('ink'),
         import('../src/components.js'),
@@ -36,13 +37,12 @@ test('renders the bridged terminal QR with its black and white cells', async () 
     let output = '';
     stdout.on('data', (chunk) => { output += chunk.toString(); });
     const stdin = new PassThrough();
-    const app = render(React.createElement(NetEaseLoginScreen, {
-        login: {
+    const app = render(React.createElement(NetEaseQrMessage, {
+        item: {
+            type: 'netease_qr',
             title: 'Connect NetEase',
             output: 'Scan:\n\u001b[47m  \u001b[40m  \u001b[0m',
-            status: 'waiting',
-            active: true,
-            fallback_online: true,
+            fallbackOnline: true,
         },
     }), { stdout, stdin, debug: true, exitOnCtrlC: false });
 

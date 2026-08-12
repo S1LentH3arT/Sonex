@@ -283,7 +283,7 @@ def test_recommend_reads_recent_once_and_aggregates_connected_authoritative_prov
     ]
 
 
-def test_recommend_skips_unconnected_providers_without_connection_flow() -> None:
+def test_recommend_returns_text_only_context_without_connected_provider() -> None:
     manager = type(
         "Manager",
         (),
@@ -297,8 +297,9 @@ def test_recommend_skips_unconnected_providers_without_connection_flow() -> None
         patch("src.tools.agent_surface.spotify_recommend") as spotify:
         result = Recommend("jazz")
 
-    assert result["status"] == "fail"
-    assert result["error_code"] == "NO_RECOMMENDATIONS"
+    assert result["status"] == "success"
+    assert result["data"]["tracks"] == []
+    assert result["data"]["text_only"] is True
     assert {item["provider"] for item in result["data"]["skipped"]} >= {
         "spotify",
         "netease",
