@@ -124,7 +124,10 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
 
         Example: test_missing_openai_login_starts_auth_setup_without_planner() -> passes without assertion failures when the behavior remains correct.
         """
-        with self._isolated_auth_env():
+        with self._isolated_auth_env(), patch(
+            "src.api.ws_runner.codex_app_server_status",
+            return_value=(True, None),
+        ):
             runner = WebSocketRunner()
             runner._run_agent_turn = AsyncMock()
             ui = FakeUI()

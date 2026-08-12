@@ -17,6 +17,10 @@ const surface = new TerminalSurfaceController({
 
 let ink;
 const signalMode = process.env.SONEX_APPEND_FIXTURE_SIGNAL === '1';
+// Leave enough time for Ink to commit each surface on loaded CI runners.
+const ENTER_ALTERNATE_DELAY_MS = 50;
+const LEAVE_ALTERNATE_DELAY_MS = 500;
+const FINISH_DELAY_MS = 750;
 const presentation = {
     contentWidth: 76,
     headerVariant: 'full',
@@ -53,17 +57,17 @@ const Fixture = () => {
                 items: [{ type: 'message', role: 'agent', content: 'RECORD_DURING_ALT' }],
                 presentation,
             });
-        }, 20);
+        }, ENTER_ALTERNATE_DELAY_MS);
 
         const leave = signalMode ? null : setTimeout(() => {
             surface.transition('main', () => {
                 dispatchTranscript({ type: 'setSurface', surface: 'main' });
             });
-        }, 50);
+        }, LEAVE_ALTERNATE_DELAY_MS);
 
         const finish = signalMode ? null : setTimeout(() => {
             ink.unmount();
-        }, 100);
+        }, FINISH_DELAY_MS);
 
         return () => {
             clearTimeout(enter);
