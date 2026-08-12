@@ -19,6 +19,7 @@ export type ServerEvent =
     | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; warning?: string | null; hide_hint?: boolean | null; choices?: ConfirmChoice[] | null; variant?: "tool_call_review" | null; commands?: string[] | null; page_index?: number | null; page_count?: number | null }
     | { type: "confirm_dismiss"; id: string }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
+    | { type: "netease_login"; title: string; output: string; status: "waiting" | "success" | "failed" | "timeout" | "cancelled"; active?: boolean | null; fallback_online?: boolean | null }
     | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; placeholder?: string | null; help_text?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
     | { type: "auth_state"; ready: boolean; provider: string; model: string; model_label?: string | null; auth_type: string; credential_source: string; reason?: string | null }
     | { type: "help_panel"; title: string; hint: string; commands: HelpCommand[] }
@@ -65,6 +66,7 @@ export type ClientEvent =
     | { type: "confirm_result"; id: string; decision: string }
     | { type: "setup_input"; value: string }
     | { type: "auth_setup_input"; value: string }
+    | { type: "netease_login_input"; value: "__cancel__" }
     | { type: "bye"; messages: ChatTranscriptMessage[]; reason: string };
 
 export type MusicCandidateDisplay = {
@@ -111,6 +113,14 @@ export type SpotifySetupState = {
     prompt?: string | null;
     mask?: boolean | null;
     active: boolean;
+} | null;
+
+export type NetEaseLoginState = {
+    title: string;
+    output: string;
+    status: "waiting" | "success" | "failed" | "timeout" | "cancelled";
+    active: boolean;
+    fallback_online: boolean;
 } | null;
 
 export type SpotifyModeState = {

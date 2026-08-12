@@ -127,6 +127,32 @@ class PlaybackCoordinatorTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual([item.provider for item in ranked], ["netease"])
 
+    def test_recent_playback_context_precedes_default_provider_priority(self) -> None:
+        providers = [
+            ProviderReadiness("spotify", True, True, True, True),
+            ProviderReadiness("netease", True, True, True, True, preferred=True),
+        ]
+
+        ranked = rank_authoritative_providers(providers)
+
+        self.assertEqual([item.provider for item in ranked], ["netease", "spotify"])
+
+    def test_spotify_precedes_netease_without_playback_context(self) -> None:
+        providers = [
+            ProviderReadiness(
+                "netease", True, True, True, True,
+                startup_latency_ms=1, capability_score=99,
+            ),
+            ProviderReadiness(
+                "spotify", True, True, True, True,
+                startup_latency_ms=999, capability_score=1,
+            ),
+        ]
+
+        ranked = rank_authoritative_providers(providers)
+
+        self.assertEqual([item.provider for item in ranked], ["spotify", "netease"])
+
 
 if __name__ == "__main__":
     unittest.main()

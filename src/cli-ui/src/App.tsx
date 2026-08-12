@@ -5,7 +5,7 @@ import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, s
 import { getSelectableConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
-import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
+import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen, NetEaseLoginScreen } from './components.js';
 import { useSonexSocket } from './hooks.js';
 import { chatMessagesForTranscript, createInfoBannerItem } from './info-banner.js';
 import { applyLanguageToServerEvent, helpCommandsForLanguage, localizeSlashCommands, OFFICIAL_UI_LANGUAGE, t } from './i18n.js';
@@ -20,7 +20,7 @@ import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
 import { TEXT_STREAM_INTERVAL_MS, nextTextStreamOffset, streamedChatMessage, textStreamUnits } from './text-stream.js';
 import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer, type TranscriptPresentation } from './transcript.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, NetEaseLoginState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 import { TOKEN_USAGE_ANIMATION_INTERVAL_MS, nextAnimatedTokenUsage } from './usage-animation.js';
 
 type InkInputKey = {
@@ -78,6 +78,7 @@ export const App: React.FC<{
     const [providerMode, setProviderMode] = useState<ProviderModeState>({ provider: "normal", enabled: false });
     const [spotifySetup, setSpotifySetup] = useState<SpotifySetupState>(null);
     const [authSetup, setAuthSetup] = useState<AuthSetupState>(null);
+    const [neteaseLogin, setNetEaseLogin] = useState<NetEaseLoginState>(null);
     const [authState, setAuthState] = useState<AuthRuntimeState>({
         ready: false,
         provider: "openai",
@@ -121,8 +122,8 @@ export const App: React.FC<{
     const nextTextStreamIdRef = React.useRef(0);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
-    const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
-    const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive;
+    const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active || neteaseLogin?.active);
+    const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive && !neteaseLogin?.active;
     const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active
         ? []
         : spotifyMode.enabled
@@ -650,6 +651,18 @@ export const App: React.FC<{
                 });
                 setStatusText(evt.title);
                 break;
+            case "netease_login":
+                setLaunchPreparing(false);
+                setHelpPanel(null);
+                if (evt.active !== false) switchRegion("chat");
+                setNetEaseLogin({
+                    title: evt.title,
+                    output: evt.output,
+                    status: evt.status,
+                    active: evt.active !== false,
+                    fallback_online: evt.fallback_online === true,
+                });
+                break;
             case "auth_setup":
                 setLaunchPreparing(false);
                 setHelpPanel(null);
@@ -1031,6 +1044,18 @@ export const App: React.FC<{
     }, { isActive: rawModeAvailable && isLoginScreenActive });
 
     useInput((_inputKey, key) => {
+        if (!neteaseLogin?.active || !key.escape) return;
+        const connectionConfirm = confirmRef.current;
+        if (connectionConfirm?.tool_name === "music_connection") {
+            dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+            send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+            setConfirm(null);
+        }
+        send({ type: "netease_login_input", value: "__cancel__" });
+        setNetEaseLogin(null);
+    }, { isActive: rawModeAvailable && Boolean(neteaseLogin?.active) });
+
+    useInput((_inputKey, key) => {
         if (!spotifySetup?.active || !key.escape) return;
         const connectionConfirm = confirmRef.current;
         if (connectionConfirm?.tool_name === "music_connection") {
@@ -1303,7 +1328,9 @@ export const App: React.FC<{
                         language={language}
                     />
                 ) : null}
-                {isLoginScreenActive ? (
+                {neteaseLogin?.active ? (
+                    <NetEaseLoginScreen login={neteaseLogin} />
+                ) : isLoginScreenActive ? (
                     <LoginScreen
                         authSetup={authSetup}
                         selectedIndex={loginSelectionIndex}

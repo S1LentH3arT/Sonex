@@ -9,6 +9,16 @@ from src.music.connections import MusicConnectionManager, sanitize_account_label
 
 
 class MusicConnectionManagerTests(unittest.TestCase):
+    def test_remove_clears_provider_record_and_preference(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = MusicConnectionManager(path=Path(directory) / "connections.json")
+            manager.mark_connected("netease", account_label="ncm-cli")
+
+            manager.remove("netease")
+
+            self.assertIsNone(manager.record("netease"))
+            self.assertIsNone(manager.preferred_provider_id)
+
     def test_account_label_is_single_line_terminal_safe_and_display_width_bounded(self) -> None:
         label = "  \x1b[31mSILENCE\x1b[0m\n\t账户  " + "界" * 40
 

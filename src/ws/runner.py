@@ -3962,6 +3962,169 @@ class AgentPlaybackRouteConfirmationSession:
             self.result.set_result(allowed)
 
 
+class NetEaseLoginOfferSession:
+    """Ask whether an unlogged ncm-cli route should scan or yield."""
+
+    def __init__(self, ui: WebSocketUIAdapter, *, fallback_online: bool) -> None:
+        self.ui = ui
+        self.fallback_online = fallback_online
+        self.confirm_id = _new_event_id("netease_login_offer")
+        self.result: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+
+    async def start(self) -> str:
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "netease_login",
+                "tool_args": {
+                    "stage": "netease_login_offer",
+                    "fallback_online": self.fallback_online,
+                },
+                "message": "NetEase is configured but not signed in.",
+                "choices": [
+                    {"value": "scan", "label": "Scan to connect NetEase"},
+                    {
+                        "value": "online" if self.fallback_online else "deny",
+                        "label": "Play online" if self.fallback_online else "Cancel",
+                    },
+                ],
+            }
+        )
+        return await self.result
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        value = str(decision or "deny").casefold()
+        outcome = "scan" if value == "scan" else "online" if self.fallback_online else "cancel"
+        if getattr(self.ui, "_netease_login_offer", None) is self:
+            setattr(self.ui, "_netease_login_offer", None)
+        if not self.result.done():
+            self.result.set_result(outcome)
+
+
+class NetEaseLoginSession:
+    """Own one cancellable ncm-cli QR login subprocess and UI surface."""
+
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        worker: NetEaseProviderWorker,
+        *,
+        on_completed: Callable[[dict[str, Any]], None] | None,
+        fallback_online: bool,
+        emit_feedback: bool,
+    ) -> None:
+        self.ui = ui
+        self.worker = worker
+        self.on_completed = on_completed
+        self.fallback_online = fallback_online
+        self.emit_feedback = emit_feedback
+        self.cancel_event = threading.Event()
+        self.task: asyncio.Task[None] | None = None
+        self.result: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._output = ""
+        self._done = False
+
+    async def start(self) -> None:
+        await self.ui.send_netease_login(
+            title="Connect NetEase",
+            output="Starting ncm-cli login...",
+            status="waiting",
+            active=True,
+            fallback_online=self.fallback_online,
+        )
+        self.task = asyncio.create_task(self._run())
+
+    async def cancel(self) -> None:
+        if self._done:
+            return
+        self.cancel_event.set()
+        self.worker.terminate_active()
+
+    def _receive_output(self, output: str) -> None:
+        loop = self.result.get_loop()
+        loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(self._publish_output(output))
+        )
+
+    async def _publish_output(self, output: str) -> None:
+        if self._done:
+            return
+        self._output = output
+        await self.ui.send_netease_login(
+            title="Connect NetEase",
+            output=output,
+            status="waiting",
+            active=True,
+            fallback_online=self.fallback_online,
+        )
+
+    async def _run(self) -> None:
+        try:
+            login = await asyncio.to_thread(
+                self.worker.login,
+                on_output=self._receive_output,
+                cancel_event=self.cancel_event,
+            )
+        except Exception as exc:
+            status = "failed"
+            reason = sanitize_error_message(exc)
+            output = self._output
+        else:
+            status = login.status
+            reason = login.reason
+            output = login.output or self._output
+        if status == "success":
+            try:
+                health = await asyncio.to_thread(self.worker.health)
+            except Exception as exc:
+                health = None
+                reason = sanitize_error_message(exc)
+            if health is None or not health.ready:
+                status = "failed"
+                reason = reason or (health.reason if health is not None else None) or "NetEase login could not be verified."
+        result = {
+            "status": "connected" if status == "success" else status,
+            "tool": "Connect",
+            "message": (
+                "NetEase connected · Ready, unverified playback."
+                if status == "success"
+                else reason or "NetEase login was cancelled."
+            ),
+            "data": {
+                "provider": "netease",
+                "reason": reason or status,
+                "account_label": "ncm-cli" if status == "success" else None,
+                "verification": "unverified_playback" if status == "success" else None,
+            },
+            "error_code": None if status in {"success", "cancelled"} else "CONNECTION_NOT_READY",
+        }
+        self._done = True
+        if getattr(self.ui, "_netease_login_session", None) is self:
+            setattr(self.ui, "_netease_login_session", None)
+        await self.ui.send_netease_login(
+            title="Connect NetEase",
+            output=output,
+            status=status,
+            active=False,
+            fallback_online=self.fallback_online,
+        )
+        if self.emit_feedback and status == "success":
+            await self.ui.append_activity(
+                kind="status",
+                title="NetEase connection",
+                detail=str(result["message"]),
+                status="success",
+            )
+            await self.ui.append_system_message(str(result["message"]))
+        if not self.result.done():
+            self.result.set_result(result)
+        if self.on_completed is not None:
+            self.on_completed(result)
+
+
 class AgentCandidateSelectionSession:
     """Suspend an Agent turn while the user chooses one safe track reference."""
 
@@ -5136,6 +5299,9 @@ class ConnectionSelectionSession:
         operation_task = self.operation_task
         if operation_task is not None and not operation_task.done():
             operation_task.cancel()
+        netease_login = getattr(self.ui, "_netease_login_session", None)
+        if netease_login is not None:
+            await netease_login.cancel()
         self.busy_provider_id = None
         setattr(self.ui, "_music_connection_selection", None)
         await self.ui.dismiss_confirm(self.confirm_id)
@@ -5433,6 +5599,11 @@ class WebSocketRunner:
                     if auth_setup:
                         await auth_setup.handle_input(str(data.get("value") or ""))
 
+                elif data.get("type") == "netease_login_input":
+                    netease_login = getattr(ui, "_netease_login_session", None)
+                    if netease_login:
+                        await netease_login.cancel()
+
                 elif data.get("type") == "confirm_result":
                     decision = data.get("decision")
                     if decision is None:
@@ -5483,6 +5654,9 @@ class WebSocketRunner:
             auth_setup = getattr(ui, "_auth_setup", None)
             if auth_setup and auth_setup.oauth_task:
                 auth_setup.oauth_task.cancel()
+            netease_login = getattr(ui, "_netease_login_session", None)
+            if netease_login:
+                await netease_login.cancel()
             playback_sync_task.cancel()
             local_playback_sync_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -5491,6 +5665,9 @@ class WebSocketRunner:
             with suppress(asyncio.CancelledError):
                 if auth_setup and auth_setup.oauth_task:
                     await auth_setup.oauth_task
+            with suppress(asyncio.CancelledError):
+                if netease_login and netease_login.task:
+                    await netease_login.task
             with suppress(asyncio.CancelledError):
                 await playback_sync_task
             with suppress(asyncio.CancelledError):
@@ -5520,6 +5697,10 @@ class WebSocketRunner:
         playback_route = getattr(ui, "_agent_playback_route_confirmation", None)
         if playback_route and playback_route.owns_confirm(confirm_id):
             await playback_route.handle_choice(decision)
+            return True
+        netease_offer = getattr(ui, "_netease_login_offer", None)
+        if netease_offer and netease_offer.owns_confirm(confirm_id):
+            await netease_offer.handle_choice(decision)
             return True
         agent_candidate = getattr(ui, "_agent_candidate_selection", None)
         if agent_candidate and agent_candidate.owns_confirm(confirm_id):
@@ -5891,6 +6072,7 @@ class WebSocketRunner:
         setattr(ui, "_spotify_device_selection", None)
         setattr(ui, "_spotify_play_selection", None)
         setattr(ui, "_provider_mode_exit", None)
+        setattr(ui, "_preferred_playback_provider", None)
         _clear_persistent_spotify_mode()
         clear_provider_mode_intent()
         await self.provider_modes.restore(ProviderModeState())
@@ -7234,8 +7416,9 @@ class WebSocketRunner:
             return
 
         if provider_id == "netease":
+            worker = NetEaseProviderWorker()
             try:
-                health = await asyncio.to_thread(NetEaseProviderWorker().health)
+                health = await asyncio.to_thread(worker.health)
             except Exception as exc:
                 health = None
                 message = sanitize_error_message(exc)
@@ -7265,6 +7448,23 @@ class WebSocketRunner:
                             "error_code": None,
                         }
                     )
+                return
+            if health is not None and health.login_available and not health.login_ready:
+                def finish_netease(result: dict[str, Any]) -> None:
+                    if result.get("status") == "connected":
+                        manager.mark_connected("netease", account_label="ncm-cli")
+                    if complete is not None:
+                        complete(result)
+
+                session = NetEaseLoginSession(
+                    ui,
+                    worker,
+                    on_completed=finish_netease,
+                    fallback_online=False,
+                    emit_feedback=emit_feedback,
+                )
+                setattr(ui, "_netease_login_session", session)
+                await session.start()
                 return
             if emit_feedback:
                 await ui.append_activity(
@@ -7323,8 +7523,14 @@ class WebSocketRunner:
             await ui.append_system_message("Usage: /logout")
             return
 
+        netease_logged_out = await self._logout_netease(ui)
         state = _llm_auth_state()
         if not state.ready:
+            if netease_logged_out:
+                await self._clear_provider_modes_for_logout(ui)
+                await ui.append_system_message("Signed out of NetEase.")
+                await self._handle_bye(ui, messages=ui.transcript, reason="logout")
+                return
             await ui.append_system_message("You are not logged in.")
             return
 
@@ -7373,6 +7579,35 @@ class WebSocketRunner:
             "Signed out of the active LLM connection. Other saved provider credentials were preserved."
         )
         await self._handle_bye(ui, messages=ui.transcript, reason="logout")
+
+    async def _logout_netease(self, ui: WebSocketUIAdapter) -> bool:
+        """Cancel QR login and clear NetEase session state and ncm-cli auth."""
+        login_session = getattr(ui, "_netease_login_session", None)
+        if login_session is not None:
+            await login_session.cancel()
+            task = getattr(login_session, "task", None)
+            if isinstance(task, asyncio.Task):
+                with suppress(asyncio.CancelledError):
+                    await task
+        setattr(ui, "_netease_login_session", None)
+        setattr(ui, "_netease_login_offer", None)
+        setattr(ui, "_netease_login_declined", False)
+        setattr(ui, "_netease_verified_signature", None)
+        if getattr(ui, "_preferred_playback_provider", None) == "netease":
+            setattr(ui, "_preferred_playback_provider", None)
+        if self._music_connection_manager_instance is None:
+            self._music_connection_manager_instance = self._music_connection_manager_factory()
+        manager = self._music_connection_manager_instance
+        had_connection = manager.record("netease") is not None
+        worker = NetEaseProviderWorker()
+        logged_out = False
+        try:
+            if await asyncio.to_thread(worker.is_logged_in):
+                logged_out = await asyncio.to_thread(worker.logout)
+        except Exception as exc:
+            logger.warning("NetEase logout check failed: %s", sanitize_error_message(exc))
+        manager.remove("netease")
+        return had_connection or logged_out
 
     async def _handle_bye(
         self,
@@ -7563,15 +7798,20 @@ class WebSocketRunner:
                     )
                 )
                 return authoritative_result
-            community_allowed = await self._confirm_agent_playback_route(
-                ui,
-                message=(
-                    "No authoritative provider is available. "
-                    "Try community audio sources?"
-                ),
-                stage="community_audio",
-                provider="community",
+            community_allowed = bool(
+                isinstance(authoritative_result.get("data"), dict)
+                and authoritative_result["data"].get("online_allowed")
             )
+            if not community_allowed:
+                community_allowed = await self._confirm_agent_playback_route(
+                    ui,
+                    message=(
+                        "No authoritative provider is available. "
+                        "Try community audio sources?"
+                    ),
+                    stage="community_audio",
+                    provider="community",
+                )
             if not community_allowed:
                 message = "Playback stopped because no authoritative provider was available."
                 await ui.send_error(message)
@@ -7747,7 +7987,7 @@ class WebSocketRunner:
                     setattr(ui, "_netease_verified_signature", None)
                 return ProviderReadiness(
                     "netease",
-                    configured=health.version is not None and health.config_writable,
+                    configured=health.login_available or health.login_ready,
                     logged_in=health.login_ready,
                     subscription_ready=True,
                     transport_ready=health.mpv_ready and health.ready,
@@ -7761,6 +8001,7 @@ class WebSocketRunner:
                         "worker": worker,
                         "signature": signature,
                         "version": health.version,
+                        "health": health,
                     },
                 )
             except Exception as exc:
@@ -7889,12 +8130,54 @@ class WebSocketRunner:
                         "_netease_verified_signature",
                         snapshot.details.get("signature"),
                     )
+                setattr(ui, "_preferred_playback_provider", snapshot.provider)
                 return result
             failures.append(str(result.get("message") or "Playback failed."))
             if snapshot.provider == "netease":
                 setattr(ui, "_netease_verified_signature", None)
             if hard_provider:
                 break
+        if not hard_provider:
+            netease_snapshot = next(
+                (snapshot for snapshot in snapshots if snapshot.provider == "netease"),
+                None,
+            )
+            health = (
+                netease_snapshot.details.get("health")
+                if netease_snapshot is not None
+                else None
+            )
+            if (
+                health is not None
+                and health.login_available
+                and not health.login_ready
+                and not getattr(ui, "_netease_login_declined", False)
+            ):
+                recovered, outcome = await self._offer_netease_login(
+                    ui,
+                    fallback_online=True,
+                    readiness=netease_snapshot,
+                )
+                if recovered is not None:
+                    result = await self._try_selected_native_provider(
+                        ui,
+                        identity=identity,
+                        provider="netease",
+                        selected_candidate=selected_candidate,
+                        readiness=recovered,
+                    )
+                    if result.get("status") == "playback_completed":
+                        setattr(ui, "_preferred_playback_provider", "netease")
+                        setattr(ui, "_netease_verified_signature", recovered.details.get("signature"))
+                        return result
+                    failures.append(str(result.get("message") or "NetEase playback failed."))
+                if outcome in {"online", "cancelled", "failed", "timeout"}:
+                    return {
+                        "status": "playback_failed",
+                        "message": "Continue with online playback.",
+                        "error_code": "AUTHORITATIVE_PROVIDER_UNAVAILABLE",
+                        "data": {"provider": None, "attempted": [item.provider for item in ranked], "online_allowed": True},
+                    }
         message = (
             " ".join(dict.fromkeys(failures))
             if failures
@@ -7923,6 +8206,18 @@ class WebSocketRunner:
         allow_setup: bool = True,
     ) -> ProviderReadiness | None:
         """Enter setup or Mode for an explicitly constrained provider."""
+        if provider == "netease":
+            health = readiness.details.get("health") if readiness is not None else None
+            if health is None or not health.login_available or health.login_ready:
+                return None
+            recovered, outcome = await self._offer_netease_login(
+                ui,
+                fallback_online=False,
+                readiness=readiness,
+            )
+            if outcome != "connected":
+                setattr(ui, "_netease_login_declined", True)
+            return recovered
         if provider != "spotify":
             return None
         if readiness is None or not readiness.configured or not readiness.logged_in:
@@ -8020,6 +8315,47 @@ class WebSocketRunner:
                 "device": device,
             },
         )
+
+    async def _offer_netease_login(
+        self,
+        ui: WebSocketUIAdapter,
+        *,
+        fallback_online: bool,
+        readiness: ProviderReadiness,
+    ) -> tuple[ProviderReadiness | None, str]:
+        offer = NetEaseLoginOfferSession(ui, fallback_online=fallback_online)
+        setattr(ui, "_netease_login_offer", offer)
+        choice = await offer.start()
+        if choice != "scan":
+            setattr(ui, "_netease_login_declined", True)
+            return None, choice
+        worker = readiness.details.get("worker")
+        if not isinstance(worker, NetEaseProviderWorker):
+            worker = NetEaseProviderWorker()
+        session = NetEaseLoginSession(
+            ui,
+            worker,
+            on_completed=None,
+            fallback_online=fallback_online,
+            emit_feedback=False,
+        )
+        setattr(ui, "_netease_login_session", session)
+        await session.start()
+        connection = await session.result
+        if connection.get("status") != "connected":
+            setattr(ui, "_netease_login_declined", True)
+            return None, str(connection.get("status") or "failed")
+        if self._music_connection_manager_instance is None:
+            self._music_connection_manager_instance = self._music_connection_manager_factory()
+        self._music_connection_manager_instance.mark_connected("netease", account_label="ncm-cli")
+        refreshed = await self._probe_authoritative_providers(ui)
+        recovered = next(
+            (snapshot for snapshot in refreshed if snapshot.provider == "netease" and snapshot.ready),
+            None,
+        )
+        if recovered is None:
+            return None, "failed"
+        return replace(recovered, session_verified=True), "connected"
 
     async def _ensure_authoritative_mode(
         self,

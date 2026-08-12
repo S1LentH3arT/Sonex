@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import pty
 import re
+import select
 import shutil
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -17,6 +20,12 @@ SUPPORTED_NCM_CLI_VERSIONS = frozenset({"0.1.6"})
 MAX_OUTPUT_BYTES = 256 * 1024
 DEFAULT_TIMEOUT_SECONDS = 4.0
 PLAY_TIMEOUT_SECONDS = 6.0
+LOGIN_TIMEOUT_SECONDS = 120.0
+LOGIN_POLL_SECONDS = 0.05
+_LOGIN_ALLOWED_SGR_RE = re.compile(r"\x1b\[(?:0|40|47)m")
+_TERMINAL_CONTROL_RE = re.compile(
+    r"\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~]|[()][0-2A-Z]|[=>78])"
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +35,24 @@ class NetEaseWorkerHealth:
     login_ready: bool
     config_writable: bool
     mpv_ready: bool
+    reason: str | None = None
+    credentials_ready: bool = False
+
+    @property
+    def login_available(self) -> bool:
+        """Return whether Sonex can safely offer the QR login bridge."""
+        return (
+            self.version in SUPPORTED_NCM_CLI_VERSIONS
+            and self.config_writable
+            and self.credentials_ready
+            and self.mpv_ready
+        )
+
+
+@dataclass(frozen=True)
+class NetEaseLoginResult:
+    status: str
+    output: str
     reason: str | None = None
 
 
@@ -113,6 +140,92 @@ class NetEaseProviderWorker:
         process.terminate()
         return True
 
+    def login(
+        self,
+        *,
+        on_output: Callable[[str], None] | None = None,
+        cancel_event: threading.Event | None = None,
+        timeout_seconds: float = LOGIN_TIMEOUT_SECONDS,
+    ) -> NetEaseLoginResult:
+        """Bridge the interactive ncm-cli QR login through a bounded PTY."""
+        if self.executable is None:
+            return NetEaseLoginResult("failed", "", "ncm-cli is not installed.")
+        master, slave = pty.openpty()
+        process = subprocess.Popen(
+            [self.executable, "login"],
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            stdout=slave,
+            stderr=slave,
+            env=self._environment(),
+            start_new_session=True,
+        )
+        os.close(slave)
+        with self._process_lock:
+            self._active_process = process
+        started = time.monotonic()
+        raw = bytearray()
+        last_output = ""
+        status = "failed"
+        reason: str | None = None
+        try:
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    process.terminate()
+                    status = "cancelled"
+                    break
+                if time.monotonic() - started >= max(0.1, timeout_seconds):
+                    process.terminate()
+                    status = "timeout"
+                    reason = "NetEase login timed out."
+                    break
+                readable, _, _ = select.select([master], [], [], LOGIN_POLL_SECONDS)
+                if master in readable:
+                    try:
+                        chunk = os.read(master, 65536)
+                    except OSError:
+                        chunk = b""
+                    if chunk:
+                        raw.extend(chunk)
+                        if len(raw) > MAX_OUTPUT_BYTES:
+                            process.terminate()
+                            reason = "ncm-cli login output exceeded the safety limit."
+                            break
+                        output = _sanitize_login_output(raw.decode("utf-8", errors="replace"))
+                        if output != last_output:
+                            last_output = output
+                            if on_output is not None:
+                                on_output(output)
+                return_code = process.poll()
+                if return_code is not None:
+                    status = "success" if return_code == 0 else "failed"
+                    if return_code != 0:
+                        reason = "NetEase login failed."
+                    break
+        finally:
+            if process.poll() is None:
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=1)
+            os.close(master)
+            with self._process_lock:
+                if self._active_process is process:
+                    self._active_process = None
+        return NetEaseLoginResult(status, last_output, reason)
+
+    def logout(self) -> bool:
+        """Clear ncm-cli login state without changing its base configuration."""
+        result = self._run(("logout",))
+        return _command_succeeded(result)
+
+    def is_logged_in(self) -> bool:
+        """Read ncm-cli login state independently of playback readiness."""
+        if self.executable is None:
+            return False
+        return _login_check_succeeded(self._run(("login", "--check")))
+
     def health(self) -> NetEaseWorkerHealth:
         if self.executable is None:
             return NetEaseWorkerHealth(False, None, False, False, False, "ncm-cli is not installed.")
@@ -128,6 +241,18 @@ class NetEaseProviderWorker:
             return NetEaseWorkerHealth(False, version, False, config_writable, mpv_ready, "Unsupported ncm-cli version.")
         if not config_writable:
             return NetEaseWorkerHealth(False, version, False, False, mpv_ready, "The ncm-cli config directory is not readable and writable.")
+        config_result = self._run(("config", "list"))
+        credentials_ready = _config_is_ready(config_result)
+        if not credentials_ready:
+            return NetEaseWorkerHealth(
+                False,
+                version,
+                False,
+                True,
+                mpv_ready,
+                "Configure ncm-cli appId, privateKey, and player before connecting NetEase.",
+                False,
+            )
         login_result = self._run(("login", "--check"))
         login_ready = _login_check_succeeded(login_result)
         if not login_ready:
@@ -138,6 +263,7 @@ class NetEaseProviderWorker:
                 True,
                 mpv_ready,
                 "Run ncm-cli login and ensure mpv is installed.",
+                True,
             )
         commands_result = self._run(("commands",))
         search_ready = (
@@ -155,10 +281,11 @@ class NetEaseProviderWorker:
                     "ncm-cli catalog search is unavailable. "
                     "Sign in again or repair the ncm-cli command manifest."
                 ),
+                True,
             )
         ready = mpv_ready
         reason = None if ready else "Install mpv before using ncm-cli playback."
-        return NetEaseWorkerHealth(ready, version, login_ready, True, mpv_ready, reason)
+        return NetEaseWorkerHealth(ready, version, login_ready, True, mpv_ready, reason, True)
 
     def search(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         bounded = min(20, max(1, int(limit)))
@@ -231,8 +358,35 @@ def _parse_json_output(output: str) -> dict[str, Any]:
     return payload
 
 
+def _sanitize_login_output(output: str) -> str:
+    """Keep QR foreground/background SGR while removing active terminal controls."""
+    preserved: list[str] = []
+
+    def remember(match: re.Match[str]) -> str:
+        preserved.append(match.group(0))
+        return f"\x00SGR{len(preserved) - 1}\x00"
+
+    text = _LOGIN_ALLOWED_SGR_RE.sub(remember, output)
+    text = _TERMINAL_CONTROL_RE.sub("", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    for index, sequence in enumerate(preserved):
+        text = text.replace(f"\x00SGR{index}\x00", sequence)
+    return text
+
+
 def _login_check_succeeded(result: subprocess.CompletedProcess[str]) -> bool:
     return _command_succeeded(result)
+
+
+def _config_is_ready(result: subprocess.CompletedProcess[str]) -> bool:
+    if result.returncode != 0:
+        return False
+    configured: set[str] = set()
+    for line in result.stdout.splitlines():
+        key, separator, value = line.partition(":")
+        if separator and value.strip():
+            configured.add(key.strip().casefold())
+    return {"appid", "privatekey", "player"}.issubset(configured)
 
 
 def _command_succeeded(result: subprocess.CompletedProcess[str]) -> bool:

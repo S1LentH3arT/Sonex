@@ -62,8 +62,33 @@ class _FakeUI:
     async def send_auth_setup(self, **event: object) -> None:
         self.events.append({"type": "auth_setup", **event})
 
+    async def send_netease_login(self, **event: object) -> None:
+        self.events.append({"type": "netease_login", **event})
+
 
 class MusicConnectCommandTests(unittest.IsolatedAsyncioTestCase):
+    async def test_configured_unlogged_netease_opens_qr_login_surface(self) -> None:
+        connections = _FakeConnections()
+        runner = WebSocketRunner(
+            music_connection_manager_factory=lambda: connections,
+        )
+        ui = _FakeUI()
+        health = type(
+            "Health",
+            (),
+            {"ready": False, "login_available": True, "login_ready": False, "reason": "Sign in."},
+        )()
+
+        with patch("src.api.ws_runner.NetEaseProviderWorker.health", return_value=health), patch(
+            "src.api.ws_runner.NetEaseProviderWorker.login"
+        ) as login:
+            await runner._connect_music_provider(ui, "netease", emit_feedback=False)
+
+        self.assertIsNotNone(getattr(ui, "_netease_login_session"))
+        self.assertEqual(ui.events[-1]["type"], "netease_login")
+        self.assertTrue(ui.events[-1]["active"])
+        login.assert_not_called()
+
     async def test_connect_opens_unified_interactive_panel_with_actionable_accounts_only(self) -> None:
         runner = WebSocketRunner(
             music_connection_manager_factory=lambda: _FakeConnections(),

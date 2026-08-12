@@ -122,6 +122,13 @@ class MusicConnectionManager:
         self._save()
         return record
 
+    def remove(self, provider_id: str) -> None:
+        """Forget one non-secret connection record and its preference."""
+        self._records.pop(provider_id, None)
+        if self._preferred_provider_id == provider_id:
+            self._preferred_provider_id = None
+        self._save()
+
     def _load(self) -> None:
         try:
             payload = json.loads(self._path.read_text(encoding="utf-8"))

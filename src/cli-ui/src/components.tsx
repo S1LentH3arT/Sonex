@@ -22,7 +22,7 @@ import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, Pane
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, NetEaseLoginState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -193,6 +193,30 @@ const LoginChoiceList = ({ choices, selectedIndex, visibleLimit, showConnectionS
 };
 
 export const MAX_VISIBLE_LOGIN_PROVIDERS = 8;
+
+export const NetEaseLoginScreen = ({ login }: { login: NetEaseLoginState }) => {
+    if (!login) return null;
+    const waiting = login.status === "waiting";
+    return (
+        <PanelFrame
+            width={74}
+            paddingX={2}
+            title={login.title}
+            hint={
+                waiting
+                    ? login.fallback_online
+                        ? "press Esc to play online"
+                        : "press Esc to cancel"
+                    : login.status
+            }
+        >
+            <Box flexDirection="column" paddingX={2}>
+                <Text>{login.output}</Text>
+                {waiting ? <Text color={BORDER_BLUE_SOFT}>Waiting for scan...</Text> : null}
+            </Box>
+        </PanelFrame>
+    );
+};
 
 export const LoginScreen = ({
     authSetup,

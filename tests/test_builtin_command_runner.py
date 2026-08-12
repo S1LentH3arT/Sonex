@@ -29,6 +29,7 @@ from src.auth.models import OAuthToken
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
 from src.music.playback_coordinator import ProviderReadiness, RecordingIdentity
+from src.music.connections import MusicConnectionManager
 from src.thinking.config import ThinkingConfig
 
 
@@ -129,6 +130,9 @@ class FakeUI:
         Example: send_auth_setup() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "auth_setup", **kwargs})
+
+    async def send_netease_login(self, **kwargs: object) -> None:
+        self.events.append({"type": "netease_login", **kwargs})
 
     async def send_auth_state(self, state: object) -> None:
         """Verifies that send auth state behaves as expected.
@@ -591,6 +595,65 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "playback_failed")
         runner._try_selected_native_provider.assert_not_awaited()
         self.assertEqual(result["data"]["attempted"], ["spotify"])
+
+    async def test_unlogged_netease_online_choice_authorizes_direct_fallback_once(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        health = type(
+            "Health",
+            (),
+            {"login_available": True, "login_ready": False},
+        )()
+        netease = ProviderReadiness(
+            "netease",
+            True,
+            False,
+            True,
+            False,
+            details={"health": health, "worker": object()},
+        )
+        runner._probe_authoritative_providers = AsyncMock(return_value=[netease])
+        runner._offer_netease_login = AsyncMock(return_value=(None, "online"))
+
+        result = await runner._route_authoritative_provider(
+            ui,
+            identity=RecordingIdentity("BB88", "方大同"),
+            selected_candidate={"title": "BB88", "artist": "方大同"},
+            requested_provider=None,
+            hard_provider=False,
+        )
+
+        self.assertTrue(result["data"]["online_allowed"])
+
+    async def test_explicit_unlogged_netease_rejection_never_authorizes_online(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        health = type(
+            "Health",
+            (),
+            {"login_available": True, "login_ready": False},
+        )()
+        netease = ProviderReadiness(
+            "netease",
+            True,
+            False,
+            True,
+            False,
+            details={"health": health, "worker": object()},
+        )
+        runner._probe_authoritative_providers = AsyncMock(return_value=[netease])
+        runner._offer_netease_login = AsyncMock(return_value=(None, "cancel"))
+
+        result = await runner._route_authoritative_provider(
+            ui,
+            identity=RecordingIdentity("BB88", "方大同"),
+            selected_candidate={"title": "BB88", "artist": "方大同"},
+            requested_provider="netease",
+            hard_provider=True,
+        )
+
+        self.assertFalse(result["data"].get("online_allowed", False))
+        self.assertEqual(result["data"]["provider"], "netease")
 
     async def test_agent_community_fallback_offers_only_one_explicit_alternative(self) -> None:
         runner = WebSocketRunner()
@@ -1699,6 +1762,28 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transcripts, [])
         self.assertFalse(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any(event.get("text") == "You are not logged in." for event in ui.events))
+
+    async def test_logout_netease_clears_external_and_session_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manager = MusicConnectionManager(path=Path(directory) / "connections.json")
+            manager.mark_connected("netease", account_label="ncm-cli")
+            runner = WebSocketRunner(music_connection_manager_factory=lambda: manager)
+            ui = FakeUI()
+            setattr(ui, "_netease_login_declined", True)
+            setattr(ui, "_netease_verified_signature", ("ncm-cli", "0.1.6", 1))
+            setattr(ui, "_preferred_playback_provider", "netease")
+            with patch("src.api.ws_runner.NetEaseProviderWorker.is_logged_in", return_value=True), patch(
+                "src.api.ws_runner.NetEaseProviderWorker.logout",
+                return_value=True,
+            ) as logout:
+                changed = await runner._logout_netease(ui)
+
+        self.assertTrue(changed)
+        logout.assert_called_once_with()
+        self.assertIsNone(manager.record("netease"))
+        self.assertFalse(getattr(ui, "_netease_login_declined"))
+        self.assertIsNone(getattr(ui, "_netease_verified_signature"))
+        self.assertIsNone(getattr(ui, "_preferred_playback_provider"))
 
 
 
