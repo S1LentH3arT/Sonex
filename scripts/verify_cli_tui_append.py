@@ -45,6 +45,9 @@ def capture(
         cwd=ROOT,
         env={
             **os.environ,
+            # The child owns a real PTY even when this verifier runs in CI.
+            # Ink's CI mode suppresses intermediate interactive frames.
+            "CI": "false",
             "SONEX_APPEND_FIXTURE_SIGNAL": "1" if signal_from_alternate else "0",
         },
         stdin=slave,
@@ -142,6 +145,7 @@ def main() -> int:
     non_tty_output = subprocess.run(
         ["node", str(NON_TTY_FIXTURE)],
         cwd=ROOT,
+        env={**os.environ, "CI": "false"},
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
