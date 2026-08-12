@@ -138,7 +138,7 @@ class CodexAppServer:
                 "clientInfo": {
                     "name": "sonex",
                     "title": "Sonex",
-                    "version": "1.0.0",
+                    "version": "0.1.0-alpha.1",
                 },
             },
         )

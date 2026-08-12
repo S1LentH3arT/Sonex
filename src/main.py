@@ -41,7 +41,7 @@ from src.auth.store import (
 from src.log import configure_file_logging, sonex_log_path
 from src.workspace import user_workspace_root
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "0.1.0-alpha.1"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9001
 SERVER_START_TIMEOUT = 15.0

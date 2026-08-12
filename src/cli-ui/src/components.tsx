@@ -106,7 +106,7 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
     const displayCwd = formatWorkingDirectory(cwd);
     if (variant === 'compact') {
         return (
-            <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
+            <Box width="100%" flexDirection="column" marginBottom={2}>
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
                 <Text color="#d8bcc7" wrap="truncate-end">
@@ -126,7 +126,7 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
     }
 
     return (
-        <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791">
+        <Box width="100%" marginBottom={2}>
             <Mascot />
             <Box flexDirection="column" justifyContent="flex-start">
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>

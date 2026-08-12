@@ -2,7 +2,7 @@ import type { ConfirmChoice, SlashCommandSuggestion } from './types.js';
 
 export const wsUrl = process.env.SONEX_WS_URL ?? "ws://localhost:9001/ws";
 
-export const APP_VERSION = "1.0.1";
+export const APP_VERSION = "0.1.0-alpha.1";
 export const FALLBACK_MODEL_NAME = "gpt-5.5";
 export const BORDER_BLUE = "#3b82f6";
 export const BORDER_BLUE_SOFT = "#9fd9ff";
