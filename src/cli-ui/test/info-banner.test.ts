@@ -20,6 +20,7 @@ authState.model = 'gpt-after';
 assert.equal(snapshot.authState.model, 'gpt-before');
 assert.equal(snapshot.cwd, '/home/user/project');
 assert.equal(snapshot.sessionId, 'session-1');
+assert.equal('tokenUsage' in snapshot, false);
 
 assert.equal(formatWorkingDirectory('/home/user', '/home/user'), '~');
 assert.equal(formatWorkingDirectory('/home/user/project', '/home/user'), '~/project');

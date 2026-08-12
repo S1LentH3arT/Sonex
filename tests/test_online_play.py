@@ -3012,7 +3012,6 @@ class OnlinePlayTests(unittest.TestCase):
                 patch("src.tools.online_play.start_local_playback", side_effect=_playback_success) as launch:
                 result = online.play_youtube_song(
                     "No Audio",
-                    player="mpv",
                     cache_root=Path(tmp),
                     playback_metadata={
                         "name": "No Audio",
@@ -3024,6 +3023,7 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(result["status"], "success")
         self.assertEqual(result["data"]["media"]["kind"], "video_container")
         launch.assert_called_once()
+        self.assertEqual(launch.call_args.kwargs["player"], "mpv")
 
     def test_play_youtube_song_uses_open_audio_trace_before_youtube_unavailable_fallback(self) -> None:
         """Verifies that play youtube song uses open audio trace before youtube unavailable fallback behaves as expected.
@@ -3189,13 +3189,7 @@ class OnlinePlayTests(unittest.TestCase):
         self.assertEqual(result["data"]["source_attempts"], candidate["source_attempts"])
         launch.assert_not_called()
 
-    def test_player_confirm_offers_mpv_and_vlc_backend_choices(self) -> None:
-        """Verifies that player confirm offers mpv and vlc backend choices behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the player confirm offers mpv and vlc backend choices behavior against regressions.
-
-        Example: test_player_confirm_offers_mpv_and_vlc_backend_choices() -> passes without assertion failures when the behavior remains correct.
-        """
+    def test_player_confirm_offers_only_mpv_and_cancel(self) -> None:
         result = build_player_confirm_result(
             tool="play_youtube_song",
             player="auto",
@@ -3209,11 +3203,9 @@ class OnlinePlayTests(unittest.TestCase):
         )
 
         choices = result["data"]["choices"]
-        self.assertEqual([choice["value"] for choice in choices], ["mpv", "cvlc", "deny"])
+        self.assertEqual([choice["value"] for choice in choices], ["mpv", "deny"])
         self.assertIn("mpv", choices[0]["label"])
-        self.assertIn("VLC", choices[1]["label"])
         self.assertIn("default", choices[0]["description"])
-        self.assertIn("manual diagnostic", choices[1]["description"])
 
     def test_player_confirm_choice_selects_requested_backend(self) -> None:
         """Verifies that player confirm choice selects requested backend behaves as expected.

@@ -98,7 +98,7 @@ def _managed_play(backend: str, uri: str, track: dict[str, object]) -> dict[str,
     from src.tools.playback_controller import controller
 
     source = str(track.get("source") or track.get("provider") or "local")
-    if source not in {"local", "youtube", "spotify", "apple_music"}:
+    if source not in {"local", "youtube", "spotify"}:
         source = "youtube"
     state = controller.play(
         source_url=_source_url(uri),
@@ -284,8 +284,6 @@ def build_player_sink_manager(
     }
 
     def managed_which(executable: str) -> str | None:
-        if executable == "vlc":
-            return managed_paths.get("cvlc")
         return managed_paths.get(executable)
 
     adapters: list[PlayerSinkAdapter] = []
@@ -302,20 +300,6 @@ def build_player_sink_manager(
                 is_active=_managed_player_active,
             )
         )
-    if "cvlc" in managed_paths:
-        adapters.append(
-            ManagedPlayerSinkAdapter(
-                backend="cvlc",
-                display_name="VLC",
-                executable_names=("cvlc", "vlc"),
-                which=managed_which,
-                play_managed=_managed_play,
-                validate_managed=_validate_managed_player,
-                control_managed=_managed_control,
-                is_active=_managed_player_active,
-            )
-        )
-
     inspect_host_installations = which is shutil.which
     if desktop_executables is None:
         desktop_executables = (

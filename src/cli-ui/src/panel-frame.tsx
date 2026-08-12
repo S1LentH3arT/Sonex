@@ -19,6 +19,8 @@ export type PanelRowSegment = {
     text: string;
     color?: string;
     bold?: boolean;
+    italic?: boolean;
+    preserveColorWhenSelected?: boolean;
 };
 
 export type PanelChoiceItem = {
@@ -68,6 +70,15 @@ export const resolvePanelChoiceSegments = (
             : item.segments;
     }
 
+    if (item.segments.some((segment) => segment.preserveColorWhenSelected)) {
+        const selectedColor = spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE;
+        return item.segments.map((segment) => ({
+            ...segment,
+            color: segment.preserveColorWhenSelected ? segment.color : selectedColor,
+            bold: true,
+        }));
+    }
+
     return [{
         text: item.segments.map((segment) => segment.text).join(""),
         color: spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE,
@@ -115,6 +126,7 @@ export const PanelRow = ({
                             key={`${index}-${segment.text}`}
                             color={segment.color ?? PANEL_PRIMARY}
                             bold={segment.bold}
+                            italic={segment.italic}
                         >
                             {segment.text}
                         </Text>
@@ -175,6 +187,7 @@ export const PanelFrame = ({
     title,
     hint = null,
     hintColor = PANEL_SECONDARY,
+    titleDetailSegments = null,
     paddingX = 1,
     children,
 }: {
@@ -182,6 +195,7 @@ export const PanelFrame = ({
     title: string;
     hint?: string | null;
     hintColor?: string;
+    titleDetailSegments?: PanelRowSegment[] | null;
     paddingX?: number;
     children?: ReactNode;
 }) => {
@@ -209,6 +223,13 @@ export const PanelFrame = ({
                     segments={[{ text: row, color: hintColor }]}
                 />
             ))}
+            {titleDetailSegments ? (
+                <PanelRow
+                    width={boundedWidth}
+                    paddingX={paddingX}
+                    segments={titleDetailSegments}
+                />
+            ) : null}
             <PanelEmptyRow width={boundedWidth} />
             {children}
             <PanelEmptyRow width={boundedWidth} />

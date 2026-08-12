@@ -20,12 +20,11 @@ assert.match(
     /commitItems\(\[\{[\s\S]*type: "message",[\s\S]*role: "agent",[\s\S]*content,[\s\S]*theme: "muted",[\s\S]*tone: "system"/,
 );
 
-const appleSetupEscape = sliceBetween(
-    'if (!isAppleTokenSetupActive || !key.escape) return;',
-    'if (!isLoginScreenActive || authSetup?.step === "api_key") return;',
+const loginEscape = sliceBetween(
+    'if (!isLoginScreenActive) return;',
+    'if (!isModelPanelActive) return;',
 );
-assert.match(appleSetupEscape, /send\(\{ type: "auth_setup_input", value: "__cancel__" \}\)/);
-assert.doesNotMatch(appleSetupEscape, /appendPanelHiddenNotice/);
+assert.match(loginEscape, /key\.escape[\s\S]*send\(\{ type: "auth_setup_input", value: "__cancel__" \}\)/);
 
 const modelEscape = sliceBetween(
     'if (!isModelPanelActive) return;',

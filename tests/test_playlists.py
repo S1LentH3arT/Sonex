@@ -82,7 +82,7 @@ class PlaylistStoreTests(unittest.TestCase):
                 source_app="iTunes",
                 name="Road",
                 external_id="itunes-road",
-                tracks=[{"name": "iTunes Song", "artist": "Artist", "provider": "apple_music"}],
+                tracks=[{"name": "iTunes Song", "artist": "Artist", "provider": "itunes"}],
                 playlists_root=root,
                 now=3,
             )

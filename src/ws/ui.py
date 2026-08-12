@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 import uuid
 from contextlib import suppress
@@ -13,6 +14,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from src.agent.events import UiStatus
 from src.api.builtin_commands import BuiltinCommand
+from src.llm.transport import Usage
 from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
 from src.tools.cover_sources import cover_bytes_for_source
 from src.ws.types import AuthRuntimeState
@@ -34,6 +36,10 @@ class WebSocketUIAdapter:
         self.session_id = session_id
         self.closed = False
         self.transcript: list[dict[str, Any]] = []
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self._usage_lock = threading.Lock()
+        self._event_loop = asyncio.get_running_loop()
 
     async def _send(self, payload: dict[str, Any]) -> None:
         """Prepares send for an internal Sonex flow.
@@ -57,6 +63,22 @@ class WebSocketUIAdapter:
                 "session_id": self.session_id,
             }
         )
+
+    def record_token_usage(self, usage: Usage) -> None:
+        """Accumulate provider-reported tokens and publish the session snapshot."""
+        input_tokens = max(0, int(usage.prompt_tokens or 0))
+        output_tokens = max(0, int(usage.completion_tokens or 0))
+        with self._usage_lock:
+            self.input_tokens += input_tokens
+            self.output_tokens += output_tokens
+            payload = {
+                "type": "usage_state",
+                "input_tokens": self.input_tokens,
+                "output_tokens": self.output_tokens,
+            }
+            self._event_loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(self._send(payload))
+            )
 
     async def send_agent_working_state(self, turn_id: str, *, active: bool) -> None:
         """Show or clear the Working indicator for one foreground Agent turn."""
@@ -83,6 +105,8 @@ class WebSocketUIAdapter:
         text: str,
         *,
         segments: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None = None,
+        document: dict[str, Any] | None = None,
+        stream: bool = False,
     ) -> None:
         """Append an LLM answer or agent/tool-call explanation."""
         transcript_item: dict[str, Any] = {"role": "agent", "content": text}
@@ -91,6 +115,12 @@ class WebSocketUIAdapter:
             safe_segments = [dict(segment) for segment in segments]
             transcript_item["segments"] = safe_segments
             payload["segments"] = safe_segments
+        if document:
+            safe_document = dict(document)
+            transcript_item["document"] = safe_document
+            payload["document"] = safe_document
+        if stream:
+            payload["stream"] = True
         mode = getattr(self, "_spotify_mode", None)
         if isinstance(mode, dict) and mode.get("enabled"):
             transcript_item["theme"] = "spotify"
@@ -118,6 +148,18 @@ class WebSocketUIAdapter:
                 "type": "chat",
                 "role": "agent",
                 "tone": "warning",
+                "text": text,
+            }
+        )
+
+    async def append_caution_message(self, text: str) -> None:
+        """Append a durable runtime caution using the existing Agent role."""
+        self.transcript.append({"role": "agent", "content": text})
+        await self._send(
+            {
+                "type": "chat",
+                "role": "agent",
+                "tone": "error",
                 "text": text,
             }
         )
@@ -261,6 +303,10 @@ class WebSocketUIAdapter:
             }
         )
 
+    async def dismiss_confirm(self, confirm_id: str) -> None:
+        """Dismiss one live confirmation without adding transcript output."""
+        await self._send({"type": "confirm_dismiss", "id": confirm_id})
+
     async def send_spotify_setup(
         self,
         *,
@@ -289,6 +335,27 @@ class WebSocketUIAdapter:
             }
         )
 
+    async def send_netease_login(
+        self,
+        *,
+        title: str,
+        output: str,
+        status: str,
+        active: bool = True,
+        fallback_online: bool = False,
+    ) -> None:
+        """Publish one bounded NetEase QR-login surface update."""
+        await self._send(
+            {
+                "type": "netease_login",
+                "title": title,
+                "output": output,
+                "status": status,
+                "active": active,
+                "fallback_online": fallback_online,
+            }
+        )
+
     async def send_auth_setup(
         self,
         *,
@@ -297,11 +364,13 @@ class WebSocketUIAdapter:
         title: str,
         message: str,
         prompt: str | None = None,
+        placeholder: str | None = None,
+        help_text: str | None = None,
         mask: bool = False,
         active: bool = True,
-        methods: list[dict[str, str]] | None = None,
-        providers: list[dict[str, str]] | None = None,
-        models: list[dict[str, str]] | None = None,
+        methods: list[dict[str, Any]] | None = None,
+        providers: list[dict[str, Any]] | None = None,
+        models: list[dict[str, Any]] | None = None,
     ) -> None:
         """Sends auth setup to the active runtime client.
 
@@ -317,6 +386,8 @@ class WebSocketUIAdapter:
                 "title": title,
                 "message": message,
                 "prompt": prompt,
+                "placeholder": placeholder,
+                "help_text": help_text,
                 "mask": mask,
                 "active": active,
                 "methods": methods,

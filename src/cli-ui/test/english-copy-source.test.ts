@@ -29,12 +29,11 @@ for (const text of retiredVisibleCopy) {
 
 assert.match(runnerSource, /"label": "Not found\? Type to supplement\."/);
 assert.match(runnerSource, /"input": \{"placeholder": ""\}/);
-assert.match(runnerSource, /"message": "Choose the default player"/);
+assert.doesNotMatch(runnerSource, /Choose the default player/);
 assert.match(playerPermissionSource, /"confirm_message": f"Allow Sonex to open \{label\}\?"/);
 
 // Multilingual setup triggers remain intentional and outside the display-copy audit.
 assert.match(websocketConstantsSource, /"连接 spotify"/);
 
 // Provider modes must not restore their retired natural-language direct routers.
-assert.doesNotMatch(runnerSource, /def _handle_apple_mode_input/);
 assert.doesNotMatch(runnerSource, /def _handle_spotify_mode_input/);

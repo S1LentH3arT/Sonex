@@ -1,6 +1,7 @@
 export type ServerEvent =
-    | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null; segments?: ChatSegment[] | null }
+    | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null; segments?: ChatSegment[] | null; document?: ChatDocument | null; stream?: boolean }
     | { type: "session_state"; session_id: string }
+    | { type: "usage_state"; input_tokens: number; output_tokens: number }
     | { type: "agent_working_state"; turn_id: string; active: boolean }
     | { type: "activity"; id: string; kind: ActivityKind; title: string; detail?: string | null; status?: ActivityStatus | null; timestamp: number }
     | { type: "status"; phase: string; message: string; active?: boolean | null; step?: number; max_steps?: number }
@@ -10,15 +11,17 @@ export type ServerEvent =
     | { type: "search_results"; tracks: TrackSummary[] }
     | { type: "player"; state: PlayerState }
     | { type: "spotify_mode"; enabled: boolean; device_id?: string | null; device_name?: string | null }
-    | { type: "provider_mode"; provider: "normal" | "spotify" | "apple"; enabled: boolean; storefront?: string | null; connection_status?: string | null }
+    | { type: "provider_mode"; provider: "normal" | "spotify"; enabled: boolean; connection_status?: string | null }
     | { type: "cover"; url: string }
     | CoverPatternEvent
     | CoverPatternUnavailableEvent
     | { type: "error"; message: string; detail?: string | null; recoverable?: boolean | null }
     | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; warning?: string | null; hide_hint?: boolean | null; choices?: ConfirmChoice[] | null; variant?: "tool_call_review" | null; commands?: string[] | null; page_index?: number | null; page_count?: number | null }
+    | { type: "confirm_dismiss"; id: string }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
-    | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
-    | { type: "auth_state"; ready: boolean; provider: string; model: string; auth_type: string; credential_source: string; reason?: string | null }
+    | { type: "netease_login"; title: string; output: string; status: "waiting" | "success" | "failed" | "timeout" | "cancelled"; active?: boolean | null; fallback_online?: boolean | null }
+    | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; placeholder?: string | null; help_text?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
+    | { type: "auth_state"; ready: boolean; provider: string; model: string; model_label?: string | null; auth_type: string; credential_source: string; reason?: string | null }
     | { type: "help_panel"; title: string; hint: string; commands: HelpCommand[] }
     | { type: "bye"; path: string; message?: string | null };
 
@@ -63,6 +66,7 @@ export type ClientEvent =
     | { type: "confirm_result"; id: string; decision: string }
     | { type: "setup_input"; value: string }
     | { type: "auth_setup_input"; value: string }
+    | { type: "netease_login_input"; value: "__cancel__" }
     | { type: "bye"; messages: ChatTranscriptMessage[]; reason: string };
 
 export type MusicCandidateDisplay = {
@@ -78,6 +82,7 @@ export type ConfirmChoice = {
     value: string;
     label: string;
     description?: string;
+    connection_status?: "connected" | "missing" | "warning" | "checking";
     disabled?: boolean;
     disabled_reason?: string;
     display?: ConfirmChoiceDisplay;
@@ -110,6 +115,14 @@ export type SpotifySetupState = {
     active: boolean;
 } | null;
 
+export type NetEaseLoginState = {
+    title: string;
+    output: string;
+    status: "waiting" | "success" | "failed" | "timeout" | "cancelled";
+    active: boolean;
+    fallback_online: boolean;
+} | null;
+
 export type SpotifyModeState = {
     enabled: boolean;
     device_id?: string | null;
@@ -117,9 +130,8 @@ export type SpotifyModeState = {
 };
 
 export type ProviderModeState = {
-    provider: "normal" | "spotify" | "apple";
+    provider: "normal" | "spotify";
     enabled: boolean;
-    storefront?: string | null;
     connection_status?: string | null;
 };
 
@@ -127,6 +139,9 @@ export type AuthMethodChoice = {
     value: string;
     label: string;
     provider?: string;
+    description?: string;
+    connected?: boolean;
+    connection_status?: "active" | "saved" | "missing";
 };
 
 export type AuthSetupState = {
@@ -135,6 +150,8 @@ export type AuthSetupState = {
     title: string;
     message: string;
     prompt?: string | null;
+    placeholder?: string | null;
+    help_text?: string | null;
     mask?: boolean | null;
     active: boolean;
     methods?: AuthMethodChoice[] | null;
@@ -146,9 +163,15 @@ export type AuthRuntimeState = {
     ready: boolean;
     provider: string;
     model: string;
+    model_label?: string | null;
     auth_type: string;
     credential_source: string;
     reason?: string | null;
+};
+
+export type SessionTokenUsage = {
+    inputTokens: number;
+    outputTokens: number;
 };
 
 export type ChatRole = "user" | "agent";
@@ -182,13 +205,13 @@ export type PlayerState = {
     paused_for_cache?: boolean;
     diagnostic_notice?: "clock_drift" | "cache_pause" | "ipc_failure" | "audio_output_changed" | string | null;
     provider?: string | null;
-    player?: "mpv" | "cvlc" | string | null;
+    player?: "mpv" | string | null;
     session_id?: string | null;
     ended?: boolean | null;
     volume_percent?: number | null;
     is_liked?: boolean | null;
     is_in_playlist?: boolean | null;
-    source?: "local" | "youtube" | "spotify" | "apple_music" | string | null;
+    source?: "local" | "youtube" | "spotify" | string | null;
 };
 
 export type TrackSummary = {
@@ -211,7 +234,25 @@ export type ChatTone = "system" | "warning" | "error";
 
 export type ChatSegment = {
     text: string;
-    style: "tool_name" | "tool_value";
+    style: "tool_name" | "tool_value" | "plain" | "heading" | "strong" | "highlight" | "link" | "list_marker" | "code";
+    href?: string;
+};
+
+export type ChatSpan = {
+    text: string;
+    style: "plain" | "strong" | "highlight" | "link";
+    href?: string;
+};
+
+export type ChatDocumentBlock =
+    | { type: "paragraph" | "heading"; spans: ChatSpan[] }
+    | { type: "list_item"; marker: string; level?: number; spans: ChatSpan[] }
+    | { type: "code_block"; text: string; language?: string }
+    | { type: "spacer" };
+
+export type ChatDocument = {
+    version: 1;
+    blocks: ChatDocumentBlock[];
 };
 
 export type ChatBubbleProps = {
@@ -221,6 +262,8 @@ export type ChatBubbleProps = {
     theme?: ChatTheme | null;
     tone?: ChatTone | null;
     segments?: ChatSegment[] | null;
+    document?: ChatDocument | null;
+    showDivider?: boolean;
 };
 
 export type ChatMessageItem = {
@@ -230,9 +273,10 @@ export type ChatMessageItem = {
     theme?: ChatTheme | null;
     tone?: ChatTone | null;
     segments?: ChatSegment[] | null;
+    document?: ChatDocument | null;
 };
 
-export type ChatTranscriptMessage = Pick<ChatMessageItem, "role" | "content" | "theme" | "tone" | "segments">;
+export type ChatTranscriptMessage = Pick<ChatMessageItem, "role" | "content" | "theme" | "tone" | "segments" | "document">;
 
 export type InfoBannerItem = {
     type: "info_banner";
@@ -273,7 +317,7 @@ export type TrackPanelTrack = {
     stream_url?: string;
     youtube_url?: string;
     spotify_url?: string;
-    apple_music_url?: string;
+    requires_resolution?: boolean;
     audio_path?: string;
     file_path?: string;
     path?: string;

@@ -5,22 +5,56 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from src.music.connections import MusicConnectionManager
+from src.music.connections import MusicConnectionManager, sanitize_account_label
 
 
 class MusicConnectionManagerTests(unittest.TestCase):
+    def test_remove_clears_provider_record_and_preference(self) -> None:
+        with TemporaryDirectory() as directory:
+            manager = MusicConnectionManager(path=Path(directory) / "connections.json")
+            manager.mark_connected("netease", account_label="ncm-cli")
+
+            manager.remove("netease")
+
+            self.assertIsNone(manager.record("netease"))
+            self.assertIsNone(manager.preferred_provider_id)
+
+    def test_account_label_is_single_line_terminal_safe_and_display_width_bounded(self) -> None:
+        label = "  \x1b[31mSILENCE\x1b[0m\n\t账户  " + "界" * 40
+
+        cleaned = sanitize_account_label(label)
+
+        self.assertIsNotNone(cleaned)
+        assert cleaned is not None
+        self.assertTrue(cleaned.startswith("SILENCE 账户 "))
+        self.assertNotIn("\x1b", cleaned)
+        self.assertNotIn("\n", cleaned)
+        self.assertLessEqual(sum(2 if "W" == __import__("unicodedata").east_asian_width(char) else 1 for char in cleaned), 64)
+
+    def test_empty_or_control_only_account_label_is_not_persisted(self) -> None:
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "connections.json"
+            manager = MusicConnectionManager(path=path)
+
+            manager.mark_connected("spotify", account_label="\x1b[31m\n\t")
+
+            record = manager.record("spotify")
+            self.assertIsNotNone(record)
+            assert record is not None
+            self.assertIsNone(record.account_label)
+
     def test_first_connected_provider_becomes_preferred_without_later_overwrite(self) -> None:
         with TemporaryDirectory() as temporary:
             path = Path(temporary) / "connections.json"
             manager = MusicConnectionManager(path=path)
 
             manager.mark_connected("spotify", account_label="Spotify User")
-            manager.mark_connected("apple_music", account_label="Apple Music")
+            manager.mark_connected("netease", account_label="NetEase User")
 
             self.assertEqual(manager.preferred_provider_id, "spotify")
             self.assertEqual(
                 [record.provider_id for record in manager.records()],
-                ["apple_music", "spotify"],
+                ["netease", "spotify"],
             )
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["preferred_provider_id"], "spotify")
@@ -40,6 +74,19 @@ class MusicConnectionManagerTests(unittest.TestCase):
             self.assertEqual(record.status, "unavailable")
             self.assertEqual(record.reason, "Account check timed out.")
             self.assertEqual(manager.preferred_provider_id, "spotify")
+
+    def test_health_failure_can_record_warning_before_first_success(self) -> None:
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary) / "connections.json"
+            manager = MusicConnectionManager(path=path)
+
+            manager.mark_unavailable("netease", reason="Worker unavailable.")
+
+            record = manager.record("netease")
+            self.assertIsNotNone(record)
+            assert record is not None
+            self.assertEqual(record.status, "unavailable")
+            self.assertIsNone(record.account_label)
 
 
 if __name__ == "__main__":

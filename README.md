@@ -23,7 +23,7 @@ Install these system runtimes before running the Sonex installer:
 | Python 3.12 | Must be available as `python3.12` |
 | Node.js and `npm` | Required to install and build the terminal UI |
 | Linux or WSL | A compatible shell environment is required |
-| `vlc` or `mpv` | Optional; enables local-file and YouTube playback |
+| `mpv` | Optional; enables local-file and online audio playback |
 
 > [!NOTE]
 > The installer checks for Python, Node.js, and npm, but it does not install
@@ -114,21 +114,23 @@ Sonex prefers official provider APIs for the main cloud LLMs:
 
 | Provider | Integration |
 | --- | --- |
-| OpenAI | Official chat completions endpoint |
-| Anthropic | Official messages endpoint |
-| Gemini | Official generate content endpoint, including OAuth headers when configured |
+| OpenAI | Official API Key endpoint, or isolated Codex App Server managed ChatGPT Subscription access (experimental) |
+| Anthropic | Official messages endpoint with API Key authentication |
+| Google Gemini | Official Gemini API with API Key or Google OAuth and a user-supplied Cloud project (preview) |
 | DeepSeek | Official API adapter |
-| LiteLLM | Installed as a compatibility fallback for custom or not-yet-native providers; not the default path for the cloud providers above |
+| Custom | Named OpenAI-compatible Chat Completions connections with model discovery and manual Model ID fallback |
 
-Manage LLM provider credentials with:
+Open the only interactive LLM connection entry point inside Sonex:
 
-```bash
-sonex auth login openai
-sonex auth set-key openai
-sonex auth list
-sonex auth set-default openai
-sonex auth logout openai
+```text
+/login
 ```
+
+Choose OpenAI, Google Gemini, Anthropic, DeepSeek, or Custom in the panel.
+OpenAI API Key and ChatGPT Subscription credentials are independent and never
+silently fall back to each other. Google OAuth requires a Cloud project with
+Gemini API access and billing already configured. Anthropic OAuth is not
+included in V1.
 
 Environment variables are also supported:
 
@@ -143,15 +145,16 @@ export SONEX_DEEPSEEK_API_KEY=sk-...
 
 > [!WARNING]
 > Never commit API keys or saved Sonex credentials to source control. Prefer
-> `sonex auth` for local secrets, and provide environment variables through a
+> `/login` for local secrets, and provide environment variables through a
 > secure local or deployment secret store.
 
 If you start chatting before the default provider is configured, the TUI
-starts an interactive setup flow before planner or agent work begins. `ollama`
-can be used as a local provider when configured as the default provider.
+opens the same provider panel before planner or agent work begins. The former
+built-in Ollama provider is retired and is not migrated automatically. Add
+Ollama or another compatible endpoint as a named Custom connection instead.
 
 Sonex loads `.env`, then resolves runtime configuration in this order:
-environment variables, saved `sonex auth` credentials, and finally the JSON
+environment variables, saved `/login` credentials, and finally the JSON
 config file. Set `SONEX_CONFIG_PATH` to use a config file other than
 `~/.sonex/thinking.json`.
 
@@ -179,33 +182,31 @@ Advanced users can still override per-provider `base_url`, `model`,
 
 ## Music Service Setup
 
-Run `/connect` to open the interactive music-account panel. The first release
-offers Spotify and Apple Music because Sonex can complete their supported
-authorization flows. NetEase Cloud Music is not listed until the official
-`ncm-cli` adapter is implemented and validated.
+Run `/connect` to open the interactive music-account panel. It lists Spotify,
+NetEase Cloud Music, Jamendo, and Audius. Availability checks stay specific to
+each service and do not silently change the active playback provider.
 
 > [!NOTE]
 > Connection records contain only non-secret account and health metadata.
-> OAuth tokens and MusicKit authorization remain with their existing local
-> owners.
+> OAuth tokens remain with their existing local owners.
+
+> [!NOTE]
+> Sonex automatically removes saved `apple_music` and `apple_mode` credentials,
+> connection records, and mode intent from its own state. If you previously set
+> `SONEX_APPLE_*` environment variables, remove them from your shell profile
+> manually. Sonex does not delete external `.p8` files.
 
 ### Spotify
 
 In the TUI, type:
 
 ```text
-setup spotify
+/spotify
 ```
 
 Sonex will guide you through creating a Spotify app, adding the loopback
 redirect URI, entering the Client ID and Client Secret, and completing browser
 authorization.
-
-You can also start the Spotify OAuth flow from the CLI:
-
-```bash
-sonex auth login spotify
-```
 
 Spotify app credentials can come from `SPOTIFY_CLIENT_ID` and
 `SPOTIFY_CLIENT_SECRET`, or from the guided TUI setup. Spotify playback control
@@ -237,41 +238,18 @@ read-timeout failures are reported separately. If the saved token is missing
 newly required Spotify scopes, Sonex starts the Spotify authorization guide in
 the current chat so you can grant the updated permissions.
 
-### Apple Music
+### Local and Online Playback
 
-Apple Mode obtains short-lived developer tokens from a token service. Configure
-the service URL from the terminal, then enter Apple Mode:
-
-Run `/connect`, choose Apple Music, then run `/apple`.
-
-The environment variable remains available and takes precedence over the saved
-terminal configuration:
-
-```bash
-export SONEX_APPLE_TOKEN_BROKER_URL=https://tokens.example.com
-```
-
-Developer tokens remain in memory, while MusicKit keeps the Music User Token in
-the local browser companion. Advanced local development can explicitly select
-the local signer with `SONEX_APPLE_TOKEN_SOURCE=local` and configure signing
-credentials with `sonex auth set-key apple_music --api-key '<json-or-path>'`.
-
-### Local and YouTube Playback
-
-Install `mpv` or VLC if you want controllable local-file or online playback.
-The first `/player` call in a session detects installed applications supported
-by Sonex. Managed mpv/VLC and supported external applications such as
-Clementine, Rhythmbox, and Audacious can become the device default. Other
-running MPRIS applications remain visible as remote-control-only when they
-cannot accept audio. Spotify Connect and Apple Music remain separate provider
-modes and do not use these local players.
+Install `mpv` if you want controllable local-file or online playback. Sonex uses
+mpv directly for these routes. Spotify Connect remains a separate provider mode
+and does not use the local player.
 
 ### Online Audio Fallback
 
 In normal mode, Sonex uses local files first and then resolves selected songs
-through online audio sources. Spotify playback belongs to Spotify Mode; Apple
-Music playback belongs to Apple Mode. Configure at least one online audio
-provider:
+through online audio sources. Spotify playback belongs to Spotify Mode.
+iTunes Search remains part of metadata discovery in the normal search chain; it
+is not a playback mode. Configure at least one online audio provider:
 
 Use `/connect` and choose Jamendo or Audius.
 
@@ -312,13 +290,7 @@ While a local or online track is playing, use:
 /stop
 /progress
 /volume 65
-/player
 ```
-
-`/player` detects supported installed applications on its first call in the
-session and opens a default-player panel. After you choose a compatible player,
-local and online-audio playback uses that device-persistent default directly
-without asking you to choose again. Cancel keeps the current default unchanged.
 
 ## Cover Bead Art
 
@@ -357,9 +329,9 @@ stored in that cache.
 - **The TUI says the API is not running:** Launch with `sonex`, or run `sonex api`
   before `sonex tui` when debugging.
 - **Spotify cannot play:** Follow the TUI reauthorization guide when scopes are
-  missing, or run `sonex auth login spotify` again. Check account product and
+  missing, or open `/spotify` and reconnect. Check account product and
   make sure Spotify is open on a device.
-- **Local or online playback cannot start:** Install `mpv` or VLC, start a new
-  session, run `/player`, and choose one of the detected applications.
+- **Local or online playback cannot start:** Install `mpv` and ensure it is
+  available on `PATH`.
 - **Cover bead art does not appear:** Check `beads.brand`, rerun playback with an
   official cover source, and inspect `~/.sonex/log` for cover generation errors.

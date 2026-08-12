@@ -20,7 +20,7 @@ class ProviderConfig:
         billing_mode: including api-billing mode and subscription mode.
         api_version: version of provider API.
         timeout: max waiting time for API response.
-        custom_llm_provider: custom provider like Ollama, Deepseek and so on.
+        custom_llm_provider: compatibility protocol identifier for a provider.
         extra_headers: extra request headers passed to LLM.
         options: other params, combined into payload at transport.
     """

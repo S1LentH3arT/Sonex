@@ -9,9 +9,6 @@ export const BORDER_BLUE_SOFT = "#9fd9ff";
 export const TOOL_NAVY = "#182e66";
 export const TOOL_VALUE = "#ffffff";
 export const SPOTIFY_GREEN = "#1db954";
-export const APPLE_SILVER = "#C7CAD1";
-export const APPLE_PEARL_PINK = "#D8C4CE";
-export const APPLE_BLUSH = "#F0D2DF";
 export const APP_TIP_PLACEHOLDER = "Tip: use /random to play a recent song.";
 export const MAX_ACTIVITY_ITEMS = 80;
 export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
@@ -19,7 +16,7 @@ export const DEFAULT_CONFIRM_CHOICES: ConfirmChoice[] = [
     { value: "deny", label: "No" },
 ];
 export const MAX_VISIBLE_SLASH_COMMANDS = 4;
-export const MAX_VISIBLE_MODEL_CHOICES = 3;
+export const MAX_VISIBLE_MODEL_CHOICES = 4;
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "bye", usage: "/bye", description: "save and exit", needsArgument: false },
     { name: "connect", usage: "/connect", description: "connect a music account", needsArgument: false },
@@ -28,16 +25,16 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "info", usage: "/info", description: "show runtime info", needsArgument: false },
     { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "toggle playback shortcuts", needsArgument: false },
     { name: "lang", usage: "/lang", description: "choose display language", needsArgument: false, enabled: false },
+    { name: "login", usage: "/login", description: "connect or switch LLM provider", needsArgument: false },
     { name: "logout", usage: "/logout", description: "sign out and exit", needsArgument: false },
+    { name: "memory", usage: "/memory", description: "configure long-term memory", needsArgument: false },
     { name: "model", usage: "/model", description: "switch active model", needsArgument: false },
-    { name: "player", usage: "/player", description: "detect and set default player", needsArgument: false },
     { name: "playlist", usage: "/playlist [name]|save [name]", description: "browse or save playlists", needsArgument: false },
     { name: "queue", usage: "/queue", description: "show playback queue", needsArgument: false },
     { name: "random", usage: "/random", description: "play a recent song", needsArgument: false },
     { name: "recommend", usage: "/recommend", description: "recommend songs", needsArgument: false },
     { name: "resume", usage: "/resume", description: "resume playback", needsArgument: false },
     { name: "sandbox", usage: "/sandbox", description: "check Agent Bash sandbox", needsArgument: false },
-    { name: "apple", usage: "/apple", description: "toggle Apple Mode", needsArgument: false },
     { name: "spotify", usage: "/spotify", description: "toggle Spotify mode", needsArgument: false },
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";

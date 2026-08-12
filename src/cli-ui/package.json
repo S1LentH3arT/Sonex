@@ -10,6 +10,7 @@
     "verify:pty": "python3 ../../scripts/verify_cli_tui_append.py"
   },
   "dependencies": {
+    "@openai/codex": "0.146.0",
     "ink": "^5.0.0",
     "ink-image": "^2.0.0",
     "ink-text-input": "^6.0.0",

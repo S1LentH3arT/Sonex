@@ -238,6 +238,38 @@ class PlayerSinkManagerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(controlled.sink_id, "mpris:clementine")
             self.assertEqual(adapter.control_calls, [("pause", None)])
 
+    async def test_status_control_does_not_repeat_the_adapter_probe(self) -> None:
+        with TemporaryDirectory() as temporary:
+            preferences_path = Path(temporary) / "player-preferences.json"
+            preferences_path.write_text(
+                json.dumps({"version": 1, "default_sink_id": "managed:mpv"}),
+                encoding="utf-8",
+            )
+            adapter = _FakeSinkAdapter(
+                PlayerSinkDescriptor(
+                    sink_id="managed:mpv",
+                    display_name="mpv",
+                    description="Managed playback",
+                ),
+                PlayerSinkProbe(
+                    installed=True,
+                    running=True,
+                    controllable=True,
+                    injectable=True,
+                    accepted_asset_kinds=("file_uri", "public_http"),
+                ),
+            )
+            manager = PlayerSinkManager(
+                adapters=(adapter,),
+                preferences_path=preferences_path,
+            )
+
+            status = await manager.control("status")
+
+            self.assertEqual(status.sink_id, "managed:mpv")
+            self.assertEqual(adapter.probe_calls, 0)
+            self.assertEqual(adapter.control_calls, [("status", None)])
+
     async def test_deferred_selection_promotes_only_after_first_real_playback_succeeds(self) -> None:
         with TemporaryDirectory() as temporary:
             preferences_path = Path(temporary) / "player-preferences.json"

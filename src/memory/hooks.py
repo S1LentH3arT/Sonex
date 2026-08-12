@@ -80,7 +80,7 @@ def append_tool_summary(context_id: int, tool: str, args: dict[str, Any], result
 
 def finalize_turn(user_input: str) -> dict[str, Any]:
     """Persist a reusable experience candidate for the completed turn."""
-    events = memory_store.search_context("", table="context", limit=20)
+    events = memory_store.events_for_turn()
     if not events:
         return {"success": False, "error": "No context events found."}
 
@@ -94,7 +94,8 @@ def finalize_turn(user_input: str) -> dict[str, Any]:
         tool_names=tool_names,
         error_text=error_text,
     )
-    key = _cache_key(user_input, summary)
+    turn_id = str(events[0].get("turn_id") or "").strip()
+    key = f"turn:{turn_id}" if turn_id else _cache_key(user_input, summary)
     tags = ["turn", "experience", *tool_names]
     if error_text:
         tags.append("error")

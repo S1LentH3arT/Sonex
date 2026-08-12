@@ -13,7 +13,6 @@ from src.memory.tool import search_context, search_memory
 from src.log import sonex_home
 from src.music.connections import MusicConnectionManager
 from src.tools.agent_modify import Modify
-from src.tools.apple_music import apple_music_recommend
 from src.tools.local_play import search_local_file
 from src.tools.playback_queue import playback_queue_snapshot
 from src.tools.registry import Params, ToolRegistry, registry
@@ -28,7 +27,6 @@ from src.tools.up_next import up_next_snapshot
 QUERY_PROVIDERS = (
     "current",
     "spotify",
-    "apple_music",
     "netease",
     "jamendo",
     "audius",
@@ -45,8 +43,8 @@ QUERY_RESOURCES = (
     "devices",
     "playback",
 )
-CONNECT_PROVIDERS = ("spotify", "apple_music", "netease", "jamendo", "audius")
-RECOMMEND_PROVIDERS = ("spotify", "apple_music", "netease")
+CONNECT_PROVIDERS = ("spotify", "netease", "jamendo", "audius")
+RECOMMEND_PROVIDERS = ("spotify", "netease")
 RECOMMEND_TIMEOUT_SECONDS = 8.0
 _MAX_LOCAL_REFS = 512
 _LOCAL_REFS: OrderedDict[str, str] = OrderedDict()
@@ -94,6 +92,7 @@ _SAFE_ITEM_KEYS = {
     "product",
     "provider",
     "recommendation_reason",
+    "requires_resolution",
     "status",
     "title",
     "total",
@@ -183,7 +182,7 @@ def _normalize_item(provider: str, item: dict[str, Any]) -> dict[str, Any]:
     ref = remember_track_reference(
         provider,
         normalized,
-        playable=provider in {"spotify", "apple_music", "netease", "local"},
+        playable=provider in {"spotify", "netease", "local"},
     )
     normalized["ref"] = ref
     return normalized
@@ -347,14 +346,6 @@ def _query_tool_and_args(
             "recent": ("spotify_recent_tracks", {"limit": limit}),
             "devices": ("spotify_devices", {}),
             "playback": ("spotify_current_playback", {}),
-        }
-        return mapping.get(resource, (None, {}))
-    if provider == "apple_music":
-        mapping = {
-            "catalog": ("apple_music_search", {"query": query, "limit": limit}),
-            "account": ("apple_music_account", {}),
-            "recent": ("apple_music_recent_tracks", {"limit": limit}),
-            "playback": ("apple_music_current_playback", {}),
         }
         return mapping.get(resource, (None, {}))
     if provider == "netease":
@@ -627,7 +618,6 @@ def Recommend(
 
     calls: dict[str, Callable[..., dict[str, Any]]] = {
         "spotify": spotify_recommend,
-        "apple_music": apple_music_recommend,
     }
     executor = ThreadPoolExecutor(
         max_workers=max(1, len(connected)),
@@ -810,11 +800,6 @@ def _play_workflow(arguments: dict[str, Any]) -> dict[str, Any]:
             "spotify_play",
             {"query": query or None, "uri": _decode_ref("spotify", ref)},
         )
-    if provider == "apple_music":
-        return registry.invoke_system(
-            "apple_music_play",
-            {"query": query or None, "uri": _decode_ref("apple_music", ref)},
-        )
     if provider == "local":
         if ref:
             local_path = _resolve_local_track(ref)
@@ -861,10 +846,6 @@ def _control_workflow(arguments: dict[str, Any]) -> dict[str, Any]:
         ("spotify", "resume"): "spotify_resume",
         ("spotify", "next"): "spotify_next",
         ("spotify", "previous"): "spotify_previous",
-        ("apple_music", "pause"): "apple_music_pause",
-        ("apple_music", "resume"): "apple_music_resume",
-        ("apple_music", "next"): "apple_music_next",
-        ("apple_music", "previous"): "apple_music_previous",
         ("local", "pause"): "local_playback_pause",
         ("local", "resume"): "local_playback_resume",
         ("local", "stop"): "local_playback_stop",

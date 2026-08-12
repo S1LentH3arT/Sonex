@@ -2,13 +2,9 @@ import { SLASH_COMMANDS } from './constants.js';
 import { localizeSlashCommands } from './i18n.js';
 import type { SlashCommandSuggestion, UiLanguage } from './types.js';
 
-export const SPOTIFY_MODE_COMMAND_NAMES = ["apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend", "spotify"] as const;
-export const APPLE_MODE_COMMAND_NAMES = ["apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "queue", "spotify"] as const;
+export const SPOTIFY_MODE_COMMAND_NAMES = ["bye", "connect", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "spotify"] as const;
 
 const SPOTIFY_MODE_COMMANDS = SPOTIFY_MODE_COMMAND_NAMES.map((name) => (
-    SLASH_COMMANDS.find((command) => command.name === name)
-)).filter((command): command is SlashCommandSuggestion => Boolean(command?.enabled !== false));
-const APPLE_MODE_COMMANDS = APPLE_MODE_COMMAND_NAMES.map((name) => (
     SLASH_COMMANDS.find((command) => command.name === name)
 )).filter((command): command is SlashCommandSuggestion => Boolean(command?.enabled !== false));
 
@@ -33,10 +29,6 @@ export function slashCommandSuggestions(input: string, language: UiLanguage = "e
 
 export function spotifyModeSlashCommands(input: string = "/", language: UiLanguage = "en"): SlashCommandSuggestion[] {
     return commandSuggestionsFrom(SPOTIFY_MODE_COMMANDS, input, language);
-}
-
-export function appleModeSlashCommands(input: string = "/", language: UiLanguage = "en"): SlashCommandSuggestion[] {
-    return commandSuggestionsFrom(APPLE_MODE_COMMANDS, input, language);
 }
 
 /**

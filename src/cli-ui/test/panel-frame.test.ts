@@ -18,8 +18,8 @@ assert.equal(PANEL_TITLE, '#c8a6ff');
 assert.equal(PANEL_PRIMARY, '#fff4f6');
 assert.equal(PANEL_SECONDARY, '#808791');
 assert.equal(
-    withPanelBackground('Apple token input row'),
-    withTrueColorBackground('Apple token input row', '#48273e'),
+    withPanelBackground('provider input row'),
+    withTrueColorBackground('provider input row', '#48273e'),
 );
 assert.equal(
     withPanelBackground('panel row'),
@@ -61,3 +61,15 @@ assert.deepEqual(resolvePanelChoiceSegments(choice, true, true), [{
 }]);
 assert.deepEqual(resolvePanelChoiceSegments(choice, false, false), choice.segments);
 assert.equal(resolvePanelChoiceSegments({ ...choice, unselectedBold: true }, false, false).every((segment) => segment.bold), true);
+
+const statusChoice: PanelChoiceItem = {
+    key: 'provider',
+    segments: [
+        { text: '• ', color: PANEL_SECONDARY, preserveColorWhenSelected: true },
+        { text: 'OpenAI — Not connected', color: PANEL_PRIMARY },
+    ],
+};
+assert.deepEqual(resolvePanelChoiceSegments(statusChoice, true, false), [
+    { text: '• ', color: PANEL_SECONDARY, preserveColorWhenSelected: true, bold: true },
+    { text: 'OpenAI — Not connected', color: '#3b82f6', bold: true },
+]);

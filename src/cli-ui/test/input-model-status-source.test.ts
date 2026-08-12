@@ -21,7 +21,7 @@ const dynamicShellSource = componentsSource.slice(
 
 test('App derives and forwards the current model status', () => {
     assert.match(appSource, /import \{ formatModelStatus \} from '\.\/model-status\.js';/);
-    assert.match(appSource, /const modelStatus = formatModelStatus\(authState\);/);
+    assert.match(appSource, /const modelStatus = formatModelStatus\(authState, displayedTokenUsage\);/);
     assert.match(appSource, /<DynamicShell[\s\S]*modelStatus=\{modelStatus\}/);
 });
 

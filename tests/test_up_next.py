@@ -5,10 +5,29 @@ from __future__ import annotations
 from pathlib import Path
 
 from src.tools.up_next import (
+    append_up_next_track,
     commit_up_next_state,
     fail_up_next_head,
     up_next_snapshot,
 )
+
+
+def test_up_next_accepts_metadata_that_requires_resolution(tmp_path: Path) -> None:
+    path = tmp_path / "up_next.json"
+
+    state = append_up_next_track(
+        {
+            "ref": "metadata:track:legacy",
+            "name": "Legacy Song",
+            "artist": "Artist",
+            "provider": "metadata",
+            "playable": False,
+            "requires_resolution": True,
+        },
+        queue_path=path,
+    )
+
+    assert state["items"][0]["requires_resolution"] is True
 
 
 def test_up_next_persists_revision_and_consumes_only_after_success(tmp_path: Path) -> None:

@@ -149,8 +149,8 @@ def test_modify_up_next_requires_a_playable_reference_and_persists(tmp_path: Pat
         playable=False,
     )
     playable_ref = remember_track_reference(
-        "apple_music",
-        {"name": "Playable Song", "artist": "Artist", "id": "apple-1"},
+        "spotify",
+        {"name": "Playable Song", "artist": "Artist", "uri": "spotify:track:playable"},
         playable=True,
     )
     playlists_patch, up_next_patch = _paths(tmp_path)

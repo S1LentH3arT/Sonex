@@ -3013,7 +3013,7 @@ def play_online_audio_candidate(
             data={"query": candidate.get("query"), "player": player, "method": "online_play", "provider": provider},
         ).to_dict()
 
-    if player != "auto" and not check_player(player):
+    if not check_player(player):
         return ToolResult.error(
             tool="play_youtube_song",
             message=f"Player '{player}' is not ready.",
@@ -3022,14 +3022,7 @@ def play_online_audio_candidate(
         )
 
     audio_path = str(data["audio_path"])
-    if player == "auto":
-        cmd = ["sonex-local-playback", "auto", audio_path]
-    elif player == "mpv":
-        cmd = ["mpv", "--no-video", audio_path]
-    elif player == "cvlc":
-        cmd = ["cvlc", "--no-video", audio_path]
-    else:
-        cmd = [player, "--play-and-exit", audio_path]
+    cmd = ["mpv", "--no-video", audio_path]
     data = {**data, "player": player, "method": "online_play", "source": provider}
     success_message = f"Playing '{data.get('query') or data.get('name')}' online started."
 
@@ -3126,7 +3119,7 @@ def play_youtube_candidate(
             data={"query": candidate.get("query"), "player": player, "method": "online_play", "provider": "youtube"},
         ).to_dict()
 
-    if player != "auto" and not check_player(player):
+    if not check_player(player):
         return ToolResult.error(
             tool="play_youtube_song",
             message=f"Player '{player}' is not ready.",
@@ -3135,14 +3128,7 @@ def play_youtube_candidate(
         )
 
     audio_path = str(data["audio_path"])
-    if player == "auto":
-        cmd = ["sonex-local-playback", "auto", audio_path]
-    elif player == "mpv":
-        cmd = ["mpv", "--no-video", audio_path]
-    elif player == "cvlc":
-        cmd = ["cvlc", "--no-video", audio_path]
-    else:
-        cmd = [player, "--play-and-exit", audio_path]
+    cmd = ["mpv", "--no-video", audio_path]
     data = {**data, "player": player, "method": "online_play", "source": "youtube"}
     success_message = f"Playing '{data.get('query') or data.get('name')}' online started."
 

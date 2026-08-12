@@ -17,11 +17,6 @@ PLAYER_CONFIRM_CHOICES = [
         "label": "mpv",
         "description": "default controllable backend for smooth background playback",
     },
-    {
-        "value": "cvlc",
-        "label": "VLC",
-        "description": "manual diagnostic fallback when VLC is required",
-    },
     {"value": "deny", "label": "Cancel"},
 ]
 
@@ -55,10 +50,8 @@ def player_label(player: str) -> str:
     Example: player_label(player=...) -> returns the value used by the surrounding Sonex flow.
     """
     known = {
-        "auto": "auto local player (mpv default)",
-        "vlc": "VLC",
+        "auto": "mpv",
         "mpv": "mpv",
-        "cvlc": "VLC",
     }
     return known.get(normalize_player(player), player)
 
@@ -73,11 +66,7 @@ def is_player_allowed(player: str) -> bool:
     normalized = normalize_player(player)
     if normalized in _ALLOWED_PLAYERS:
         return True
-    if normalized != "auto":
-        return False
-    from src.music.player_sink_runtime import has_persisted_player_sink
-
-    return has_persisted_player_sink()
+    return normalized == "auto" and "mpv" in _ALLOWED_PLAYERS
 
 
 def remember_player(player: str) -> None:
@@ -87,7 +76,8 @@ def remember_player(player: str) -> None:
 
     Example: remember_player(player=...) -> returns the value used by the surrounding Sonex flow.
     """
-    _ALLOWED_PLAYERS.add(normalize_player(player))
+    normalized = normalize_player(player)
+    _ALLOWED_PLAYERS.add("mpv" if normalized == "auto" else normalized)
 
 
 def _public_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -145,7 +135,7 @@ def normalize_confirm_decision(decision: Any) -> str:
         return "deny"
 
     decision_text = str(decision).strip().lower()
-    if decision_text in {"allow_always", "allow_once", "mpv", "cvlc", "vlc", "deny"}:
+    if decision_text in {"allow_always", "allow_once", "mpv", "deny"}:
         return decision_text
     if decision_text in {"yes", "true", "ok"}:
         return "allow_once"
@@ -208,13 +198,13 @@ def complete_player_confirm(pending_result: dict[str, Any], decision: Any) -> di
             data=_public_data(data),
         ).to_dict()
 
-    selected_player = "cvlc" if normalized == "vlc" else normalized
+    selected_player = normalized
     if selected_player in {"allow_once", "allow_always"}:
         selected_player = player
 
     if normalized == "allow_always":
         remember_player(player)
-    elif selected_player in {"mpv", "cvlc"}:
+    elif selected_player == "mpv":
         remember_player(selected_player)
 
     cmd = data.get("cmd")

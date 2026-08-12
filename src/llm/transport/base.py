@@ -194,7 +194,7 @@ def _resolve_transport_model(model: str, config: ProviderConfig) -> str:
         "anthropic": "anthropic",
         "gemini": "gemini",
         "deepseek": "deepseek",
-        "ollama": "ollama",
+        "custom": None,
     }
     prefix = prefixes.get(config.name)
     if prefix:

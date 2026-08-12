@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import queue
 import random
@@ -18,6 +19,7 @@ import time
 import webbrowser
 from collections import OrderedDict, deque
 from contextlib import suppress
+from contextvars import copy_context
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -28,7 +30,11 @@ from urllib.parse import unquote
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+
+logger = logging.getLogger(__name__)
+
 from src.agent.core import agent_loop
+from src.agent.chat_document import guard_agent_answer, normalize_agent_answer
 from src.agent.events import RunnerEvent, UiStatus
 from src.agent.interactions import (
     INTERRUPTED_INTERACTION_MESSAGE,
@@ -42,10 +48,7 @@ from src.agent.tool_messages import (
     format_tool_batch,
     rejected_commands_message,
 )
-from src.apple_mode import (
-    AppleCandidateDecision,
-    AppleCompanionError,
-    AppleModeService,
+from src.music.provider_mode import (
     ProviderMode,
     ProviderModeCoordinator,
     ProviderModeState,
@@ -53,7 +56,6 @@ from src.apple_mode import (
     load_provider_mode_intent,
     save_provider_mode_intent,
 )
-from src.apple_mode.matching import parse_apple_query
 from src.api.builtin_commands import CommandIntent, command_suggestions, format_help, parse_builtin_command
 from src.api.music_intent import (
     MusicIntentDecision,
@@ -62,20 +64,21 @@ from src.api.music_intent import (
     classify_music_intent_fast,
 )
 from src.api.music_query import build_music_search_query_plan
-from src.apple_mode.token_provider import (
-    DeveloperTokenError,
-    DeveloperTokenNotConfiguredError,
-    save_apple_token_broker_url,
-)
-from src.auth.apple_music import load_apple_music_user_token
 from src.auth.browser_oauth import (
-    BrowserOAuthConfigError,
+    BrowserOAuthPending,
+    begin_browser_oauth,
     browser_oauth_requirements,
     browser_oauth_supported,
-    run_browser_oauth,
+    complete_browser_oauth,
 )
-from src.auth.oauth import ensure_oauth_token_usable
-from src.auth.providers import get_provider_capability, normalize_provider, normalize_provider_model
+from src.auth.oauth import clear_oauth_access_cache, ensure_oauth_token_usable
+from src.auth.providers import (
+    get_provider_capability,
+    normalize_provider,
+    normalize_provider_model,
+    provider_display_name,
+)
+from src.auth.secure_store import credential_storage_backend
 from src.auth.spotify import (
     load_spotify_token,
     save_spotify_app_credentials,
@@ -84,11 +87,42 @@ from src.auth.spotify import (
     spotify_oauth_manager,
     spotify_redirect_uri,
 )
-from src.auth.store import get_provider_auth, load_auth_store, remove_provider, set_api_key, set_default
-from src.llm.models import model_choices_for_provider
+from src.auth.store import (
+    clear_default,
+    get_provider_auth,
+    load_auth_store,
+    remove_provider,
+    remove_provider_method,
+    set_api_key,
+    set_custom_profile,
+    set_default,
+    set_experimental_confirmation,
+    set_managed_auth,
+)
+from src.llm.custom import (
+    custom_profile_id,
+    discover_custom_models,
+    normalize_custom_base_url,
+    test_custom_connection,
+)
+from src.llm.transport.codex_app_server import (
+    CodexAppServer,
+    codex_app_server_status,
+    logout_chatgpt_subscription,
+    start_chatgpt_device_login,
+    wait_for_chatgpt_login,
+)
+from src.llm.models import model_choices_for_provider, model_display_name
 from src.llm.transport import ChatRequest, sanitize_error_message
+from src.llm.usage import reset_token_usage_observer, set_token_usage_observer
 from src.log import sonex_home
-from src.memory.memory import memory_store
+from src.memory.memory import bind_memory_scope, memory_store
+from src.memory.curator import (
+    curate_completed_turn,
+    explicit_memory_operation,
+    memory_operation_message,
+    safe_memory_content,
+)
 from src.music.connections import MusicConnectionManager
 from src.music.netease_worker import NetEaseProviderWorker
 from src.music.playback_coordinator import (
@@ -99,8 +133,6 @@ from src.music.playback_coordinator import (
     rank_authoritative_providers,
     recording_identity_matches,
 )
-from src.music.player_sink_runtime import build_player_sink_manager
-from src.music.player_sinks import PlayerSinkManager, PlayerSinkOption
 from src.sandbox.tool import sandbox_manager
 from src.thinking.config import ThinkingConfig
 from src.tools import registry
@@ -231,9 +263,7 @@ def _play_online_audio_for_runner(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 
 from src.tools.player_permission import complete_player_confirm
-from src.tools.apple_music import remember_recent_track as remember_apple_music_recent_track
 from src.tools.playback_controller import (
-    available_local_playback_backends,
     local_playback_status,
     start_local_playback,
 )
@@ -258,14 +288,12 @@ from src.tools.song_cache import (
     upsert_cached_song,
 )
 from src.ws.constants import (
-    APPLE_PLAYBACK_CONTROL_ACTIONS,
-    APPLE_MUSIC_SETUP_TRIGGERS,
     LLM_AUTH_PROVIDER_CHOICES,
     LLM_AUTH_PROVIDER_VALUES,
     LLM_MODEL_CHOICES,
-    LOCAL_PLAYBACK_BACKENDS,
     LOCAL_PLAYBACK_CHOICES,
     LOCAL_PLAYBACK_CONTROL_TOOLS,
+    PLAYBACK_AGENT_TOOLS,
     RECOMMENDATION_TOOLS,
     SEARCH_RESULT_TOOLS,
     SPOTIFY_PLAYBACK_CONTROL_TOOLS,
@@ -549,7 +577,6 @@ def _extract_music_state(result: Any) -> tuple[dict[str, Any] | None, str | None
             "ended": item.get("ended"),
             "volume_percent": item.get("volume_percent"),
             "spotify_url": item.get("spotify_url"),
-            "apple_music_url": item.get("apple_music_url"),
             "youtube_url": item.get("youtube_url") or (item.get("url") if item.get("provider") == "youtube" else None),
             "url": item.get("url"),
             "stream_url": item.get("stream_url"),
@@ -707,7 +734,6 @@ def _queue_payload() -> list[dict[str, Any]]:
             "stream_url",
             "youtube_url",
             "spotify_url",
-            "apple_music_url",
             "audio_path",
             "file_path",
             "path",
@@ -763,7 +789,6 @@ def playlist_panel_tracks(
             "stream_url",
             "youtube_url",
             "spotify_url",
-            "apple_music_url",
             "audio_path",
             "file_path",
             "path",
@@ -798,8 +823,7 @@ def _search_results_payload(result: Any) -> list[dict[str, Any]]:
                 "uri": track.get("uri"),
                 "provider": track.get("provider") or "spotify",
                 "spotify_url": track.get("spotify_url"),
-                "apple_music_url": track.get("apple_music_url") or track.get("url"),
-                "url": track.get("url") or track.get("spotify_url") or track.get("apple_music_url"),
+                "url": track.get("url") or track.get("spotify_url"),
                 "album_cover_url": track.get("album_cover_url"),
                 "recommendation_reason": track.get("recommendation_reason"),
                 "ref": track.get("ref"),
@@ -848,10 +872,31 @@ def _decorate_player_state(state: dict[str, Any]) -> dict[str, Any]:
 def _remember_actual_playback(player_state: dict[str, Any]) -> None:
     """Updates persisted queue state from accepted playback state."""
     remember_playback_track(player_state)
-    if player_state.get("provider") == "apple_music":
-        remember_apple_music_recent_track(player_state)
-    else:
-        remember_recent_track(player_state)
+    remember_recent_track(player_state)
+
+
+def _record_playback_behavior(
+    ui: WebSocketUIAdapter,
+    player_state: dict[str, Any],
+    *,
+    force: bool = False,
+) -> None:
+    """Records one real playback start, without counting status/control refreshes."""
+    if not player_state.get("is_playing"):
+        return
+    name = str(player_state.get("name") or player_state.get("title") or "").strip()
+    artist = str(player_state.get("artist") or "").strip()
+    provider = str(player_state.get("provider") or player_state.get("source") or "").strip()
+    if not name or name == "-":
+        return
+    behavior_key = (provider.casefold(), name.casefold(), artist.casefold())
+    if not force and getattr(ui, "_last_playback_behavior_key", None) == behavior_key:
+        return
+    setattr(ui, "_last_playback_behavior_key", behavior_key)
+    try:
+        memory_store.record_behavior_signal("played", player_state)
+    except Exception:
+        logger.debug("Unable to persist playback behavior signal.", exc_info=True)
 
 
 def _is_spotify_setup_request(text: str) -> bool:
@@ -863,32 +908,6 @@ def _is_spotify_setup_request(text: str) -> bool:
     """
     normalized = " ".join(text.strip().lower().split())
     return normalized in SPOTIFY_SETUP_TRIGGERS
-
-
-def _is_apple_music_setup_request(text: str) -> bool:
-    """Prepares is apple music setup request for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs is apple music setup request without duplicating the local rules.
-
-    Example: _is_apple_music_setup_request(text=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    normalized = " ".join(text.strip().lower().split())
-    return normalized in APPLE_MUSIC_SETUP_TRIGGERS
-
-
-def _apple_queue_add_query(text: str) -> str | None:
-    value = " ".join(text.strip().split())
-    patterns = (
-        r"^add\s+(.+?)\s+to\s+(?:the\s+)?queue$",
-        r"^(?:把)?(.+?)(?:加入|添加到|加到)(?:播放)?队列$",
-        r"^(?:把)?(.+?)(?:加入|添加到|加到)(?:播放)?佇列$",
-    )
-    for pattern in patterns:
-        match = re.match(pattern, value, flags=re.IGNORECASE)
-        if match:
-            query = match.group(1).strip()
-            return query or None
-    return None
 
 
 def _rule_parse_play_request(text: str) -> PlayRequestParse:
@@ -1085,7 +1104,33 @@ def _env_api_key_for_provider(provider: str) -> str | None:
         return value
     if name == "openai":
         return os.getenv("SONEX_API_KEY") or None
+    if name == "kimi_global":
+        return os.getenv("SONEX_KIMI_API_KEY") or None
+    if name == "minimax_global":
+        return os.getenv("SONEX_MINIMAX_API_KEY") or None
     return None
+
+
+def _provider_credentials_available(provider: str) -> bool:
+    """Return local credential availability without making a network request."""
+    name = normalize_provider(provider)
+    store = load_auth_store()
+    if name == "custom":
+        return any(
+            key.startswith("custom__") and not profile.needs_review
+            for key, profile in store.providers.items()
+        )
+    auth = get_provider_auth(store, name)
+    return bool(
+        _env_api_key_for_provider(name)
+        or auth and (auth.api_key or auth.oauth or auth.managed_auth)
+    )
+
+
+def _provider_has_saved_credentials(provider: str) -> bool:
+    name = normalize_provider(provider)
+    auth = get_provider_auth(load_auth_store(), name)
+    return bool(auth and (auth.api_key or auth.oauth or auth.managed_auth))
 
 
 def _set_runtime_default_provider(provider: str, model: str | None = None) -> None:
@@ -1120,6 +1165,25 @@ def _resolved_provider_model() -> tuple[str, str]:
     return provider, str(model)
 
 
+def _runtime_auth_state(
+    ready: bool,
+    provider: str,
+    model: str,
+    auth_type: str,
+    credential_source: str,
+    reason: str | None = None,
+) -> AuthRuntimeState:
+    return AuthRuntimeState(
+        ready,
+        provider,
+        model,
+        auth_type,
+        credential_source,
+        reason,
+        model_display_name(provider, model),
+    )
+
+
 def _llm_auth_state() -> AuthRuntimeState:
     """Prepares llm auth state for an internal Sonex flow.
 
@@ -1131,16 +1195,16 @@ def _llm_auth_state() -> AuthRuntimeState:
 
     capability = get_provider_capability(provider)
     if not capability.requires_auth:
-        return AuthRuntimeState(True, provider, model, "local", "local")
+        return _runtime_auth_state(True, provider, model, "local", "local")
 
     if _env_api_key_for_provider(provider):
-        return AuthRuntimeState(True, provider, model, "api_key", "env")
+        return _runtime_auth_state(True, provider, model, "api_key", "env")
 
     try:
         store = load_auth_store()
         auth = get_provider_auth(store, provider)
     except Exception as exc:
-        return AuthRuntimeState(
+        return _runtime_auth_state(
             False,
             provider,
             model,
@@ -1149,16 +1213,45 @@ def _llm_auth_state() -> AuthRuntimeState:
             sanitize_error_message(exc),
         )
 
-    if auth and auth.api_key:
-        return AuthRuntimeState(True, provider, auth.model or model, "api_key", "auth.json")
-    if auth and auth.oauth and auth.oauth.access_token:
+    if auth and auth.auth_method in {"auto", "api_key"} and auth.api_key:
+        return _runtime_auth_state(True, provider, auth.model or model, "api_key", "auth.json")
+    if (
+        auth
+        and auth.auth_method == "oauth"
+        and auth.managed_auth == "codex_app_server"
+        and provider == "openai"
+    ):
+        available, reason = codex_app_server_status()
+        return _runtime_auth_state(
+            available,
+            provider,
+            auth.model or model,
+            "oauth",
+            "auth.json",
+            reason,
+        )
+    if auth and auth.auth_method in {"auto", "oauth"} and auth.oauth:
         try:
-            ensure_oauth_token_usable(provider, auth.oauth)
+            ensure_oauth_token_usable(provider, auth.oauth, project_id=auth.project_id)
         except Exception as exc:
-            return AuthRuntimeState(False, provider, auth.model or model, "oauth", "auth.json", sanitize_error_message(exc))
-        return AuthRuntimeState(True, provider, auth.model or model, "oauth", "auth.json")
+            return _runtime_auth_state(False, provider, auth.model or model, "oauth", "auth.json", sanitize_error_message(exc))
+        return _runtime_auth_state(True, provider, auth.model or model, "oauth", "auth.json")
+    if (
+        auth
+        and provider.startswith("custom__")
+        and auth.base_url
+        and auth.model
+        and not auth.needs_review
+    ):
+        return _runtime_auth_state(
+            True,
+            provider,
+            auth.model,
+            "api_key" if auth.api_key else "none",
+            "auth.json",
+        )
 
-    return AuthRuntimeState(
+    return _runtime_auth_state(
         False,
         provider,
         model,
@@ -1185,7 +1278,7 @@ def _format_runtime_info(state: AuthRuntimeState, cwd: Path | None = None) -> st
     return "\n".join(
         (
             "Sonex runtime:",
-            f"Model: {state.model}",
+            f"Model: {state.model_label or state.model}",
             f"Provider: {state.provider}",
             f"Auth: {state.auth_type}",
             f"CWD: {_display_working_directory(cwd)}",
@@ -1212,12 +1305,86 @@ def _auth_methods_for_provider(provider: str) -> list[dict[str, str]]:
     Example: _auth_methods_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     capability = get_provider_capability(provider)
+    name = normalize_provider(provider)
+    auth = get_provider_auth(load_auth_store(), name)
     methods: list[dict[str, str]] = []
-    if capability.supports_oauth and browser_oauth_supported(provider):
-        methods.append({"value": "oauth", "label": "OAuth"})
+    if name == "custom":
+        return [
+            {"value": "none", "label": "No authentication"},
+            {"value": "api_key", "label": "Bearer API key"},
+        ]
+    if name == "openai":
+        available, reason = codex_app_server_status()
+        label = "ChatGPT Subscription (Experimental)"
+        if auth and auth.managed_auth == "codex_app_server":
+            label += " — Connected"
+        if available:
+            methods.append({"value": "oauth", "label": label})
+        else:
+            methods.append({
+                "value": "__unavailable_oauth__",
+                "label": f"{label} — Unavailable",
+                "description": reason or "Codex App Server is unavailable.",
+            })
+    elif capability.supports_oauth and browser_oauth_supported(provider):
+        base_label = "Google OAuth (Preview)" if name == "gemini" else "OAuth"
+        label = f"{base_label} — Connected" if auth and auth.oauth else base_label
+        methods.append({"value": "oauth", "label": label})
     if capability.supports_api_key:
-        methods.append({"value": "api_key", "label": "API key"})
+        api_key_connected = bool(_env_api_key_for_provider(name) or auth and auth.api_key)
+        label = "API key — Connected" if api_key_connected else "API key"
+        methods.append({"value": "api_key", "label": label})
+    if auth and auth.managed_auth:
+        methods.append({"value": "disconnect_oauth", "label": "Disconnect ChatGPT Subscription"})
+    elif auth and auth.oauth:
+        methods.append({"value": "disconnect_oauth", "label": "Disconnect OAuth"})
+    if auth and auth.api_key:
+        methods.append({"value": "disconnect_api_key", "label": "Disconnect API key"})
     return methods
+
+
+def _provider_choices_with_status() -> list[dict[str, Any]]:
+    """Build the /login provider picker with connection status."""
+    active_provider = _default_provider_name()
+    choices: list[dict[str, Any]] = []
+    for choice in LLM_AUTH_PROVIDER_CHOICES:
+        value = choice["value"]
+        available = _provider_credentials_available(value)
+        active = available and active_provider == value
+        if value == "custom":
+            active = available and active_provider.startswith("custom__")
+        status = "active" if active else "saved" if available else "missing"
+        suffix = {"active": "Active", "saved": "Saved", "missing": "Not connected"}[status]
+        label = f"{choice['label']} — {suffix}"
+        choices.append({
+            **choice,
+            "label": label,
+            "connected": available,
+            "connection_status": status,
+        })
+    return choices
+
+
+_API_KEY_SIGNUP_URLS = {
+    "openai": "https://platform.openai.com/api-keys",
+    "gemini": "https://aistudio.google.com/app/apikey",
+    "anthropic": "https://platform.claude.com/settings/keys",
+    "deepseek": "https://platform.deepseek.com/",
+    "openrouter": "https://openrouter.ai/keys",
+    "zai": "https://z.ai/",
+    "kimi_global": "https://platform.kimi.ai/",
+    "kimi_cn": "https://platform.moonshot.cn/",
+    "minimax_global": "https://platform.minimax.io/",
+    "minimax_cn": "https://platform.minimaxi.com/",
+    "xai": "https://console.x.ai/",
+}
+
+
+def _api_key_help_text(provider: str) -> str | None:
+    signup_url = _API_KEY_SIGNUP_URLS.get(normalize_provider(provider))
+    if not signup_url:
+        return None
+    return f"Haven't got an API Key? Get one at {signup_url}."
 
 
 def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
@@ -1228,7 +1395,18 @@ def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
     Example: _model_choices_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
     name = normalize_provider(provider)
-    if name in {"openai", "anthropic", "gemini", "deepseek"}:
+    if name.startswith("custom__"):
+        auth = get_provider_auth(load_auth_store(), name)
+        if auth:
+            label = auth.display_name or "Custom"
+            return [
+                {"value": f"{name}::{model}", "label": model, "provider": label}
+                for model in auth.model_ids
+            ]
+    if name in {
+        "openai", "anthropic", "gemini", "deepseek", "openrouter", "zai",
+        "kimi_global", "kimi_cn", "minimax_global", "minimax_cn", "xai",
+    }:
         ThinkingConfig.reload()
         config = ThinkingConfig.get_provider_config(name)
         return model_choices_for_provider(config)
@@ -1364,6 +1542,7 @@ class SpotifySetupSession:
         *,
         on_connected: Callable[[dict[str, Any]], Any] | None = None,
         on_completed: Callable[[dict[str, Any]], Any] | None = None,
+        emit_feedback: bool = True,
     ) -> None:
         """Prepares init for an internal Sonex flow.
 
@@ -1375,8 +1554,11 @@ class SpotifySetupSession:
         self.client_id: str | None = None
         self.step = "client_id"
         self.oauth_task: asyncio.Task[None] | None = None
+        self.browser_oauth_pending: BrowserOAuthPending | None = None
+        self.codex_server: CodexAppServer | None = None
         self.on_connected = on_connected
         self.on_completed = on_completed
+        self.emit_feedback = emit_feedback
 
     async def start(self) -> None:
         """Coordinates start for the current Sonex flow.
@@ -1390,12 +1572,13 @@ class SpotifySetupSession:
             "Open https://developer.spotify.com/dashboard, create an app, and add this Redirect URI: "
             f"{redirect_uri}. Then paste the Client ID below."
         )
-        await self.ui.append_activity(
-            kind="status",
-            title="Spotify setup",
-            detail=message,
-            status="pending",
-        )
+        if self.emit_feedback:
+            await self.ui.append_activity(
+                kind="status",
+                title="Spotify setup",
+                detail=message,
+                status="pending",
+            )
         await self.ui.send_spotify_setup(
             step="client_id",
             title="Spotify setup",
@@ -1410,7 +1593,8 @@ class SpotifySetupSession:
             "Spotify authorization must be renewed for these permissions: "
             f"{scopes}. Continue in this chat, then approve access on the Spotify authorization page."
         )
-        await self.ui.append_system_message(message)
+        if self.emit_feedback:
+            await self.ui.append_system_message(message)
         try:
             authorize_url, expected_state = spotify_authorize_url()
         except Exception:
@@ -1418,12 +1602,13 @@ class SpotifySetupSession:
             return
 
         self.step = "oauth"
-        await self.ui.append_activity(
-            kind="status",
-            title="Spotify reauthorization",
-            detail="Opening Spotify authorization and waiting for the loopback callback.",
-            status="pending",
-        )
+        if self.emit_feedback:
+            await self.ui.append_activity(
+                kind="status",
+                title="Spotify reauthorization",
+                detail="Opening Spotify authorization and waiting for the loopback callback.",
+                status="pending",
+            )
         await self.ui.send_spotify_setup(
             step="oauth",
             title="Authorize Spotify",
@@ -1501,12 +1686,13 @@ class SpotifySetupSession:
             )
             return
 
-        await self.ui.append_activity(
-            kind="status",
-            title="Spotify credentials saved",
-            detail="Opening Spotify authorization and waiting for the loopback callback.",
-            status="pending",
-        )
+        if self.emit_feedback:
+            await self.ui.append_activity(
+                kind="status",
+                title="Spotify credentials saved",
+                detail="Opening Spotify authorization and waiting for the loopback callback.",
+                status="pending",
+            )
         await self.ui.send_spotify_setup(
             step="oauth",
             title="Authorize Spotify",
@@ -1537,12 +1723,13 @@ class SpotifySetupSession:
                     "message": sanitize_error_message(exc),
                 }
             )
-            await self.ui.append_activity(
-                kind="error",
-                title="Spotify authorization failed",
-                detail=sanitize_error_message(exc),
-                status="error",
-            )
+            if self.emit_feedback:
+                await self.ui.append_activity(
+                    kind="error",
+                    title="Spotify authorization failed",
+                    detail=sanitize_error_message(exc),
+                    status="error",
+                )
             await self.ui.send_spotify_setup(
                 step="done",
                 title="Spotify setup failed",
@@ -1560,12 +1747,13 @@ class SpotifySetupSession:
                 "Spotify authorization was saved, but account verification could not complete. "
                 f"{failure} Run /spotify again when Spotify is reachable."
             )
-            await self.ui.append_activity(
-                kind="error",
-                title="Spotify verification pending",
-                detail=message,
-                status="error",
-            )
+            if self.emit_feedback:
+                await self.ui.append_activity(
+                    kind="error",
+                    title="Spotify verification pending",
+                    detail=message,
+                    status="error",
+                )
             await self.ui.send_spotify_setup(
                 step="done",
                 title="Spotify authorized; verification pending",
@@ -1588,12 +1776,13 @@ class SpotifySetupSession:
             callback_result = self.on_connected(data)
             if asyncio.iscoroutine(callback_result):
                 await callback_result
-        await self.ui.append_activity(
-            kind="status",
-            title="Spotify connected",
-            detail=f"Account product: {product}",
-            status="success",
-        )
+        if self.emit_feedback:
+            await self.ui.append_activity(
+                kind="status",
+                title="Spotify connected",
+                detail=f"Account product: {product}",
+                status="success",
+            )
         await self.ui.send_spotify_setup(
             step="done",
             title="Spotify connected",
@@ -1623,129 +1812,6 @@ class SpotifySetupSession:
             await callback_result
 
 
-class AppleMusicSetupSession:
-    """Represents apple music setup session.
-
-    Encapsulates apple music setup session data and behavior used by Sonex runtime flows.
-    """
-    def __init__(
-        self,
-        ui: WebSocketUIAdapter,
-        *,
-        on_configured: Callable[[], Any] | None = None,
-    ) -> None:
-        """Prepares init for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
-
-        Example: __init__(ui=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        self.ui = ui
-        self.step = "token_service_url"
-        self.on_configured = on_configured
-
-    async def start(self) -> None:
-        """Coordinates start for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await start() -> returns the value used by the surrounding Sonex flow.
-        """
-        message = (
-            "Enter the Apple developer-token service URL used by Apple Mode. "
-            "Sonex stores only this URL; short-lived developer tokens remain in memory. "
-            "SONEX_APPLE_TOKEN_BROKER_URL remains available and takes precedence when set."
-        )
-        await self.ui.append_activity(
-            kind="status",
-            title="Apple Music token setup",
-            detail=message,
-            status="pending",
-        )
-        await self.ui.send_auth_setup(
-            provider="apple_music",
-            step=self.step,
-            title="Apple Music token setup",
-            message=message,
-            prompt="Apple token service URL",
-            mask=False,
-        )
-
-    async def handle_input(self, value: str) -> None:
-        """Coordinates handle input for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs handle input as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        value = value.strip()
-        if value.casefold() in {"__cancel__", "cancel"}:
-            await self._cancel()
-            return
-        if not value:
-            await self._repeat("Input cannot be empty.")
-            return
-        try:
-            save_apple_token_broker_url(value)
-        except DeveloperTokenError as exc:
-            await self._repeat(sanitize_error_message(exc))
-            return
-        except Exception as exc:
-            await self._repeat(sanitize_error_message(exc))
-            return
-        await self._finish("Apple Mode token service URL saved.")
-
-    async def _cancel(self) -> None:
-        """Cancel Apple token setup and hide its terminal panel."""
-        message = "Apple Music token setup canceled. Setup panel hidden."
-        await self.ui.send_auth_setup(
-            provider="apple_music",
-            step="cancelled",
-            title="Apple Music token setup",
-            message=message,
-            active=False,
-        )
-        await self.ui.append_system_message(message)
-        setattr(self.ui, "_apple_music_setup", None)
-
-    async def _repeat(self, message: str) -> None:
-        """Keep the Apple token URL prompt active after invalid input."""
-        await self.ui.send_auth_setup(
-            provider="apple_music",
-            step=self.step,
-            title="Apple Music token setup",
-            message=message,
-            prompt="Apple token service URL",
-            mask=False,
-        )
-
-    async def _finish(self, message: str) -> None:
-        """Prepares finish for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs finish without duplicating the local rules.
-
-        Example: await _finish(message=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        await self.ui.append_activity(
-            kind="status",
-            title="Apple Music token configured",
-            detail=message,
-            status="success",
-        )
-        await self.ui.send_auth_setup(
-            provider="apple_music",
-            step="done",
-            title="Apple Music token configured",
-            message=message,
-            active=False,
-        )
-        setattr(self.ui, "_apple_music_setup", None)
-        if self.on_configured is not None:
-            callback_result = self.on_configured()
-            if asyncio.iscoroutine(callback_result):
-                await callback_result
-
-
 class OpenAudioSetupSession:
     """Represents open audio setup session.
 
@@ -1757,6 +1823,7 @@ class OpenAudioSetupSession:
         provider: str,
         *,
         on_completed: Callable[[dict[str, Any]], Any] | None = None,
+        emit_feedback: bool = True,
     ) -> None:
         """Prepares init for an internal Sonex flow.
 
@@ -1768,6 +1835,7 @@ class OpenAudioSetupSession:
         self.provider = provider
         self.display_name = "Jamendo" if provider == "jamendo" else "Audius"
         self.on_completed = on_completed
+        self.emit_feedback = emit_feedback
 
     def _prompt_label(self) -> str:
         """Prepares prompt label for an internal Sonex flow.
@@ -1804,12 +1872,13 @@ class OpenAudioSetupSession:
         """
         label = self._prompt_label()
         message = self._setup_message()
-        await self.ui.append_activity(
-            kind="status",
-            title=f"{self.display_name} setup",
-            detail=message,
-            status="pending",
-        )
+        if self.emit_feedback:
+            await self.ui.append_activity(
+                kind="status",
+                title=f"{self.display_name} setup",
+                detail=message,
+                status="pending",
+            )
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="api_key",
@@ -1828,6 +1897,11 @@ class OpenAudioSetupSession:
         """
         value = value.strip()
         if value.casefold() in {"__cancel__", "cancel"}:
+            if self.oauth_task and not self.oauth_task.done():
+                self.oauth_task.cancel()
+            if self.codex_server:
+                await asyncio.to_thread(self.codex_server.close)
+                self.codex_server = None
             await self.ui.send_auth_setup(
                 provider=self.provider,
                 step="cancelled",
@@ -1866,12 +1940,13 @@ class OpenAudioSetupSession:
                 mask=False,
             )
             return
-        await self.ui.append_activity(
-            kind="status",
-            title=f"{self.display_name} configured",
-            detail=f"{self.display_name} is configured for online playback.",
-            status="success",
-        )
+        if self.emit_feedback:
+            await self.ui.append_activity(
+                kind="status",
+                title=f"{self.display_name} configured",
+                detail=f"{self.display_name} is configured for online playback.",
+                status="success",
+            )
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="done",
@@ -1923,21 +1998,23 @@ class ModelSelectionSession:
         Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
         self.provider = _default_provider_name()
-        if normalize_provider(self.provider) == "deepseek":
+        if not _provider_credentials_available(self.provider):
+            await self._append_not_connected_caution(self.provider)
+            setattr(self.ui, "_model_setup", None)
+            return
+        provider_name = normalize_provider(self.provider)
+        if provider_name in {
+            "deepseek", "openrouter", "zai", "kimi_global", "kimi_cn",
+            "minimax_global", "minimax_cn", "xai",
+        }:
             self.model_choices = await asyncio.to_thread(_model_choices_for_provider, self.provider)
         else:
             self.model_choices = _model_choices_for_provider(self.provider)
-        await self.ui.append_activity(
-            kind="status",
-            title="Switch model",
-            detail=f"Choose a {self.provider} model for the current session.",
-            status="pending",
-        )
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="model",
             title="Switch model",
-            message=f"Choose a {self.provider} model. Use Up/Down to see more options.",
+            message=f"Choose a {provider_display_name(self.provider)} model.",
             prompt="Model",
             models=self.model_choices,
         )
@@ -1967,27 +2044,38 @@ class ModelSelectionSession:
             return
 
         provider, model = parsed
+        if provider != normalize_provider(self.provider) or not _provider_credentials_available(provider):
+            await self._append_not_connected_caution(provider)
+            setattr(self.ui, "_model_setup", None)
+            return
         _set_runtime_default_provider(provider, model)
         ThinkingConfig.reload()
         state = _llm_auth_state()
-        ready_detail = f"Using {model} via {provider}."
-        if not state.ready:
-            ready_detail = f"Using {model} via {provider}. Credentials are needed before the next agent turn."
-        await self.ui.append_activity(
-            kind="status",
-            title="Model switched",
-            detail=ready_detail,
-            status="success",
+        selected_choice = next(
+            (choice for choice in self.model_choices if choice.get("value") == f"{provider}::{model}"),
+            None,
+        )
+        display_model = str((selected_choice or {}).get("label") or state.model_label or model)
+        display_provider = str(
+            (selected_choice or {}).get("provider") or provider_display_name(provider)
+        )
+        await self.ui.append_system_message(
+            f"✔  Model has been switched to {display_provider}: {display_model.rstrip('.')}."
         )
         await self.ui.send_auth_state(state)
         await self.ui.send_auth_setup(
             provider=provider,
-            step="done",
-            title="Model switched",
-            message=ready_detail,
+            step="model",
+            title="Switch model",
+            message="",
             active=False,
         )
         setattr(self.ui, "_model_setup", None)
+
+    async def _append_not_connected_caution(self, provider: str) -> None:
+        await self.ui.append_caution_message(
+            f'✖  {provider_display_name(provider)} is not connected. Try "/login" to connect.'
+        )
 
 class AuthSetupSession:
     """Represents auth setup session.
@@ -2008,6 +2096,15 @@ class AuthSetupSession:
         self.step = "method"
         self.method: str | None = None
         self.oauth_task: asyncio.Task[None] | None = None
+        self.custom_name: str | None = None
+        self.custom_base_url: str | None = None
+        self.custom_api_key: str | None = None
+        self.custom_models: list[str] = []
+        self.custom_allow_insecure_http = False
+        self.custom_timeout: float | None = None
+        self.google_project_id: str | None = None
+        self.provider_base_url: str | None = None
+        self.credential_fallback_warned = False
 
     async def start(self, reason: str | None = None) -> None:
         """Coordinates start for the current Sonex flow.
@@ -2028,8 +2125,8 @@ class AuthSetupSession:
 
         await self.ui.append_activity(
             kind="status",
-            title=f"{self.provider} sign-in required",
-            detail=reason or f"Sign in to {self.provider} before chatting.",
+            title=f"{provider_display_name(self.provider)} sign-in required",
+            detail=reason or f"Sign in to {provider_display_name(self.provider)} before chatting.",
             status="pending",
         )
         await self._continue_provider_auth(reason)
@@ -2046,9 +2143,9 @@ class AuthSetupSession:
             provider=self.provider,
             step="provider",
             title="Connect Sonex",
-            message=reason or "Choose a model provider. Type openai, anthropic, gemini, deepseek, or ollama.",
+            message=reason or "Choose a model provider.",
             prompt="Model provider",
-            providers=LLM_AUTH_PROVIDER_CHOICES,
+            providers=_provider_choices_with_status(),
         )
 
     async def _continue_provider_auth(self, reason: str | None = None) -> None:
@@ -2058,6 +2155,24 @@ class AuthSetupSession:
 
         Example: await _continue_provider_auth(reason=...) -> returns the value used by the surrounding Sonex flow.
         """
+        if self.provider == "custom":
+            await self._prompt_custom_profiles(reason)
+            return
+
+        if self.pending_input is None and _provider_credentials_available(self.provider):
+            is_active = _default_provider_name() == self.provider
+            if not is_active or not _provider_has_saved_credentials(self.provider):
+                await self._finish()
+                return
+
+        if (
+            self.provider == "zai"
+            and self.provider_base_url is None
+            and not _provider_credentials_available(self.provider)
+        ):
+            await self._prompt_zai_service()
+            return
+
         capability = get_provider_capability(self.provider)
         if not capability.requires_auth:
             await self._finish()
@@ -2069,7 +2184,7 @@ class AuthSetupSession:
             await self.ui.send_auth_setup(
                 provider=self.provider,
                 step="method",
-                title=f"Connect {self.provider}",
+                title=f"Connect {provider_display_name(self.provider)}",
                 message="Choose an authentication method. Type oauth or api_key.",
                 prompt="oauth or api_key",
                 methods=methods,
@@ -2105,25 +2220,215 @@ class AuthSetupSession:
         if not value:
             await self._repeat("Input cannot be empty.")
             return
+        if value.casefold() in {"__cancel__", "cancel"}:
+            setattr(self.ui, "_auth_setup", None)
+            return
 
         if self.step == "provider":
             normalized = normalize_provider(value)
             if normalized not in LLM_AUTH_PROVIDER_VALUES:
-                await self._prompt_provider("Type one of: openai, anthropic, gemini, deepseek, or ollama.")
+                await self._prompt_provider("Choose a listed model provider.")
                 return
             self.provider = normalized
             self.method = None
-            try:
-                _set_runtime_default_provider(self.provider)
-                ThinkingConfig.reload()
-            except Exception as exc:
-                await self._prompt_provider(sanitize_error_message(exc))
-                return
             await self._continue_provider_auth()
+            return
+
+        if self.step == "zai_service":
+            endpoints = {
+                "api": "https://api.z.ai/api/paas/v4",
+                "coding_plan": "https://api.z.ai/api/coding/paas/v4",
+            }
+            self.provider_base_url = endpoints.get(value)
+            if self.provider_base_url is None:
+                await self._prompt_zai_service("Choose API or Coding Plan.")
+                return
+            self.method = "api_key"
+            await self._prompt_api_key()
+            return
+
+        if self.step == "custom_profile":
+            if value == "__add_custom__":
+                self.step = "custom_name"
+                await self.ui.send_auth_setup(
+                    provider="custom",
+                    step="custom_name",
+                    title="Add custom connection",
+                    message="Enter a unique connection name.",
+                    prompt="Connection name",
+                )
+                return
+            if value.startswith("__disconnect_custom__:"):
+                profile_id = value.partition(":")[2]
+                auth = get_provider_auth(load_auth_store(), profile_id)
+                if not auth or not profile_id.startswith("custom__"):
+                    await self._prompt_custom_profiles("That Custom connection no longer exists.")
+                    return
+                remove_provider(profile_id)
+                ThinkingConfig.reload()
+                await self._prompt_custom_profiles(
+                    f"{auth.display_name or profile_id} disconnected and removed."
+                )
+                return
+            auth = get_provider_auth(load_auth_store(), value)
+            if not value.startswith("custom__") or not auth or not auth.base_url or not auth.model:
+                await self._prompt_custom_profiles("Choose a saved connection or Add custom connection.")
+                return
+            if auth.needs_review:
+                await self._prompt_custom_profiles(
+                    f"{auth.display_name or value} needs review before it can be used."
+                )
+                return
+            self.provider = value
+            await self._finish()
+            return
+
+        if self.step == "custom_name":
+            try:
+                profile_id = custom_profile_id(value)
+            except ValueError as exc:
+                await self._repeat(sanitize_error_message(exc))
+                return
+            if profile_id in load_auth_store().providers:
+                await self._repeat("That Custom connection name already exists.")
+                return
+            self.provider = profile_id
+            self.custom_name = value
+            self.step = "custom_base_url"
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_base_url",
+                title=f"Connect {value}",
+                message="Enter an OpenAI-compatible base URL, for example http://127.0.0.1:11434/v1.",
+                prompt="Base URL",
+            )
+            return
+
+        if self.step == "custom_base_url":
+            try:
+                endpoint = normalize_custom_base_url(value)
+            except ValueError as exc:
+                await self._repeat(sanitize_error_message(exc))
+                return
+            self.custom_base_url = endpoint.base_url
+            if endpoint.insecure_remote:
+                self.step = "custom_insecure"
+                await self.ui.send_auth_setup(
+                    provider="custom",
+                    step="method",
+                    title="Insecure Custom endpoint",
+                    message=(
+                        "This remote endpoint uses plain HTTP. Credentials and prompts can be intercepted. "
+                        "Continue only if you trust the network."
+                    ),
+                    prompt="Continue or go back",
+                    methods=[
+                        {"value": "continue_insecure", "label": "Continue insecurely"},
+                        {"value": "back", "label": "Back"},
+                    ],
+                )
+                return
+            await self._prompt_custom_auth()
+            return
+
+        if self.step == "custom_insecure":
+            if value == "back":
+                self.step = "custom_base_url"
+                await self.ui.send_auth_setup(
+                    provider="custom",
+                    step="custom_base_url",
+                    title=f"Connect {self.custom_name or 'Custom'}",
+                    message="Enter an HTTPS endpoint or a localhost HTTP endpoint.",
+                    prompt="Base URL",
+                )
+                return
+            if value != "continue_insecure":
+                await self._repeat("Choose Continue insecurely or Back.")
+                return
+            self.custom_allow_insecure_http = True
+            await self._prompt_custom_auth()
+            return
+
+        if self.step == "custom_auth":
+            if value not in {"none", "api_key"}:
+                await self._repeat("Choose No authentication or Bearer API key.")
+                return
+            self.method = value
+            if value == "api_key":
+                self.step = "custom_api_key"
+                await self.ui.send_auth_setup(
+                    provider="custom",
+                    step="custom_api_key",
+                    title=f"Authenticate {self.custom_name or 'Custom'}",
+                    message="Enter the Bearer API key for this endpoint.",
+                    prompt="API Key",
+                    placeholder="paste your key here",
+                    mask=True,
+                )
+                return
+            self.custom_api_key = None
+            await self._prompt_custom_timeout()
+            return
+
+        if self.step == "custom_api_key":
+            self.custom_api_key = value
+            await self._prompt_custom_timeout()
+            return
+
+        if self.step == "custom_timeout":
+            if value.casefold() == "default":
+                self.custom_timeout = None
+            else:
+                try:
+                    timeout = float(value)
+                except ValueError:
+                    await self._repeat("Enter a timeout from 1 to 600 seconds, or type default.")
+                    return
+                if not 1 <= timeout <= 600:
+                    await self._repeat("Enter a timeout from 1 to 600 seconds, or type default.")
+                    return
+                self.custom_timeout = timeout
+            await self._discover_custom_models()
+            return
+
+        if self.step == "custom_model":
+            if value == "__manual_model__":
+                await self._prompt_custom_model()
+                return
+            if value not in self.custom_models:
+                await self._repeat("Choose a discovered model or enter a Model ID.")
+                return
+            await self._save_custom_profile(value)
+            return
+
+        if self.step == "custom_model_manual":
+            await self._save_custom_profile(value)
             return
 
         if self.step == "method":
             normalized = value.lower().replace("-", "_")
+            if normalized == "__unavailable_oauth__":
+                _available, reason = codex_app_server_status()
+                await self._repeat(reason or "OpenAI ChatGPT Subscription is unavailable.")
+                return
+            if normalized in {"disconnect_oauth", "disconnect_api_key"}:
+                method = normalized.removeprefix("disconnect_")
+                try:
+                    if self.provider == "openai" and method == "oauth":
+                        await asyncio.to_thread(logout_chatgpt_subscription)
+                    removed = remove_provider_method(self.provider, method)
+                    if method == "oauth":
+                        clear_oauth_access_cache(self.provider)
+                    ThinkingConfig.reload()
+                except Exception as exc:
+                    await self._repeat(sanitize_error_message(exc))
+                    return
+                await self._continue_provider_auth(
+                    f"{method.replace('_', ' ').title()} disconnected."
+                    if removed
+                    else "That authentication method was not connected."
+                )
+                return
             if normalized not in {"oauth", "api_key"}:
                 await self._repeat("Type oauth or api_key.")
                 return
@@ -2136,14 +2441,83 @@ class AuthSetupSession:
                 return
             self.method = normalized
             if normalized == "oauth":
-                await self._start_browser_oauth()
+                if self.provider == "openai":
+                    auth = get_provider_auth(load_auth_store(), "openai")
+                    if not auth or not auth.experimental_confirmed:
+                        self.step = "openai_experimental_confirm"
+                        await self.ui.send_auth_setup(
+                            provider="openai",
+                            step="method",
+                            title="ChatGPT Subscription (Experimental)",
+                            message=(
+                                "This connection uses Sonex's isolated Codex App Server runtime. "
+                                "It may change with upstream protocol updates and does not use API-key billing."
+                            ),
+                            prompt="Continue or go back",
+                            methods=[
+                                {"value": "continue_experimental", "label": "Continue"},
+                                {"value": "back", "label": "Back"},
+                            ],
+                        )
+                    else:
+                        await self._start_openai_oauth()
+                elif self.provider == "gemini":
+                    configured_project = (
+                        os.getenv("SONEX_GOOGLE_CLOUD_PROJECT")
+                        or os.getenv("SONEX_GEMINI_PROJECT_ID")
+                    )
+                    if configured_project:
+                        self.google_project_id = configured_project.strip()
+                        await self._start_browser_oauth()
+                    else:
+                        self.step = "google_project"
+                        await self.ui.send_auth_setup(
+                            provider=self.provider,
+                            step="google_project",
+                            title="Google Cloud project",
+                            message=(
+                                "Enter the Google Cloud project ID that owns Gemini API access and billing. "
+                                "Sonex will validate access but will not create a project or enable billing."
+                            ),
+                            prompt="Google Cloud project ID",
+                        )
+                else:
+                    await self._start_browser_oauth()
             else:
                 await self._prompt_api_key()
             return
 
+        if self.step == "openai_experimental_confirm":
+            if value == "back":
+                self.step = "method"
+                self.method = None
+                await self._continue_provider_auth()
+                return
+            if value != "continue_experimental":
+                await self._repeat("Choose Continue or Back.")
+                return
+            set_experimental_confirmation("openai")
+            await self._start_openai_oauth()
+            return
+
+        if self.step == "google_project":
+            if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", value):
+                await self._repeat(
+                    "Enter a valid Google Cloud project ID (6-30 lowercase letters, digits, or hyphens)."
+                )
+                return
+            self.google_project_id = value
+            await self._start_browser_oauth()
+            return
         if self.step == "api_key":
             try:
-                set_api_key(self.provider, value)
+                capability = get_provider_capability(self.provider)
+                set_api_key(
+                    self.provider,
+                    value,
+                    base_url=self.provider_base_url or capability.default_base_url,
+                    custom_llm_provider=capability.default_custom_llm_provider,
+                )
                 _set_runtime_default_provider(self.provider)
                 ThinkingConfig.reload()
             except Exception as exc:
@@ -2158,6 +2532,147 @@ class AuthSetupSession:
                 await self._prompt_api_key()
                 return
             await self._repeat("OAuth is already in progress. Finish the browser flow, or type api_key to use an API key.")
+            return
+
+        if self.step == "oauth_callback":
+            if self.browser_oauth_pending is None:
+                self.method = None
+                self.step = "method"
+                await self._repeat("OAuth session expired. Start OAuth again.")
+                return
+            try:
+                await asyncio.to_thread(
+                    complete_browser_oauth,
+                    self.browser_oauth_pending,
+                    value,
+                    project_id=self.google_project_id,
+                )
+                _set_runtime_default_provider(self.provider)
+                ThinkingConfig.reload()
+            except Exception as exc:
+                await self._repeat(sanitize_error_message(exc))
+                return
+            await self._finish()
+
+    async def _prompt_custom_profiles(self, reason: str | None = None) -> None:
+        self.step = "custom_profile"
+        profiles = []
+        for name, auth in sorted(load_auth_store().providers.items()):
+            if not name.startswith("custom__"):
+                continue
+            status = "Needs review" if auth.needs_review else "Connected"
+            profiles.append({
+                "value": name,
+                "label": f"{auth.display_name or name} — {status}",
+            })
+            profiles.append({
+                "value": f"__disconnect_custom__:{name}",
+                "label": f"Disconnect {auth.display_name or name}",
+            })
+        profiles.append({"value": "__add_custom__", "label": "Add custom connection"})
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="provider",
+            title="Custom connections",
+            message=reason or "Choose a saved connection or add an OpenAI-compatible endpoint.",
+            prompt="Custom connection",
+            providers=profiles,
+        )
+
+    async def _prompt_custom_auth(self) -> None:
+        self.step = "custom_auth"
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="method",
+            title=f"Authenticate {self.custom_name or 'Custom'}",
+            message="Choose how this endpoint authenticates requests.",
+            prompt="Authentication",
+            methods=_auth_methods_for_provider("custom"),
+        )
+
+    async def _discover_custom_models(self) -> None:
+        assert self.custom_base_url is not None
+        try:
+            self.custom_models = await asyncio.to_thread(
+                discover_custom_models,
+                self.custom_base_url,
+                api_key=self.custom_api_key,
+                timeout=self.custom_timeout or 15.0,
+            )
+        except Exception:
+            self.custom_models = []
+        if not self.custom_models:
+            await self._prompt_custom_model()
+            return
+        self.step = "custom_model"
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="model",
+            title=f"Choose a model for {self.custom_name or 'Custom'}",
+            message="Choose a discovered model or enter a Model ID manually.",
+            prompt="Model",
+            models=[
+                {"value": model, "label": model, "provider": self.custom_name or "Custom"}
+                for model in self.custom_models
+            ] + [
+                {"value": "__manual_model__", "label": "Enter Model ID manually", "provider": "Custom"}
+            ],
+        )
+
+    async def _prompt_custom_model(self) -> None:
+        self.step = "custom_model_manual"
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="custom_model_manual",
+            title=f"Configure {self.custom_name or 'Custom'}",
+            message="Enter the exact model ID accepted by the endpoint.",
+            prompt="Model ID",
+        )
+
+    async def _save_custom_profile(self, model: str) -> None:
+        assert self.custom_base_url is not None
+        try:
+            await asyncio.to_thread(
+                test_custom_connection,
+                self.custom_base_url,
+                model,
+                api_key=self.custom_api_key,
+                timeout=self.custom_timeout or 30.0,
+            )
+        except Exception as exc:
+            self.step = "custom_model_manual"
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_model_manual",
+                title="Custom connection failed",
+                message=(
+                    f"{sanitize_error_message(exc)} "
+                    "Check the endpoint and Model ID; the connection was not saved."
+                ),
+                prompt="Model ID",
+            )
+            return
+        set_custom_profile(
+            self.provider,
+            display_name=self.custom_name or "Custom",
+            base_url=self.custom_base_url,
+            model=model,
+            api_key=self.custom_api_key,
+            model_ids=[*self.custom_models, model],
+            allow_insecure_http=self.custom_allow_insecure_http,
+            timeout=self.custom_timeout,
+        )
+        await self._finish()
+
+    async def _prompt_custom_timeout(self) -> None:
+        self.step = "custom_timeout"
+        await self.ui.send_auth_setup(
+            provider="custom",
+            step="custom_timeout",
+            title=f"Configure {self.custom_name or 'Custom'}",
+            message="Enter a request timeout in seconds, or type default to use Sonex defaults.",
+            prompt="Timeout seconds or default",
+        )
 
     async def _prompt_api_key(self) -> None:
         """Prepares prompt api key for an internal Sonex flow.
@@ -2170,11 +2685,27 @@ class AuthSetupSession:
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="api_key",
-            title=f"{self.provider} API key",
-            message=f"Paste your {self.provider} API key. It will be saved to auth.json.",
-            prompt=f"{self.provider} API key",
+            title=f"{provider_display_name(self.provider)} API key",
+            message=f"Paste your {provider_display_name(self.provider)} API key. It will be saved to auth.json.",
+            prompt="API Key",
+            placeholder="paste your key here",
+            help_text=_api_key_help_text(self.provider),
             mask=True,
             methods=_auth_methods_for_provider(self.provider),
+        )
+
+    async def _prompt_zai_service(self, message: str | None = None) -> None:
+        self.step = "zai_service"
+        await self.ui.send_auth_setup(
+            provider="zai",
+            step="method",
+            title="Connect Z.AI",
+            message=message or "Choose the Z.AI service attached to this API Key.",
+            prompt="Service",
+            methods=[
+                {"value": "api", "label": "API"},
+                {"value": "coding_plan", "label": "Coding Plan"},
+            ],
         )
 
     async def _start_browser_oauth(self) -> None:
@@ -2184,38 +2715,83 @@ class AuthSetupSession:
 
         Example: await _start_browser_oauth() -> returns the value used by the surrounding Sonex flow.
         """
-        self.step = "oauth_wait"
+        if self.provider == "gemini" and credential_storage_backend() == "file":
+            self.credential_fallback_warned = True
+            await self.ui.append_system_message(
+                "Warning: No usable system keyring is available. Continuing will store the Google OAuth "
+                "refresh token in ~/.sonex/oauth-secrets.json with 0600 permissions."
+            )
+        try:
+            self.browser_oauth_pending = begin_browser_oauth(self.provider)
+        except Exception as exc:
+            self.method = None
+            self.step = "method"
+            await self._repeat(sanitize_error_message(exc))
+            return
+        self.step = "oauth_callback"
+        webbrowser.open(self.browser_oauth_pending.authorize_url)
         await self.ui.send_auth_setup(
             provider=self.provider,
-            step="oauth_wait",
+            step="oauth_callback",
             title=f"Authorize {self.provider}",
-            message="Opening browser OAuth. Approve access in the browser, then return to Sonex.",
-            active=False,
+            message=(
+                "Open the authorization URL below. After Google redirects to localhost, "
+                "copy the complete URL from the browser address bar and paste it here.\n"
+                f"{self.browser_oauth_pending.authorize_url}"
+            ),
+            prompt="Full localhost callback URL",
             methods=_auth_methods_for_provider(self.provider),
         )
-        self.oauth_task = asyncio.create_task(self._finish_browser_oauth())
 
-    async def _finish_browser_oauth(self) -> None:
-        """Prepares finish browser oauth for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs finish browser oauth without duplicating the local rules.
-
-        Example: await _finish_browser_oauth() -> returns the value used by the surrounding Sonex flow.
-        """
+    async def _start_openai_oauth(self) -> None:
+        """Start the official managed ChatGPT device-code flow."""
+        self.step = "oauth_wait"
         try:
-            await asyncio.to_thread(run_browser_oauth, self.provider)
-            _set_runtime_default_provider(self.provider)
-            ThinkingConfig.reload()
-        except BrowserOAuthConfigError as exc:
+            server = await asyncio.to_thread(CodexAppServer, timeout=300)
+            login = await asyncio.to_thread(start_chatgpt_device_login, server)
+        except Exception as exc:
             self.step = "method"
             self.method = None
             await self._repeat(sanitize_error_message(exc))
+            return
+        self.codex_server = server
+        await self.ui.send_auth_setup(
+            provider="openai",
+            step="oauth_wait",
+            title="Connect ChatGPT Subscription",
+            message=(
+                "Open the verification URL and enter the device code.\n"
+                f"{login['verificationUrl']}\n"
+                f"Code: {login['userCode']}"
+            ),
+            active=True,
+            methods=_auth_methods_for_provider("openai"),
+        )
+        self.oauth_task = asyncio.create_task(
+            self._finish_openai_oauth(server, login["loginId"])
+        )
+
+    async def _finish_openai_oauth(
+        self,
+        server: CodexAppServer,
+        login_id: str,
+    ) -> None:
+        try:
+            await asyncio.to_thread(wait_for_chatgpt_login, server, login_id)
+            set_managed_auth("openai", "codex_app_server")
+            _set_runtime_default_provider("openai")
+            ThinkingConfig.reload()
+        except asyncio.CancelledError:
             return
         except Exception as exc:
             self.step = "method"
             self.method = None
             await self._repeat(sanitize_error_message(exc))
             return
+        finally:
+            await asyncio.to_thread(server.close)
+            if self.codex_server is server:
+                self.codex_server = None
         await self._finish()
 
     async def _repeat(self, message: str) -> None:
@@ -2225,13 +2801,89 @@ class AuthSetupSession:
 
         Example: await _repeat(message=...) -> returns the value used by the surrounding Sonex flow.
         """
-        if self.method == "oauth" and self.step == "oauth_wait":
+        if self.step == "google_project":
             await self.ui.send_auth_setup(
                 provider=self.provider,
-                step="method",
-                title=f"Connect {self.provider}",
+                step="google_project",
+                title="Google Cloud project",
                 message=message,
-                prompt="oauth or api_key",
+                prompt="Google Cloud project ID",
+            )
+            return
+        if self.step == "zai_service":
+            await self._prompt_zai_service(message)
+            return
+        if self.step == "openai_experimental_confirm":
+            await self.ui.send_auth_setup(
+                provider="openai",
+                step="method",
+                title="ChatGPT Subscription (Experimental)",
+                message=message,
+                prompt="Continue or go back",
+                methods=[
+                    {"value": "continue_experimental", "label": "Continue"},
+                    {"value": "back", "label": "Back"},
+                ],
+            )
+            return
+        if self.step == "custom_name":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_name",
+                title="Add custom connection",
+                message=message,
+                prompt="Connection name",
+            )
+            return
+        if self.step == "custom_base_url":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_base_url",
+                title=f"Connect {self.custom_name or 'Custom'}",
+                message=message,
+                prompt="Base URL",
+            )
+            return
+        if self.step == "custom_timeout":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_timeout",
+                title=f"Configure {self.custom_name or 'Custom'}",
+                message=message,
+                prompt="Timeout seconds or default",
+            )
+            return
+        if self.step in {"custom_model", "custom_model_manual"}:
+            await self._prompt_custom_model()
+            return
+        if self.step == "custom_auth":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="method",
+                title=f"Authenticate {self.custom_name or 'Custom'}",
+                message=message,
+                prompt="Authentication",
+                methods=_auth_methods_for_provider("custom"),
+            )
+            return
+        if self.step == "custom_api_key":
+            await self.ui.send_auth_setup(
+                provider="custom",
+                step="custom_api_key",
+                title=f"Authenticate {self.custom_name or 'Custom'}",
+                message=message,
+                prompt="API Key",
+                placeholder="paste your key here",
+                mask=True,
+            )
+            return
+        if self.method == "oauth" and self.step in {"oauth_wait", "oauth_callback"}:
+            await self.ui.send_auth_setup(
+                provider=self.provider,
+                step="oauth_callback",
+                title=f"Authorize {self.provider}",
+                message=message,
+                prompt="Full localhost callback URL",
                 methods=_auth_methods_for_provider(self.provider),
             )
             return
@@ -2239,9 +2891,11 @@ class AuthSetupSession:
             await self.ui.send_auth_setup(
                 provider=self.provider,
                 step="api_key",
-                title=f"{self.provider} API key",
+                title=f"{provider_display_name(self.provider)} API key",
                 message=message,
-                prompt=f"{self.provider} API key",
+                prompt="API Key",
+                placeholder="paste your key here",
+                help_text=_api_key_help_text(self.provider),
                 mask=True,
                 methods=_auth_methods_for_provider(self.provider),
             )
@@ -2249,11 +2903,11 @@ class AuthSetupSession:
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="method",
-            title=f"Connect {self.provider}",
+            title=f"Connect {provider_display_name(self.provider)}",
             message=message,
             prompt="oauth or api_key",
             methods=_auth_methods_for_provider(self.provider),
-            providers=LLM_AUTH_PROVIDER_CHOICES if self.pending_input is None else None,
+            providers=_provider_choices_with_status() if self.pending_input is None else None,
         )
 
     async def _finish(self) -> None:
@@ -2272,15 +2926,31 @@ class AuthSetupSession:
         state = _llm_auth_state()
         await self.ui.append_activity(
             kind="status",
-            title=f"{self.provider} connected",
+            title=f"{provider_display_name(self.provider)} connected",
             detail="Continuing your message." if self.pending_input else "Sign-in complete.",
             status="success",
         )
         await self.ui.send_auth_state(state)
+        if self.provider == "gemini" and self.method == "oauth":
+            google_auth = get_provider_auth(load_auth_store(), "gemini")
+            refresh_ref = (
+                google_auth.oauth.refresh_token_ref
+                if google_auth and google_auth.oauth
+                else None
+            )
+            if (
+                refresh_ref
+                and refresh_ref.startswith("file://")
+                and not self.credential_fallback_warned
+            ):
+                await self.ui.append_system_message(
+                    "Warning: No usable system keyring is available. The Google OAuth refresh token is "
+                    "stored in ~/.sonex/oauth-secrets.json with 0600 permissions."
+                )
         await self.ui.send_auth_setup(
             provider=self.provider,
             step="done",
-            title=f"{self.provider} connected",
+            title=f"{provider_display_name(self.provider)} connected",
             message="Sign-in complete. Continuing your message." if self.pending_input else "Sign-in complete.",
             active=False,
         )
@@ -3292,6 +3962,169 @@ class AgentPlaybackRouteConfirmationSession:
             self.result.set_result(allowed)
 
 
+class NetEaseLoginOfferSession:
+    """Ask whether an unlogged ncm-cli route should scan or yield."""
+
+    def __init__(self, ui: WebSocketUIAdapter, *, fallback_online: bool) -> None:
+        self.ui = ui
+        self.fallback_online = fallback_online
+        self.confirm_id = _new_event_id("netease_login_offer")
+        self.result: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+
+    async def start(self) -> str:
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "netease_login",
+                "tool_args": {
+                    "stage": "netease_login_offer",
+                    "fallback_online": self.fallback_online,
+                },
+                "message": "NetEase is configured but not signed in.",
+                "choices": [
+                    {"value": "scan", "label": "Scan to connect NetEase"},
+                    {
+                        "value": "online" if self.fallback_online else "deny",
+                        "label": "Play online" if self.fallback_online else "Cancel",
+                    },
+                ],
+            }
+        )
+        return await self.result
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        value = str(decision or "deny").casefold()
+        outcome = "scan" if value == "scan" else "online" if self.fallback_online else "cancel"
+        if getattr(self.ui, "_netease_login_offer", None) is self:
+            setattr(self.ui, "_netease_login_offer", None)
+        if not self.result.done():
+            self.result.set_result(outcome)
+
+
+class NetEaseLoginSession:
+    """Own one cancellable ncm-cli QR login subprocess and UI surface."""
+
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        worker: NetEaseProviderWorker,
+        *,
+        on_completed: Callable[[dict[str, Any]], None] | None,
+        fallback_online: bool,
+        emit_feedback: bool,
+    ) -> None:
+        self.ui = ui
+        self.worker = worker
+        self.on_completed = on_completed
+        self.fallback_online = fallback_online
+        self.emit_feedback = emit_feedback
+        self.cancel_event = threading.Event()
+        self.task: asyncio.Task[None] | None = None
+        self.result: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._output = ""
+        self._done = False
+
+    async def start(self) -> None:
+        await self.ui.send_netease_login(
+            title="Connect NetEase",
+            output="Starting ncm-cli login...",
+            status="waiting",
+            active=True,
+            fallback_online=self.fallback_online,
+        )
+        self.task = asyncio.create_task(self._run())
+
+    async def cancel(self) -> None:
+        if self._done:
+            return
+        self.cancel_event.set()
+        self.worker.terminate_active()
+
+    def _receive_output(self, output: str) -> None:
+        loop = self.result.get_loop()
+        loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(self._publish_output(output))
+        )
+
+    async def _publish_output(self, output: str) -> None:
+        if self._done:
+            return
+        self._output = output
+        await self.ui.send_netease_login(
+            title="Connect NetEase",
+            output=output,
+            status="waiting",
+            active=True,
+            fallback_online=self.fallback_online,
+        )
+
+    async def _run(self) -> None:
+        try:
+            login = await asyncio.to_thread(
+                self.worker.login,
+                on_output=self._receive_output,
+                cancel_event=self.cancel_event,
+            )
+        except Exception as exc:
+            status = "failed"
+            reason = sanitize_error_message(exc)
+            output = self._output
+        else:
+            status = login.status
+            reason = login.reason
+            output = login.output or self._output
+        if status == "success":
+            try:
+                health = await asyncio.to_thread(self.worker.health)
+            except Exception as exc:
+                health = None
+                reason = sanitize_error_message(exc)
+            if health is None or not health.ready:
+                status = "failed"
+                reason = reason or (health.reason if health is not None else None) or "NetEase login could not be verified."
+        result = {
+            "status": "connected" if status == "success" else status,
+            "tool": "Connect",
+            "message": (
+                "NetEase connected · Ready, unverified playback."
+                if status == "success"
+                else reason or "NetEase login was cancelled."
+            ),
+            "data": {
+                "provider": "netease",
+                "reason": reason or status,
+                "account_label": "ncm-cli" if status == "success" else None,
+                "verification": "unverified_playback" if status == "success" else None,
+            },
+            "error_code": None if status in {"success", "cancelled"} else "CONNECTION_NOT_READY",
+        }
+        self._done = True
+        if getattr(self.ui, "_netease_login_session", None) is self:
+            setattr(self.ui, "_netease_login_session", None)
+        await self.ui.send_netease_login(
+            title="Connect NetEase",
+            output=output,
+            status=status,
+            active=False,
+            fallback_online=self.fallback_online,
+        )
+        if self.emit_feedback and status == "success":
+            await self.ui.append_activity(
+                kind="status",
+                title="NetEase connection",
+                detail=str(result["message"]),
+                status="success",
+            )
+            await self.ui.append_system_message(str(result["message"]))
+        if not self.result.done():
+            self.result.set_result(result)
+        if self.on_completed is not None:
+            self.on_completed(result)
+
+
 class AgentCandidateSelectionSession:
     """Suspend an Agent turn while the user chooses one safe track reference."""
 
@@ -3699,8 +4532,7 @@ SPOTIFY_MODE_REQUIRED_SCOPES = {
     "user-library-read",
 }
 
-SPOTIFY_MODE_COMMANDS = {"apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend", "sandbox", "spotify"}
-APPLE_MODE_COMMANDS = {"apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "queue", "random", "recommend", "sandbox", "spotify"}
+SPOTIFY_MODE_COMMANDS = {"bye", "connect", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "sandbox", "spotify"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS = 5.0
 SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS = 15.0
@@ -3727,27 +4559,6 @@ async def _send_provider_mode(
             "connection_status": connection_status or ("ready" if provider is not ProviderMode.NORMAL else "off"),
         }
     )
-
-
-def _apple_track_panel_tracks(tracks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for index, track in enumerate(tracks, start=1):
-        name = str(track.get("name") or track.get("title") or "-")
-        rows.append(
-            {
-                **track,
-                "index": str(index),
-                "title": name,
-                "name": name,
-                "artist": str(track.get("artist") or "-"),
-                "duration": _duration_text(track.get("duration_ms")),
-                "duration_ms": int(track.get("duration_ms") or 0),
-                "provider": "apple_music",
-                "source": "apple_music",
-                "source_app": "Apple Music",
-            }
-        )
-    return rows
 
 
 @dataclass
@@ -4328,92 +5139,6 @@ class SpotifyPlaySelectionSession:
         setattr(self.ui, "_spotify_play_selection", None)
 
 
-class ApplePlaySelectionSession:
-    """Owns ambiguous or medium-confidence Apple catalog selection."""
-
-    def __init__(
-        self,
-        ui: WebSocketUIAdapter,
-        runner: "WebSocketRunner",
-        query: str,
-        tracks: list[dict[str, Any]],
-        *,
-        queue_add: bool = False,
-        require_confirmation: bool = False,
-    ) -> None:
-        self.ui = ui
-        self.runner = runner
-        self.query = query
-        self.tracks = tracks[:5]
-        self.queue_add = queue_add
-        self.require_confirmation = require_confirmation
-        self.confirm_id = _new_event_id("apple_track")
-
-    async def start(self) -> None:
-        choices = [
-            {
-                "value": f"apple_track:{index}",
-                "label": format_music_candidate_label(
-                    track.get("artist"),
-                    track.get("album"),
-                    track.get("name") or track.get("title"),
-                ),
-                "display": music_candidate_display(
-                    track.get("artist"),
-                    track.get("album"),
-                    track.get("name") or track.get("title"),
-                ),
-                "description": "Confirm medium-confidence match" if self.require_confirmation else "",
-            }
-            for index, track in enumerate(self.tracks)
-        ]
-        choices.append({"value": "cancel", "label": "Cancel"})
-        await self.ui.append_activity(
-            kind="confirm",
-            title="Apple Music tracks",
-            detail=f"Choose an Apple Music result for {self.query}.",
-            status="pending",
-            activity_id=self.confirm_id,
-        )
-        await self.ui.ask_confirm(
-            {
-                "id": self.confirm_id,
-                "tool_name": "apple_music_track",
-                "tool_args": {
-                    "query": self.query,
-                    "stage": "apple_track_candidates",
-                    "queue_add": self.queue_add,
-                },
-                "message": "Choose Apple Music track",
-                "choices": choices,
-            }
-        )
-
-    def owns_confirm(self, confirm_id: str) -> bool:
-        return confirm_id == self.confirm_id
-
-    async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_apple_play_selection", None)
-        value = str(decision or "cancel")
-        if value in {"cancel", "deny", "false"}:
-            await self.ui.append_activity(
-                kind="status",
-                title="Apple playback",
-                detail="Playback canceled.",
-                status="success",
-            )
-            return
-        try:
-            index = int(value.removeprefix("apple_track:"))
-        except ValueError:
-            index = -1
-        track = self.tracks[index] if 0 <= index < len(self.tracks) else None
-        if not track:
-            await self.ui.append_agent_message("Selected Apple Music track is no longer available.")
-            return
-        await self.runner._play_apple_track(self.ui, track, queue_add=self.queue_add)
-
-
 class SpotifyPlaylistSelectionSession:
     """Owns Spotify playlist browsing inside Spotify mode."""
 
@@ -4472,180 +5197,6 @@ class SpotifyPlaylistSelectionSession:
         await self.ui.append_activity(kind="status", title="Spotify playlists", detail=f"Showing {title}.", status="success")
 
 
-class PlayerSinkRecoverySession:
-    """Offer bounded recovery actions after the persisted default fails twice."""
-
-    def __init__(
-        self,
-        ui: WebSocketUIAdapter,
-        runner: "WebSocketRunner",
-        tool_name: str,
-        recovery: dict[str, Any],
-    ) -> None:
-        self.ui = ui
-        self.runner = runner
-        self.tool_name = tool_name
-        self.recovery = recovery
-        self.confirm_id = _new_event_id("player_recovery")
-
-    async def start(self) -> None:
-        await self.ui.append_activity(
-            kind="confirm",
-            title="Default player unavailable",
-            detail="Choose how to continue this playback.",
-            status="pending",
-            activity_id=self.confirm_id,
-        )
-        await self.ui.ask_confirm(
-            {
-                "type": "confirm",
-                "id": self.confirm_id,
-                "tool_name": self.tool_name,
-                "tool_args": {"stage": "player_sink_recovery"},
-                "message": "Default player unavailable",
-                "choices": [
-                    {
-                        "value": "retry",
-                        "label": "Retry",
-                        "description": "Retry the same default player.",
-                    },
-                    {
-                        "value": "change_default",
-                        "label": "Change default player",
-                        "description": "Choose a different device default.",
-                    },
-                    {
-                        "value": "mpv_once",
-                        "label": "Use mpv this time",
-                        "description": "Use managed mpv once without changing the default.",
-                    },
-                    {"value": "deny", "label": "Cancel"},
-                ],
-            }
-        )
-
-    def owns_confirm(self, confirm_id: str) -> bool:
-        return confirm_id == self.confirm_id
-
-    async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_player_sink_recovery", None)
-        action = str(decision or "deny").strip().casefold()
-        if action == "change_default":
-            await self.runner._handle_local_playback_player(self.ui, "")
-            return
-        if action not in {"retry", "mpv_once"}:
-            await self.ui.append_system_message("Playback recovery cancelled.")
-            return
-
-        metadata = self.recovery.get("metadata")
-        result = await asyncio.to_thread(
-            start_local_playback,
-            tool=self.tool_name,
-            source_url=str(self.recovery.get("source_url") or ""),
-            source=str(self.recovery.get("source") or "local"),
-            metadata=dict(metadata) if isinstance(metadata, dict) else {},
-            player="mpv" if action == "mpv_once" else "auto",
-            success_message=str(
-                self.recovery.get("success_message") or "Playback started."
-            ),
-        )
-        await self.runner._sync_tool_result_ui(self.ui, self.tool_name, result)
-        if _is_failed_tool_result(result):
-            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
-            await self.ui.append_agent_message(message)
-            await self.ui.send_error(message)
-
-
-class PlayerBackendSelectionSession:
-    """Render Player Sink options and delegate selection to the manager."""
-
-    def __init__(
-        self,
-        ui: WebSocketUIAdapter,
-        manager: PlayerSinkManager,
-        options: tuple[PlayerSinkOption, ...],
-    ) -> None:
-        self.ui = ui
-        self.manager = manager
-        self.options = options
-        self.confirm_id = _new_event_id("player_backend")
-
-    async def start(self) -> None:
-        await self.ui.append_activity(
-            kind="confirm",
-            title="Default player",
-            detail="Choose the device default player.",
-            status="pending",
-            activity_id=self.confirm_id,
-        )
-        choices = [
-            {
-                "value": item.sink_id,
-                "label": item.label,
-                "description": item.description,
-                "disabled": item.disabled,
-                "disabled_reason": item.disabled_reason,
-            }
-            for item in self.options
-        ]
-        choices.append({"value": "deny", "label": "Cancel"})
-        await self.ui.ask_confirm(
-            {
-                "type": "confirm",
-                "id": self.confirm_id,
-                "tool_name": "local_playback_player",
-                "tool_args": {"stage": "player_backend_selection"},
-                "message": "Choose the default player",
-                "choices": choices,
-            }
-        )
-
-    def owns_confirm(self, confirm_id: str) -> bool:
-        return confirm_id == self.confirm_id
-
-    async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_player_backend_selection", None)
-        sink_id = str(decision or "deny").strip().casefold()
-        option = next((item for item in self.options if item.sink_id == sink_id), None)
-        if sink_id == "deny" or option is None or option.disabled:
-            message = "Default player unchanged."
-            await self.ui.append_system_message(message)
-            await self.ui.append_activity(kind="status", title="Default player", detail=message, status="success")
-            return
-
-        try:
-            result = await self.manager.select(sink_id)
-        except Exception as exc:
-            message = sanitize_error_message(exc)
-            await self.ui.append_activity(
-                kind="error",
-                title="Default player",
-                detail=message,
-                status="error",
-            )
-            await self.ui.append_system_message(message)
-            return
-        if result.status == "failed":
-            await self.ui.append_activity(
-                kind="error",
-                title="Default player",
-                detail=result.message,
-                status="error",
-            )
-            await self.ui.append_system_message(result.message)
-            return
-        await self.ui.append_activity(
-            kind="status",
-            title="Default player",
-            detail=result.message,
-            status="success",
-        )
-        if result.status == "deferred":
-            await self.ui.append_system_message(result.message)
-            return
-        await self.ui.append_system_message(format_player_feedback(option.label))
-
-
 class ConnectionSelectionSession:
     """Own the interactive `/connect` provider chooser."""
 
@@ -4659,80 +5210,155 @@ class ConnectionSelectionSession:
         self.runner = runner
         self.manager = manager
         self.confirm_id = _new_event_id("music_connection")
+        self.busy_provider_id: str | None = None
+        self.operation_task: asyncio.Task[None] | None = None
+        self.closed = False
 
-    async def start(self) -> None:
-        choices: list[dict[str, object]] = []
-        for provider_id, label in (
+    @staticmethod
+    def _providers() -> tuple[tuple[str, str], ...]:
+        return (
             ("spotify", "Spotify"),
-            ("apple_music", "Apple Music"),
             ("netease", "NetEase Cloud Music"),
             ("jamendo", "Jamendo"),
             ("audius", "Audius"),
-        ):
+        )
+
+    def _choices(self) -> list[dict[str, object]]:
+        choices: list[dict[str, object]] = []
+        for provider_id, label in self._providers():
             record = self.manager.record(provider_id)
-            if record is None:
-                description = "Not connected. Select to connect."
-            else:
-                account = f" · {record.account_label}" if record.account_label else ""
-                status = (
-                    "Connected"
-                    if record.status == "connected"
-                    else "Reauthorization required"
+            if self.busy_provider_id == provider_id:
+                connection_status = "checking"
+                description = "Checking connection..."
+            elif record is not None and record.status != "connected":
+                connection_status = "warning"
+                description = "press Enter to retry"
+            elif record is not None or provider_id in {"jamendo", "audius"}:
+                connection_status = "connected"
+                account_label = (
+                    record.account_label
+                    if record is not None and provider_id not in {"jamendo", "audius"}
+                    else None
                 )
-                description = f"{status}{account}. Select to check the connection."
+                description = f"Connected · {account_label}" if account_label else "Connected"
+            else:
+                connection_status = "missing"
+                description = "Not connected"
             choices.append(
                 {
                     "value": provider_id,
                     "label": label,
                     "description": description,
+                    "connection_status": connection_status,
                 }
             )
-        choices.append({"value": "deny", "label": "Cancel"})
-        await self.ui.append_activity(
-            kind="confirm",
-            title="Music connections",
-            detail="Choose a music account to connect or check.",
-            status="pending",
-            activity_id=self.confirm_id,
-        )
+        return choices
+
+    async def _render(self, *, preserve_selection: bool) -> None:
+        if self.closed:
+            return
         await self.ui.ask_confirm(
             {
                 "type": "confirm",
                 "id": self.confirm_id,
                 "tool_name": "music_connection",
-                "tool_args": {"stage": "music_connection_selection"},
-                "message": "Choose a music account",
-                "choices": choices,
+                "tool_args": {
+                    "stage": "music_connection_selection",
+                    "hint": "↑/↓ to select · Enter to connect/check · Esc to close",
+                    "preserve_selection": preserve_selection,
+                    "busy_provider": self.busy_provider_id,
+                },
+                "message": "Music connections",
+                "choices": self._choices(),
             }
         )
+
+    async def start(self) -> None:
+        await self._render(preserve_selection=False)
 
     def owns_confirm(self, confirm_id: str) -> bool:
         return confirm_id == self.confirm_id
 
     async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_music_connection_selection", None)
         provider_id = str(decision or "deny").strip().casefold()
         if provider_id == "deny":
-            message = "Music connections unchanged."
-            await self.ui.append_system_message(message)
-            await self.ui.append_activity(
-                kind="status",
-                title="Music connections",
-                detail=message,
-                status="success",
-            )
+            await self.close()
             return
-        if provider_id not in {"spotify", "apple_music", "netease", "jamendo", "audius"}:
-            message = "Selected music connection is not available."
-            await self.ui.append_system_message(message)
-            await self.ui.append_activity(
-                kind="error",
-                title="Music connections",
-                detail=message,
-                status="error",
-            )
+        if self.closed or self.busy_provider_id is not None:
             return
-        await self.runner._connect_music_provider(self.ui, provider_id)
+        if provider_id not in {provider for provider, _label in self._providers()}:
+            return
+        self.busy_provider_id = provider_id
+        await self._render(preserve_selection=True)
+        self.operation_task = asyncio.create_task(self._run_provider(provider_id))
+
+    async def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        operation_task = self.operation_task
+        if operation_task is not None and not operation_task.done():
+            operation_task.cancel()
+        netease_login = getattr(self.ui, "_netease_login_session", None)
+        if netease_login is not None:
+            await netease_login.cancel()
+        self.busy_provider_id = None
+        setattr(self.ui, "_music_connection_selection", None)
+        await self.ui.dismiss_confirm(self.confirm_id)
+
+    async def _run_provider(self, provider_id: str) -> None:
+        def complete(result: dict[str, Any]) -> None:
+            asyncio.create_task(self._complete_provider(provider_id, result))
+
+        try:
+            await self.runner._connect_music_provider(
+                self.ui,
+                provider_id,
+                complete=complete,
+                emit_feedback=False,
+            )
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            await self._complete_provider(
+                provider_id,
+                {
+                    "status": "failed",
+                    "message": sanitize_error_message(exc),
+                    "data": {"provider": provider_id, "reason": "connection_failed"},
+                },
+            )
+
+    async def _complete_provider(self, provider_id: str, result: dict[str, Any]) -> None:
+        if self.closed or self.busy_provider_id != provider_id:
+            return
+        status = str(result.get("status") or "failed").casefold()
+        if status == "cancelled":
+            await self.close()
+            return
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        if status in {"connected", "success", "ok"}:
+            if self.manager.record(provider_id) is None:
+                self.manager.mark_connected(
+                    provider_id,
+                    account_label=data.get("account_label"),
+                )
+        else:
+            technical_detail = sanitize_error_message(
+                str(result.get("message") or data.get("reason") or "Connection failed.")
+            )
+            logger.warning(
+                "Music connection check failed for %s: %s",
+                provider_id,
+                technical_detail,
+            )
+            self.manager.mark_unavailable(
+                provider_id,
+                reason="connection_failed",
+            )
+        self.busy_provider_id = None
+        self.operation_task = None
+        await self._render(preserve_selection=True)
 
 
 class ProviderModeExitSession:
@@ -4750,8 +5376,8 @@ class ProviderModeExitSession:
         self.confirm_id = _new_event_id("provider_mode_exit")
 
     async def start(self) -> None:
-        label = "Spotify" if self.provider == "spotify" else "Apple"
-        command = "/spotify" if self.provider == "spotify" else "/apple"
+        label = "Spotify"
+        command = "/spotify"
         await self.ui.append_activity(
             kind="confirm",
             title=f"Exit {label} Mode?",
@@ -4790,10 +5416,86 @@ class ProviderModeExitSession:
                 activity_id=self.confirm_id,
             )
             return
-        if self.provider == "spotify":
-            await self.runner._exit_spotify_mode(self.ui)
+        await self.runner._exit_spotify_mode(self.ui)
+
+
+class MemorySettingsSession:
+    """Manage the minimal long-term memory panel and destructive reset confirmation."""
+
+    def __init__(self, ui: WebSocketUIAdapter, store: Any) -> None:
+        self.ui = ui
+        self.store = store
+        self.confirm_id = _new_event_id("memory_settings")
+        self.stage = "settings"
+
+    async def start(self) -> None:
+        enabled = self.store.long_term_enabled()
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "memory_settings",
+                "tool_args": {"stage": "memory_settings", "enabled": enabled},
+                "message": f"Long-term memory: {'On' if enabled else 'Off'}",
+                "hide_hint": True,
+                "choices": [
+                    {
+                        "value": "disable" if enabled else "enable",
+                        "label": "Disable long-term memory" if enabled else "Enable long-term memory",
+                    },
+                    {"value": "reset", "label": "Reset long-term memory"},
+                    {"value": "deny", "label": "Cancel"},
+                ],
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        value = str(decision or "deny")
+        if self.stage == "reset":
+            setattr(self.ui, "_memory_settings", None)
+            if value != "confirm_reset":
+                return
+            result = self.store.reset_long_term()
+            if result.get("success"):
+                await self.ui.append_system_message("Long-term memory reset.")
+            else:
+                await self.ui.append_warning_message(
+                    str(result.get("error") or "Long-term memory could not be reset.")
+                )
             return
-        await self.runner._exit_apple_mode(self.ui, message="Apple Mode off.")
+
+        if value == "enable":
+            self.store.set_long_term_enabled(True)
+            setattr(self.ui, "_memory_settings", None)
+            await self.ui.append_system_message("Long-term memory enabled.")
+            return
+        if value == "disable":
+            self.store.set_long_term_enabled(False)
+            setattr(self.ui, "_memory_settings", None)
+            await self.ui.append_system_message("Long-term memory disabled.")
+            return
+        if value != "reset":
+            setattr(self.ui, "_memory_settings", None)
+            return
+
+        self.stage = "reset"
+        self.confirm_id = _new_event_id("memory_reset")
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "memory_settings",
+                "tool_args": {"stage": "memory_reset"},
+                "message": "Reset long-term memory?",
+                "warning": "This permanently clears every entry in USER.md and MEMORY.md.",
+                "hide_hint": True,
+                "choices": [
+                    {"value": "confirm_reset", "label": "Yes, reset long-term memory"},
+                    {"value": "deny", "label": "No, return"},
+                ],
+            }
+        )
 
 
 class WebSocketRunner:
@@ -4804,7 +5506,6 @@ class WebSocketRunner:
     def __init__(
         self,
         *,
-        player_sink_manager_factory: Callable[[], PlayerSinkManager] | None = None,
         music_connection_manager_factory: Callable[[], MusicConnectionManager] = MusicConnectionManager,
     ) -> None:
         """Init for web socket runner.
@@ -4815,17 +5516,7 @@ class WebSocketRunner:
         self.memory_store = memory_store
         self._running_task: asyncio.Task[None] | None = None
         self._confirm_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
-        self.apple_mode = AppleModeService()
         self.provider_modes = ProviderModeCoordinator()
-        self._player_sink_manager_factory = (
-            player_sink_manager_factory
-            or (
-                lambda: build_player_sink_manager(
-                    available_managed=tuple(available_local_playback_backends())
-                )
-            )
-        )
-        self._player_sink_manager_instance: PlayerSinkManager | None = None
         self._music_connection_manager_factory = music_connection_manager_factory
         self._music_connection_manager_instance: MusicConnectionManager | None = None
         self._playback_coordinator = MusicPlaybackCoordinator(SelectionStore())
@@ -4839,19 +5530,28 @@ class WebSocketRunner:
         """
         await ws.accept()
         ui = WebSocketUIAdapter(ws, session_id=create_session_id())
+        bind_memory_scope(ui.session_id)
         await ui.send_session_state()
         if has_interrupted_interaction():
             await ui.append_system_message(INTERRUPTED_INTERACTION_MESSAGE)
             clear_interrupted_interaction()
         await ui._send({"type": "queue", "tracks": _queue_payload()})
         await self._handle_startup_auth(ui)
+        with suppress(OSError):
+            if self.memory_store.consume_first_notice():
+                await ui.append_system_message(
+                    "Sonex stores stable music preferences locally. Use /memory to configure long-term memory."
+                )
+        ready, _provider, _reason = _llm_auth_ready()
+        if ready and self.memory_store.long_term_enabled():
+            asyncio.create_task(self._resume_pending_memory(ui))
         await self._restore_persistent_spotify_mode(ui)
         await self._restore_provider_mode(ui)
         playback_sync_task = asyncio.create_task(self._sync_spotify_playback(ui))
         local_playback_sync_task = asyncio.create_task(self._sync_local_playback(ui))
-        apple_playback_sync_task = asyncio.create_task(self._sync_apple_playback(ui))
 
         unexpected_disconnect = False
+        usage_observer_token = set_token_usage_observer(ui.record_token_usage)
         try:
             while True:
                 raw = await ws.receive_text()
@@ -4889,10 +5589,6 @@ class WebSocketRunner:
                     spotify_setup = getattr(ui, "_spotify_setup", None)
                     if spotify_setup:
                         await spotify_setup.handle_input(str(data.get("value") or ""))
-                        continue
-                    apple_music_setup = getattr(ui, "_apple_music_setup", None)
-                    if apple_music_setup:
-                        await apple_music_setup.handle_input(str(data.get("value") or ""))
 
                 elif data.get("type") == "auth_setup_input":
                     model_setup = getattr(ui, "_model_setup", None)
@@ -4902,10 +5598,11 @@ class WebSocketRunner:
                     auth_setup = getattr(ui, "_auth_setup", None)
                     if auth_setup:
                         await auth_setup.handle_input(str(data.get("value") or ""))
-                        continue
-                    apple_music_setup = getattr(ui, "_apple_music_setup", None)
-                    if apple_music_setup:
-                        await apple_music_setup.handle_input(str(data.get("value") or ""))
+
+                elif data.get("type") == "netease_login_input":
+                    netease_login = getattr(ui, "_netease_login_session", None)
+                    if netease_login:
+                        await netease_login.cancel()
 
                 elif data.get("type") == "confirm_result":
                     decision = data.get("decision")
@@ -4924,10 +5621,6 @@ class WebSocketRunner:
                     spotify_play = getattr(ui, "_spotify_play_selection", None)
                     if spotify_play and spotify_play.owns_confirm(confirm_id):
                         await spotify_play.handle_choice(decision)
-                        continue
-                    apple_play = getattr(ui, "_apple_play_selection", None)
-                    if apple_play and apple_play.owns_confirm(confirm_id):
-                        await apple_play.handle_choice(decision)
                         continue
                     spotify_playlist = getattr(ui, "_spotify_playlist_selection", None)
                     if spotify_playlist and spotify_playlist.owns_confirm(confirm_id):
@@ -4961,10 +5654,11 @@ class WebSocketRunner:
             auth_setup = getattr(ui, "_auth_setup", None)
             if auth_setup and auth_setup.oauth_task:
                 auth_setup.oauth_task.cancel()
-            apple_music_setup = getattr(ui, "_apple_music_setup", None)
+            netease_login = getattr(ui, "_netease_login_session", None)
+            if netease_login:
+                await netease_login.cancel()
             playback_sync_task.cancel()
             local_playback_sync_task.cancel()
-            apple_playback_sync_task.cancel()
             with suppress(asyncio.CancelledError):
                 if spotify_setup and spotify_setup.oauth_task:
                     await spotify_setup.oauth_task
@@ -4972,11 +5666,12 @@ class WebSocketRunner:
                 if auth_setup and auth_setup.oauth_task:
                     await auth_setup.oauth_task
             with suppress(asyncio.CancelledError):
+                if netease_login and netease_login.task:
+                    await netease_login.task
+            with suppress(asyncio.CancelledError):
                 await playback_sync_task
             with suppress(asyncio.CancelledError):
                 await local_playback_sync_task
-            with suppress(asyncio.CancelledError):
-                await apple_playback_sync_task
             self._confirm_queue.put(
                 (
                     "",
@@ -4988,8 +5683,13 @@ class WebSocketRunner:
                     },
                 )
             )
+            reset_token_usage_observer(usage_observer_token)
 
     async def _handle_confirm_result(self, ui: WebSocketUIAdapter, confirm_id: str, decision: Any) -> bool:
+        memory_settings = getattr(ui, "_memory_settings", None)
+        if memory_settings and memory_settings.owns_confirm(confirm_id):
+            await memory_settings.handle_choice(decision)
+            return True
         provider_mode_exit = getattr(ui, "_provider_mode_exit", None)
         if provider_mode_exit and provider_mode_exit.owns_confirm(confirm_id):
             await provider_mode_exit.handle_choice(decision)
@@ -4997,6 +5697,10 @@ class WebSocketRunner:
         playback_route = getattr(ui, "_agent_playback_route_confirmation", None)
         if playback_route and playback_route.owns_confirm(confirm_id):
             await playback_route.handle_choice(decision)
+            return True
+        netease_offer = getattr(ui, "_netease_login_offer", None)
+        if netease_offer and netease_offer.owns_confirm(confirm_id):
+            await netease_offer.handle_choice(decision)
             return True
         agent_candidate = getattr(ui, "_agent_candidate_selection", None)
         if agent_candidate and agent_candidate.owns_confirm(confirm_id):
@@ -5017,14 +5721,6 @@ class WebSocketRunner:
         playlist_browse = getattr(ui, "_playlist_browse", None)
         if playlist_browse and playlist_browse.owns_confirm(confirm_id):
             await playlist_browse.handle_choice(decision)
-            return True
-        player_backend = getattr(ui, "_player_backend_selection", None)
-        if player_backend and player_backend.owns_confirm(confirm_id):
-            await player_backend.handle_choice(decision)
-            return True
-        player_recovery = getattr(ui, "_player_sink_recovery", None)
-        if player_recovery and player_recovery.owns_confirm(confirm_id):
-            await player_recovery.handle_choice(decision)
             return True
         music_connection = getattr(ui, "_music_connection_selection", None)
         if music_connection and music_connection.owns_confirm(confirm_id):
@@ -5105,6 +5801,7 @@ class WebSocketRunner:
                         player_state = _spotify_live_player_state(player_state)
                         player_state = _decorate_player_state(player_state)
                         _remember_actual_playback(player_state)
+                        _record_playback_behavior(ui, player_state)
                         signature = _player_sync_signature(player_state)
                         if signature != last_signature:
                             setattr(ui, "_last_player_state", player_state)
@@ -5138,7 +5835,7 @@ class WebSocketRunner:
         last_player_state: dict[str, Any] | None = None
         sync_lost = False
         while not ui.closed:
-            if self._spotify_mode_enabled(ui) or self._apple_mode_enabled(ui):
+            if self._spotify_mode_enabled(ui):
                 last_player_state = None
                 sync_lost = False
                 await _wait_for_local_playback_sync(ui, LOCAL_PLAYBACK_POLL_SECONDS)
@@ -5150,6 +5847,7 @@ class WebSocketRunner:
                     if player_state:
                         player_state = _local_live_player_state(player_state)
                         player_state = _decorate_player_state(player_state)
+                        _record_playback_behavior(ui, player_state)
                         last_player_state = player_state
                         sync_lost = False
                         setattr(ui, "_last_player_state", player_state)
@@ -5171,6 +5869,7 @@ class WebSocketRunner:
                 elif isinstance(result, dict) and result.get("error_code") == "NO_ACTIVE_PLAYBACK":
                     last_player_state = None
                     sync_lost = False
+                    setattr(ui, "_last_playback_behavior_key", None)
             except Exception:
                 pass
             await _wait_for_local_playback_sync(ui, LOCAL_PLAYBACK_POLL_SECONDS)
@@ -5233,27 +5932,12 @@ class WebSocketRunner:
                 await ui.append_system_message(message)
                 return
 
-            if self._apple_mode_enabled(ui) and parsed_command.command and parsed_command.command.name not in APPLE_MODE_COMMANDS:
-                if parsed_command.command.name in APPLE_PLAYBACK_CONTROL_ACTIONS:
-                    await self._handle_playback_control(ui, parsed_command.command.name)
-                    return
-                message = f"Command '/{parsed_command.command.name}' is not available in Apple Mode."
-                await ui.append_activity(kind="error", title="Apple Mode", detail=message, status="error")
-                await ui.append_system_message(message)
-                return
-
             command_intent = parsed_command.command_intent()
             if command_intent is None:
                 await self._handle_builtin_command(ui, parsed_command)
                 return
             if command_intent.command == "recommend":
-                active_provider = (
-                    "spotify"
-                    if self._spotify_mode_enabled(ui)
-                    else "apple_music"
-                    if self._apple_mode_enabled(ui)
-                    else None
-                )
+                active_provider = "spotify" if self._spotify_mode_enabled(ui) else None
                 if active_provider:
                     command_intent = replace(
                         command_intent,
@@ -5291,13 +5975,7 @@ class WebSocketRunner:
             await setup.start(reason)
             return
 
-        provider_mode = (
-            "spotify"
-            if self._spotify_mode_enabled(ui)
-            else "apple_music"
-            if self._apple_mode_enabled(ui)
-            else None
-        )
+        provider_mode = "spotify" if self._spotify_mode_enabled(ui) else None
         command_intent = self._music_agent_intent(
             user_input,
             decision,
@@ -5321,12 +5999,48 @@ class WebSocketRunner:
         self._running_task = task
         return task
 
+    async def _collect_turn_memory(
+        self,
+        ui: WebSocketUIAdapter,
+        user_input: str,
+        *,
+        explicit: bool,
+    ) -> None:
+        """Run the bounded post-turn memory hook without failing the Agent answer."""
+        try:
+            operations = await asyncio.to_thread(
+                curate_completed_turn,
+                user_input,
+                store=self.memory_store,
+            )
+        except Exception as exc:
+            logger.warning("Memory Curator failed: %s", sanitize_error_message(exc))
+            if explicit and not ui.closed:
+                await ui.append_warning_message("Long-term memory could not be updated.")
+            return
+        for operation in operations:
+            if not ui.closed:
+                await ui.append_system_message(memory_operation_message(operation))
+
+    async def _resume_pending_memory(self, ui: WebSocketUIAdapter) -> None:
+        """Best-effort replay of durable Curator candidates after startup."""
+        try:
+            candidates = await asyncio.to_thread(self.memory_store.pending_memory_candidates)
+        except Exception as exc:
+            logger.warning("Pending memory discovery failed: %s", sanitize_error_message(exc))
+            return
+        for candidate in candidates:
+            if ui.closed or not self.memory_store.long_term_enabled():
+                return
+            bind_memory_scope(candidate["session_id"], candidate["turn_id"])
+            await self._collect_turn_memory(
+                ui,
+                candidate["user_input"],
+                explicit=explicit_memory_operation(candidate["user_input"]) is not None,
+            )
+
     def _spotify_mode_enabled(self, ui: WebSocketUIAdapter) -> bool:
         mode = getattr(ui, "_spotify_mode", None)
-        return isinstance(mode, dict) and bool(mode.get("enabled"))
-
-    def _apple_mode_enabled(self, ui: WebSocketUIAdapter) -> bool:
-        mode = getattr(ui, "_apple_mode", None)
         return isinstance(mode, dict) and bool(mode.get("enabled"))
 
     async def _restore_provider_mode(self, ui: WebSocketUIAdapter) -> None:
@@ -5335,190 +6049,12 @@ class WebSocketRunner:
             await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.SPOTIFY))
             await _send_provider_mode(ui, ProviderMode.SPOTIFY)
             return
-        if intent.provider is ProviderMode.APPLE:
-            snapshot = self.apple_mode.snapshot
-            if snapshot.connected and snapshot.authorized and snapshot.can_play and snapshot.storefront:
-                setattr(
-                    ui,
-                    "_apple_mode",
-                    {
-                        "enabled": True,
-                        "storefront": snapshot.storefront,
-                        "connection_status": snapshot.connection_status,
-                    },
-                )
-                setattr(ui, "_spotify_mode", None)
-                await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.APPLE))
-                await _send_spotify_mode(ui, None)
-                await _send_provider_mode(
-                    ui,
-                    ProviderMode.APPLE,
-                    storefront=snapshot.storefront,
-                    connection_status=snapshot.connection_status,
-                )
-                return
-            clear_provider_mode_intent()
-            setattr(ui, "_apple_mode", None)
-            await ui._send(
-                {
-                    "type": "chat",
-                    "role": "agent",
-                    "text": "Apple Mode was not restored because its local companion is unavailable. Run /apple to reconnect.",
-                    "theme": "muted",
-                    "tone": "system",
-                }
-            )
         restored_provider = ProviderMode.SPOTIFY if self._spotify_mode_enabled(ui) else ProviderMode.NORMAL
         await self.provider_modes.restore(ProviderModeState(provider=restored_provider))
         await _send_provider_mode(
             ui,
             restored_provider,
         )
-
-    async def _sync_apple_playback(self, ui: WebSocketUIAdapter) -> None:
-        last_signature: tuple[Any, ...] | None = None
-        last_status = ""
-        while not ui.closed:
-            if not self._apple_mode_enabled(ui):
-                await asyncio.sleep(1)
-                continue
-            snapshot = self.apple_mode.snapshot
-            status = snapshot.connection_status
-            if status != last_status:
-                mode = getattr(ui, "_apple_mode", {}) or {}
-                mode["connection_status"] = status
-                setattr(ui, "_apple_mode", mode)
-                await _send_provider_mode(
-                    ui,
-                    ProviderMode.APPLE,
-                    storefront=snapshot.storefront,
-                    connection_status=status,
-                )
-                last_status = status
-            if not snapshot.connected:
-                if self.apple_mode.companion.disconnected_seconds > 10:
-                    await self._exit_apple_mode(
-                        ui,
-                        message="Apple Mode exited because the MusicKit companion did not reconnect.",
-                    )
-                    continue
-                await asyncio.sleep(0.5)
-                continue
-            with suppress(Exception):
-                await self.apple_mode.refresh_developer_token()
-            mode = getattr(ui, "_apple_mode", {}) or {}
-            entered_storefront = str(mode.get("storefront") or "")
-            if snapshot.authorized and not snapshot.can_play:
-                await self._exit_apple_mode(
-                    ui,
-                    message="Apple Mode exited because subscription playback is no longer available.",
-                )
-                continue
-            if entered_storefront and snapshot.storefront and snapshot.storefront != entered_storefront:
-                with suppress(Exception):
-                    await self.apple_mode.clear_queue()
-                await self._exit_apple_mode(
-                    ui,
-                    message="Apple Mode exited because the Apple Music storefront changed. Re-enter with /apple.",
-                )
-                continue
-            player_state = self.apple_mode.player_state()
-            if player_state:
-                player_state = _decorate_player_state(player_state)
-                signature = _player_sync_signature(player_state)
-                if signature != last_signature:
-                    setattr(ui, "_last_player_state", player_state)
-                    await ui._send({"type": "player", "state": player_state})
-                    await ui._send({"type": "queue", "tracks": _apple_track_panel_tracks(self.apple_mode.queue_tracks())})
-                    last_signature = signature
-            await asyncio.sleep(0.5)
-
-    async def _start_apple_track_selection(
-        self,
-        ui: WebSocketUIAdapter,
-        query: str,
-        *,
-        queue_add: bool = False,
-    ) -> None:
-        fields = parse_apple_query(query)
-        catalog_query = " ".join(
-            part for part in (fields.get("title"), fields.get("artist"), fields.get("album")) if part
-        ).strip() or query.strip()
-        await ui.append_activity(
-            kind="tool",
-            title="Searching Apple Music",
-            detail="Finding tracks in your Apple Music storefront.",
-            status="pending",
-        )
-        try:
-            ranked = await asyncio.wait_for(
-                self.apple_mode.search(catalog_query, 10, match_query=query),
-                timeout=8,
-            )
-        except (AppleCompanionError, TimeoutError, OSError) as exc:
-            message = sanitize_error_message(exc)
-            await ui.append_activity(kind="error", title="Apple Music search", detail=message, status="error")
-            await ui.append_agent_message(message)
-            return
-        if ranked.decision is AppleCandidateDecision.REJECT or not ranked.candidates:
-            message = f"No safe Apple Music match found for '{query}'."
-            await ui.append_activity(kind="error", title="Apple Music search", detail=message, status="error")
-            await ui.append_agent_message(message)
-            return
-        if ranked.decision is AppleCandidateDecision.AUTO:
-            await self._play_apple_track(ui, dict(ranked.candidates[0]), queue_add=queue_add)
-            return
-        session = ApplePlaySelectionSession(
-            ui,
-            self,
-            query,
-            list(ranked.candidates),
-            queue_add=queue_add,
-            require_confirmation=ranked.decision is AppleCandidateDecision.CONFIRM,
-        )
-        setattr(ui, "_apple_play_selection", session)
-        await session.start()
-
-    async def _play_apple_track(
-        self,
-        ui: WebSocketUIAdapter,
-        track: dict[str, Any],
-        *,
-        queue_add: bool = False,
-    ) -> None:
-        action = "queue add" if queue_add else "play"
-        await ui.append_activity(
-            kind="tool",
-            title="Apple playback",
-            detail=f"Waiting for MusicKit to confirm {action}.",
-            status="pending",
-        )
-        try:
-            snapshot = await (
-                self.apple_mode.queue_add(track)
-                if queue_add
-                else self.apple_mode.play(track)
-            )
-        except AppleCompanionError as exc:
-            message = sanitize_error_message(exc)
-            await ui.append_activity(kind="error", title="Apple playback", detail=message, status="error")
-            await ui.append_agent_message(message)
-            return
-        await self._publish_apple_snapshot(ui, snapshot)
-        title = str(track.get("name") or track.get("title") or "selected track")
-        detail = f"Added to Apple Music queue: {title}." if queue_add else f"Playing on Apple Music: {title}."
-        await ui.append_activity(kind="status", title="Apple playback", detail=detail, status="success")
-
-    async def _publish_apple_snapshot(self, ui: WebSocketUIAdapter, snapshot: Any) -> None:
-        player_state = self.apple_mode.player_state()
-        if player_state:
-            player_state = _decorate_player_state(player_state)
-            setattr(ui, "_last_player_state", player_state)
-            await ui._send({"type": "player", "state": player_state})
-            cover = str(player_state.get("album_cover_url") or "")
-            if cover:
-                await ui.send_cover(cover)
-        await ui._send({"type": "queue", "tracks": _apple_track_panel_tracks(self.apple_mode.queue_tracks())})
 
     async def _restore_persistent_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
         mode = _load_persistent_spotify_mode()
@@ -5528,6 +6064,20 @@ class WebSocketRunner:
         setattr(ui, "_spotify_mode", mode)
         setattr(ui, "_spotify_library_synced", False)
         await _send_spotify_mode(ui, mode)
+
+    async def _clear_provider_modes_for_logout(self, ui: WebSocketUIAdapter) -> None:
+        """Reset provider-mode state before ending an authenticated session."""
+        setattr(ui, "_spotify_mode", None)
+        setattr(ui, "_spotify_library_synced", False)
+        setattr(ui, "_spotify_device_selection", None)
+        setattr(ui, "_spotify_play_selection", None)
+        setattr(ui, "_provider_mode_exit", None)
+        setattr(ui, "_preferred_playback_provider", None)
+        _clear_persistent_spotify_mode()
+        clear_provider_mode_intent()
+        await self.provider_modes.restore(ProviderModeState())
+        await _send_spotify_mode(ui, None)
+        await _send_provider_mode(ui, ProviderMode.NORMAL)
 
     async def _handle_spotify_random_command(self, ui: WebSocketUIAdapter) -> None:
         try:
@@ -5742,12 +6292,6 @@ class WebSocketRunner:
                 "Spotify as the explicit provider for Query and playback workflows unless "
                 "the user explicitly requests another provider."
             )
-        elif provider_mode == "apple_music":
-            mode_guidance = (
-                " Apple Mode is active: pass provider='apple_music' to Recommend and preserve "
-                "Apple Music as the explicit provider for Query and playback workflows unless "
-                "the user explicitly requests another provider."
-            )
         if decision.route == MusicIntentRoute.RECOMMEND:
             return CommandIntent(
                 command="recommend",
@@ -5874,13 +6418,25 @@ class WebSocketRunner:
             await ui.append_system_message(_format_runtime_info(_llm_auth_state()))
             return
 
-        if command_name == "queue":
-            if self._apple_mode_enabled(ui):
-                tracks = _apple_track_panel_tracks(self.apple_mode.queue_tracks())
-                await ui._send(_track_panel_payload("queue", "Apple Music Queue", tracks))
-                detail = "Showing Apple Music queue." if tracks else "Apple Music queue is empty."
-                await ui.append_activity(kind="status", title="Apple Music queue", detail=detail, status="success")
+        if command_name == "memory":
+            if args.strip():
+                await ui.append_system_message("Usage: /memory")
                 return
+            session = MemorySettingsSession(ui, self.memory_store)
+            setattr(ui, "_memory_settings", session)
+            await session.start()
+            return
+
+        if command_name == "login":
+            if args.strip():
+                await ui.append_system_message("Usage: /login")
+                return
+            setup = AuthSetupSession(ui, _default_provider_name(), None, self)
+            setattr(ui, "_auth_setup", setup)
+            await setup.start("Choose a model provider to connect or switch.")
+            return
+
+        if command_name == "queue":
             if self._spotify_mode_enabled(ui):
                 await self._show_spotify_queue(ui)
                 return
@@ -5894,10 +6450,6 @@ class WebSocketRunner:
 
         if command_name == "connect":
             await self._handle_music_connect(ui, args)
-            return
-
-        if command_name == "apple":
-            await self._handle_apple_mode_command(ui, args)
             return
 
         if command_name == "playlist":
@@ -5927,10 +6479,6 @@ class WebSocketRunner:
 
         if command_name == "volume":
             await self._handle_local_playback_volume(ui, args)
-            return
-
-        if command_name == "player":
-            await self._handle_local_playback_player(ui, args)
             return
 
         if command_name in {"bye", "exit"}:
@@ -5967,19 +6515,16 @@ class WebSocketRunner:
             await ui.append_activity(kind="error", title="Track panel", detail=message, status="error")
             await ui.send_error(message)
             return
-        if self._apple_mode_enabled(ui) and str(track.get("provider") or "") == "apple_music":
-            if action == "queue_add":
-                await self._play_apple_track(ui, track, queue_add=True)
-                return
-            if action == "play":
-                await self._play_apple_track(ui, track)
-                return
         if action == "queue_add":
             provider = str(track.get("provider") or track.get("source") or "local")
             ref = str(track.get("ref") or "").strip()
             resolved = resolve_track_reference(ref) if ref else None
             if resolved is None:
-                ref = remember_track_reference(provider, track, playable=True)
+                ref = remember_track_reference(
+                    provider,
+                    track,
+                    playable=not bool(track.get("requires_resolution")),
+                )
                 resolved = resolve_track_reference(ref)
             assert resolved is not None
             append_up_next_track(resolved)
@@ -6012,6 +6557,32 @@ class WebSocketRunner:
         failures: list[str] = []
         while state["items"]:
             current = dict(state["items"][0])
+            if current.get("requires_resolution"):
+                query = " ".join(
+                    part
+                    for part in (
+                        str(current.get("name") or current.get("title") or "").strip(),
+                        str(current.get("artist") or "").strip(),
+                    )
+                    if part and part != "-"
+                )
+
+                async def settle_legacy(result: dict[str, Any]) -> None:
+                    if result.get("status") == "playback_completed":
+                        consume_up_next_head()
+                    else:
+                        fail_up_next_head(str(result.get("message") or "Playback failed."))
+                    await ui._send({"type": "queue", "tracks": _queue_payload()})
+
+                session = PlaySelectionSession(
+                    ui,
+                    self,
+                    query,
+                    on_finish=lambda result: asyncio.create_task(settle_legacy(result)),
+                )
+                setattr(ui, "_play_selection", session)
+                await session.start()
+                return
             started, reason = await self._play_track_panel_track(
                 ui,
                 current,
@@ -6043,6 +6614,20 @@ class WebSocketRunner:
         *,
         report_failure: bool = True,
     ) -> tuple[bool, str]:
+        if track.get("requires_resolution"):
+            query = " ".join(
+                part
+                for part in (
+                    str(track.get("name") or track.get("title") or "").strip(),
+                    str(track.get("artist") or "").strip(),
+                )
+                if part and part != "-"
+            )
+            session = PlaySelectionSession(ui, self, query)
+            setattr(ui, "_play_selection", session)
+            await session.start()
+            return True, ""
+
         uri = str(track.get("uri") or "")
         if uri.startswith("spotify:track:"):
             mode = getattr(ui, "_spotify_mode", {}) or {}
@@ -6058,27 +6643,6 @@ class WebSocketRunner:
                 return False, message
             else:
                 await ui.append_activity(kind="status", title="Spotify playback", detail="Playing selected playlist track.", status="success")
-            return True, ""
-
-        if str(track.get("provider") or "") == "apple_music":
-            apple_ref = uri or str(track.get("id") or "").strip()
-            result = await asyncio.to_thread(
-                registry.invoke_system,
-                "apple_music_play",
-                {
-                    "query": str(track.get("name") or track.get("title") or "").strip() or None,
-                    "uri": apple_ref or None,
-                },
-            )
-            await self._sync_tool_result_ui(ui, "apple_music_play", result)
-            if _is_failed_tool_result(result):
-                message = _friendly_runtime_error_message(
-                    result,
-                    fallback="Apple Music playback failed.",
-                )
-                if report_failure:
-                    await ui.send_error(message)
-                return False, message
             return True, ""
 
         if str(track.get("provider") or "") == "netease":
@@ -6140,197 +6704,6 @@ class WebSocketRunner:
         if report_failure:
             await ui.send_error(message)
         return False, message
-
-    async def _handle_apple_mode_command(
-        self,
-        ui: WebSocketUIAdapter,
-        args: str,
-        *,
-        announce: bool = True,
-    ) -> None:
-        action = args.strip().casefold()
-        if action:
-            message = "Usage: /apple"
-            await ui.append_activity(kind="error", title="Apple Mode", detail=message, status="error")
-            await ui.append_system_message(message)
-            return
-        if self._apple_mode_enabled(ui):
-            session = ProviderModeExitSession(ui, self, "apple")
-            setattr(ui, "_provider_mode_exit", session)
-            await session.start()
-            return
-
-        previous_spotify = self._spotify_mode_enabled(ui)
-        await ui.append_activity(
-            kind="tool",
-            title="Apple Mode",
-            detail="Starting the secure MusicKit companion.",
-            status="pending",
-        )
-        try:
-            entry = await self.apple_mode.begin_entry(open_browser=True)
-        except DeveloperTokenNotConfiguredError:
-            await self._connect_music_provider(ui, "apple_music")
-            return
-        except Exception as exc:
-            message = sanitize_error_message(exc)
-            await ui.append_activity(kind="error", title="Apple Mode", detail=message, status="error")
-            await ui.append_system_message(message)
-            return
-        if not entry.already_ready:
-            browser_detail = (
-                "Authorize Apple Music in the browser window."
-                if entry.browser_opened
-                else f"Open this local URL in a desktop browser: {entry.url}"
-            )
-            await ui.send_auth_setup(
-                provider="apple_music",
-                step="companion_wait",
-                title="Apple Mode authorization",
-                message=browser_detail,
-                active=True,
-            )
-        try:
-            snapshot = await self.apple_mode.complete_entry()
-        except Exception as exc:
-            await ui.send_auth_setup(
-                provider="apple_music",
-                step="companion_done",
-                title="Apple Mode authorization",
-                message="Apple Mode authorization did not complete.",
-                active=False,
-            )
-            message = sanitize_error_message(exc)
-            await ui.append_activity(kind="error", title="Apple Mode", detail=message, status="error")
-            await ui.append_system_message(message)
-            return
-        await ui.send_auth_setup(
-            provider="apple_music",
-            step="companion_done",
-            title="Apple Mode authorization",
-            message="Apple Music authorization complete.",
-            active=False,
-        )
-
-        if previous_spotify and self.provider_modes.state.provider is not ProviderMode.SPOTIFY:
-            await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.SPOTIFY))
-
-        async def prepare_apple() -> None:
-            return None
-
-        async def pause_previous(provider: ProviderMode) -> None:
-            if provider is not ProviderMode.SPOTIFY:
-                return
-            mode = getattr(ui, "_spotify_mode", {}) or {}
-            device_id = str(mode.get("device_id") or "")
-            result = await _run_spotify_mode_call(
-                ui,
-                func=lambda: registry.invoke_system("spotify_pause", {"device_id": device_id} if device_id else {}),
-                pending_detail="Pausing Spotify before switching providers.",
-                timeout_message="Could not pause Spotify; Apple Mode was not activated.",
-                failure_title="Provider switch",
-            )
-            if result is None or _is_failed_tool_result(result):
-                raise RuntimeError("Spotify did not confirm pause.")
-
-        async def commit_apple(_provider: ProviderMode) -> None:
-            setattr(ui, "_spotify_mode", None)
-            setattr(
-                ui,
-                "_apple_mode",
-                {
-                    "enabled": True,
-                    "storefront": snapshot.storefront,
-                    "connection_status": snapshot.connection_status,
-                },
-            )
-            _clear_persistent_spotify_mode()
-            await _send_spotify_mode(ui, None)
-            save_provider_mode_intent(ProviderModeState(provider=ProviderMode.APPLE))
-            await _send_provider_mode(
-                ui,
-                ProviderMode.APPLE,
-                storefront=snapshot.storefront,
-                connection_status=snapshot.connection_status,
-            )
-
-        try:
-            await self.provider_modes.switch(
-                ProviderMode.APPLE,
-                prepare=prepare_apple,
-                pause_previous=pause_previous,
-                commit=commit_apple,
-            )
-        except Exception as exc:
-            with suppress(Exception):
-                await self.apple_mode.exit_mode()
-            message = sanitize_error_message(exc)
-            await ui.append_activity(kind="error", title="Provider switch", detail=message, status="error")
-            await ui.append_system_message(message)
-            return
-        if not previous_spotify:
-            with suppress(Exception):
-                await asyncio.to_thread(registry.invoke_system, "local_playback_pause", {})
-        await self._publish_apple_snapshot(ui, snapshot)
-        message = f"Apple Mode on · storefront {snapshot.storefront.upper()}."
-        await ui.append_activity(kind="status", title="Apple Mode", detail=message, status="success")
-        if announce:
-            await ui.append_system_message(message)
-
-    async def _exit_apple_mode(self, ui: WebSocketUIAdapter, *, message: str) -> None:
-        if self._apple_mode_enabled(ui) and self.provider_modes.state.provider is not ProviderMode.APPLE:
-            await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.APPLE))
-
-        async def pause_current(_provider: ProviderMode) -> None:
-            await self.apple_mode.exit_mode()
-
-        async def commit_normal(_provider: ProviderMode) -> None:
-            setattr(ui, "_apple_mode", None)
-            setattr(ui, "_apple_play_selection", None)
-            clear_provider_mode_intent()
-            await _send_provider_mode(ui, ProviderMode.NORMAL)
-            await ui._send({"type": "queue", "tracks": _queue_payload()})
-
-        try:
-            await self.provider_modes.exit(
-                pause_current=pause_current,
-                commit=commit_normal,
-            )
-        except Exception as exc:
-            await ui.append_activity(
-                kind="error",
-                title="Apple Mode",
-                detail=sanitize_error_message(exc),
-                status="error",
-            )
-            return
-        await ui.append_activity(kind="status", title="Apple Mode", detail=message, status="success")
-        await ui.append_system_message(message)
-
-    async def _handle_apple_control(self, ui: WebSocketUIAdapter, action: str) -> None:
-        if not self._apple_mode_enabled(ui):
-            await ui.append_system_message("Apple Mode is not active.")
-            return
-        await ui.append_activity(
-            kind="tool",
-            title="Apple playback",
-            detail=f"Waiting for MusicKit to confirm {action}.",
-            status="pending",
-        )
-        try:
-            snapshot = await self.apple_mode.control(action)
-        except AppleCompanionError as exc:
-            message = sanitize_error_message(exc)
-            await ui.append_activity(kind="error", title="Apple playback", detail=message, status="error")
-            await ui.append_system_message(message)
-            return
-        await self._publish_apple_snapshot(ui, snapshot)
-        await ui.append_activity(
-            kind="status",
-            title="Apple playback",
-            detail=f"Apple Music {action} confirmed.",
-            status="success",
-        )
 
     async def _handle_spotify_mode_command(self, ui: WebSocketUIAdapter, args: str) -> None:
         action = args.strip().casefold()
@@ -6439,19 +6812,13 @@ class WebSocketRunner:
         announce: bool = True,
     ) -> None:
         mode = _spotify_mode_state(device, scopes)
-        if self._apple_mode_enabled(ui) and self.provider_modes.state.provider is not ProviderMode.APPLE:
-            await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.APPLE))
-
         async def prepare_spotify() -> None:
             return None
 
-        async def pause_previous(provider: ProviderMode) -> None:
-            if provider is ProviderMode.APPLE:
-                await self.apple_mode.exit_mode()
+        async def pause_previous(_provider: ProviderMode) -> None:
+            return None
 
         async def commit_spotify(_provider: ProviderMode) -> None:
-            setattr(ui, "_apple_mode", None)
-            setattr(ui, "_apple_play_selection", None)
             setattr(ui, "_spotify_mode", mode)
             setattr(ui, "_spotify_library_synced", False)
             _persist_spotify_mode(mode)
@@ -6777,10 +7144,6 @@ class WebSocketRunner:
         Spotify pause/resume calls run off the event loop and target the mode's selected device.
         Other playback controls keep using the local playback controller.
         """
-        if self._apple_mode_enabled(ui) and command_name in APPLE_PLAYBACK_CONTROL_ACTIONS:
-            await self._handle_apple_control(ui, APPLE_PLAYBACK_CONTROL_ACTIONS[command_name])
-            return
-
         if self._spotify_mode_enabled(ui) and command_name in SPOTIFY_PLAYBACK_CONTROL_TOOLS:
             tool_name = SPOTIFY_PLAYBACK_CONTROL_TOOLS[command_name]
             mode = getattr(ui, "_spotify_mode", None)
@@ -6845,33 +7208,6 @@ class WebSocketRunner:
                 "data": {},
             }
         await self._sync_tool_result_ui(ui, tool_name, result)
-
-    async def _handle_local_playback_player(self, ui: WebSocketUIAdapter, args: str) -> None:
-        """Prepares handle local playback player for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs handle local playback player without duplicating the local rules.
-
-        Example: await _handle_local_playback_player(ui=..., args=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        if self._player_sink_manager_instance is None:
-            self._player_sink_manager_instance = await asyncio.to_thread(
-                self._player_sink_manager_factory
-            )
-        manager = self._player_sink_manager_instance
-        options = await manager.options()
-        if not options:
-            message = "No supported player was found. Install mpv, VLC, Clementine, Rhythmbox, or Audacious, then run /player again."
-            await ui.append_activity(
-                kind="error",
-                title="Default player",
-                detail=message,
-                status="error",
-            )
-            await ui.append_system_message(message)
-            return
-        session = PlayerBackendSelectionSession(ui, manager, options)
-        setattr(ui, "_player_backend_selection", session)
-        await session.start()
 
     async def _handle_music_connect(
         self,
@@ -6950,6 +7286,7 @@ class WebSocketRunner:
         provider_id: str,
         *,
         complete: Callable[[dict[str, Any]], None] | None = None,
+        emit_feedback: bool = True,
     ) -> None:
         if self._music_connection_manager_instance is None:
             self._music_connection_manager_instance = self._music_connection_manager_factory()
@@ -6961,18 +7298,14 @@ class WebSocketRunner:
                 token = None
             if token is None:
                 async def remember_spotify(data: dict[str, Any]) -> None:
-                    account_label = str(
-                        data.get("display_name")
-                        or data.get("email")
-                        or data.get("id")
-                        or "Spotify account"
-                    )
+                    account_label = data.get("display_name")
                     manager.mark_connected("spotify", account_label=account_label)
 
                 setup = SpotifySetupSession(
                     ui,
                     on_connected=remember_spotify,
                     on_completed=complete,
+                    emit_feedback=emit_feedback,
                 )
                 setattr(ui, "_spotify_setup", setup)
                 await setup.start()
@@ -6985,13 +7318,14 @@ class WebSocketRunner:
                 )
                 if manager.record("spotify") is not None:
                     manager.mark_unavailable("spotify", reason=message)
-                await ui.append_activity(
-                    kind="error",
-                    title="Spotify connection",
-                    detail=message,
-                    status="error",
-                )
-                await ui.append_system_message(message)
+                if emit_feedback:
+                    await ui.append_activity(
+                        kind="error",
+                        title="Spotify connection",
+                        detail=message,
+                        status="error",
+                    )
+                    await ui.append_system_message(message)
                 if complete is not None:
                     complete(
                         {
@@ -7008,25 +7342,25 @@ class WebSocketRunner:
                 return
             data = account.get("data") if isinstance(account, dict) else {}
             if not isinstance(data, dict) or not data.get("logged_in"):
-                setup = SpotifySetupSession(ui, on_completed=complete)
+                setup = SpotifySetupSession(
+                    ui,
+                    on_completed=complete,
+                    emit_feedback=emit_feedback,
+                )
                 setattr(ui, "_spotify_setup", setup)
                 await setup.start()
                 return
-            account_label = str(
-                data.get("display_name")
-                or data.get("email")
-                or data.get("id")
-                or "Spotify account"
-            )
+            account_label = data.get("display_name")
             manager.mark_connected("spotify", account_label=account_label)
-            message = f"Spotify connected · {account_label}."
-            await ui.append_activity(
-                kind="status",
-                title="Spotify connection",
-                detail=message,
-                status="success",
-            )
-            await ui.append_system_message(message)
+            message = f"Spotify connected{f' · {account_label}' if account_label else ''}."
+            if emit_feedback:
+                await ui.append_activity(
+                    kind="status",
+                    title="Spotify connection",
+                    detail=message,
+                    status="success",
+                )
+                await ui.append_system_message(message)
             if complete is not None:
                 complete(
                     {
@@ -7047,7 +7381,7 @@ class WebSocketRunner:
                 if result.get("status") == "connected":
                     manager.mark_connected(
                         provider_id,
-                        account_label=str(result.get("account_label") or f"{provider_id} application"),
+                        account_label=None,
                     )
                 if complete is not None:
                     complete(
@@ -7075,14 +7409,16 @@ class WebSocketRunner:
                 ui,
                 provider_id,
                 on_completed=finish_open_audio,
+                emit_feedback=emit_feedback,
             )
             setattr(ui, "_auth_setup", setup)
             await setup.start()
             return
 
         if provider_id == "netease":
+            worker = NetEaseProviderWorker()
             try:
-                health = await asyncio.to_thread(NetEaseProviderWorker().health)
+                health = await asyncio.to_thread(worker.health)
             except Exception as exc:
                 health = None
                 message = sanitize_error_message(exc)
@@ -7091,13 +7427,14 @@ class WebSocketRunner:
             if health is not None and health.ready:
                 manager.mark_connected("netease", account_label="ncm-cli")
                 message = "NetEase connected · Ready, unverified playback."
-                await ui.append_activity(
-                    kind="status",
-                    title="NetEase connection",
-                    detail=message,
-                    status="success",
-                )
-                await ui.append_system_message(message)
+                if emit_feedback:
+                    await ui.append_activity(
+                        kind="status",
+                        title="NetEase connection",
+                        detail=message,
+                        status="success",
+                    )
+                    await ui.append_system_message(message)
                 if complete is not None:
                     complete(
                         {
@@ -7112,13 +7449,31 @@ class WebSocketRunner:
                         }
                     )
                 return
-            await ui.append_activity(
-                kind="error",
-                title="NetEase connection",
-                detail=message,
-                status="error",
-            )
-            await ui.append_system_message(message)
+            if health is not None and health.login_available and not health.login_ready:
+                def finish_netease(result: dict[str, Any]) -> None:
+                    if result.get("status") == "connected":
+                        manager.mark_connected("netease", account_label="ncm-cli")
+                    if complete is not None:
+                        complete(result)
+
+                session = NetEaseLoginSession(
+                    ui,
+                    worker,
+                    on_completed=finish_netease,
+                    fallback_online=False,
+                    emit_feedback=emit_feedback,
+                )
+                setattr(ui, "_netease_login_session", session)
+                await session.start()
+                return
+            if emit_feedback:
+                await ui.append_activity(
+                    kind="error",
+                    title="NetEase connection",
+                    detail=message,
+                    status="error",
+                )
+                await ui.append_system_message(message)
             if complete is not None:
                 complete(
                     {
@@ -7134,8 +7489,8 @@ class WebSocketRunner:
                 )
             return
 
-        if provider_id != "apple_music":
-            message = "Selected music connection is not available."
+        message = "Selected music connection is not available."
+        if emit_feedback:
             await ui.append_activity(
                 kind="error",
                 title="Music connections",
@@ -7143,142 +7498,19 @@ class WebSocketRunner:
                 status="error",
             )
             await ui.append_system_message(message)
-            if complete is not None:
-                complete(
-                    {
-                        "status": "failed",
-                        "tool": "Connect",
-                        "message": message,
-                        "data": {
-                            "provider": provider_id,
-                            "reason": "provider_unavailable",
-                        },
-                        "error_code": "PROVIDER_UNSUPPORTED",
-                    }
-                )
-            return
-
-        snapshot = self.apple_mode.snapshot
-        if not (
-            snapshot.connected
-            and snapshot.authorized
-            and snapshot.can_play
-            and snapshot.storefront
-        ):
-            try:
-                entry = await self.apple_mode.begin_entry(open_browser=True)
-            except DeveloperTokenNotConfiguredError:
-                setup = AppleMusicSetupSession(
-                    ui,
-                    on_configured=lambda: self._connect_music_provider(
-                        ui,
-                        "apple_music",
-                        complete=complete,
-                    ),
-                )
-                setattr(ui, "_apple_music_setup", setup)
-                await setup.start()
-                return
-            except Exception as exc:
-                message = sanitize_error_message(exc)
-                if manager.record("apple_music") is not None:
-                    manager.mark_unavailable("apple_music", reason=message)
-                await ui.append_activity(
-                    kind="error",
-                    title="Apple Music connection",
-                    detail=message,
-                    status="error",
-                )
-                await ui.append_system_message(message)
-                if complete is not None:
-                    complete(
-                        {
-                            "status": "failed",
-                            "tool": "Connect",
-                            "message": message,
-                            "data": {
-                                "provider": "apple_music",
-                                "reason": "connection_failed",
-                            },
-                            "error_code": "CONNECTION_FAILED",
-                        }
-                    )
-                return
-            if not entry.already_ready:
-                browser_detail = (
-                    "Authorize Apple Music in the browser window."
-                    if entry.browser_opened
-                    else f"Open this local URL in a desktop browser: {entry.url}"
-                )
-                await ui.send_auth_setup(
-                    provider="apple_music",
-                    step="companion_wait",
-                    title="Apple Music connection",
-                    message=browser_detail,
-                    active=True,
-                )
-            try:
-                snapshot = await self.apple_mode.complete_entry()
-            except Exception as exc:
-                message = sanitize_error_message(exc)
-                await ui.send_auth_setup(
-                    provider="apple_music",
-                    step="companion_done",
-                    title="Apple Music connection",
-                    message=message,
-                    active=False,
-                )
-                await ui.append_activity(
-                    kind="error",
-                    title="Apple Music connection",
-                    detail=message,
-                    status="error",
-                )
-                if complete is not None:
-                    complete(
-                        {
-                            "status": "failed",
-                            "tool": "Connect",
-                            "message": message,
-                            "data": {
-                                "provider": "apple_music",
-                                "reason": "authorization_failed",
-                            },
-                            "error_code": "CONNECTION_FAILED",
-                        }
-                    )
-                return
-        account_label = f"Storefront {snapshot.storefront.upper()}"
-        manager.mark_connected("apple_music", account_label=account_label)
-        await ui.send_auth_setup(
-            provider="apple_music",
-            step="companion_done",
-            title="Apple Music connection",
-            message="Apple Music is connected.",
-            active=False,
-        )
-        message = f"Apple Music connected · {account_label}."
-        await ui.append_activity(
-            kind="status",
-            title="Apple Music connection",
-            detail=message,
-            status="success",
-        )
-        await ui.append_system_message(message)
         if complete is not None:
             complete(
                 {
-                    "status": "connected",
+                    "status": "failed",
                     "tool": "Connect",
                     "message": message,
                     "data": {
-                        "provider": "apple_music",
-                        "account_label": account_label,
+                        "provider": provider_id,
+                        "reason": "provider_unavailable",
                     },
-                    "error_code": None,
+                    "error_code": "PROVIDER_UNSUPPORTED",
                 }
             )
-
     async def _handle_logout(self, ui: WebSocketUIAdapter, args: str = "") -> None:
         """Prepares handle logout for an internal Sonex flow.
 
@@ -7287,39 +7519,18 @@ class WebSocketRunner:
         Example: await _handle_logout(ui=...) -> returns the value used by the surrounding Sonex flow.
         """
         target = args.strip().casefold().replace("_", " ")
-        if target in {"apple", "apple music"}:
-            was_connected = self.apple_mode.snapshot.connected
-            try:
-                await self.apple_mode.logout()
-            except Exception as exc:
-                message = sanitize_error_message(exc)
-                await ui.append_activity(kind="error", title="Apple logout", detail=message, status="error")
-                await ui.append_system_message(
-                    "Sonex cleared Apple Mode state, but the offline companion could not confirm MusicKit unauthorize. "
-                    "Revoke the website authorization from Apple account settings if needed."
-                )
-            setattr(ui, "_apple_mode", None)
-            setattr(ui, "_apple_play_selection", None)
-            with suppress(Exception):
-                remove_provider("apple_music")
-            clear_provider_mode_intent()
-            await self.provider_modes.restore(ProviderModeState())
-            await _send_provider_mode(ui, ProviderMode.NORMAL)
-            await ui._send({"type": "queue", "tracks": _queue_payload()})
-            detail = (
-                "Apple Music was unauthorized in the companion and Apple Mode state was cleared."
-                if was_connected
-                else "Apple Mode state was cleared; no companion was online to confirm MusicKit unauthorize."
-            )
-            await ui.append_activity(kind="status", title="Apple logout", detail=detail, status="success")
-            await ui.append_system_message(detail)
-            return
         if target:
-            await ui.append_system_message("Usage: /logout or /logout apple.")
+            await ui.append_system_message("Usage: /logout")
             return
 
+        netease_logged_out = await self._logout_netease(ui)
         state = _llm_auth_state()
         if not state.ready:
+            if netease_logged_out:
+                await self._clear_provider_modes_for_logout(ui)
+                await ui.append_system_message("Signed out of NetEase.")
+                await self._handle_bye(ui, messages=ui.transcript, reason="logout")
+                return
             await ui.append_system_message("You are not logged in.")
             return
 
@@ -7327,11 +7538,13 @@ class WebSocketRunner:
             await ui.append_system_message(
                 "Cannot clear environment variable credentials from the TUI. Remove the provider API key from your environment, then restart Sonex."
             )
+            await self._clear_provider_modes_for_logout(ui)
             await self._handle_bye(ui, messages=ui.transcript, reason="logout")
             return
 
         if state.credential_source == "local" or state.auth_type == "local":
             await ui.append_system_message(f"Provider '{state.provider}' does not require login.")
+            await self._clear_provider_modes_for_logout(ui)
             await self._handle_bye(ui, messages=ui.transcript, reason="logout")
             return
 
@@ -7340,7 +7553,15 @@ class WebSocketRunner:
             return
 
         try:
-            removed = remove_provider(state.provider)
+            if state.provider == "openai" and state.auth_type == "oauth":
+                await asyncio.to_thread(logout_chatgpt_subscription)
+            if state.auth_type in {"api_key", "oauth"}:
+                removed = remove_provider_method(state.provider, state.auth_type)
+                if state.auth_type == "oauth":
+                    clear_oauth_access_cache(state.provider)
+            else:
+                removed = True
+            clear_default()
             os.environ.pop("SONEX_DEFAULT_PROVIDER", None)
             os.environ.pop("SONEX_DEFAULT_MODEL", None)
             ThinkingConfig._state = None
@@ -7352,9 +7573,41 @@ class WebSocketRunner:
             await ui.append_system_message("You are not logged in.")
             return
 
+        await self._clear_provider_modes_for_logout(ui)
         await ui.send_auth_state(_llm_auth_state())
-        await ui.append_system_message("Signed out successfully.")
+        await ui.append_system_message(
+            "Signed out of the active LLM connection. Other saved provider credentials were preserved."
+        )
         await self._handle_bye(ui, messages=ui.transcript, reason="logout")
+
+    async def _logout_netease(self, ui: WebSocketUIAdapter) -> bool:
+        """Cancel QR login and clear NetEase session state and ncm-cli auth."""
+        login_session = getattr(ui, "_netease_login_session", None)
+        if login_session is not None:
+            await login_session.cancel()
+            task = getattr(login_session, "task", None)
+            if isinstance(task, asyncio.Task):
+                with suppress(asyncio.CancelledError):
+                    await task
+        setattr(ui, "_netease_login_session", None)
+        setattr(ui, "_netease_login_offer", None)
+        setattr(ui, "_netease_login_declined", False)
+        setattr(ui, "_netease_verified_signature", None)
+        if getattr(ui, "_preferred_playback_provider", None) == "netease":
+            setattr(ui, "_preferred_playback_provider", None)
+        if self._music_connection_manager_instance is None:
+            self._music_connection_manager_instance = self._music_connection_manager_factory()
+        manager = self._music_connection_manager_instance
+        had_connection = manager.record("netease") is not None
+        worker = NetEaseProviderWorker()
+        logged_out = False
+        try:
+            if await asyncio.to_thread(worker.is_logged_in):
+                logged_out = await asyncio.to_thread(worker.logout)
+        except Exception as exc:
+            logger.warning("NetEase logout check failed: %s", sanitize_error_message(exc))
+        manager.remove("netease")
+        return had_connection or logged_out
 
     async def _handle_bye(
         self,
@@ -7466,22 +7719,13 @@ class WebSocketRunner:
             await ui._send({"type": "player", "state": player_state})
             if tool_name not in SEARCH_RESULT_TOOLS and player_state.get("playback_status") != "starting":
                 _remember_actual_playback(player_state)
+                if tool_name in PLAYBACK_AGENT_TOOLS:
+                    _record_playback_behavior(ui, player_state, force=True)
                 await ui._send({"type": "queue", "tracks": _queue_payload()})
         if should_sync_player and cover_url:
             await ui.send_cover(cover_url)
         if result_status == "success" and is_spotify_play_tool:
             _request_spotify_sync(ui)
-        if (
-            isinstance(tool_result, dict)
-            and tool_result.get("error_code") == "DEFAULT_PLAYER_FAILED"
-        ):
-            data = tool_result.get("data")
-            recovery = data.get("player_recovery") if isinstance(data, dict) else None
-            if isinstance(recovery, dict):
-                session = PlayerSinkRecoverySession(ui, self, tool_name, recovery)
-                setattr(ui, "_player_sink_recovery", session)
-                await session.start()
-
     async def _commit_agent_playback_selection(
         self,
         ui: WebSocketUIAdapter,
@@ -7554,15 +7798,20 @@ class WebSocketRunner:
                     )
                 )
                 return authoritative_result
-            community_allowed = await self._confirm_agent_playback_route(
-                ui,
-                message=(
-                    "No authoritative provider is available. "
-                    "Try community audio sources?"
-                ),
-                stage="community_audio",
-                provider="community",
+            community_allowed = bool(
+                isinstance(authoritative_result.get("data"), dict)
+                and authoritative_result["data"].get("online_allowed")
             )
+            if not community_allowed:
+                community_allowed = await self._confirm_agent_playback_route(
+                    ui,
+                    message=(
+                        "No authoritative provider is available. "
+                        "Try community audio sources?"
+                    ),
+                    stage="community_audio",
+                    provider="community",
+                )
             if not community_allowed:
                 message = "Playback stopped because no authoritative provider was available."
                 await ui.send_error(message)
@@ -7724,58 +7973,6 @@ class WebSocketRunner:
                     reason=sanitize_error_message(exc),
                 )
 
-        async def apple_probe() -> ProviderReadiness:
-            started = time.monotonic()
-            try:
-                account = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        registry.invoke_system,
-                        "apple_music_account",
-                        {},
-                    ),
-                    timeout=4,
-                )
-                data = account.get("data") if isinstance(account, dict) else {}
-                data = data if isinstance(data, dict) else {}
-                subscription = data.get("subscription")
-                subscription = subscription if isinstance(subscription, dict) else {}
-                capabilities = data.get("capabilities")
-                capabilities = capabilities if isinstance(capabilities, dict) else {}
-                logged_in = bool(data.get("logged_in"))
-                subscribed = bool(subscription.get("canPlayCatalogContent"))
-                transport_ready = bool(capabilities.get("music_kit_bridge"))
-                return ProviderReadiness(
-                    "apple_music",
-                    configured=not _is_failed_tool_result(account),
-                    logged_in=logged_in,
-                    subscription_ready=subscribed,
-                    transport_ready=transport_ready,
-                    active_mode=self._apple_mode_enabled(ui),
-                    verified_success_rate=float(
-                        (getattr(ui, "_provider_route_success", {}) or {}).get(
-                            "apple_music",
-                            0.0,
-                        )
-                    ),
-                    startup_latency_ms=int((time.monotonic() - started) * 1000),
-                    capability_score=sum(bool(value) for value in capabilities.values()),
-                    preferred=getattr(ui, "_preferred_playback_provider", None) == "apple_music",
-                    reason=(
-                        None
-                        if transport_ready
-                        else "The Apple MusicKit bridge is unavailable."
-                    ),
-                )
-            except Exception as exc:
-                return ProviderReadiness(
-                    "apple_music",
-                    False,
-                    False,
-                    False,
-                    False,
-                    reason=sanitize_error_message(exc),
-                )
-
         async def netease_probe() -> ProviderReadiness:
             started = time.monotonic()
             worker = NetEaseProviderWorker()
@@ -7790,7 +7987,7 @@ class WebSocketRunner:
                     setattr(ui, "_netease_verified_signature", None)
                 return ProviderReadiness(
                     "netease",
-                    configured=health.version is not None and health.config_writable,
+                    configured=health.login_available or health.login_ready,
                     logged_in=health.login_ready,
                     subscription_ready=True,
                     transport_ready=health.mpv_ready and health.ready,
@@ -7804,6 +8001,7 @@ class WebSocketRunner:
                         "worker": worker,
                         "signature": signature,
                         "version": health.version,
+                        "health": health,
                     },
                 )
             except Exception as exc:
@@ -7820,7 +8018,6 @@ class WebSocketRunner:
         snapshots = list(
             await asyncio.gather(
                 spotify_probe(),
-                apple_probe(),
                 netease_probe(),
             )
         )
@@ -7847,7 +8044,6 @@ class WebSocketRunner:
     @staticmethod
     def _provider_label(provider: str) -> str:
         return {
-            "apple_music": "Apple Music",
             "spotify": "Spotify",
             "netease": "NetEase",
         }.get(provider, provider)
@@ -7862,8 +8058,6 @@ class WebSocketRunner:
         hard_provider: bool,
     ) -> dict[str, Any]:
         requested = str(requested_provider or "").strip().casefold()
-        if requested == "apple":
-            requested = "apple_music"
         snapshots = await self._probe_authoritative_providers(ui)
         ranked = rank_authoritative_providers(
             snapshots,
@@ -7936,12 +8130,54 @@ class WebSocketRunner:
                         "_netease_verified_signature",
                         snapshot.details.get("signature"),
                     )
+                setattr(ui, "_preferred_playback_provider", snapshot.provider)
                 return result
             failures.append(str(result.get("message") or "Playback failed."))
             if snapshot.provider == "netease":
                 setattr(ui, "_netease_verified_signature", None)
             if hard_provider:
                 break
+        if not hard_provider:
+            netease_snapshot = next(
+                (snapshot for snapshot in snapshots if snapshot.provider == "netease"),
+                None,
+            )
+            health = (
+                netease_snapshot.details.get("health")
+                if netease_snapshot is not None
+                else None
+            )
+            if (
+                health is not None
+                and health.login_available
+                and not health.login_ready
+                and not getattr(ui, "_netease_login_declined", False)
+            ):
+                recovered, outcome = await self._offer_netease_login(
+                    ui,
+                    fallback_online=True,
+                    readiness=netease_snapshot,
+                )
+                if recovered is not None:
+                    result = await self._try_selected_native_provider(
+                        ui,
+                        identity=identity,
+                        provider="netease",
+                        selected_candidate=selected_candidate,
+                        readiness=recovered,
+                    )
+                    if result.get("status") == "playback_completed":
+                        setattr(ui, "_preferred_playback_provider", "netease")
+                        setattr(ui, "_netease_verified_signature", recovered.details.get("signature"))
+                        return result
+                    failures.append(str(result.get("message") or "NetEase playback failed."))
+                if outcome in {"online", "cancelled", "failed", "timeout"}:
+                    return {
+                        "status": "playback_failed",
+                        "message": "Continue with online playback.",
+                        "error_code": "AUTHORITATIVE_PROVIDER_UNAVAILABLE",
+                        "data": {"provider": None, "attempted": [item.provider for item in ranked], "online_allowed": True},
+                    }
         message = (
             " ".join(dict.fromkeys(failures))
             if failures
@@ -7970,7 +8206,19 @@ class WebSocketRunner:
         allow_setup: bool = True,
     ) -> ProviderReadiness | None:
         """Enter setup or Mode for an explicitly constrained provider."""
-        if provider not in {"spotify", "apple_music"}:
+        if provider == "netease":
+            health = readiness.details.get("health") if readiness is not None else None
+            if health is None or not health.login_available or health.login_ready:
+                return None
+            recovered, outcome = await self._offer_netease_login(
+                ui,
+                fallback_online=False,
+                readiness=readiness,
+            )
+            if outcome != "connected":
+                setattr(ui, "_netease_login_declined", True)
+            return recovered
+        if provider != "spotify":
             return None
         if readiness is None or not readiness.configured or not readiness.logged_in:
             if not allow_setup:
@@ -8009,19 +8257,6 @@ class WebSocketRunner:
                 provider,
                 readiness,
                 allow_setup=False,
-            )
-
-        if provider == "apple_music":
-            await self._handle_apple_mode_command(ui, "", announce=False)
-            if not self._apple_mode_enabled(ui):
-                return None
-            return replace(
-                readiness,
-                configured=True,
-                logged_in=True,
-                subscription_ready=True,
-                transport_ready=True,
-                active_mode=True,
             )
 
         devices = [
@@ -8081,6 +8316,47 @@ class WebSocketRunner:
             },
         )
 
+    async def _offer_netease_login(
+        self,
+        ui: WebSocketUIAdapter,
+        *,
+        fallback_online: bool,
+        readiness: ProviderReadiness,
+    ) -> tuple[ProviderReadiness | None, str]:
+        offer = NetEaseLoginOfferSession(ui, fallback_online=fallback_online)
+        setattr(ui, "_netease_login_offer", offer)
+        choice = await offer.start()
+        if choice != "scan":
+            setattr(ui, "_netease_login_declined", True)
+            return None, choice
+        worker = readiness.details.get("worker")
+        if not isinstance(worker, NetEaseProviderWorker):
+            worker = NetEaseProviderWorker()
+        session = NetEaseLoginSession(
+            ui,
+            worker,
+            on_completed=None,
+            fallback_online=fallback_online,
+            emit_feedback=False,
+        )
+        setattr(ui, "_netease_login_session", session)
+        await session.start()
+        connection = await session.result
+        if connection.get("status") != "connected":
+            setattr(ui, "_netease_login_declined", True)
+            return None, str(connection.get("status") or "failed")
+        if self._music_connection_manager_instance is None:
+            self._music_connection_manager_instance = self._music_connection_manager_factory()
+        self._music_connection_manager_instance.mark_connected("netease", account_label="ncm-cli")
+        refreshed = await self._probe_authoritative_providers(ui)
+        recovered = next(
+            (snapshot for snapshot in refreshed if snapshot.provider == "netease" and snapshot.ready),
+            None,
+        )
+        if recovered is None:
+            return None, "failed"
+        return replace(recovered, session_verified=True), "connected"
+
     async def _ensure_authoritative_mode(
         self,
         ui: WebSocketUIAdapter,
@@ -8099,11 +8375,6 @@ class WebSocketRunner:
                 announce=False,
             )
             return self._spotify_mode_enabled(ui)
-        if readiness.provider == "apple_music":
-            if self._apple_mode_enabled(ui):
-                return True
-            await self._handle_apple_mode_command(ui, "", announce=False)
-            return self._apple_mode_enabled(ui)
         return readiness.provider == "netease"
 
     async def _try_selected_native_provider(
@@ -8181,8 +8452,8 @@ class WebSocketRunner:
                 "data": result["data"],
             }
 
-        search_tool = "spotify_search" if provider == "spotify" else "apple_music_search"
-        play_tool = "spotify_play" if provider == "spotify" else "apple_music_play"
+        search_tool = "spotify_search"
+        play_tool = "spotify_play"
         try:
             search_result = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -8249,6 +8520,7 @@ class WebSocketRunner:
         """
         event_queue: asyncio.Queue[RunnerEvent] = asyncio.Queue()
         turn_id = _new_event_id("agent_turn")
+        bind_memory_scope(ui.session_id, turn_id)
         interrupt_event = threading.Event()
         setattr(ui, "_active_agent_turn_id", turn_id)
         setattr(ui, "_agent_turn_interrupt_event", interrupt_event)
@@ -8262,6 +8534,7 @@ class WebSocketRunner:
         planning_activity_id = _new_event_id("activity")
         planning_finished = False
         interaction_suspended = False
+        completed_tool_results: list[Any] = []
 
         def emit(event: RunnerEvent) -> None:
             """Coordinates emit for the current Sonex flow.
@@ -8450,7 +8723,13 @@ class WebSocketRunner:
             activity_id=planning_activity_id,
         )
 
-        producer_thread = threading.Thread(target=producer, name="sonex-agent-turn", daemon=True)
+        producer_context = copy_context()
+        producer_thread = threading.Thread(
+            target=producer_context.run,
+            args=(producer,),
+            name="sonex-agent-turn",
+            daemon=True,
+        )
         producer_thread.start()
         active_tool_activity_id: str | None = None
         active_tool_name: str | None = None
@@ -8579,13 +8858,7 @@ class WebSocketRunner:
                     query = str(data.get("query") or "").strip()
                     requested_provider = str(data.get("provider") or "").strip().casefold()
                     if requested_provider in {"", "current"}:
-                        requested_provider = (
-                            "spotify"
-                            if self._spotify_mode_enabled(ui)
-                            else "apple_music"
-                            if self._apple_mode_enabled(ui)
-                            else ""
-                        )
+                        requested_provider = "spotify" if self._spotify_mode_enabled(ui) else ""
                     session = AgentCandidateSelectionSession(
                         ui,
                         self,
@@ -8659,6 +8932,7 @@ class WebSocketRunner:
                     continue
 
                 await self._sync_tool_result_ui(ui, tool_name, tool_result, active_tool_activity_id)
+                completed_tool_results.append(tool_result)
                 if (
                     tool_name == "Recommend"
                     and isinstance(tool_result, dict)
@@ -8708,7 +8982,30 @@ class WebSocketRunner:
                 await finish_planning("success", "Planning complete.")
                 content = str(event.data.get("content") or "")
                 if content:
-                    await ui.append_agent_message(content)
+                    guarded = guard_agent_answer(content, completed_tool_results)
+                    plain, document = normalize_agent_answer(guarded)
+                    if isinstance(ui, WebSocketUIAdapter):
+                        await ui.append_agent_message(plain, document=document, stream=True)
+                    else:
+                        await ui.append_agent_message(plain)
+                if not isinstance(ui, WebSocketUIAdapter):
+                    continue
+                explicit_operation = explicit_memory_operation(user_input)
+                explicit_memory = explicit_operation is not None
+                memory_enabled = self.memory_store.long_term_enabled()
+                if memory_enabled:
+                    self.memory_store.enqueue_memory_candidate(user_input, turn_id)
+                if explicit_memory:
+                    if explicit_operation is not None and not safe_memory_content(explicit_operation.content):
+                        await ui.append_warning_message("Sensitive information cannot be saved to long-term memory.")
+                    elif memory_enabled:
+                        await self._collect_turn_memory(ui, user_input, explicit=True)
+                    else:
+                        await ui.append_warning_message("Long-term memory is disabled.")
+                else:
+                    asyncio.create_task(
+                        self._collect_turn_memory(ui, user_input, explicit=False)
+                    )
 
         if producer_thread.is_alive() and not interrupt_event.is_set():
             await asyncio.to_thread(producer_thread.join)

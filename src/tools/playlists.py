@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from src.log import sonex_home
+from src.music.legacy_tracks import downgrade_retired_provider_track, is_retired_provider_track
 
 LIKES_PLAYLIST = "likes"
 SOURCE_SONEX = "Sonex"
@@ -118,6 +119,12 @@ def _coerce_playlist(
     playlist["protected"] = source == SOURCE_SONEX and name == LIKES_PLAYLIST
     if not isinstance(playlist.get("tracks"), list):
         playlist["tracks"] = []
+    else:
+        playlist["tracks"] = [
+            downgrade_retired_provider_track(track)[0]
+            for track in playlist["tracks"]
+            if isinstance(track, dict)
+        ]
     try:
         playlist["revision"] = max(0, int(playlist.get("revision") or 0))
     except (TypeError, ValueError):
@@ -144,7 +151,20 @@ def _load_playlist(
         loaded = {}
     if not isinstance(loaded, dict):
         loaded = {}
-    return _coerce_playlist(loaded, fallback_name=name, fallback_source_app=source, fallback_external_id=external)
+    loaded_tracks = loaded.get("tracks")
+    needs_migration = isinstance(loaded_tracks, list) and any(
+        isinstance(track, dict) and is_retired_provider_track(track)
+        for track in loaded_tracks
+    )
+    playlist = _coerce_playlist(
+        loaded,
+        fallback_name=name,
+        fallback_source_app=source,
+        fallback_external_id=external,
+    )
+    if needs_migration:
+        _save_playlist(playlist, playlists_root)
+    return playlist
 
 
 def _save_playlist(playlist: dict[str, Any], playlists_root: Path | None = None) -> None:
@@ -165,7 +185,7 @@ def _save_playlist(playlist: dict[str, Any], playlists_root: Path | None = None)
 
 
 def _track_key(track: dict[str, Any]) -> str:
-    for key in ("cache_id", "uri", "url", "youtube_url", "apple_music_url", "spotify_url", "stream_url"):
+    for key in ("cache_id", "uri", "url", "youtube_url", "spotify_url", "stream_url"):
         value = _text(track.get(key))
         if value:
             return f"{key}:{value}"
@@ -175,6 +195,7 @@ def _track_key(track: dict[str, Any]) -> str:
 
 
 def _track_snapshot(track: dict[str, Any], *, saved_at: float) -> dict[str, Any]:
+    track, _ = downgrade_retired_provider_track(track)
     name = _text(track.get("name") or track.get("title"))
     if not name:
         raise ValueError("Playlist track requires a name.")
@@ -195,13 +216,16 @@ def _track_snapshot(track: dict[str, Any], *, saved_at: float) -> dict[str, Any]
         "url",
         "youtube_url",
         "spotify_url",
-        "apple_music_url",
         "album_cover_url",
         "audio_path",
         "added_at",
+        "requires_resolution",
+        "playable",
     ):
         if track.get(key):
             snapshot[key] = track.get(key)
+    if track.get("requires_resolution"):
+        snapshot["playable"] = False
     return snapshot
 
 

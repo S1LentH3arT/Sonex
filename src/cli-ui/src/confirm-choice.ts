@@ -15,20 +15,29 @@ export function isCancelConfirmChoice(choice: ConfirmChoice): boolean {
         || label === '取消';
 }
 
-export function getVisibleConfirmChoices(choices: ConfirmChoice[]): ConfirmChoice[] {
-    return choices.filter((choice) => !isCancelConfirmChoice(choice));
+export function getVisibleConfirmChoices(
+    choices: ConfirmChoice[],
+    includeCancel = false,
+): ConfirmChoice[] {
+    return includeCancel
+        ? choices
+        : choices.filter((choice) => !isCancelConfirmChoice(choice));
 }
 
-export function getSelectableConfirmChoices(choices: ConfirmChoice[]): ConfirmChoice[] {
-    return getVisibleConfirmChoices(choices).filter((choice) => !choice.disabled);
+export function getSelectableConfirmChoices(
+    choices: ConfirmChoice[],
+    includeCancel = false,
+): ConfirmChoice[] {
+    return getVisibleConfirmChoices(choices, includeCancel).filter((choice) => !choice.disabled);
 }
 
 export function resolveConfirmChoiceDisplayIndex(
     choices: ConfirmChoice[],
     selectableIndex: number,
+    includeCancel = false,
 ): number {
-    const visibleChoices = getVisibleConfirmChoices(choices);
-    const selectableChoices = getSelectableConfirmChoices(choices);
+    const visibleChoices = getVisibleConfirmChoices(choices, includeCancel);
+    const selectableChoices = getSelectableConfirmChoices(choices, includeCancel);
     const selectedChoice = selectableChoices[
         Math.min(Math.max(selectableIndex, 0), Math.max(0, selectableChoices.length - 1))
     ];

@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { Box, useApp, useInput, useStdin } from 'ink';
 import { upsertActivity } from './activity.js';
-import { appleModeSlashCommands, completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands, unknownSlashCommandMessage } from './commands.js';
+import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands, unknownSlashCommandMessage } from './commands.js';
 import { getSelectableConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
-import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
+import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen, NetEaseLoginScreen } from './components.js';
 import { useSonexSocket } from './hooks.js';
 import { chatMessagesForTranscript, createInfoBannerItem } from './info-banner.js';
 import { applyLanguageToServerEvent, helpCommandsForLanguage, localizeSlashCommands, OFFICIAL_UI_LANGUAGE, t } from './i18n.js';
@@ -13,14 +13,26 @@ import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPre
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, resolveSpotifyImmersiveLayout, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { formatModelStatus } from './model-status.js';
-import { isApplePlaybackShortcutSource, isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
+import { filterModelChoices } from './model-selection.js';
+import { resolveLoginProviderSelectionIndex } from './login-navigation.js';
+import { isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
-import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer } from './transcript.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, PlayerState, ProviderModeState, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import { TEXT_STREAM_INTERVAL_MS, nextTextStreamOffset, streamedChatMessage, textStreamUnits } from './text-stream.js';
+import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer, type TranscriptPresentation } from './transcript.js';
+import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, NetEaseLoginState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import { TOKEN_USAGE_ANIMATION_INTERVAL_MS, nextAnimatedTokenUsage } from './usage-animation.js';
 
 type InkInputKey = {
     ctrl?: boolean;
+};
+
+type ActiveTextStream = {
+    id: number;
+    item: ChatMessageItem;
+    units: string[];
+    visibleUnitCount: number;
+    presentation: TranscriptPresentation;
 };
 
 const RUNTIME_WORKING_DIRECTORY = process.env.SONEX_LAUNCH_CWD?.trim() || process.cwd();
@@ -40,6 +52,9 @@ export const App: React.FC<{
     const [input, setInput] = useState("");
     const [inputRevision, setInputRevision] = useState(0);
     const [sessionId, setSessionId] = useState<string | null>(null);
+    const [tokenUsage, setTokenUsage] = useState<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
+    const [displayedTokenUsage, setDisplayedTokenUsage] = useState<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
+    const [activeTextStream, setActiveTextStream] = useState<ActiveTextStream | null>(null);
     const [agentWorkingTurnId, setAgentWorkingTurnId] = useState<string | null>(null);
     const [transcript, dispatchTranscript] = React.useReducer(
         transcriptReducer,
@@ -63,6 +78,7 @@ export const App: React.FC<{
     const [providerMode, setProviderMode] = useState<ProviderModeState>({ provider: "normal", enabled: false });
     const [spotifySetup, setSpotifySetup] = useState<SpotifySetupState>(null);
     const [authSetup, setAuthSetup] = useState<AuthSetupState>(null);
+    const [neteaseLogin, setNetEaseLogin] = useState<NetEaseLoginState>(null);
     const [authState, setAuthState] = useState<AuthRuntimeState>({
         ready: false,
         provider: "openai",
@@ -94,6 +110,7 @@ export const App: React.FC<{
     const playbackKeymapEnabledRef = React.useRef(true);
     const playerRef = React.useRef<PlayerState>(player);
     const confirmRef = React.useRef<ConfirmState>(null);
+    const dismissedConfirmIdsRef = React.useRef(new Set<string>());
     const spotifyModeRef = React.useRef<SpotifyModeState>(spotifyMode);
     const providerModeRef = React.useRef<ProviderModeState>(providerMode);
     const spotifySetupActiveRef = React.useRef(false);
@@ -101,15 +118,14 @@ export const App: React.FC<{
     const slashMenuActiveRef = React.useRef(false);
     const sessionIdRef = React.useRef<string | null>(null);
     const startupInfoCapturedRef = React.useRef(false);
+    const activeTextStreamRef = React.useRef<ActiveTextStream | null>(null);
+    const nextTextStreamIdRef = React.useRef(0);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
-    const isAppleTokenSetupActive = authSetup?.active && authSetup.provider === "apple_music";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
-    const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
-    const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive;
+    const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active || neteaseLogin?.active);
+    const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive && !neteaseLogin?.active;
     const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active
         ? []
-        : providerMode.provider === "apple" && providerMode.enabled
-            ? appleModeSlashCommands(input, language)
         : spotifyMode.enabled
             ? spotifyModeSlashCommands(input, language)
             : slashCommandSuggestions(input, language);
@@ -131,7 +147,7 @@ export const App: React.FC<{
         && !matchingSlashCommand(input)
     );
     const selectedSlashCommand = slashSuggestions[Math.min(slashIndex, Math.max(0, slashSuggestions.length - 1))];
-    const selectableConfirmChoices = React.useMemo(() => confirm ? getSelectableConfirmChoices(confirm.choices) : [], [confirm]);
+    const selectableConfirmChoices = React.useMemo(() => confirm ? getSelectableConfirmChoices(confirm.choices, confirm.tool_name === "provider_mode_exit") : [], [confirm]);
     const selectedConfirmChoice = selectableConfirmChoices[Math.min(confirmIndex, Math.max(0, selectableConfirmChoices.length - 1))] ?? null;
     const selectedConfirmInput = selectedConfirmChoice?.input ?? null;
     const miniVisible = activeRegion === "miniPlayer";
@@ -148,7 +164,15 @@ export const App: React.FC<{
         headerVariant,
         language,
     }), [headerVariant, language, transcriptContentWidth]);
-    const modelStatus = formatModelStatus(authState);
+    const modelStatus = formatModelStatus(authState, displayedTokenUsage);
+    const streamingMessage = React.useMemo<ChatMessageItem | null>(() => {
+        if (!activeTextStream) return null;
+        return streamedChatMessage(
+            activeTextStream.item,
+            activeTextStream.units,
+            activeTextStream.visibleUnitCount,
+        );
+    }, [activeTextStream]);
     const baseLanguageChoices = React.useMemo<UiLanguage[]>(() => ["en", "zh-CN"], []);
     const languageChoices = React.useMemo<UiLanguage[]>(
         () => [language, ...baseLanguageChoices.filter((choice) => choice !== language)],
@@ -225,10 +249,63 @@ export const App: React.FC<{
         };
     }, [stdout, terminalSurface]);
 
+    const finishActiveTextStream = React.useCallback(() => {
+        const active = activeTextStreamRef.current;
+        if (!active) return;
+        activeTextStreamRef.current = null;
+        setActiveTextStream(null);
+        dispatchTranscript({
+            type: "commit",
+            items: [active.item],
+            presentation: active.presentation,
+        });
+    }, []);
+
     const commitItems = React.useCallback((items: ChatItem[]) => {
         if (items.length === 0) return;
+        finishActiveTextStream();
         dispatchTranscript({ type: "commit", items, presentation: transcriptPresentation });
-    }, [transcriptPresentation]);
+    }, [finishActiveTextStream, transcriptPresentation]);
+
+    const startTextStream = React.useCallback((item: ChatMessageItem) => {
+        finishActiveTextStream();
+        const units = textStreamUnits(item.content);
+        if (units.length === 0) {
+            dispatchTranscript({ type: "commit", items: [item], presentation: transcriptPresentation });
+            return;
+        }
+        const active: ActiveTextStream = {
+            id: nextTextStreamIdRef.current,
+            item,
+            units,
+            visibleUnitCount: nextTextStreamOffset(0, units.length),
+            presentation: transcriptPresentation,
+        };
+        nextTextStreamIdRef.current += 1;
+        activeTextStreamRef.current = active;
+        setActiveTextStream(active);
+    }, [finishActiveTextStream, transcriptPresentation]);
+
+    React.useEffect(() => {
+        if (!activeTextStream) return;
+        if (activeTextStream.visibleUnitCount >= activeTextStream.units.length) {
+            finishActiveTextStream();
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            setActiveTextStream((current) => {
+                if (!current || current.id !== activeTextStream.id) return current;
+                const next = {
+                    ...current,
+                    visibleUnitCount: nextTextStreamOffset(current.visibleUnitCount, current.units.length),
+                };
+                activeTextStreamRef.current = next;
+                return next;
+            });
+        }, TEXT_STREAM_INTERVAL_MS);
+        return () => clearTimeout(timer);
+    }, [activeTextStream, finishActiveTextStream]);
 
     const switchRegion = React.useCallback((nextRegion: ShellRegion) => {
         if (activeRegionRef.current === nextRegion) return;
@@ -268,7 +345,6 @@ export const App: React.FC<{
     }, [authSetup?.active, isSlashInput, slashSuggestions.length, spotifySetup?.active]);
 
     React.useEffect(() => {
-        setLoginSelectionIndex(0);
         setLoginApiKeyInput("");
     }, [authSetup?.step, authSetup?.provider]);
 
@@ -279,6 +355,18 @@ export const App: React.FC<{
         }, LAUNCH_PREPARING_INTERVAL_MS);
         return () => clearInterval(timer);
     }, [launchPreparing]);
+
+    React.useEffect(() => {
+        if (
+            displayedTokenUsage.inputTokens === tokenUsage.inputTokens
+            && displayedTokenUsage.outputTokens === tokenUsage.outputTokens
+        ) return;
+
+        const timer = setTimeout(() => {
+            setDisplayedTokenUsage((current) => nextAnimatedTokenUsage(current, tokenUsage));
+        }, TOKEN_USAGE_ANIMATION_INTERVAL_MS);
+        return () => clearTimeout(timer);
+    }, [displayedTokenUsage, tokenUsage]);
 
     const updateInput = React.useCallback((value: string) => {
         if (recommendInputLocked) return;
@@ -350,8 +438,14 @@ export const App: React.FC<{
                 theme: evt.theme,
                 tone: evt.tone,
                 segments: evt.segments,
+                document: evt.document,
             };
+            if (evt.role === "agent" && evt.stream) {
+                startTextStream(item);
+                return;
+            }
             if (evt.role === "user") {
+                finishActiveTextStream();
                 dispatchTranscript({
                     type: "receiveUser",
                     item,
@@ -371,6 +465,12 @@ export const App: React.FC<{
             case "session_state":
                 sessionIdRef.current = evt.session_id;
                 setSessionId(evt.session_id);
+                break;
+            case "usage_state":
+                setTokenUsage({
+                    inputTokens: evt.input_tokens,
+                    outputTokens: evt.output_tokens,
+                });
                 break;
             case "agent_working_state":
                 setAgentWorkingTurnId((current) => (
@@ -463,7 +563,6 @@ export const App: React.FC<{
                 const nextMode: ProviderModeState = {
                     provider: evt.provider,
                     enabled: evt.enabled,
-                    storefront: evt.storefront,
                     connection_status: evt.connection_status,
                 };
                 providerModeRef.current = nextMode;
@@ -497,13 +596,20 @@ export const App: React.FC<{
                 });
                 break;
             case "confirm":
+                if (dismissedConfirmIdsRef.current.has(evt.id)) {
+                    break;
+                }
                 setLaunchPreparing(false);
                 setInput("");
                 switchRegion("chat");
+                if (evt.tool_name === "music_connection") {
+                    setSpotifySetup(null);
+                    setAuthSetup(null);
+                }
                 setConfirm({
                     id: evt.id,
                     tool_name: evt.tool_name,
-                    tool_args: evt.tool_args,
+                    tool_args: evt.tool_args ?? {},
                     message: evt.message || `Confirm ${evt.tool_name}`,
                     warning: evt.warning,
                     hide_hint: evt.hide_hint === true,
@@ -513,8 +619,22 @@ export const App: React.FC<{
                     page_index: evt.page_index,
                     page_count: evt.page_count,
                 });
-                setConfirmIndex(0);
+                if (evt.tool_args?.preserve_selection !== true) {
+                    setConfirmIndex(0);
+                }
                 break;
+            case "confirm_dismiss": {
+                const currentConfirm = confirmRef.current;
+                dismissedConfirmIdsRef.current.add(evt.id);
+                if (currentConfirm?.id === evt.id) {
+                    if (currentConfirm.tool_name === "music_connection") {
+                        setSpotifySetup(null);
+                        setAuthSetup(null);
+                    }
+                    setConfirm(null);
+                }
+                break;
+            }
             case "spotify_setup":
                 setLaunchPreparing(false);
                 setHelpPanel(null);
@@ -531,20 +651,24 @@ export const App: React.FC<{
                 });
                 setStatusText(evt.title);
                 break;
+            case "netease_login":
+                setLaunchPreparing(false);
+                setHelpPanel(null);
+                if (evt.active !== false) switchRegion("chat");
+                setNetEaseLogin({
+                    title: evt.title,
+                    output: evt.output,
+                    status: evt.status,
+                    active: evt.active !== false,
+                    fallback_online: evt.fallback_online === true,
+                });
+                break;
             case "auth_setup":
                 setLaunchPreparing(false);
                 setHelpPanel(null);
-                if (
-                    evt.active === false
-                    && (
-                        evt.step === "model"
-                        || (
-                            evt.provider === "apple_music"
-                            && (evt.step === "companion_done" || evt.step === "cancelled")
-                        )
-                    )
-                ) {
+                if (evt.active === false && evt.step === "model") {
                     setAuthSetup(null);
+                    setInput("");
                     break;
                 }
                 if (evt.active !== false) {
@@ -556,12 +680,23 @@ export const App: React.FC<{
                     title: evt.title,
                     message: evt.message,
                     prompt: evt.prompt,
+                    placeholder: evt.placeholder,
+                    help_text: evt.help_text,
                     mask: evt.mask,
                     active: evt.active !== false,
                     methods: evt.methods,
                     providers: evt.providers,
                     models: evt.models,
                 });
+                if (evt.step === "provider") {
+                    const providers = evt.providers ?? [];
+                    setLoginSelectionIndex(resolveLoginProviderSelectionIndex(providers, evt.provider));
+                } else {
+                    setLoginSelectionIndex(0);
+                }
+                if (evt.step === "model") {
+                    setInput("");
+                }
                 setStatusText(evt.title);
                 break;
             case "auth_state":
@@ -570,6 +705,7 @@ export const App: React.FC<{
                     ready: evt.ready,
                     provider: evt.provider,
                     model: evt.model,
+                    model_label: evt.model_label,
                     auth_type: evt.auth_type,
                     credential_source: evt.credential_source,
                     reason: evt.reason,
@@ -604,7 +740,7 @@ export const App: React.FC<{
                 setTimeout(() => exit(), 80);
                 break;
         }
-    }, [commitItems, exit, language, queueItems, showError, switchRegion, transcriptPresentation]);
+    }, [commitItems, exit, finishActiveTextStream, language, queueItems, showError, startTextStream, switchRegion, transcriptPresentation]);
 
     const { send } = useSonexSocket({
         url: wsUrl,
@@ -639,10 +775,8 @@ export const App: React.FC<{
             const providerShortcut = activeRegionRef.current === "providerImmersive"
                 && providerModeRef.current.enabled
                 && action === "togglePlayback"
-                && (
-                    (providerModeRef.current.provider === "spotify" && isSpotifyPlaybackShortcutSource(playerRef.current))
-                    || (providerModeRef.current.provider === "apple" && isApplePlaybackShortcutSource(playerRef.current))
-                );
+                && providerModeRef.current.provider === "spotify"
+                && isSpotifyPlaybackShortcutSource(playerRef.current);
             if (!localShortcut && !spotifyShortcut && !providerShortcut) return;
 
             const command = playbackCommandForShortcut(action, playerRef.current);
@@ -769,6 +903,7 @@ export const App: React.FC<{
         if (recommendInputLocked) return;
         const text = value.trim();
         if (!text) return;
+        finishActiveTextStream();
 
         if (confirm) {
             const inputDecision = resolveConfirmInputDecision(text, selectedConfirmChoice);
@@ -872,7 +1007,7 @@ export const App: React.FC<{
                 showError(API_NOT_RUNNING_MESSAGE, API_NOT_RUNNING_DETAIL);
             }
         }
-    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation]);
+    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, finishActiveTextStream, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation]);
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -880,15 +1015,22 @@ export const App: React.FC<{
         }
     }, { isActive: rawModeAvailable });
 
-    useInput((_inputKey, key) => {
-        if (!isAppleTokenSetupActive || !key.escape) return;
-        setAuthSetup(null);
-        setInput("");
-        send({ type: "auth_setup_input", value: "__cancel__" });
-    }, { isActive: rawModeAvailable && Boolean(isAppleTokenSetupActive) });
-
     useInput((inputKey, key) => {
-        if (!isLoginScreenActive || authSetup?.step === "api_key") return;
+        if (!isLoginScreenActive) return;
+        if (key.escape) {
+            const connectionConfirm = confirmRef.current;
+            if (connectionConfirm?.tool_name === "music_connection") {
+                dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+                send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+                setConfirm(null);
+            }
+            setAuthSetup(null);
+            setLoginSelectionIndex(0);
+            setLoginApiKeyInput("");
+            send({ type: "auth_setup_input", value: "__cancel__" });
+            return;
+        }
+        if (authSetup?.step === "api_key") return;
 
         if ((authSetup?.step === "provider" || authSetup?.step === "method") && loginChoices.length > 0) {
             if (key.upArrow) {
@@ -901,9 +1043,34 @@ export const App: React.FC<{
         }
     }, { isActive: rawModeAvailable && isLoginScreenActive });
 
+    useInput((_inputKey, key) => {
+        if (!neteaseLogin?.active || !key.escape) return;
+        const connectionConfirm = confirmRef.current;
+        if (connectionConfirm?.tool_name === "music_connection") {
+            dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+            send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+            setConfirm(null);
+        }
+        send({ type: "netease_login_input", value: "__cancel__" });
+        setNetEaseLogin(null);
+    }, { isActive: rawModeAvailable && Boolean(neteaseLogin?.active) });
+
+    useInput((_inputKey, key) => {
+        if (!spotifySetup?.active || !key.escape) return;
+        const connectionConfirm = confirmRef.current;
+        if (connectionConfirm?.tool_name === "music_connection") {
+            dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+            send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+            setConfirm(null);
+        }
+        setSpotifySetup(null);
+        setInput("");
+        send({ type: "setup_input", value: "__cancel__" });
+    }, { isActive: rawModeAvailable && Boolean(spotifySetup?.active) });
+
     useInput((inputKey, key) => {
         if (!isModelPanelActive) return;
-        const choices = authSetup?.models ?? [];
+        const choices = filterModelChoices(authSetup?.models ?? [], input);
 
         if (key.upArrow && choices.length > 0) {
             setLoginSelectionIndex((prev) => (prev - 1 + choices.length) % choices.length);
@@ -913,12 +1080,27 @@ export const App: React.FC<{
             const choice = choices[Math.min(loginSelectionIndex, Math.max(0, choices.length - 1))];
             if (choice) {
                 send({ type: "auth_setup_input", value: choice.value });
+                setInput("");
             }
         } else if (key.escape) {
             setAuthSetup(null);
             setLoginSelectionIndex(0);
+            setInput("");
             appendPanelHiddenNotice(t(language, "panel.modelHidden"));
             send({ type: "auth_setup_input", value: "__cancel__" });
+        } else if (key.backspace || key.delete) {
+            setInput((previous) => previous.slice(0, -1));
+            setLoginSelectionIndex(0);
+        } else if (
+            inputKey
+            && !key.ctrl
+            && !key.meta
+            && !key.return
+            && !key.upArrow
+            && !key.downArrow
+        ) {
+            setInput((previous) => previous + inputKey);
+            setLoginSelectionIndex(0);
         }
     }, { isActive: rawModeAvailable && Boolean(isModelPanelActive) });
 
@@ -959,16 +1141,35 @@ export const App: React.FC<{
 
     useInput((inputKey, key) => {
         if (spotifySetup && spotifySetup.active === false && key.escape) {
+            const connectionConfirm = confirmRef.current;
+            if (connectionConfirm?.tool_name === "music_connection") {
+                dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+                send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+                setConfirm(null);
+            }
             setSpotifySetup(null);
-            appendPanelHiddenNotice(t(language, "panel.spotifySetupHidden"));
+            if (connectionConfirm?.tool_name !== "music_connection") {
+                appendPanelHiddenNotice(t(language, "panel.spotifySetupHidden"));
+            }
         } else if (authSetup && authSetup.active === false && key.escape) {
+            const connectionConfirm = confirmRef.current;
+            if (connectionConfirm?.tool_name === "music_connection") {
+                dismissedConfirmIdsRef.current.add(connectionConfirm.id);
+                send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
+                setConfirm(null);
+            }
             setAuthSetup(null);
-            appendPanelHiddenNotice(t(language, "panel.setupHidden"));
+            if (connectionConfirm?.tool_name !== "music_connection") {
+                appendPanelHiddenNotice(t(language, "panel.setupHidden"));
+            }
         }
     }, { isActive: rawModeAvailable && (Boolean(spotifySetup && spotifySetup.active === false) || Boolean(authSetup && authSetup.active === false)) });
 
     useInput((inputKey, key) => {
         if (!confirm) return;
+        const isMusicConnection = confirm.tool_name === "music_connection";
+        const musicConnectionBusy = isMusicConnection
+            && confirm.choices.some((choice) => choice.connection_status === "checking");
 
         if (key.upArrow) {
             setInput("");
@@ -979,20 +1180,42 @@ export const App: React.FC<{
         } else if (key.return) {
             if (selectableConfirmChoices.length === 0) return;
             if (selectedConfirmChoice?.input) return;
+            if (musicConnectionBusy) return;
             send({
                 type: "confirm_result",
                 id: confirm.id,
                 decision: selectedConfirmChoice?.value ?? "allow_once",
             });
-            setConfirm(null);
+            if (isMusicConnection && selectedConfirmChoice) {
+                setConfirm((current) => current && current.id === confirm.id
+                    ? {
+                        ...current,
+                        choices: current.choices.map((choice) => choice.value === selectedConfirmChoice.value
+                            ? {
+                                ...choice,
+                                connection_status: "checking",
+                                description: "Checking connection...",
+                            }
+                            : choice),
+                    }
+                    : current);
+            } else {
+                setConfirm(null);
+            }
         } else if (key.escape) {
+            dismissedConfirmIdsRef.current.add(confirm.id);
             send({ type: "confirm_result", id: confirm.id, decision: "deny" });
             setConfirm(null);
-            if (confirm.variant !== "tool_call_review") {
+            if (!isMusicConnection && confirm.variant !== "tool_call_review") {
                 appendPanelHiddenNotice(t(language, "panel.confirmHidden"));
             }
         }
-    }, { isActive: Boolean(confirm) && rawModeAvailable });
+    }, {
+        isActive: Boolean(confirm)
+            && rawModeAvailable
+            && !authSetup?.active
+            && !spotifySetup?.active,
+    });
 
     useInput((inputKey, key) => {
         if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active) return;
@@ -1105,7 +1328,9 @@ export const App: React.FC<{
                         language={language}
                     />
                 ) : null}
-                {isLoginScreenActive ? (
+                {neteaseLogin?.active ? (
+                    <NetEaseLoginScreen login={neteaseLogin} />
+                ) : isLoginScreenActive ? (
                     <LoginScreen
                         authSetup={authSetup}
                         selectedIndex={loginSelectionIndex}
@@ -1148,6 +1373,7 @@ export const App: React.FC<{
                         spotifyImmersiveLayout={spotifyImmersiveLayout}
                         terminalSpace={terminalSize}
                         agentWorking={agentWorkingTurnId !== null}
+                        streamingMessage={streamingMessage}
                         language={language}
                     />
                 )}

@@ -1,6 +1,7 @@
 from src.llm.transport.base import Usage, ToolCall, ChatResponse, ChatRequest, ProviderRequest, LLMTransport, \
     LiteLLMTransport, LLMTransportError, sanitize_error_message
 from src.llm.transport.deepseek import DeepSeekTransport
+from src.llm.transport.codex_app_server import CodexAppServerTransport
 from src.llm.transport.official import (
     AnthropicOfficialTransport,
     GeminiOfficialTransport,
@@ -16,6 +17,7 @@ __all__ = [
     "LLMTransport",
     "LiteLLMTransport",
     "DeepSeekTransport",
+    "CodexAppServerTransport",
     "OpenAICompatibleTransport",
     "AnthropicOfficialTransport",
     "GeminiOfficialTransport",

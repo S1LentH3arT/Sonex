@@ -982,7 +982,7 @@ class SpotifyToolTests(unittest.TestCase):
             "_require_premium_control",
             return_value={
                 "status": "fail",
-                "message": "Spotify playback control scope is missing. Run `sonex auth login spotify` again.",
+                "message": "Spotify playback control scope is missing. Open /spotify to reconnect.",
                 "error_code": "SPOTIFY_SCOPE_MISSING",
             },
         ):

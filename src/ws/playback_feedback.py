@@ -17,8 +17,6 @@ _METADATA_PROVIDER_LABELS = {
 _PLAYER_FEEDBACK_LABELS = {
     "auto": "auto",
     "mpv": "mpv",
-    "cvlc": "VLC",
-    "vlc": "VLC",
 }
 
 

@@ -2,8 +2,10 @@ import React from 'react';
 import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
-import { CHAT_SYSTEM_MARKER_COLOR, resolveChatMarkerColor, resolveChatSubject, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
-import { APPLE_BLUSH, APPLE_PEARL_PINK, APPLE_SILVER, APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
+import { chatDocumentSegments } from './chat-document.js';
+import { CHAT_SYSTEM_MARKER_COLOR, CHAT_USER_MARKER_COLOR, resolveChatContentColor, resolveChatMarkerColor, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
+import { resolveAgentChatTheme } from './chat-theme.js';
+import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
@@ -14,12 +16,13 @@ import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
+import { filterModelChoices } from './model-selection.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem } from './panel-frame.js';
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, NetEaseLoginState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -99,14 +102,18 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
     variant: ChatHeaderVariant;
     language?: UiLanguage;
 }) => {
-    const identity = `${authState.model || authState.provider || FALLBACK_MODEL_NAME} • ${formatAuthLabel(authState)}`;
+    const identityModel = authState.model_label || authState.model || authState.provider || FALLBACK_MODEL_NAME;
     const displayCwd = formatWorkingDirectory(cwd);
     if (variant === 'compact') {
         return (
             <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
-                <Text color="#d8bcc7" wrap="truncate-end">{identity}</Text>
+                <Text color="#d8bcc7" wrap="truncate-end">
+                    {identityModel} • {authState.ready
+                        ? formatAuthLabel(authState)
+                        : <Text color="#facc15" bold>Not logged in</Text>}
+                </Text>
                 <Text color="#fff4f6" wrap="truncate-end">{displayCwd}</Text>
                 {sessionId ? (
                     <>
@@ -119,12 +126,16 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
     }
 
     return (
-        <Box width="100%" minHeight={9} paddingX={1} borderStyle="round" borderColor="#808791">
+        <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791">
             <Mascot />
             <Box flexDirection="column" justifyContent="flex-start">
                 <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
                 <Box height={1} />
-                <Text color="#d8bcc7">{identity}</Text>
+                <Text color="#d8bcc7">
+                    {identityModel} • {authState.ready
+                        ? formatAuthLabel(authState)
+                        : <Text color="#facc15" bold>Not logged in</Text>}
+                </Text>
                 <Text color="#fff4f6">{displayCwd}</Text>
                 {sessionId ? (
                     <>
@@ -138,29 +149,72 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
 };
 
 export const isGenericAuthSetup = (setup: AuthSetupState): boolean => {
-    if (!setup?.active) return false;
-    return setup.provider !== "apple_music";
+    return Boolean(setup?.active);
 };
 
-const LoginChoiceList = ({ choices, selectedIndex, visibleLimit }: {
+const LoginChoiceList = ({ choices, selectedIndex, visibleLimit, showConnectionStatus = false }: {
     choices: AuthMethodChoice[];
     selectedIndex: number;
     visibleLimit?: number;
+    showConnectionStatus?: boolean;
 }) => {
     return (
         <PanelChoiceList
-            items={choices.map((choice) => ({
-                key: choice.value,
-                segments: [
-                    { text: choice.label, color: PANEL_PRIMARY },
-                    { text: `  ${choice.provider ?? choice.value}`, color: PANEL_SECONDARY },
-                ],
-            }))}
+            items={choices.map((choice) => {
+                const detail = choice.description
+                    ? [{ text: `  ${choice.description}`, color: PANEL_SECONDARY }]
+                    : [];
+                const connectionStatus = choice.connection_status ?? (choice.connected ? "active" : "missing");
+                const connectionColor = connectionStatus === "active"
+                    ? SPOTIFY_GREEN
+                    : connectionStatus === "missing"
+                        ? "#ef4444"
+                        : PANEL_SECONDARY;
+                return {
+                    key: choice.value,
+                    segments: showConnectionStatus
+                        ? [
+                            {
+                                text: "• ",
+                                color: connectionColor,
+                                preserveColorWhenSelected: true,
+                            },
+                            { text: choice.label, color: PANEL_PRIMARY },
+                        ]
+                        : [{ text: choice.label, color: PANEL_PRIMARY }, ...detail],
+                };
+            })}
             selectedIndex={selectedIndex}
             visibleLimit={visibleLimit}
             width={74}
             paddingX={2}
         />
+    );
+};
+
+export const MAX_VISIBLE_LOGIN_PROVIDERS = 8;
+
+export const NetEaseLoginScreen = ({ login }: { login: NetEaseLoginState }) => {
+    if (!login) return null;
+    const waiting = login.status === "waiting";
+    return (
+        <PanelFrame
+            width={74}
+            paddingX={2}
+            title={login.title}
+            hint={
+                waiting
+                    ? login.fallback_online
+                        ? "press Esc to play online"
+                        : "press Esc to cancel"
+                    : login.status
+            }
+        >
+            <Box flexDirection="column" paddingX={2}>
+                <Text>{login.output}</Text>
+                {waiting ? <Text color={BORDER_BLUE_SOFT}>Waiting for scan...</Text> : null}
+            </Box>
+        </PanelFrame>
     );
 };
 
@@ -170,8 +224,9 @@ export const LoginScreen = ({
     apiKeyInput,
     setApiKeyInput,
     onApiKeySubmit,
+    inputFocus = true,
     language = "en",
-}: LoginScreenProps & { language?: UiLanguage }) => {
+}: LoginScreenProps & { inputFocus?: boolean; language?: UiLanguage }) => {
     if (!authSetup) return null;
 
     const providerChoices = authSetup.providers ?? [];
@@ -182,10 +237,17 @@ export const LoginScreen = ({
     const isApiKeyStep = authSetup.step === "api_key";
     const isModelStep = authSetup.step === "model";
     const isOauthWait = authSetup.step === "oauth_wait";
+    const isTextStep = !isProviderStep && !isMethodStep && !isModelStep && !isOauthWait;
     const choices = isProviderStep ? providerChoices : isMethodStep ? methodChoices : isModelStep ? modelChoices : [];
+    const showProviderConnectionStatus = isProviderStep
+        && providerChoices.length > 0
+        && providerChoices.every((choice) => Boolean(choice.connection_status) || typeof choice.connected === "boolean");
     const displayMessage = isProviderStep
         ? t(language, "login.warmup")
         : authSetup.message;
+    const helpRows = authSetup.help_text
+        ? wrapChatMessageContent(authSetup.help_text, 70)
+        : [];
 
     return (
         <PanelFrame width={74} paddingX={2} title={authSetup.title} hint={displayMessage}>
@@ -194,34 +256,43 @@ export const LoginScreen = ({
                     <LoginChoiceList
                         choices={choices}
                         selectedIndex={selectedIndex}
-                        visibleLimit={isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
+                        visibleLimit={isProviderStep ? MAX_VISIBLE_LOGIN_PROVIDERS : isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
+                        showConnectionStatus={showProviderConnectionStatus}
                     />
                     <PanelRow
                         width={74}
                         paddingX={2}
-                        segments={[{ text: t(language, "login.continue"), color: PANEL_SECONDARY }]}
+                        segments={[{ text: t(language, "login.continue"), color: PANEL_SECONDARY, bold: true }]}
                     />
                 </>
             ) : null}
 
-            {isApiKeyStep ? (
+            {isTextStep ? (
                 <>
                     <PanelRow
                         width={74}
                         paddingX={2}
-                        segments={[{ text: authSetup.prompt ?? "API key", color: PANEL_SECONDARY }]}
+                        segments={[{ text: authSetup.prompt ?? "Value", color: PANEL_SECONDARY }]}
                     />
                     <PromptInput
                         input={apiKeyInput}
                         setInput={setApiKeyInput}
                         onSubmit={onApiKeySubmit}
-                        focus={true}
-                        placeholder={authSetup.prompt ?? "API key"}
-                        mask="*"
+                        focus={inputFocus}
+                        placeholder={authSetup.placeholder ?? authSetup.prompt ?? "Value"}
+                        mask={authSetup.mask || isApiKeyStep ? "*" : undefined}
                         backgroundColor={PANEL_BACKGROUND}
                         backgroundWidth={74}
                         backgroundPaddingX={2}
                     />
+                    {helpRows.map((row, index) => (
+                        <PanelRow
+                            key={`auth-help-${index}`}
+                            width={74}
+                            paddingX={2}
+                            segments={[{ text: row, color: PANEL_SECONDARY, italic: true }]}
+                        />
+                    ))}
                 </>
             ) : null}
 
@@ -342,13 +413,8 @@ const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): 
     `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
 );
 
-const modelIdFromChoice = (model: AuthMethodChoice): string => {
-    const valueParts = model.value.split("::");
-    return valueParts.length > 1 ? valueParts.slice(1).join("::") : model.label;
-};
-
 const formatModelPanelLabel = (model: AuthMethodChoice): string => (
-    modelIdFromChoice(model).padEnd(MODEL_PANEL_LABEL_WIDTH, " ")
+    model.label.padEnd(MODEL_PANEL_LABEL_WIDTH, " ")
 );
 
 const formatPlaylistBrowseName = (label: string): string => (
@@ -437,39 +503,62 @@ const HelpPanel = ({ panel, selectedIndex, width, language = "en" }: {
     );
 };
 
-const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, segments = null }: ChatBubbleProps) => {
+export const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, segments = null, document = null, showDivider = true }: ChatBubbleProps) => {
     const isUser = role === "user";
-    const color = theme === "muted" && !isUser ? "#9ca3af" : isUser ? "#fff6f8" : "#f6e9ee";
     const markerColor = resolveChatMarkerColor(role, theme, tone);
-    const subject = resolveChatSubject(role, tone);
-    const validSegments = segments && segments.map((segment) => segment.text).join("") === content
-        ? segments
+    const contentColor = resolveChatContentColor(role, tone);
+    const semanticTheme = resolveAgentChatTheme(theme);
+    const useToolSegmentStyles = !isUser && tone === null;
+    const semanticSegments = !isUser && tone === null && document?.version === 1
+        ? chatDocumentSegments(document)
+        : null;
+    const candidateSegments = semanticSegments ?? segments;
+    const validSegments = candidateSegments && candidateSegments.map((segment) => segment.text).join("") === content
+        ? candidateSegments
         : null;
     const richLines = validSegments ? wrapChatMessageSegments(validSegments, contentWidth) : null;
     const lines = richLines ?? wrapChatMessageContent(content, contentWidth);
 
     return (
         <Box marginBottom={1} flexDirection="column" width="100%">
-            <Text bold color={markerColor}>{subject}</Text>
             {lines.map((line, index) => {
-                const marker = index === lines.length - 1 ? "└" : "│";
+                const marker = index === 0 ? "•" : " ";
                 if (typeof line === "string") {
                     return (
                         <Text key={`${index}_${line}`}>
-                            <Text color={markerColor}>{marker}</Text>
-                            <Text color={color}>{` ${line}`}</Text>
+                            <Text bold color={markerColor}>{marker}</Text>
+                            <Text color={contentColor}>{` ${line}`}</Text>
                         </Text>
                     );
                 }
                 return (
                     <Text key={`${index}_${line.map((segment) => segment.text).join("")}`}>
-                        <Text color={markerColor}>{marker}</Text>
-                        <Text color={color}>{" "}</Text>
+                        <Text bold color={markerColor}>{marker}</Text>
+                        <Text color={contentColor}>{" "}</Text>
                         {line.map((segment, segmentIndex) => (
                             <Text
                                 key={`${segmentIndex}_${segment.text}`}
-                                color={segment.style === "tool_name" ? TOOL_NAVY : TOOL_VALUE}
-                                bold={segment.style === "tool_name"}
+                                color={
+                                    useToolSegmentStyles && segment.style === "tool_name"
+                                        ? TOOL_NAVY
+                                        : segment.style === "heading" || segment.style === "strong" || segment.style === "list_marker"
+                                            ? semanticTheme.strongText
+                                            : segment.style === "link"
+                                                ? semanticTheme.linkText
+                                                : contentColor
+                                }
+                                backgroundColor={
+                                    segment.style === "highlight"
+                                        ? semanticTheme.highlightBackground
+                                        : segment.style === "code"
+                                            ? semanticTheme.codeBackground
+                                            : undefined
+                                }
+                                bold={
+                                    (useToolSegmentStyles && segment.style === "tool_name")
+                                    || ["heading", "strong", "highlight", "list_marker"].includes(segment.style)
+                                }
+                                underline={segment.style === "link"}
                             >
                                 {segment.text}
                             </Text>
@@ -477,6 +566,11 @@ const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, se
                     </Text>
                 );
             })}
+            {showDivider ? (
+                <Box marginTop={1}>
+                    <Text color={CHAT_USER_MARKER_COLOR}>{"─".repeat(contentWidth + 2)}</Text>
+                </Box>
+            ) : null}
         </Box>
     );
 };
@@ -503,6 +597,7 @@ export const CommittedRecord = ({
                 theme={record.item.theme}
                 tone={record.item.tone}
                 segments={record.item.segments}
+                document={record.item.document}
             />
         )}
     </Box>
@@ -967,7 +1062,23 @@ const confirmCancelHint = (choices: ConfirmChoice[]): string => (
         : "press Esc to close"
 );
 
-const CompactConfirm = ({
+const MUSIC_CONNECTION_PROVIDER_WIDTH = 24;
+const MUSIC_CONNECTION_WARNING = "#facc15";
+const MUSIC_CONNECTION_MISSING = "#ef4444";
+
+const truncateConnectionDescription = (value: string, width: number): string => {
+    if (stringWidth(value) <= width) return value;
+    if (width <= 0) return "";
+    const ellipsisWidth = stringWidth("…");
+    let rendered = "";
+    for (const character of Array.from(value)) {
+        if (stringWidth(rendered + character) + ellipsisWidth > width) break;
+        rendered += character;
+    }
+    return `${rendered}${"…".slice(0, width)}`;
+};
+
+export const CompactConfirm = ({
     confirm,
     confirmIndex,
     input,
@@ -988,9 +1099,27 @@ const CompactConfirm = ({
     panelWidth: number;
     spotifyTheme?: boolean;
 }) => {
+    const checkingConnection = Boolean(
+        confirm?.tool_name === "music_connection"
+        && confirm.choices.some((choice) => choice.connection_status === "checking"),
+    );
+    const [connectionBlinkFilled, setConnectionBlinkFilled] = React.useState(false);
+
+    React.useEffect(() => {
+        if (!checkingConnection) {
+            setConnectionBlinkFilled(false);
+            return;
+        }
+        const timer = setInterval(() => {
+            setConnectionBlinkFilled((current) => !current);
+        }, 500);
+        return () => clearInterval(timer);
+    }, [checkingConnection, confirm?.id]);
+
     if (!confirm) return null;
-    const visibleChoices = getVisibleConfirmChoices(confirm.choices);
-    const selectedDisplayIndex = resolveConfirmChoiceDisplayIndex(confirm.choices, confirmIndex);
+    const includeCancelChoice = confirm.tool_name === "provider_mode_exit";
+    const visibleChoices = getVisibleConfirmChoices(confirm.choices, includeCancelChoice);
+    const selectedDisplayIndex = resolveConfirmChoiceDisplayIndex(confirm.choices, confirmIndex, includeCancelChoice);
     const isSpotifyConfirm = spotifyTheme || confirm.tool_name === "spotify_device";
     const isSongCandidateConfirm = confirm.tool_name === "song_candidate";
 
@@ -1083,6 +1212,58 @@ const CompactConfirm = ({
         );
     }
 
+    if (confirm.tool_name === "music_connection") {
+        const contentWidth = Math.max(1, panelWidth - 2);
+        const descriptionWidth = Math.max(
+            0,
+            contentWidth - 2 - MUSIC_CONNECTION_PROVIDER_WIDTH,
+        );
+        const connectionItems: PanelChoiceItem[] = visibleChoices.map((choice) => {
+            const status = choice.connection_status ?? "missing";
+            const statusColor = status === "connected"
+                ? SPOTIFY_GREEN
+                : status === "missing"
+                    ? MUSIC_CONNECTION_MISSING
+                    : MUSIC_CONNECTION_WARNING;
+            const marker = status === "checking"
+                ? connectionBlinkFilled ? "•" : "◦"
+                : "•";
+            const markerColor = status === "checking" ? PANEL_PRIMARY : statusColor;
+            return {
+                key: choice.value,
+                segments: [
+                    {
+                        text: `${marker} `,
+                        color: markerColor,
+                        preserveColorWhenSelected: true,
+                    },
+                    {
+                        text: fitDisplayWidth(choice.label, MUSIC_CONNECTION_PROVIDER_WIDTH),
+                        color: PANEL_PRIMARY,
+                    },
+                    {
+                        text: truncateConnectionDescription(choice.description ?? "", descriptionWidth),
+                        color: statusColor,
+                        bold: status === "warning" || status === "checking",
+                        preserveColorWhenSelected: true,
+                    },
+                ],
+            };
+        });
+        const hint = typeof confirm.tool_args.hint === "string"
+            ? confirm.tool_args.hint
+            : "↑/↓ to select · Enter to connect/check · Esc to close";
+        return (
+            <PanelFrame width={panelWidth} title={confirm.message} hint={hint}>
+                <PanelChoiceList
+                    items={connectionItems}
+                    selectedIndex={selectedDisplayIndex}
+                    width={panelWidth}
+                />
+            </PanelFrame>
+        );
+    }
+
     const choiceItems: PanelChoiceItem[] = visibleChoices.map((choice) => ({
         key: choice.value,
         segments: choice.display?.kind === "music_candidate"
@@ -1120,13 +1301,15 @@ const CompactConfirm = ({
 
     if (confirm.tool_name === "provider_mode_exit") {
         return (
-            <PanelFrame width={panelWidth} title={confirm.message} hint={null}>
-                {confirm.warning ? (
-                    <PanelRow
-                        width={panelWidth}
-                        segments={[{ text: confirm.warning, color: "#facc15" }]}
-                    />
-                ) : null}
+            <PanelFrame
+                width={panelWidth}
+                title={confirm.message}
+                hint={null}
+                titleDetailSegments={confirm.warning ? [
+                    { text: "Warning: ", color: "#facc15", bold: true },
+                    { text: confirm.warning, color: "#facc15", italic: true },
+                ] : null}
+            >
                 <PanelChoiceList
                     items={choiceItems}
                     selectedIndex={selectedDisplayIndex}
@@ -1221,7 +1404,6 @@ const CompactSetup = ({
 }) => {
     if (!setupPanel) return null;
 
-    const isAppleTokenSetup = "provider" in setupPanel && setupPanel.provider === "apple_music";
     const panelWidth = Math.max(3, Math.floor(terminalColumns ?? 80));
     const contentWidth = Math.max(1, panelWidth - 2);
     const messageRows = wrapChatMessageContent(setupPanel.message, contentWidth);
@@ -1230,7 +1412,6 @@ const CompactSetup = ({
         <PanelFrame
             width={panelWidth}
             title={setupPanel.title}
-            hint={isAppleTokenSetup && setupPanel.active ? "press Esc to cancel" : null}
         >
             {messageRows.map((row, index) => (
                 <PanelRow
@@ -1238,7 +1419,7 @@ const CompactSetup = ({
                     width={panelWidth}
                     segments={[{
                         text: row,
-                        color: isAppleTokenSetup ? PANEL_PRIMARY : setupMessageColor(setupPanel),
+                        color: setupMessageColor(setupPanel),
                     }]}
                 />
             ))}
@@ -1342,11 +1523,12 @@ const InputDock = ({
     const spotifyTheme = Boolean(spotifyMode?.enabled || spotifySetup);
     const isSongCandidateConfirm = confirm?.tool_name === "song_candidate";
     const insetPanelWidth = Math.max(3, Math.floor(terminalColumns ?? 80) - 2);
+    const filteredModelChoices = filterModelChoices(authSetup?.models ?? [], input);
     const modelPanel = authSetup?.active && authSetup.step === "model"
         ? {
             title: authSetup.title,
             hint: authSetup.message,
-            items: (authSetup.models ?? []).map((model) => ({
+            items: filteredModelChoices.map((model) => ({
                 key: model.value,
                 segments: [
                     { text: formatModelPanelLabel(model), color: PANEL_PRIMARY },
@@ -1361,7 +1543,6 @@ const InputDock = ({
         && !modelPanel
         && (!confirm || Boolean(selectedChoice?.input) && !isSongCandidateConfirm);
     const spotifyModeBorderLabel = " 🎧 Spotify Mode ";
-    const appleModeEnabled = providerMode.enabled && providerMode.provider === "apple";
 
     return (
         <Box flexDirection="column">
@@ -1385,12 +1566,23 @@ const InputDock = ({
                     <LanguagePanel panel={languagePanel} selectedIndex={languagePanelIndex} width={insetPanelWidth} language={language} />
                     {modelPanel ? (
                         <PanelFrame width={insetPanelWidth} title={modelPanel.title} hint={modelPanel.hint}>
+                            <PanelRow
+                                width={insetPanelWidth}
+                                segments={[
+                                    { text: "Search: ", color: PANEL_SECONDARY },
+                                    { text: input || "type to filter", color: input ? PANEL_PRIMARY : PANEL_SECONDARY },
+                                ]}
+                            />
                             <PanelChoiceList
                                 items={modelPanel.items}
                                 selectedIndex={modelPanelIndex}
                                 visibleLimit={MAX_VISIBLE_MODEL_CHOICES}
                                 width={insetPanelWidth}
                                 spotifyTheme={spotifyTheme}
+                            />
+                            <PanelRow
+                                width={insetPanelWidth}
+                                segments={[{ text: t(language, "login.continue"), color: PANEL_SECONDARY, bold: true }]}
                             />
                         </PanelFrame>
                     ) : null}
@@ -1453,8 +1645,6 @@ const InputDock = ({
                         <Box flexShrink={0}>
                             {spotifyMode?.enabled ? (
                                 <Text bold color={SPOTIFY_GREEN}>{spotifyModeBorderLabel}</Text>
-                            ) : appleModeEnabled ? (
-                                <AppleModeLabel padded={true} />
                             ) : null}
                         </Box>
                     </Box>
@@ -1488,6 +1678,7 @@ export const DynamicTail = ({
     modelPanelIndex,
     terminalColumns,
     agentWorking,
+    streamingMessage,
     language = "en",
 }: {
     input: string;
@@ -1513,6 +1704,7 @@ export const DynamicTail = ({
     modelPanelIndex: number;
     terminalColumns: number | null;
     agentWorking: boolean;
+    streamingMessage: ChatMessageItem | null;
     language?: UiLanguage;
 }) => {
     const selectedChoice = confirm?.choices[Math.min(confirmIndex, Math.max(0, confirm.choices.length - 1))] ?? null;
@@ -1524,6 +1716,18 @@ export const DynamicTail = ({
 
     return (
         <Box flexDirection="column">
+            {streamingMessage ? (
+                <Box flexDirection="column" paddingX={1}>
+                    <ChatBubble
+                        role={streamingMessage.role}
+                        content={streamingMessage.content}
+                        contentWidth={Math.max(1, (terminalColumns ?? 80) - 4)}
+                        theme={streamingMessage.theme}
+                        tone={streamingMessage.tone}
+                        showDivider={false}
+                    />
+                </Box>
+            ) : null}
             {showMiniMascotStatus ? (
                 agentWorking ? <AgentWorkingStatus /> : <MiniMascotStatus />
             ) : null}
@@ -1616,26 +1820,6 @@ const MiniPlayerRegion = ({
     );
 };
 
-const hasTrueColor = (): boolean => {
-    const colorTerm = String(process.env.COLORTERM || "").toLowerCase();
-    return colorTerm.includes("truecolor") || colorTerm.includes("24bit");
-};
-
-const AppleModeLabel = ({ padded = false }: { padded?: boolean }) => {
-    const colors = hasTrueColor()
-        ? [APPLE_SILVER, APPLE_PEARL_PINK, APPLE_BLUSH]
-        : [APPLE_PEARL_PINK, APPLE_PEARL_PINK, APPLE_PEARL_PINK];
-    return (
-        <Text bold>
-            {padded ? <Text color={colors[0]}> 🎧 </Text> : null}
-            <Text color={colors[0]}>Apple</Text>
-            <Text color={colors[1]}> Mo</Text>
-            <Text color={colors[2]}>de</Text>
-            {padded ? <Text color={colors[2]}> </Text> : null}
-        </Text>
-    );
-};
-
 const ProviderImmersiveRegion = ({
     player,
     spotifyMode,
@@ -1647,10 +1831,7 @@ const ProviderImmersiveRegion = ({
     providerMode: ProviderModeState;
     spotifyImmersiveLayout: SpotifyImmersiveLayout;
 }) => {
-    const isApple = providerMode.provider === "apple";
-    const deviceName = isApple
-        ? `MusicKit · ${(providerMode.storefront || "storefront").toUpperCase()}`
-        : spotifyMode.device_name ?? "Spotify Connect";
+    const deviceName = spotifyMode.device_name ?? "Spotify Connect";
     const deviceStatus = player.is_playing ? "playing" : "paused";
     const topPadding = spotifyImmersiveLayout.topPadding;
     const deviceWidth = spotifyImmersiveLayout.deviceSlot.width;
@@ -1658,7 +1839,7 @@ const ProviderImmersiveRegion = ({
     return (
         <Box width="100%" height="100%" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} paddingX={2} paddingTop={topPadding}>
             <Box justifyContent="center">
-                {isApple ? <AppleModeLabel /> : <Text bold color={SPOTIFY_GREEN}>Spotify Mode</Text>}
+                <Text bold color={SPOTIFY_GREEN}>Spotify Mode</Text>
             </Box>
             <Box justifyContent="center" marginTop={1}>
                 <Text color="#fff4f6" wrap="truncate-end">{player.name}</Text>
@@ -1669,7 +1850,7 @@ const ProviderImmersiveRegion = ({
             <Box height={1} marginTop={1} />
             <Box justifyContent="center">
                 <Box width={deviceWidth > 0 ? deviceWidth : undefined} justifyContent="center">
-                    <Text color={isApple ? APPLE_PEARL_PINK : SPOTIFY_GREEN} wrap="truncate-end">
+                    <Text color={SPOTIFY_GREEN} wrap="truncate-end">
                         {providerMode.connection_status === "disconnected" ? "reconnecting" : `${deviceStatus} on ${deviceName}`}
                     </Text>
                 </Box>
@@ -1711,6 +1892,7 @@ export const DynamicShell = ({
     spotifyImmersiveLayout,
     terminalSpace,
     agentWorking,
+    streamingMessage,
     language = "en",
 }: {
     input: string;
@@ -1745,6 +1927,7 @@ export const DynamicShell = ({
     spotifyImmersiveLayout: SpotifyImmersiveLayout;
     terminalSpace: TerminalSpace;
     agentWorking: boolean;
+    streamingMessage: ChatMessageItem | null;
     language?: UiLanguage;
 }) => {
     if (activeRegion === "miniPlayer") {
@@ -1808,6 +1991,7 @@ export const DynamicShell = ({
             modelPanelIndex={modelPanelIndex}
             terminalColumns={terminalSpace.columns}
             agentWorking={agentWorking}
+            streamingMessage={streamingMessage}
             language={language}
         />
     );

@@ -3,7 +3,7 @@ import type { PlayerState } from './types.js';
 export type PlaybackShortcutAction = "togglePlayback" | "volumeDown" | "volumeUp" | "saveToPlaylist";
 
 const LOCAL_PLAYBACK_SOURCES = new Set(["local", "youtube", "online"]);
-const EXTERNAL_PLAYBACK_SOURCES = new Set(["spotify", "apple_music"]);
+const EXTERNAL_PLAYBACK_SOURCES = new Set(["spotify"]);
 
 /**
  * Maps raw terminal input bytes to mini-player playback shortcut actions.
@@ -63,10 +63,4 @@ export function isSpotifyPlaybackShortcutSource(player: Pick<PlayerState, "sourc
     const source = typeof player.source === "string" ? player.source.toLowerCase() : "";
     const provider = typeof player.provider === "string" ? player.provider.toLowerCase() : "";
     return source === "spotify" || provider === "spotify";
-}
-
-export function isApplePlaybackShortcutSource(player: Pick<PlayerState, "source" | "provider">): boolean {
-    const source = typeof player.source === "string" ? player.source.toLowerCase() : "";
-    const provider = typeof player.provider === "string" ? player.provider.toLowerCase() : "";
-    return source === "apple_music" || provider === "apple_music";
 }

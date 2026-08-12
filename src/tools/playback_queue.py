@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from src.log import sonex_home
-from src.tools.apple_music import recent_tracks_snapshot as apple_recent_tracks_snapshot
+from src.music.legacy_tracks import downgrade_retired_provider_track, is_retired_provider_track
 from src.tools.song_cache import recent_cached_songs
 from src.tools.spotify_play import recent_tracks_snapshot as spotify_recent_tracks_snapshot
 
@@ -53,7 +53,6 @@ def _seed_sources() -> tuple[Callable[[], list[dict[str, Any]]], ...]:
     return (
         recent_cached_songs,
         spotify_recent_tracks_snapshot,
-        apple_recent_tracks_snapshot,
     )
 
 
@@ -62,7 +61,6 @@ def _track_key(track: dict[str, Any]) -> str:
         "cache_id",
         "uri",
         "spotify_url",
-        "apple_music_url",
         "youtube_url",
         "url",
         "stream_url",
@@ -86,6 +84,7 @@ def _track_key(track: dict[str, Any]) -> str:
 
 
 def _snapshot_track(track: dict[str, Any], *, played_at: float) -> dict[str, Any] | None:
+    track, _ = downgrade_retired_provider_track(track)
     name = _text(track.get("name") or track.get("title"))
     key = _track_key(track)
     if not name or not key:
@@ -108,16 +107,18 @@ def _snapshot_track(track: dict[str, Any], *, played_at: float) -> dict[str, Any
         "stream_url",
         "youtube_url",
         "spotify_url",
-        "apple_music_url",
         "audio_path",
         "file_path",
         "path",
         "album_cover_url",
         "id",
+        "requires_resolution",
     ):
         value = track.get(field)
         if value:
             snapshot[field] = value
+    if track.get("requires_resolution"):
+        snapshot["playable"] = False
     return snapshot
 
 
@@ -132,6 +133,10 @@ def _load_queue(path: Path) -> list[dict[str, Any]] | None:
     if not isinstance(tracks, list):
         return []
 
+    needs_migration = any(
+        isinstance(item, dict) and is_retired_provider_track(item)
+        for item in tracks
+    )
     deduped: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in tracks:
@@ -144,6 +149,8 @@ def _load_queue(path: Path) -> list[dict[str, Any]] | None:
         deduped.append(snapshot)
         if len(deduped) >= MAX_PLAYBACK_QUEUE:
             break
+    if needs_migration:
+        _save_queue(path, deduped)
     return deduped
 
 

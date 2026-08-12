@@ -279,14 +279,15 @@ class PlayerSinkManager:
         )
         if adapter is None:
             raise RuntimeError("No validated default player is available.")
-        probe = await asyncio.wait_for(
-            adapter.probe(),
-            timeout=self._probe_timeout_seconds,
-        )
-        if not probe.controllable:
-            raise RuntimeError(
-                f"{adapter.descriptor.display_name} is not currently controllable."
+        if action != "status":
+            probe = await asyncio.wait_for(
+                adapter.probe(),
+                timeout=self._probe_timeout_seconds,
             )
+            if not probe.controllable:
+                raise RuntimeError(
+                    f"{adapter.descriptor.display_name} is not currently controllable."
+                )
         return await adapter.control(action, value)
 
     async def _ensure_discovered(self) -> None:

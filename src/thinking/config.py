@@ -194,6 +194,8 @@ def _build_runtime_config(model_override: str | None, config_path: Path) -> Runt
         or file_config.get("default_provider")
         or "openai"
     ))
+    if default_provider == "ollama":
+        default_provider = "openai"
     default_model = normalize_provider_model(
         default_provider,
         model_override
@@ -205,7 +207,11 @@ def _build_runtime_config(model_override: str | None, config_path: Path) -> Runt
         or "gpt-5.5",
     )
 
-    provider_name_set = {*provider_names(), *file_providers.keys(), *auth_store.providers.keys(), default_provider}
+    provider_name_set = {
+        name
+        for name in {*provider_names(), *file_providers.keys(), *auth_store.providers.keys(), default_provider}
+        if normalize_provider(name) != "ollama"
+    }
     providers: dict[str, ProviderConfig] = {}
     for name in sorted(provider_name_set):
         providers[name] = _build_provider_config(
@@ -239,11 +245,25 @@ def _build_provider_config(
     """
     prefix = f"SONEX_{name.upper()}_"
     capability = get_provider_capability(name)
-    env_api_key = os.getenv(f"{prefix}API_KEY") or (os.getenv("SONEX_API_KEY") if name == "openai" else None)
+    env_api_key = (
+        os.getenv(f"{prefix}API_KEY")
+        or (os.getenv("SONEX_API_KEY") if name == "openai" else None)
+        or (os.getenv("SONEX_KIMI_API_KEY") if name == "kimi_global" else None)
+        or (os.getenv("SONEX_MINIMAX_API_KEY") if name == "minimax_global" else None)
+    )
     auth_api_key = auth_config.api_key if auth_config else None
     auth_oauth = auth_config.oauth if auth_config else None
     auth_method = auth_config.auth_method if auth_config else "auto"
+    managed_auth = auth_config.managed_auth if auth_config else None
     extra_headers = dict(file_config.get("extra_headers") or {})
+    project_id = (
+        os.getenv(f"{prefix}PROJECT_ID")
+        or (os.getenv("SONEX_GOOGLE_CLOUD_PROJECT") if name == "gemini" else None)
+        or (auth_config.project_id if auth_config else None)
+        or file_config.get("project_id")
+    )
+    if name == "gemini" and project_id:
+        extra_headers.setdefault("x-goog-user-project", str(project_id))
 
     api_key = (
         env_api_key
@@ -265,7 +285,11 @@ def _build_provider_config(
         or (default_model if is_default else None)
         or capability.default_model,
     )
-    timeout_raw = os.getenv(f"{prefix}TIMEOUT") or file_config.get("timeout")
+    timeout_raw = (
+        os.getenv(f"{prefix}TIMEOUT")
+        or (auth_config.timeout if auth_config else None)
+        or file_config.get("timeout")
+    )
     timeout = float(timeout_raw) if timeout_raw not in (None, "") else None
     custom_llm_provider = (
         os.getenv(f"{prefix}CUSTOM_LLM_PROVIDER")
@@ -277,24 +301,29 @@ def _build_provider_config(
 
     if not env_api_key and auth_oauth and auth_method in {"auto", "oauth"}:
         if is_default:
-            ensure_oauth_token_usable(name, auth_oauth)
+            auth_oauth = ensure_oauth_token_usable(name, auth_oauth, project_id=project_id)
             api_key = None
             extra_headers["Authorization"] = f"Bearer {auth_oauth.access_token}"
         else:
             try:
-                ensure_oauth_token_usable(name, auth_oauth)
+                auth_oauth = ensure_oauth_token_usable(name, auth_oauth, project_id=project_id)
             except Exception:
                 pass
             else:
                 api_key = None
                 extra_headers["Authorization"] = f"Bearer {auth_oauth.access_token}"
 
+    billing_mode = os.getenv(f"{prefix}BILLING_MODE") or file_config.get("billing_mode")
+    if name == "openai" and auth_method == "oauth" and managed_auth == "codex_app_server":
+        api_key = None
+        billing_mode = "chatgpt_subscription"
+
     return ProviderConfig(
         name=name,
         model=model,
         api_key=api_key,
         base_url=base_url,
-        billing_mode=os.getenv(f"{prefix}BILLING_MODE") or file_config.get("billing_mode"),
+        billing_mode=billing_mode,
         api_version=os.getenv(f"{prefix}API_VERSION") or file_config.get("api_version"),
         timeout=timeout,
         custom_llm_provider=custom_llm_provider,
@@ -324,7 +353,7 @@ def _default_custom_provider(name: str) -> str | None:
         "openai": None,
         "anthropic": "anthropic",
         "gemini": "gemini",
-        "ollama": "ollama",
+        "custom": "openai",
         "deepseek": "deepseek",
     }
     return provider_map.get(name)

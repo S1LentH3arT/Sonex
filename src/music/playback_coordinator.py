@@ -67,12 +67,11 @@ def rank_authoritative_providers(
     return sorted(
         eligible,
         key=lambda snapshot: (
+            0 if snapshot.preferred else 1,
             0 if snapshot.active_mode else 1,
             0 if snapshot.session_verified else 1,
+            0 if _normalized(snapshot.provider) == "spotify" else 1,
             -max(0.0, min(1.0, snapshot.verified_success_rate)),
-            max(0, snapshot.startup_latency_ms),
-            -max(0, snapshot.capability_score),
-            0 if snapshot.preferred else 1,
             _normalized(snapshot.provider),
         ),
     )

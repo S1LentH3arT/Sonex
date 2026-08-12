@@ -1,7 +1,7 @@
 """Playback controller support for tool implementations used by the planner and playback flows.
 
 Implements the playback_controller module responsibilities used by Sonex runtime flows.
-Key public entry points include PlayerState, PlaybackAdapter, MpvPlaybackAdapter, CvlcRcPlaybackAdapter, LocalPlaybackController.
+Key public entry points include PlayerState, PlaybackAdapter, MpvPlaybackAdapter, LocalPlaybackController.
 """
 
 from __future__ import annotations
@@ -25,9 +25,9 @@ from src.tools.registry import Params, registry
 from src.tools.result import ToolResult
 from src.tools.mpv_diagnostics import MpvDiagnosticSession, MpvPlaybackHealthMonitor
 
-PlayerName = Literal["mpv", "cvlc"]
-PlayerBackend = Literal["auto", "mpv", "cvlc"]
-PlaybackSource = Literal["local", "youtube", "spotify", "apple_music"]
+PlayerName = Literal["mpv"]
+PlayerBackend = Literal["mpv"]
+PlaybackSource = Literal["local", "youtube", "spotify"]
 
 LOCAL_PLAYBACK_APPLICATIONS: tuple[dict[str, Any], ...] = (
     {
@@ -35,12 +35,6 @@ LOCAL_PLAYBACK_APPLICATIONS: tuple[dict[str, Any], ...] = (
         "label": "mpv",
         "executables": ("mpv",),
         "description": "Controllable local player for stable background playback.",
-    },
-    {
-        "backend": "cvlc",
-        "label": "VLC",
-        "executables": ("cvlc", "vlc"),
-        "description": "Controllable VLC playback through its RC interface.",
     },
 )
 
@@ -68,10 +62,6 @@ def available_local_playback_backends() -> list[dict[str, str]]:
             }
         )
     return available
-
-
-def _vlc_executable() -> str | None:
-    return shutil.which("cvlc") or shutil.which("vlc")
 
 
 def _timestamp_ms() -> int:
@@ -358,6 +348,32 @@ class MpvPlaybackAdapter:
         self._close_diagnostics("start_failed", error="mpv IPC socket was not ready")
         raise RuntimeError("mpv IPC socket was not ready.")
 
+    def _request_with_client(self, client: socket.socket, command: list[Any]) -> Any:
+        """Send one correlated command over an already connected mpv IPC client."""
+        request_id = uuid.uuid4().int & ((1 << 63) - 1)
+        payload = json.dumps({
+            "command": command,
+            "request_id": request_id,
+        }).encode("utf-8") + b"\n"
+        client.sendall(payload)
+        buffered = b""
+        while True:
+            response = client.recv(65536)
+            if not response:
+                break
+            buffered += response
+            while b"\n" in buffered:
+                line, buffered = buffered.split(b"\n", 1)
+                if not line.strip():
+                    continue
+                decoded = json.loads(line.decode("utf-8"))
+                if decoded.get("request_id") != request_id:
+                    continue
+                if decoded.get("error") not in (None, "success"):
+                    raise RuntimeError(f"mpv IPC failed: {decoded.get('error')}")
+                return decoded.get("data")
+        raise RuntimeError("mpv IPC returned no matching response.")
+
     def _request(self, command: list[Any]) -> Any:
         """Prepares request for an internal Sonex flow.
 
@@ -367,32 +383,39 @@ class MpvPlaybackAdapter:
         """
         if self.process and self.process.poll() is not None:
             raise RuntimeError("mpv process is not running.")
-        request_id = uuid.uuid4().int & ((1 << 63) - 1)
-        payload = json.dumps({
-            "command": command,
-            "request_id": request_id,
-        }).encode("utf-8") + b"\n"
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
             client.settimeout(1)
             client.connect(self.socket_path)
-            client.sendall(payload)
-            buffered = b""
-            while True:
-                response = client.recv(65536)
-                if not response:
-                    break
-                buffered += response
-                while b"\n" in buffered:
-                    line, buffered = buffered.split(b"\n", 1)
-                    if not line.strip():
-                        continue
-                    decoded = json.loads(line.decode("utf-8"))
-                    if decoded.get("request_id") != request_id:
-                        continue
-                    if decoded.get("error") not in (None, "success"):
-                        raise RuntimeError(f"mpv IPC failed: {decoded.get('error')}")
-                    return decoded.get("data")
-        raise RuntimeError("mpv IPC returned no matching response.")
+            return self._request_with_client(client, command)
+
+    def _properties(self, names: tuple[str, ...]) -> dict[str, Any]:
+        """Read one status snapshot while reusing a single mpv IPC connection."""
+        if self.process and self.process.poll() is not None:
+            error = RuntimeError("mpv process is not running.")
+            return {name: error for name in names}
+        results: dict[str, Any] = {}
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+                client.settimeout(1)
+                client.connect(self.socket_path)
+                for name in names:
+                    try:
+                        results[name] = self._request_with_client(
+                            client,
+                            ["get_property", name],
+                        )
+                    except Exception as exc:
+                        results[name] = exc
+        except Exception as exc:
+            return {name: exc for name in names}
+        return results
+
+    @staticmethod
+    def _snapshot_value(snapshot: dict[str, Any], name: str) -> Any:
+        value = snapshot[name]
+        if isinstance(value, Exception):
+            raise value
+        return value
 
     def _property(self, name: str) -> Any:
         """Prepares property for an internal Sonex flow.
@@ -405,10 +428,17 @@ class MpvPlaybackAdapter:
 
     def _diagnostic_probe(self) -> dict[str, Any]:
         """Read one high-frequency diagnostic sample from mpv."""
-        progress_ms = _coerce_ms(float(self._property("time-pos") or 0) * 1000)
-        paused = bool(self._property("pause"))
-        paused_for_cache = bool(self._property("paused-for-cache"))
-        current_ao_value = self._property("current-ao")
+        snapshot = self._properties(
+            ("time-pos", "pause", "paused-for-cache", "current-ao")
+        )
+        progress_ms = _coerce_ms(
+            float(self._snapshot_value(snapshot, "time-pos") or 0) * 1000
+        )
+        paused = bool(self._snapshot_value(snapshot, "pause"))
+        paused_for_cache = bool(
+            self._snapshot_value(snapshot, "paused-for-cache")
+        )
+        current_ao_value = self._snapshot_value(snapshot, "current-ao")
         return {
             "progress_ms": progress_ms,
             "is_playing": not paused,
@@ -453,8 +483,13 @@ class MpvPlaybackAdapter:
                 ended=True,
             )
 
+        snapshot = self._properties(
+            ("time-pos", "duration", "pause", "paused-for-cache", "current-ao")
+        )
         try:
-            progress_ms = _coerce_ms(float(self._property("time-pos") or 0) * 1000)
+            progress_ms = _coerce_ms(
+                float(self._snapshot_value(snapshot, "time-pos") or 0) * 1000
+            )
             self._last_progress_ms = progress_ms
         except Exception as exc:
             if self.health_monitor and default_playing is None:
@@ -470,21 +505,25 @@ class MpvPlaybackAdapter:
                 raise RuntimeError("mpv progress status is unavailable.") from exc
             progress_ms = self._last_progress_ms
         try:
-            duration_ms = _coerce_ms(float(self._property("duration") or 0) * 1000)
+            duration_ms = _coerce_ms(
+                float(self._snapshot_value(snapshot, "duration") or 0) * 1000
+            )
             self._last_duration_ms = duration_ms
         except Exception:
             duration_ms = self._last_duration_ms
         try:
-            paused = bool(self._property("pause"))
+            paused = bool(self._snapshot_value(snapshot, "pause"))
             is_playing = not paused
         except Exception:
             is_playing = bool(default_playing)
         try:
-            paused_for_cache = bool(self._property("paused-for-cache"))
+            paused_for_cache = bool(
+                self._snapshot_value(snapshot, "paused-for-cache")
+            )
         except Exception:
             paused_for_cache = False
         try:
-            current_ao_value = self._property("current-ao")
+            current_ao_value = self._snapshot_value(snapshot, "current-ao")
             current_ao = str(current_ao_value) if current_ao_value else None
         except Exception:
             current_ao = None
@@ -574,151 +613,6 @@ class MpvPlaybackAdapter:
         return self.status()
 
 
-class CvlcRcPlaybackAdapter:
-    """Represents cvlc rc playback adapter.
-
-    Encapsulates cvlc rc playback adapter data and behavior used by Sonex runtime flows.
-    """
-    def __init__(self, *, source_url: str, source: PlaybackSource, metadata: dict[str, Any]) -> None:
-        """Prepares init for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
-
-        Example: __init__(source_url=..., source=..., metadata=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        self.source_url = source_url
-        self.source = source
-        self.metadata = metadata
-        self.session_id = uuid.uuid4().hex
-        self.socket_path = str(Path(tempfile.gettempdir()) / f"sonex-cvlc-{self.session_id}.sock")
-        self.process: subprocess.Popen[bytes] | None = None
-        self.started_at = _timestamp_ms()
-        self.progress_ms = 0
-        self.is_playing = True
-        self.volume_percent: int | None = None
-
-    def start(self) -> PlayerState:
-        """Coordinates start for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: start() -> returns the value used by the surrounding Sonex flow.
-        """
-        executable = _vlc_executable()
-        if executable is None:
-            raise RuntimeError("VLC is not installed or not on PATH.")
-        self.process = subprocess.Popen(
-            [
-                executable,
-                "--no-video",
-                "--network-caching=5000",
-                "--extraintf",
-                "oldrc",
-                "--rc-unix",
-                self.socket_path,
-                self.source_url,
-            ],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        deadline = time.monotonic() + 2
-        while time.monotonic() < deadline:
-            if self.process.poll() is not None:
-                raise RuntimeError("cvlc exited before playback started.")
-            if os.path.exists(self.socket_path):
-                return self.status()
-            time.sleep(0.05)
-        raise RuntimeError("cvlc rc socket was not ready.")
-
-    def _send(self, command: str) -> None:
-        """Prepares send for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs send without duplicating the local rules.
-
-        Example: _send(command=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        if self.process and self.process.poll() is not None:
-            raise RuntimeError("cvlc process is not running.")
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(1)
-            client.connect(self.socket_path)
-            client.sendall(command.encode("utf-8") + b"\n")
-
-    def status(self) -> PlayerState:
-        """Coordinates status for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs status as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: status() -> returns the value used by the surrounding Sonex flow.
-        """
-        ended = bool(self.process and self.process.poll() is not None)
-        progress_ms = self.progress_ms
-        if self.is_playing and not ended:
-            progress_ms += max(0, _timestamp_ms() - self.started_at)
-        return _metadata_state(
-            metadata=self.metadata,
-            source=self.source,
-            player="cvlc",
-            session_id=self.session_id,
-            progress_ms=progress_ms,
-            is_playing=self.is_playing and not ended,
-            volume_percent=self.volume_percent,
-            ended=ended,
-        )
-
-    def pause(self) -> PlayerState:
-        """Coordinates pause for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs pause as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: pause() -> returns the value used by the surrounding Sonex flow.
-        """
-        self._send("pause")
-        self.progress_ms = self.status().progress_ms
-        self.is_playing = False
-        return self.status()
-
-    def resume(self) -> PlayerState:
-        """Coordinates resume for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs resume as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: resume() -> returns the value used by the surrounding Sonex flow.
-        """
-        self._send("play")
-        self.started_at = _timestamp_ms()
-        self.is_playing = True
-        return self.status()
-
-    def stop(self) -> PlayerState:
-        """Coordinates stop for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs stop as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: stop() -> returns the value used by the surrounding Sonex flow.
-        """
-        try:
-            self._send("stop")
-            self._send("quit")
-        except Exception:
-            if self.process and self.process.poll() is None:
-                self.process.terminate()
-        return replace(self.status(), is_playing=False, ended=True)
-
-    def set_volume(self, volume_percent: int) -> PlayerState:
-        """Coordinates set volume for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs set volume as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: set_volume(volume_percent=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        volume = _coerce_volume(volume_percent)
-        self._send(f"volume {round(volume * 256 / 100)}")
-        self.volume_percent = volume
-        return self.status()
-
-
 class LocalPlaybackController:
     """Represents local playback controller.
 
@@ -731,7 +625,6 @@ class LocalPlaybackController:
         """
         self._adapter: PlaybackAdapter | None = None
         self.current_session_id: str | None = None
-        self.player_backend: PlayerBackend = "auto"
 
     def play(
         self,
@@ -747,12 +640,7 @@ class LocalPlaybackController:
 
         Example: play(source_url=..., source=..., metadata=..., player=...) -> returns the value used by the surrounding Sonex flow.
         """
-        requested_backend = self._normalize_backend(player or "auto")
-        backend = (
-            requested_backend
-            if requested_backend != "auto"
-            else self.player_backend
-        )
+        backend = self._normalize_backend(player or "auto")
         if self._adapter is not None:
             try:
                 self._adapter.stop()
@@ -776,23 +664,13 @@ class LocalPlaybackController:
         Example: _normalize_backend(backend=...) -> returns the value used by the surrounding Sonex flow.
         """
         normalized = backend.strip().lower()
-        if normalized not in {"auto", "mpv", "cvlc"}:
-            raise ValueError("Unsupportedlocal playback backend. Use auto, mpv, or cvlc.")
-        return normalized  # type: ignore[return-value]
-
-    def set_player_backend(self, backend: str) -> PlayerBackend:
-        """Coordinates set player backend for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs set player backend as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: set_player_backend(backend=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        self.player_backend = self._normalize_backend(backend)
-        return self.player_backend
+        if normalized not in {"auto", "mpv"}:
+            raise ValueError("Unsupported local playback backend. Sonex uses mpv.")
+        return "mpv"
 
     def _adapter_for(
         self,
-        backend: Literal["mpv", "cvlc"],
+        backend: Literal["mpv"],
         *,
         source_url: str,
         source: PlaybackSource,
@@ -804,8 +682,7 @@ class LocalPlaybackController:
 
         Example: _adapter_for(backend=..., source_url=..., source=..., metadata=...) -> returns the value used by the surrounding Sonex flow.
         """
-        adapter_cls = MpvPlaybackAdapter if backend == "mpv" else CvlcRcPlaybackAdapter
-        return adapter_cls(source_url=source_url, source=source, metadata=metadata)
+        return MpvPlaybackAdapter(source_url=source_url, source=source, metadata=metadata)
 
     def _start_adapter(
         self,
@@ -821,28 +698,21 @@ class LocalPlaybackController:
 
         Example: _start_adapter(backend=..., source_url=..., source=..., metadata=...) -> returns the value used by the surrounding Sonex flow.
         """
-        backends: tuple[Literal["mpv", "cvlc"], ...] = ("mpv",) if backend == "auto" else (backend,)
-        failures: list[str] = []
-        for candidate in backends:
-            adapter = self._adapter_for(candidate, source_url=source_url, source=source, metadata=metadata)
+        adapter = self._adapter_for(
+            "mpv",
+            source_url=source_url,
+            source=source,
+            metadata=metadata,
+        )
+        try:
+            return adapter, adapter.start()
+        except Exception as exc:
+            _player_debug(f"mpv start failed: {exc}")
             try:
-                return adapter, adapter.start()
-            except Exception as exc:
-                _player_debug(f"{candidate} start failed: {exc}")
-                failures.append(f"{candidate}: {exc}")
-                try:
-                    adapter.stop()
-                except Exception:
-                    pass
-                if backend != "auto":
-                    raise
-        detail = "; ".join(failures) or "No playback backend could start."
-        if backend == "auto":
-            raise RuntimeError(
-                f"{detail}. auto uses mpv only for playback stability; run /player "
-                "and choose VLC if you want to try the manual diagnostic backend."
-            )
-        raise RuntimeError(detail)
+                adapter.stop()
+            except Exception:
+                pass
+            raise
 
     def _require_adapter(self) -> PlaybackAdapter:
         """Prepares require adapter for an internal Sonex flow.
@@ -913,7 +783,7 @@ controller = LocalPlaybackController()
 
 
 def resolve_local_playback_backend(player: str = "auto") -> PlayerBackend:
-    """Normalize a tool-supplied player without consuming the ``auto`` route."""
+    """Normalize every supported local or online playback request to mpv."""
     return controller._normalize_backend(player)
 
 
@@ -932,46 +802,6 @@ def start_local_playback(
 
     Example: start_local_playback(tool=..., source_url=..., source=..., metadata=..., player=..., success_message=...) -> returns the value used by the surrounding Sonex flow.
     """
-    from src.music.player_sink_runtime import play_through_persisted_sink
-
-    if player.strip().casefold() == "auto":
-        try:
-            routed = play_through_persisted_sink(
-                source_url=source_url,
-                track=metadata,
-            )
-        except Exception as exc:
-            return ToolResult.fail(
-                tool=tool,
-                message=(
-                    f"Default player failed: {exc}. Run /player to change it, "
-                    "or explicitly choose mpv for this playback."
-                ),
-                error_code="DEFAULT_PLAYER_FAILED",
-                data={
-                    **metadata,
-                    "source": source,
-                    "player": player,
-                    "player_recovery": {
-                        "source_url": source_url,
-                        "source": source,
-                        "metadata": metadata,
-                        "success_message": success_message,
-                    },
-                },
-            ).to_dict()
-        if routed is not None:
-            return ToolResult.success(
-                tool=tool,
-                message=success_message,
-                data={
-                    **metadata,
-                    **routed.state,
-                    "sink_id": routed.sink_id,
-                    "source": source,
-                },
-            ).to_dict()
-
     selected_player = resolve_local_playback_backend(player)
     try:
         state = controller.play(source_url=source_url, source=source, metadata=metadata, player=selected_player)
@@ -992,8 +822,6 @@ def _control_result(tool: str, action: str) -> dict[str, Any]:
 
     Example: _control_result(tool=..., action=...) -> returns the value used by the surrounding Sonex flow.
     """
-    from src.music.player_sink_runtime import control_persisted_player_sink
-
     messages = {
         "pause": "Playback paused.",
         "resume": "Playback resumed.",
@@ -1001,13 +829,6 @@ def _control_result(tool: str, action: str) -> dict[str, Any]:
         "status": "Playback status.",
     }
     try:
-        routed = control_persisted_player_sink(action)
-        if routed is not None:
-            return ToolResult.success(
-                tool=tool,
-                message=messages[action],
-                data={**routed.state, "sink_id": routed.sink_id},
-            ).to_dict()
         state = getattr(controller, action)()
     except Exception as exc:
         error_code = (
@@ -1078,16 +899,7 @@ def local_playback_volume(volume_percent: int) -> dict[str, Any]:
             message=str(exc),
             error_code="INVALID_VOLUME",
         ).to_dict()
-    from src.music.player_sink_runtime import control_persisted_player_sink
-
     try:
-        routed = control_persisted_player_sink("volume", volume)
-        if routed is not None:
-            return ToolResult.success(
-                tool="local_playback_volume",
-                message=f"Playback volume set to {volume}%.",
-                data={**routed.state, "sink_id": routed.sink_id},
-            ).to_dict()
         state = controller.set_volume(volume)
     except Exception as exc:
         return ToolResult.fail(
@@ -1099,31 +911,6 @@ def local_playback_volume(volume_percent: int) -> dict[str, Any]:
         tool="local_playback_volume",
         message=f"Playback volume set to {volume}%.",
         data=state.to_dict(),
-    ).to_dict()
-
-
-def local_playback_player(backend: str) -> dict[str, Any]:
-    """Coordinates local playback player for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs local playback player as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: local_playback_player(backend=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    try:
-        selected = controller.set_player_backend(backend)
-    except ValueError as exc:
-        return ToolResult.fail(
-            tool="local_playback_player",
-            message=str(exc),
-            error_code="INVALID_PLAYER_BACKEND",
-        ).to_dict()
-    from src.tools.player_permission import remember_player
-
-    remember_player(selected)
-    return ToolResult.success(
-        tool="local_playback_player",
-        message=f"Default local player set to {selected}.",
-        data={"backend": selected},
     ).to_dict()
 
 
@@ -1156,22 +943,6 @@ registry.register(
         required=["volume_percent"],
     ),
     fn=local_playback_volume,
-    enable=True,
-    read_only=False,
-    required_confirm=False,
-)
-
-registry.register(
-    name="local_playback_player",
-    kind="system",
-    domain="playback",
-    description="Set the default local player for this session.",
-    parameters=Params(
-        type="object",
-        properties={"backend": {"type": "string", "enum": ["auto", "mpv", "cvlc"]}},
-        required=["backend"],
-    ),
-    fn=local_playback_player,
     enable=True,
     read_only=False,
     required_confirm=False,

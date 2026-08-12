@@ -13,31 +13,36 @@ const committedTranscriptEnd = componentsSource.indexOf('const localizeTrackPane
 const committedRecordSource = componentsSource.slice(committedRecordStart, committedTranscriptStart);
 const committedTranscriptSource = componentsSource.slice(committedTranscriptStart, committedTranscriptEnd);
 
-test('ChatBubble renders spaced physical-line markers without an Ink border', () => {
+test('ChatBubble renders one colored bullet with aligned white continuation lines', () => {
     assert.ok(chatBubbleStart >= 0);
     assert.ok(chatBubbleEnd > chatBubbleStart);
     assert.match(chatBubbleSource, /wrapChatMessageContent\(content, contentWidth\)/);
     assert.match(chatBubbleSource, /resolveChatMarkerColor\(role, theme, tone\)/);
-    assert.match(chatBubbleSource, /resolveChatSubject\(role, tone\)/);
+    assert.match(chatBubbleSource, /resolveChatContentColor\(role, tone\)/);
     assert.match(
         chatBubbleSource,
-        /<Box marginBottom=\{1\} flexDirection="column" width="100%">\s*<Text bold color=\{markerColor\}>\{subject\}<\/Text>\s*\{lines\.map/,
+        /<Box marginBottom=\{1\} flexDirection="column" width="100%">\s*\{lines\.map/,
     );
-    assert.match(chatBubbleSource, /index === lines\.length - 1 \? "└" : "│"/);
-    assert.match(
-        chatBubbleSource,
-        /const color = theme === "muted" && !isUser \? "#9ca3af" : isUser \? "#fff6f8" : "#f6e9ee";/,
-    );
+    assert.match(chatBubbleSource, /index === 0 \? "•" : " "/);
+    assert.doesNotMatch(chatBubbleSource, /resolveChatSubject|User<|Agent<|System<|Warning<|Caution</);
+    assert.doesNotMatch(chatBubbleSource, /theme === "muted"/);
     assert.doesNotMatch(
         chatBubbleSource,
         /theme === "spotify" && !isUser \? SPOTIFY_GREEN/,
     );
     assert.match(
         chatBubbleSource,
-        /<Text color=\{markerColor\}>\{marker\}<\/Text>\s*<Text color=\{color\}>\{` \$\{line\}`\}<\/Text>/,
+        /<Text bold color=\{markerColor\}>\{marker\}<\/Text>\s*<Text color=\{contentColor\}>\{` \$\{line\}`\}<\/Text>/,
     );
-    assert.doesNotMatch(chatBubbleSource, /\{marker\} \{line\}/);
     assert.doesNotMatch(chatBubbleSource, /paddingX=|borderLeft=|borderColor=|borderStyle=/);
+});
+
+test('ChatBubble renders a full-width input-style divider after every message', () => {
+    assert.match(
+        chatBubbleSource,
+        /<Box marginTop=\{1\}>\s*<Text color=\{CHAT_USER_MARKER_COLOR\}>\{"─"\.repeat\(contentWidth \+ 2\)\}<\/Text>/,
+    );
+    assert.doesNotMatch(chatBubbleSource, /\{isUser \? \(\s*<Box marginTop=\{1\}>/);
 });
 
 test('committed transcript appends records through Ink Static without a virtual viewport', () => {
@@ -52,6 +57,7 @@ test('committed transcript appends records through Ink Static without a virtual 
         committedRecordSource,
         /record\.item\.type === "info_banner" \? \([\s\S]*<HeaderFrame[\s\S]*sessionId=\{record\.item\.sessionId\}/,
     );
+    assert.doesNotMatch(committedRecordSource, /tokenUsage/);
     assert.match(
         committedRecordSource,
         /<ChatBubble[\s\S]*role=\{record\.item\.role\}[\s\S]*contentWidth=\{record\.presentation\.contentWidth\}[\s\S]*tone=\{record\.item\.tone\}/,

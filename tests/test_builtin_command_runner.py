@@ -29,7 +29,7 @@ from src.auth.models import OAuthToken
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
 from src.music.playback_coordinator import ProviderReadiness, RecordingIdentity
-from src.music.player_sinks import PlayerSelectionResult
+from src.music.connections import MusicConnectionManager
 from src.thinking.config import ThinkingConfig
 
 
@@ -130,6 +130,9 @@ class FakeUI:
         Example: send_auth_setup() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "auth_setup", **kwargs})
+
+    async def send_netease_login(self, **kwargs: object) -> None:
+        self.events.append({"type": "netease_login", **kwargs})
 
     async def send_auth_state(self, state: object) -> None:
         """Verifies that send auth state behaves as expected.
@@ -382,39 +385,6 @@ class FakeWebSocket:
         raise WebSocketDisconnect()
 
 
-class PlayerBackendWebSocket:
-    def __init__(self) -> None:
-        self.sent: list[dict[str, object]] = []
-        self.accepted = False
-        self._sent_player_command = False
-        self._sent_confirm_result = False
-
-    async def accept(self) -> None:
-        self.accepted = True
-
-    async def send_text(self, text: str) -> None:
-        self.sent.append(json.loads(text))
-
-    async def receive_text(self) -> str:
-        if not self._sent_player_command:
-            self._sent_player_command = True
-            return json.dumps({"type": "user_input", "text": "/player mpv"})
-        if not self._sent_confirm_result:
-            confirm_id = next(
-                (
-                    str(event["id"])
-                    for event in self.sent
-                    if event.get("type") == "confirm" and event.get("tool_name") == "local_playback_player"
-                ),
-                None,
-            )
-            if confirm_id:
-                self._sent_confirm_result = True
-                return json.dumps({"type": "confirm_result", "id": confirm_id, "decision": "managed:cvlc"})
-        await asyncio.sleep(0)
-        raise WebSocketDisconnect()
-
-
 class DisconnectingWebSocket:
     def __init__(self) -> None:
         self.sent: list[dict[str, object]] = []
@@ -626,6 +596,65 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         runner._try_selected_native_provider.assert_not_awaited()
         self.assertEqual(result["data"]["attempted"], ["spotify"])
 
+    async def test_unlogged_netease_online_choice_authorizes_direct_fallback_once(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        health = type(
+            "Health",
+            (),
+            {"login_available": True, "login_ready": False},
+        )()
+        netease = ProviderReadiness(
+            "netease",
+            True,
+            False,
+            True,
+            False,
+            details={"health": health, "worker": object()},
+        )
+        runner._probe_authoritative_providers = AsyncMock(return_value=[netease])
+        runner._offer_netease_login = AsyncMock(return_value=(None, "online"))
+
+        result = await runner._route_authoritative_provider(
+            ui,
+            identity=RecordingIdentity("BB88", "方大同"),
+            selected_candidate={"title": "BB88", "artist": "方大同"},
+            requested_provider=None,
+            hard_provider=False,
+        )
+
+        self.assertTrue(result["data"]["online_allowed"])
+
+    async def test_explicit_unlogged_netease_rejection_never_authorizes_online(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        health = type(
+            "Health",
+            (),
+            {"login_available": True, "login_ready": False},
+        )()
+        netease = ProviderReadiness(
+            "netease",
+            True,
+            False,
+            True,
+            False,
+            details={"health": health, "worker": object()},
+        )
+        runner._probe_authoritative_providers = AsyncMock(return_value=[netease])
+        runner._offer_netease_login = AsyncMock(return_value=(None, "cancel"))
+
+        result = await runner._route_authoritative_provider(
+            ui,
+            identity=RecordingIdentity("BB88", "方大同"),
+            selected_candidate={"title": "BB88", "artist": "方大同"},
+            requested_provider="netease",
+            hard_provider=True,
+        )
+
+        self.assertFalse(result["data"].get("online_allowed", False))
+        self.assertEqual(result["data"]["provider"], "netease")
+
     async def test_agent_community_fallback_offers_only_one_explicit_alternative(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
@@ -741,8 +770,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         "test_recommend_uses_other_provider_when_one_provider_fails",
         "test_recommend_without_args_uses_empty_query_intro",
         "test_recommendation_route_uses_restricted_agent_without_confirm",
-        "test_setup_apple_cancel_hides_panel_and_appends_system_message",
-        "test_setup_apple_stores_token_service_url_from_terminal_panel",
         "test_setup_audius_guides_api_key_input_and_repeats_empty_values",
         "test_setup_jamendo_stores_open_audio_api_key",
         "test_setup_spotify_starts_spotify_setup",
@@ -799,24 +826,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             return_value=[],
         )
         self._online_audio_search_patch.start()
-        self._player_detection_patch = patch(
-            "src.api.ws_runner.available_local_playback_backends",
-            return_value=[
-                {
-                    "backend": "mpv",
-                    "label": "mpv",
-                    "description": "Controllable local player for stable background playback.",
-                    "executable": "/usr/bin/mpv",
-                },
-                {
-                    "backend": "cvlc",
-                    "label": "VLC",
-                    "description": "Controllable VLC playback through its RC interface.",
-                    "executable": "/usr/bin/cvlc",
-                },
-            ],
-        )
-        self._player_detection = self._player_detection_patch.start()
         self._managed_player_validation_patch = patch(
             "src.music.player_sink_runtime._validate_managed_player",
             return_value=True,
@@ -831,7 +840,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         """Restore Spotify sync state resolution and remove temporary data."""
         self._to_thread_patch.stop()
-        self._player_detection_patch.stop()
         self._managed_player_validation_patch.stop()
         self._online_audio_search_patch.stop()
         self._metadata_search_patch.stop()
@@ -887,6 +895,41 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(ws.sent[1]["type"], "queue")
         self.assertIn("tracks", ws.sent[1])
+
+    async def test_first_memory_notice_follows_startup_info_banner_event(self) -> None:
+        runner = WebSocketRunner()
+        ws = DisconnectingWebSocket()
+        auth_state = ws_runner.AuthRuntimeState(
+            ready=True,
+            provider="openai",
+            model="gpt-test",
+            auth_type="api_key",
+            credential_source="env",
+        )
+
+        async def idle_sync(_ui: object) -> None:
+            while True:
+                await asyncio.sleep(60)
+
+        with patch.object(runner.memory_store, "consume_first_notice", return_value=True), \
+             patch.object(runner.memory_store, "long_term_enabled", return_value=False), \
+             patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
+             patch.object(runner, "_sync_local_playback", side_effect=idle_sync), \
+             patch("src.api.ws_runner._llm_auth_state", return_value=auth_state), \
+             patch("src.api.ws_runner._llm_auth_ready", return_value=(False, None, None)), \
+             patch("src.api.ws_runner.create_session_id", return_value="session-1"):
+            await runner.handle_ws(ws)  # type: ignore[arg-type]
+
+        auth_index = next(index for index, event in enumerate(ws.sent) if event.get("type") == "auth_state")
+        notice_index = next(
+            index
+            for index, event in enumerate(ws.sent)
+            if event.get("type") == "chat"
+            and event.get("text")
+            == "Sonex stores stable music preferences locally. Use /memory to configure long-term memory."
+        )
+        self.assertLess(auth_index, notice_index)
+        self.assertEqual(ws.sent[notice_index].get("tone"), "system")
 
     async def test_handle_bye_reuses_connection_session_id(self) -> None:
         runner = WebSocketRunner()
@@ -957,6 +1000,48 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(command.usage == "/recommend [taste]" for command in help_events[0]["commands"]))
         self.assertFalse(any("Available commands" in str(event.get("text")) for event in ui.events))
 
+    async def test_login_opens_provider_picker_without_agent_turn(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/login")
+
+        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertEqual(auth_events[-1]["step"], "provider")
+        self.assertEqual(
+            [choice["value"] for choice in auth_events[-1]["providers"]],
+            [
+                "openai", "gemini", "anthropic", "deepseek", "openrouter", "zai",
+                "kimi_global", "kimi_cn", "minimax_global", "minimax_cn", "xai", "custom",
+            ],
+        )
+
+    async def test_login_rejects_provider_arguments(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/login openai")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
+        self.assertTrue(any(event.get("text") == "Usage: /login" for event in ui.events))
+
+    async def test_login_cancel_is_completely_silent(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with self._isolated_auth_env():
+            await runner._handle_user_input(ui, "/login")
+            setup = getattr(ui, "_auth_setup")
+            before = len(ui.events)
+            await setup.handle_input("__cancel__")
+
+        self.assertEqual(len(ui.events), before)
+        self.assertIsNone(getattr(ui, "_auth_setup"))
+
     async def test_lang_is_treated_as_an_unknown_command(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
@@ -968,6 +1053,19 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
         self.assertTrue(any(
             event.get("text") == "Unknown command: /lang. Type /help to view available commands."
+            for event in ui.events
+        ))
+
+    async def test_apple_is_treated_as_an_unknown_command(self) -> None:
+        runner = WebSocketRunner()
+        runner._run_agent_turn = AsyncMock()
+        ui = FakeUI()
+
+        await runner._handle_user_input(ui, "/apple")
+
+        self.assertFalse(runner._run_agent_turn.called)
+        self.assertTrue(any(
+            event.get("text") == "Unknown command: /apple. Type /help to view available commands."
             for event in ui.events
         ))
 
@@ -1527,12 +1625,97 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             payload = _read_jsonl(transcripts[0])
 
         self.assertFalse(runner._run_agent_turn.called)
-        self.assertNotIn("openai", store.providers)
+        self.assertIn("openai", store.providers)
+        self.assertIsNone(store.providers["openai"].api_key)
+        self.assertIsNone(store.default_provider)
         self.assertIsNone(store.default_provider)
         self.assertIsNone(store.default_model)
         self.assertTrue(all(item["reason"] == "logout" for item in payload))
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
-        self.assertTrue(any(event.get("text") == "Signed out successfully." for event in ui.events))
+        self.assertTrue(any(
+            event.get("text")
+            == "Signed out of the active LLM connection. Other saved provider credentials were preserved."
+            for event in ui.events
+        ))
+
+    async def test_logout_clears_spotify_mode_before_next_startup(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+        token = OAuthToken(
+            access_token="access",
+            expires_at=expires_at,
+            scopes=sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES),
+        )
+        mode = {
+            "version": 1,
+            "enabled": True,
+            "device_id": "desktop",
+            "device_name": "Studio Desktop",
+            "entered_at": 1,
+            "updated_at": 2,
+            "token_expires_at": expires_at,
+            "scopes": sorted(ws_runner.SPOTIFY_MODE_REQUIRED_SCOPES),
+        }
+
+        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai"}) as home:
+            set_api_key("openai", "sk-test")
+            set_default("openai", model="gpt-5.5")
+            setattr(ui, "_spotify_mode", mode)
+            await runner.provider_modes.restore(
+                ws_runner.ProviderModeState(provider=ws_runner.ProviderMode.SPOTIFY)
+            )
+            spotify_mode_path = Path(home) / "spotify-mode.json"
+            spotify_mode_path.write_text(json.dumps(mode), encoding="utf-8")
+            ws_runner.save_provider_mode_intent(
+                ws_runner.ProviderModeState(provider=ws_runner.ProviderMode.SPOTIFY)
+            )
+
+            await runner._handle_user_input(ui, "/logout")
+
+            restarted_runner = WebSocketRunner()
+            restarted_ui = FakeUI()
+            with patch("src.api.ws_runner.load_spotify_token", return_value=token):
+                await restarted_runner._restore_persistent_spotify_mode(restarted_ui)
+                await restarted_runner._restore_provider_mode(restarted_ui)
+
+            provider_events = [
+                event for event in restarted_ui.events
+                if event.get("type") == "provider_mode"
+            ]
+            logout_spotify_events = [
+                event for event in ui.events
+                if event.get("type") == "spotify_mode"
+            ]
+            logout_provider_events = [
+                event for event in ui.events
+                if event.get("type") == "provider_mode"
+            ]
+            self.assertEqual(
+                {
+                    "logout_spotify_enabled": runner._spotify_mode_enabled(ui),
+                    "logout_provider": runner.provider_modes.state.provider.value,
+                    "logout_spotify_event": logout_spotify_events[-1]["enabled"],
+                    "logout_provider_event": logout_provider_events[-1]["provider"],
+                    "spotify_mode_file": spotify_mode_path.exists(),
+                    "provider_mode_file": (Path(home) / "provider-mode.json").exists(),
+                    "restart_spotify_enabled": restarted_runner._spotify_mode_enabled(restarted_ui),
+                    "restart_provider": restarted_runner.provider_modes.state.provider.value,
+                    "restart_event": provider_events[-1]["provider"],
+                },
+                {
+                    "logout_spotify_enabled": False,
+                    "logout_provider": "normal",
+                    "logout_spotify_event": False,
+                    "logout_provider_event": "normal",
+                    "spotify_mode_file": False,
+                    "provider_mode_file": False,
+                    "restart_spotify_enabled": False,
+                    "restart_provider": "normal",
+                    "restart_event": "normal",
+                },
+            )
+
 
     async def test_logout_env_credentials_warns_and_exits_without_success_message(self) -> None:
         """Verifies that logout env credentials warns and exits without success message behaves as expected.
@@ -1580,97 +1763,30 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any(event.get("text") == "You are not logged in." for event in ui.events))
 
-    async def test_recommend_queues_visible_recommendations_without_agent_turn(self) -> None:
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-        spotify_tracks = [
-            {"name": "七里香", "artist": "周杰伦", "uri": "spotify:track:1", "recommendation_reason": "recent match"},
-            {"name": "晴天", "artist": "周杰伦", "uri": "spotify:track:2", "recommendation_reason": "same mood"},
-            {"name": "重复", "artist": "A", "uri": "spotify:track:dup"},
-        ]
-        apple_tracks = [
-            {"name": "重复", "artist": "A", "url": "https://music.apple.com/dup"},
-            {"name": "倒带", "artist": "蔡依林", "url": "https://music.apple.com/1", "recommendation_reason": "pop fit"},
-            {"name": "红色高跟鞋", "artist": "蔡健雅", "url": "https://music.apple.com/2"},
-            {"name": "如果云知道", "artist": "许茹芸", "url": "https://music.apple.com/3"},
-        ]
+    async def test_logout_netease_clears_external_and_session_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            manager = MusicConnectionManager(path=Path(directory) / "connections.json")
+            manager.mark_connected("netease", account_label="ncm-cli")
+            runner = WebSocketRunner(music_connection_manager_factory=lambda: manager)
+            ui = FakeUI()
+            setattr(ui, "_netease_login_declined", True)
+            setattr(ui, "_netease_verified_signature", ("ncm-cli", "0.1.6", 1))
+            setattr(ui, "_preferred_playback_provider", "netease")
+            with patch("src.api.ws_runner.NetEaseProviderWorker.is_logged_in", return_value=True), patch(
+                "src.api.ws_runner.NetEaseProviderWorker.logout",
+                return_value=True,
+            ) as logout:
+                changed = await runner._logout_netease(ui)
 
-        with patch("src.api.ws_runner.spotify_recommend", return_value={
-            "status": "success",
-            "data": {"tracks": spotify_tracks},
-        }) as spotify_recommend, patch("src.api.ws_runner.apple_music_recommend", return_value={
-            "status": "success",
-            "data": {"tracks": apple_tracks},
-        }) as apple_recommend, patch("src.api.ws_runner.playback_queue_snapshot", return_value=[
-            {"name": "稻香", "artist": "周杰伦"}
-        ]), patch("src.api.ws_runner.remember_playback_track", side_effect=lambda track: [track]) as remember, patch(
-            "src.api.ws_runner.asyncio.to_thread",
-            side_effect=_to_thread_inline,
-        ):
-            await runner._handle_user_input(ui, "/recommend 华语女声")
-            self.assertIsNotNone(runner._running_task)
-            assert runner._running_task is not None
-            await runner._running_task
+        self.assertTrue(changed)
+        logout.assert_called_once_with()
+        self.assertIsNone(manager.record("netease"))
+        self.assertFalse(getattr(ui, "_netease_login_declined"))
+        self.assertIsNone(getattr(ui, "_netease_verified_signature"))
+        self.assertIsNone(getattr(ui, "_preferred_playback_provider"))
 
-        self.assertFalse(runner._run_agent_turn.called)
-        spotify_recommend.assert_called_once_with(query="华语女声", limit=5, recent_tracks=[{"name": "稻香", "artist": "周杰伦"}])
-        apple_recommend.assert_called_once_with(query="华语女声", limit=5, recent_tracks=[{"name": "稻香", "artist": "周杰伦"}])
-        self.assertEqual(remember.call_count, 5)
-        saved = getattr(ui, "_last_recommendation_tracks")
-        self.assertEqual([track["name"] for track in saved], ["七里香", "晴天", "重复", "倒带", "红色高跟鞋"])
-        self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
-        self.assertTrue(any(event.get("type") == "queue" for event in ui.events))
-        chat = [event for event in ui.events if event.get("type") == "chat" and event.get("role") == "agent"][-1]
-        self.assertIn('Recommended 5 tracks for "华语女声"', str(chat.get("text")))
-        self.assertIn("1. 七里香 - 周杰伦: recent match", str(chat.get("text")))
-        self.assertFalse(any(event.get("type") == "player" for event in ui.events))
 
-    async def test_recommend_without_args_uses_empty_query_intro(self) -> None:
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-        track = {"name": "Song", "artist": "Artist", "uri": "spotify:track:1"}
 
-        with patch("src.api.ws_runner.spotify_recommend", return_value={"status": "success", "data": {"tracks": [track]}}) as spotify_recommend, patch(
-            "src.api.ws_runner.apple_music_recommend",
-            return_value={"status": "success", "data": {"tracks": []}},
-        ), patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]), patch(
-            "src.api.ws_runner.remember_playback_track",
-            return_value=[track],
-        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await runner._handle_user_input(ui, "/recommend")
-            self.assertIsNotNone(runner._running_task)
-            assert runner._running_task is not None
-            await runner._running_task
-
-        spotify_recommend.assert_called_once_with(query="", limit=5, recent_tracks=[])
-        chat = [event for event in ui.events if event.get("type") == "chat" and event.get("role") == "agent"][-1]
-        self.assertIn("Recommended 1 track based on recent playback and USER.md", str(chat.get("text")))
-
-    async def test_recommend_uses_other_provider_when_one_provider_fails(self) -> None:
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-        track = {"name": "倒带", "artist": "蔡依林", "url": "https://music.apple.com/1"}
-
-        with patch("src.api.ws_runner.spotify_recommend", side_effect=RuntimeError("spotify unavailable")), patch(
-            "src.api.ws_runner.apple_music_recommend",
-            return_value={"status": "success", "data": {"tracks": [track]}},
-        ), patch("src.api.ws_runner.playback_queue_snapshot", return_value=[]), patch(
-            "src.api.ws_runner.remember_playback_track",
-            return_value=[track],
-        ), patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
-            await runner._handle_user_input(ui, "/recommend R&B")
-            self.assertIsNotNone(runner._running_task)
-            assert runner._running_task is not None
-            await runner._running_task
-
-        self.assertFalse(runner._run_agent_turn.called)
-        saved = getattr(ui, "_last_recommendation_tracks")
-        self.assertEqual([item["name"] for item in saved], ["倒带"])
-        self.assertTrue(any(event.get("type") == "search_results" for event in ui.events))
-        self.assertTrue(any('Recommended 1 track for "R&B"' in str(event.get("text")) for event in ui.events))
 
     async def test_recommend_returns_immediately_while_providers_load(self) -> None:
         runner = WebSocketRunner()
@@ -1850,12 +1966,10 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with patch("src.api.ws_runner.search_local_file", return_value="No local files found."), \
              patch("src.api.ws_runner.search_track_metadata_candidates", return_value=metadata_result), \
              patch("src.api.ws_runner.spotify_account") as spotify_account_check, \
-             patch("src.api.ws_runner.load_apple_music_user_token") as apple_music_account_check, \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "play song")
 
         spotify_account_check.assert_not_called()
-        apple_music_account_check.assert_not_called()
         confirms = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertEqual(confirms[-1]["tool_name"], "song_candidate")
         self.assertFalse(any(event.get("tool_args", {}).get("stage") == "method_choice" for event in confirms))
@@ -2126,7 +2240,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("src.api.ws_runner.spotify_recent_tracks", return_value={
                 "status": "fail",
-                "message": "Spotify recently played scope is missing. Run `sonex auth login spotify` again.",
+                "message": "Spotify recently played scope is missing. Open /spotify to reconnect.",
                 "error_code": "SPOTIFY_SCOPE_MISSING",
             }),
             patch("src.api.ws_runner.registry.invoke") as invoke,
@@ -2187,8 +2301,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         recent.assert_not_called()
         intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
         self.assertIn("spotify_recent_tracks", intent.allowed_tools)
-        self.assertNotIn("apple_music_recent_tracks", intent.allowed_tools)
-        self.assertNotIn("apple_music_play", intent.allowed_tools)
         self.assertIn("play_youtube_song", intent.allowed_tools)
 
     async def test_spotify_mode_rejects_non_spotify_mode_command_in_chat(self) -> None:
@@ -2970,7 +3082,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         intent = runner._run_agent_turn.await_args.kwargs["command_intent"]
         self.assertIn("request_playback_selection", intent.allowed_tools)
         self.assertNotIn("spotify_play", intent.allowed_tools)
-        self.assertNotIn("apple_music_play", intent.allowed_tools)
         self.assertNotIn("play_youtube_song", intent.allowed_tools)
         self.assertNotIn("play_local_song", intent.allowed_tools)
         self.assertIsNone(getattr(ui, "_play_selection", None))
@@ -3270,79 +3381,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.providers["audius"].api_key, "audius-api-key")
         self.assertFalse(auth_events[-1].get("active", True))
 
-    async def test_setup_apple_stores_token_service_url_from_terminal_panel(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
 
-        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
-            await runner._handle_user_input(ui, "/setup apple")
-            setup = getattr(ui, "_apple_music_setup")
-            auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-            self.assertEqual(auth_events[-1]["title"], "Apple Music token setup")
-            self.assertIn("developer-token service URL", str(auth_events[-1]["message"]))
-            self.assertEqual(auth_events[-1]["prompt"], "Apple token service URL")
-            self.assertFalse(auth_events[-1].get("mask", False))
 
-            await setup.handle_input("not-a-url")
-            self.assertIn("must be an http(s) URL", str(
-                [event for event in ui.events if event.get("type") == "auth_setup"][-1]["message"]
-            ))
-
-            await setup.handle_input("https://tokens.example.test/")
-            store = load_auth_store()
-
-        self.assertEqual(store.providers["apple_mode"].base_url, "https://tokens.example.test")
-        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-        self.assertEqual(auth_events[-1]["title"], "Apple Music token configured")
-        self.assertFalse(auth_events[-1].get("active", True))
-        self.assertIsNone(getattr(ui, "_apple_music_setup"))
-
-    async def test_setup_apple_cancel_hides_panel_and_appends_system_message(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        with self._isolated_auth_env({"SONEX_DEFAULT_PROVIDER": "openai", "SONEX_OPENAI_API_KEY": "sk-test"}):
-            await runner._handle_user_input(ui, "/setup apple")
-            setup = getattr(ui, "_apple_music_setup")
-            await setup.handle_input("__cancel__")
-
-        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-        self.assertEqual(auth_events[-1]["step"], "cancelled")
-        self.assertFalse(auth_events[-1].get("active", True))
-        self.assertIsNone(getattr(ui, "_apple_music_setup"))
-
-        system_events = [
-            event
-            for event in ui.events
-            if event.get("type") == "chat" and event.get("tone") == "system"
-        ]
-        self.assertTrue(system_events)
-        self.assertIn("canceled", str(system_events[-1]["text"]).lower())
-        self.assertIn("panel hidden", str(system_events[-1]["text"]).lower())
-
-    async def test_apple_without_token_configuration_opens_terminal_setup_panel(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        with self._isolated_auth_env({
-            "SONEX_DEFAULT_PROVIDER": "openai",
-            "SONEX_OPENAI_API_KEY": "sk-test",
-            "SONEX_APPLE_TOKEN_BROKER_URL": "",
-        }):
-            await runner._handle_user_input(ui, "/apple")
-
-        setup = getattr(ui, "_apple_music_setup", None)
-        auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-        self.assertIsNotNone(setup)
-        self.assertTrue(auth_events)
-        self.assertEqual(auth_events[-1]["title"], "Apple Music token setup")
-        self.assertEqual(auth_events[-1]["prompt"], "Apple token service URL")
-        self.assertIsNot(auth_events[-1].get("active"), False)
-        self.assertFalse(any(
-            "Apple Mode token service is not configured" in str(event.get("text"))
-            for event in ui.events
-            if event.get("type") == "chat"
-        ))
 
     def test_queue_payload_reads_dedicated_up_next_snapshot(self) -> None:
         queue_tracks = [
@@ -3504,8 +3544,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ui = FakeUI()
         result = {
             "status": "success",
-            "tool": "local_playback_player",
-            "message": "Playback backend set.",
+            "tool": "play_youtube_song",
+            "message": "Playing started.",
             "data": {
                 "provider": "youtube",
                 "source": "youtube",
@@ -4018,13 +4058,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(activity_events[-1]["status"], "error")
         self.assertIn("/volume <0-100>", activity_events[-1]["detail"])
 
-    async def test_player_command_opens_backend_choice_panel_without_agent_turn(self) -> None:
-        """Verifies that player command opens backend choice panel without agent turn behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the player command opens backend choice panel behavior against regressions.
-
-        Example: test_player_command_opens_backend_choice_panel_without_agent_turn() -> passes without assertion failures when the behavior remains correct.
-        """
+    async def test_player_command_is_unknown(self) -> None:
         runner = WebSocketRunner()
         runner._run_agent_turn = AsyncMock()
         ui = FakeUI()
@@ -4034,183 +4068,10 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(runner._run_agent_turn.called)
         invoke.assert_not_called()
-        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
-        self.assertTrue(confirm_events)
-        self.assertEqual(confirm_events[-1]["tool_name"], "local_playback_player")
-        self.assertEqual(confirm_events[-1]["tool_args"]["stage"], "player_backend_selection")
-        self.assertEqual(
-            [choice["value"] for choice in confirm_events[-1]["choices"]],
-            ["managed:mpv", "managed:cvlc", "deny"],
-        )
-        self.assertEqual([choice["label"] for choice in confirm_events[-1]["choices"]], ["mpv", "VLC", "Cancel"])
-        self.assertEqual(
-            [choice.get("description") for choice in confirm_events[-1]["choices"]],
-            [
-                "Managed playback with Sonex controls.",
-                "Managed playback with Sonex controls.",
-                None,
-            ],
-        )
-        self.assertTrue(getattr(ui, "_player_backend_selection"))
-
-    async def test_player_command_ignores_typed_backend_and_opens_same_panel(self) -> None:
-        """Verifies that player command ignores typed backend and opens same panel behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the player command ignores typed backend behavior against regressions.
-
-        Example: test_player_command_ignores_typed_backend_and_opens_same_panel() -> passes without assertion failures when the behavior remains correct.
-        """
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-
-        with patch("src.api.ws_runner.registry.invoke") as invoke:
-            await runner._handle_user_input(ui, "/player vlc")
-
-        invoke.assert_not_called()
-        self.assertFalse(runner._run_agent_turn.called)
-        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
-        self.assertTrue(confirm_events)
-        self.assertEqual(
-            [choice["value"] for choice in confirm_events[-1]["choices"]],
-            ["managed:mpv", "managed:cvlc", "deny"],
-        )
-        self.assertFalse([event for event in ui.events if event.get("status") == "error"])
-
-    async def test_player_detection_is_cached_for_the_websocket_session(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        await runner._handle_user_input(ui, "/player")
-        await runner._handle_user_input(ui, "/player")
-
-        self._player_detection.assert_called_once_with()
-        confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
-        self.assertEqual(len(confirm_events), 2)
-
-    async def test_player_command_reports_when_no_supported_application_is_installed(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        self._player_detection.return_value = []
-
-        await runner._handle_user_input(ui, "/player")
-
-        self.assertFalse([event for event in ui.events if event.get("type") == "confirm"])
-        self.assertIsNone(getattr(ui, "_player_backend_selection", None))
-        self.assertTrue(any(
-            event.get("type") == "activity"
-            and event.get("status") == "error"
-            and "Install mpv, VLC" in str(event.get("detail"))
-            for event in ui.events
-        ))
-
-    async def test_player_backend_choice_persists_manager_selection(self) -> None:
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-        await runner._handle_user_input(ui, "/player")
-        session = getattr(ui, "_player_backend_selection")
-        with patch("src.api.ws_runner.registry.invoke") as invoke:
-            await session.handle_choice("managed:cvlc")
-
-        invoke.assert_not_called()
-        self.assertEqual(session.manager.default_sink_id, "managed:cvlc")
-        self.assertIsNone(getattr(ui, "_player_backend_selection"))
-        activity_events = [event for event in ui.events if event.get("type") == "activity"]
-        self.assertEqual(activity_events[-1]["status"], "success")
-        self.assertIn("VLC", activity_events[-1]["detail"])
+        self.assertFalse(any(event.get("type") == "confirm" for event in ui.events))
         self.assertTrue(any(
             event.get("type") == "chat"
-            and event.get("role") == "agent"
-            and event.get("tone") == "system"
-            and event.get("text") == "player: VLC"
-            for event in ui.events
-        ))
-        self.assertFalse(any(
-            event.get("tone") == "system"
-            and str(event.get("text", "")).startswith("on playing:")
-            for event in ui.events
-        ))
-
-    async def test_player_backend_confirm_result_from_websocket_persists_selection(self) -> None:
-        runner = WebSocketRunner()
-        ws = PlayerBackendWebSocket()
-        async def idle_sync(_ui: object) -> None:
-            while True:
-                await asyncio.sleep(60)
-
-        with patch.object(runner, "_handle_startup_auth", new=AsyncMock()), \
-                patch.object(runner, "_restore_persistent_spotify_mode", new=AsyncMock()), \
-                patch.object(runner, "_sync_spotify_playback", side_effect=idle_sync), \
-                patch("src.api.ws_runner.registry.invoke") as invoke:
-            await runner.handle_ws(ws)  # type: ignore[arg-type]
-
-        invoke.assert_not_called()
-        self.assertEqual(
-            runner._player_sink_manager_instance.default_sink_id,  # type: ignore[union-attr]
-            "managed:cvlc",
-        )
-        self.assertTrue(any(event.get("type") == "confirm" for event in ws.sent))
-        queued = []
-        while not runner._confirm_queue.empty():
-            queued.append(runner._confirm_queue.get_nowait())
-        self.assertNotIn("managed:cvlc", [decision for _confirm_id, decision in queued])
-
-    async def test_player_backend_cancel_does_not_invoke_tool(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        await runner._handle_user_input(ui, "/player mpv")
-        session = getattr(ui, "_player_backend_selection")
-        with patch("src.api.ws_runner.registry.invoke") as invoke:
-            await session.handle_choice("deny")
-
-        invoke.assert_not_called()
-        self.assertIsNone(getattr(ui, "_player_backend_selection"))
-        self.assertTrue(any("unchanged" in str(event.get("text")) for event in ui.events))
-        self.assertFalse(any(
-            event.get("tone") == "system"
-            and str(event.get("text", "")).startswith("player:")
-            for event in ui.events
-        ))
-
-    async def test_player_backend_invalid_choice_has_no_system_feedback(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-
-        await runner._handle_user_input(ui, "/player")
-        session = getattr(ui, "_player_backend_selection")
-        with patch("src.api.ws_runner.registry.invoke") as invoke:
-            await session.handle_choice("not-a-player")
-
-        invoke.assert_not_called()
-        self.assertTrue(any(
-            event.get("type") == "chat"
-            and event.get("text") == "Default player unchanged."
-            for event in ui.events
-        ))
-        self.assertFalse(any(
-            event.get("tone") == "system"
-            and str(event.get("text", "")).startswith("player:")
-            for event in ui.events
-        ))
-
-    async def test_player_backend_failure_has_no_system_feedback(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        await runner._handle_user_input(ui, "/player")
-        session = getattr(ui, "_player_backend_selection")
-        session.manager.select = AsyncMock(return_value=PlayerSelectionResult(
-            status="failed",
-            sink_id="managed:mpv",
-            message="Backend selection failed.",
-            previous_sink_id=None,
-        ))
-        await session.handle_choice("managed:mpv")
-
-        self.assertFalse(any(
-            event.get("tone") == "system"
-            and str(event.get("text", "")).startswith("player:")
+            and event.get("text") == "Unknown command: /player. Type /help to view available commands."
             for event in ui.events
         ))
 
@@ -4249,7 +4110,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(player_events[-1]["state"]["provider"], "youtube")
         self.assertEqual(player_events[-1]["state"]["name"], "Song")
         self.assertEqual(player_events[-1]["state"]["youtube_url"], "https://www.youtube.com/watch?v=abc")
-        self.assertIsNone(player_events[-1]["state"]["apple_music_url"])
         remember_playback_track.assert_called_once()
         self.assertTrue(cover_events)
         self.assertEqual(cover_events[-1]["url"], "https://coverartarchive.org/release-group/mbid/front-500")
@@ -4297,7 +4157,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         result = {
             "status": "fail",
             "tool": "play_youtube_song",
-            "message": "Player 'vlc' is not ready.",
+            "message": "Player 'mpv' is not ready.",
             "error_code": "PLAYER_MISSED",
             "data": {
                 "provider": "youtube",
@@ -4744,7 +4604,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 "player": "auto",
                 "choices": [
                     {"value": "mpv", "label": "mpv"},
-                    {"value": "cvlc", "label": "VLC"},
                     {"value": "deny", "label": "取消"},
                 ],
             },
@@ -5223,7 +5082,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         pending_result = {
             "status": "requires_player_confirm",
             "tool": "play_youtube_song",
-            "message": "Sonex wants to open auto local player (mpv default).",
+            "message": "Sonex needs permission to open mpv.",
             "data": {
                 "provider": "youtube",
                 "name": "Song",
@@ -5233,12 +5092,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                 "url": "https://www.youtube.com/watch?v=abc",
                 "stream_url": "https://stream.example/audio",
                 "is_playing": True,
-                "player": "auto",
-                "player_label": "auto local player (mpv default)",
-                "confirm_message": "Sonex wanna open auto local player (mpv default), confirm?",
+                "player": "mpv",
+                "player_label": "mpv",
+                "confirm_message": "Allow Sonex to open mpv?",
                 "choices": [
                     {"value": "mpv", "label": "mpv", "description": "default controllable backend for smoother background playback."},
-                    {"value": "cvlc", "label": "VLC", "description": "manual diagnostic backend; use only when you explicitly want VLC."},
                     {"value": "deny", "label": "取消"},
                 ],
             },
@@ -5281,7 +5139,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         confirm_events = [event for event in ui.events if event.get("type") == "confirm"]
         self.assertEqual(confirm_events[-1]["tool_name"], "play_youtube_song")
-        self.assertEqual([choice["value"] for choice in confirm_events[-1]["choices"]], ["mpv", "cvlc", "deny"])
+        self.assertEqual([choice["value"] for choice in confirm_events[-1]["choices"]], ["mpv", "deny"])
         self.assertIs(getattr(ui, "_play_selection"), session)
 
         with patch("src.api.ws_runner.complete_player_confirm", return_value=success_result) as complete, \
@@ -5827,11 +5685,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             labels,
             [
                 "Spotify",
-                "Apple Music",
                 "NetEase Cloud Music",
                 "Jamendo",
                 "Audius",
-                "Cancel",
             ],
         )
         self.assertFalse(any(label.startswith(("🎵", "🍎", "🟢")) for label in labels))

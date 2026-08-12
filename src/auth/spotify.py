@@ -323,7 +323,7 @@ def ensure_spotify_token(required_scopes: set[str] | None = None) -> OAuthToken:
     """
     token = load_spotify_token()
     if not token or not token.access_token:
-        raise SpotifyLoginRequiredError("Run `sonex auth login spotify` to connect your Spotify account.")
+        raise SpotifyLoginRequiredError("Open /spotify to connect your Spotify account.")
     if _is_expired(token):
         token = refresh_spotify_token(token)
 

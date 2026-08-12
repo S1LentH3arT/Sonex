@@ -117,22 +117,19 @@ const playerConfirm = applyLanguageToServerEvent({
     tool_args: {
         query: "song",
         stage: "player_confirm",
-        player: "auto",
-        player_label: "auto local player (mpv default)",
+        player: "mpv",
+        player_label: "mpv",
     },
-    message: "Sonex wanna open auto local player (mpv default), confirm?",
+    message: "Allow Sonex to open mpv?",
     choices: [
         { value: "mpv", label: "🎧 mpv", description: "default controllable backend for smoother background playback." },
-        { value: "cvlc", label: "📻 VLC", description: "manual diagnostic backend; use only when you explicitly want VLC." },
         { value: "deny", label: "取消" },
     ],
 }, "zh-CN");
-assert.equal(playerConfirm.message, "Sonex 想打开 auto 本地播放器（mpv 默认），是否确认？");
+assert.equal(playerConfirm.message, "允许 Sonex 打开 mpv 吗？");
 assert.equal(playerConfirm.choices?.[0]?.label, "mpv");
 assert.equal(playerConfirm.choices?.[0]?.description, "默认播放后端，提供更丝滑的播放体验");
-assert.equal(playerConfirm.choices?.[1]?.label, "VLC");
-assert.equal(playerConfirm.choices?.[1]?.description, "备用播放后台，适配性较差，通常不建议选择");
-assert.equal(playerConfirm.choices?.[2]?.label, "取消");
+assert.equal(playerConfirm.choices?.[1]?.label, "取消");
 
 const englishPlayerConfirm = applyLanguageToServerEvent({
     type: "confirm",
@@ -141,39 +138,15 @@ const englishPlayerConfirm = applyLanguageToServerEvent({
     tool_args: {
         query: "song",
         stage: "player_confirm",
-        player: "auto",
-        player_label: "auto local player (mpv default)",
+        player: "mpv",
+        player_label: "mpv",
     },
-    message: "Sonex wanna open auto local player (mpv default), confirm?",
+    message: "Allow Sonex to open mpv?",
     choices: [
         { value: "mpv", label: "mpv", description: "Default controllable backend for smoother background playback." },
-        { value: "cvlc", label: "VLC", description: "Manual diagnostic backend; use only when you explicitly want VLC." },
         { value: "deny", label: "Cancel" },
     ],
 }, "en");
 assert.equal(englishPlayerConfirm.choices?.[0]?.label, "mpv");
 assert.equal(englishPlayerConfirm.choices?.[0]?.description, "default backend for smooth background playback");
-assert.equal(englishPlayerConfirm.choices?.[1]?.label, "VLC");
-assert.equal(englishPlayerConfirm.choices?.[1]?.description, "diagnostic fallback when mpv is unavailable");
-assert.equal(englishPlayerConfirm.choices?.[2]?.label, "Cancel");
-
-const defaultPlayerConfirm = applyLanguageToServerEvent({
-    type: "confirm",
-    id: "confirm_4",
-    tool_name: "local_playback_player",
-    tool_args: {
-        stage: "player_backend_selection",
-    },
-    message: "Choose the default player",
-    choices: [
-        { value: "managed:mpv", label: "mpv", description: "Controllable local player for stable background playback." },
-        { value: "managed:cvlc", label: "VLC", description: "Controllable VLC playback through its RC interface." },
-        { value: "deny", label: "Cancel" },
-    ],
-}, "zh-CN");
-assert.equal(defaultPlayerConfirm.message, "选择默认播放器");
-assert.equal(defaultPlayerConfirm.choices?.[0]?.label, "mpv");
-assert.equal(defaultPlayerConfirm.choices?.[0]?.description, "可控制的本地播放器，适合稳定的后台播放。");
-assert.equal(defaultPlayerConfirm.choices?.[1]?.label, "VLC");
-assert.equal(defaultPlayerConfirm.choices?.[1]?.description, "通过 RC 接口进行可控制的 VLC 播放。");
-assert.equal(defaultPlayerConfirm.choices?.[2]?.label, "取消");
+assert.equal(englishPlayerConfirm.choices?.[1]?.label, "Cancel");

@@ -8,8 +8,6 @@ import {
     visibleCommandWindow,
 } from '../src/command-panel.js';
 import {
-    APPLE_MODE_COMMAND_NAMES,
-    appleModeSlashCommands,
     completeSlashCommand,
     matchingSlashCommand,
     slashCommandSuggestions,
@@ -20,11 +18,6 @@ import {
 
 const allHelpCommands = helpPanelCommands(SLASH_COMMANDS);
 const localizedHelpCommands = helpPanelCommands([
-    {
-        name: "player",
-        usage: "/player",
-        description: "检测并设置默认播放器",
-    },
     {
         name: "help",
         usage: "/help",
@@ -45,9 +38,9 @@ assert.deepEqual(
 );
 
 assert.equal(visibleCommandWindow(allHelpCommands, 0, HELP_PANEL_VISIBLE_COMMANDS).items.length, 8);
-assert.equal(visibleCommandWindow(allHelpCommands, 0, HELP_PANEL_VISIBLE_COMMANDS).items[0]?.name, "apple");
+assert.equal(visibleCommandWindow(allHelpCommands, 0, HELP_PANEL_VISIBLE_COMMANDS).items[0]?.name, "bye");
 assert.equal(visibleCommandWindow(allHelpCommands, 8, HELP_PANEL_VISIBLE_COMMANDS).items.at(-1)?.name, allHelpCommands[8]?.name);
-assert.equal(selectedHelpPanelCommand(allHelpCommands, 0)?.name, "apple");
+assert.equal(selectedHelpPanelCommand(allHelpCommands, 0)?.name, "bye");
 assert.equal(selectedHelpPanelCommand(allHelpCommands, 999)?.name, allHelpCommands.at(-1)?.name);
 assert.equal(selectedHelpPanelCommand([], 0), null);
 
@@ -74,11 +67,9 @@ for (const hiddenName of ["pause", "volume", "progress", "stop"]) {
 
 const helpPlayer = allHelpCommands.find((command) => command.name === "player");
 const slashPlayer = SLASH_COMMANDS.find((command) => command.name === "player");
-assert.equal(helpPlayer?.usage, "/player");
-assert.equal(helpPlayer?.description, "detect and set default player");
-assert.equal(slashPlayer?.needsArgument, false);
+assert.equal(helpPlayer, undefined);
+assert.equal(slashPlayer, undefined);
 assert.equal(localizedHelpCommands.find((command) => command.name === "help")?.description, "显示命令列表");
-assert.equal(localizedHelpCommands.find((command) => command.name === "player")?.description, "检测并设置默认播放器");
 
 const helpKeymap = allHelpCommands.find((command) => command.name === "keymap");
 assert.equal(helpKeymap?.usage, "/keymap [on|off|toggle|status]");
@@ -110,11 +101,8 @@ const helpQueue = allHelpCommands.find((command) => command.name === "queue");
 assert.equal(helpQueue?.usage, "/queue");
 assert.equal(helpQueue?.description, "show playback queue");
 
-assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "playlist", "queue", "random", "recommend", "spotify"]);
+assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["bye", "connect", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "spotify"]);
 assert.deepEqual(spotifyModeSlashCommands().map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
 assert.deepEqual(spotifyModeSlashCommands("/").map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
 assert.deepEqual(spotifyModeSlashCommands("/p").map((command) => command.name), ["playlist"]);
 assert.deepEqual(spotifyModeSlashCommands("/sp").map((command) => command.name), ["spotify"]);
-assert.deepEqual(APPLE_MODE_COMMAND_NAMES, ["apple", "bye", "connect", "exit", "info", "lang", "logout", "model", "queue", "spotify"]);
-assert.deepEqual(appleModeSlashCommands().map((command) => command.name), APPLE_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
-assert.deepEqual(appleModeSlashCommands("/sp").map((command) => command.name), ["spotify"]);

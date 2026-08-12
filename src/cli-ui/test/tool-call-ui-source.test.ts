@@ -22,11 +22,11 @@ assert.doesNotMatch(
 );
 assert.match(
     componentsSource,
-    /segment\.style === "tool_name" \? TOOL_NAVY : TOOL_VALUE[\s\S]*bold=\{segment\.style === "tool_name"\}/,
+    /useToolSegmentStyles && segment\.style === "tool_name"\s*\? TOOL_NAVY[\s\S]*bold=\{[\s\S]*useToolSegmentStyles && segment\.style === "tool_name"/,
 );
 assert.match(
     appSource,
-    /if \(confirm\.variant !== "tool_call_review"\) \{\s*appendPanelHiddenNotice/,
+    /if \(!isMusicConnection && confirm\.variant !== "tool_call_review"\) \{\s*appendPanelHiddenNotice/,
 );
 assert.match(typesSource, /variant\?: "tool_call_review"/);
 assert.match(typesSource, /segments\?: ChatSegment\[\]/);
