@@ -625,6 +625,37 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result["data"]["online_allowed"])
 
+    async def test_scan_success_tries_netease_before_any_online_fallback(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        health = type("Health", (), {"login_available": True, "login_ready": False})()
+        before_login = ProviderReadiness(
+            "netease", True, False, True, False,
+            details={"health": health, "worker": object()},
+        )
+        after_login = ProviderReadiness(
+            "netease", True, True, True, True, session_verified=True,
+            details={"worker": object(), "signature": ("ncm-cli", "0.1.6", 1)},
+        )
+        runner._probe_authoritative_providers = AsyncMock(return_value=[before_login])
+        runner._offer_netease_login = AsyncMock(return_value=(after_login, "connected"))
+        runner._try_selected_native_provider = AsyncMock(return_value={
+            "status": "playback_completed",
+            "message": "NetEase playback started.",
+            "data": {"provider": "netease"},
+        })
+
+        result = await runner._route_authoritative_provider(
+            ui,
+            identity=RecordingIdentity("BB88", "方大同"),
+            selected_candidate={"title": "BB88", "artist": "方大同"},
+            requested_provider=None,
+            hard_provider=False,
+        )
+
+        self.assertEqual(result["status"], "playback_completed")
+        self.assertEqual(runner._try_selected_native_provider.await_args.kwargs["provider"], "netease")
+
     async def test_explicit_unlogged_netease_rejection_never_authorizes_online(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()

@@ -20,11 +20,12 @@ import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
 import { TEXT_STREAM_INTERVAL_MS, nextTextStreamOffset, streamedChatMessage, textStreamUnits } from './text-stream.js';
 import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer, type TranscriptPresentation } from './transcript.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, NetEaseLoginState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, MemoryPanelState, NetEaseLoginState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 import { TOKEN_USAGE_ANIMATION_INTERVAL_MS, nextAnimatedTokenUsage } from './usage-animation.js';
 
 type InkInputKey = {
     ctrl?: boolean;
+    meta?: boolean;
 };
 
 type ActiveTextStream = {
@@ -65,6 +66,13 @@ export const App: React.FC<{
     const [queueItems, setQueueItems] = useState<TrackPanelTrack[]>([]);
     const [searchItems, setSearchItems] = useState<TrackSummary[]>([]);
     const [trackPanel, setTrackPanel] = useState<TrackPanelState>(null);
+    const [memoryPanel, setMemoryPanel] = useState<MemoryPanelState>(null);
+    const [memorySearchQuery, setMemorySearchQuery] = useState("");
+    const [memoryEditor, setMemoryEditor] = useState<{
+        mode: "search" | "add" | "edit" | "setting";
+        value: string;
+        settingKey?: string;
+    } | null>(null);
     const [player, setPlayer] = useState<PlayerState>({ name: "-", artist: "-", album: "-", duration_ms: 0, progress_ms: 0, is_playing: false });
     const [statusText, setStatusText] = useState(() => t(OFFICIAL_UI_LANGUAGE, "status.snoozing"));
     const [launchPreparing, setLaunchPreparing] = useState(false);
@@ -103,6 +111,7 @@ export const App: React.FC<{
     const [languagePanelIndex, setLanguagePanelIndex] = useState(0);
     const [recommendInputLocked, setRecommendInputLocked] = useState(false);
     const [trackPanelIndex, setTrackPanelIndex] = useState(0);
+    const [memoryPanelIndex, setMemoryPanelIndex] = useState(0);
     const [loginSelectionIndex, setLoginSelectionIndex] = useState(0);
     const [loginApiKeyInput, setLoginApiKeyInput] = useState("");
     const activeRegionRef = React.useRef<ShellRegion>("chat");
@@ -517,6 +526,22 @@ export const App: React.FC<{
                 });
                 setTrackPanelIndex(0);
                 switchRegion("trackPanel");
+                setStatusText(evt.title);
+                break;
+            case "memory_panel":
+                setMemoryPanel({
+                    view: evt.view,
+                    target: evt.target,
+                    title: evt.title,
+                    hint: evt.hint,
+                    readOnly: Boolean(evt.read_only),
+                    entries: evt.entries ?? [],
+                    settings: evt.settings,
+                });
+                setMemoryPanelIndex(0);
+                setMemorySearchQuery("");
+                setMemoryEditor(null);
+                switchRegion("memoryPanel");
                 setStatusText(evt.title);
                 break;
             case "search_results": {
@@ -1293,6 +1318,149 @@ export const App: React.FC<{
     });
 
     useInput((inputKey, key) => {
+        if (activeRegion !== "memoryPanel" || !memoryPanel || confirm) return;
+        const visibleEntries = memoryPanel.entries.filter((entry) => entry.content.toLocaleLowerCase().includes(memorySearchQuery.toLocaleLowerCase()));
+        const count = memoryPanel.view === "root" ? 2 : memoryPanel.view === "sources" || memoryPanel.view === "format" ? 3 : memoryPanel.view === "settings" ? 8 : visibleEntries.length;
+        const selected = visibleEntries[Math.min(memoryPanelIndex, Math.max(0, visibleEntries.length - 1))] ?? null;
+        if (memoryEditor) {
+            if (key.escape) {
+                setMemoryEditor(null);
+            } else if (memoryEditor.mode === "search" && key.return) {
+                setMemorySearchQuery(memoryEditor.value);
+                setMemoryPanelIndex(0);
+                setMemoryEditor(null);
+            } else if (memoryEditor.mode === "setting" && key.return) {
+                const settingValue = memoryEditor.value.trim();
+                if (memoryEditor.settingKey && settingValue) {
+                    send({
+                        type: "memory_panel_action",
+                        action: "setting",
+                        entry_id: memoryEditor.settingKey,
+                        value: settingValue,
+                    });
+                }
+                setMemoryEditor(null);
+            } else if (memoryEditor.mode !== "search" && key.ctrl && inputKey.toLowerCase() === "s") {
+                if (memoryEditor.value.trim()) {
+                    send({
+                        type: "memory_panel_action",
+                        action: memoryEditor.mode,
+                        target: memoryPanel.target ?? undefined,
+                        entry_id: memoryEditor.mode === "edit" ? selected?.entry_id : undefined,
+                        content: memoryEditor.value,
+                    });
+                }
+                setMemoryEditor(null);
+            } else if (memoryEditor.mode !== "search" && memoryEditor.mode !== "setting" && key.return) {
+                setMemoryEditor((current) => current ? { ...current, value: `${current.value}\n` } : current);
+            } else if (key.backspace || key.delete) {
+                setMemoryEditor((current) => current ? { ...current, value: Array.from(current.value).slice(0, -1).join("") } : current);
+            } else if (inputKey && !key.ctrl && !key.meta) {
+                setMemoryEditor((current) => current ? { ...current, value: current.value + inputKey } : current);
+            }
+            return;
+        }
+        if (key.escape) {
+            if (memorySearchQuery) {
+                setMemorySearchQuery("");
+                setMemoryPanelIndex(0);
+                return;
+            }
+            if (memoryPanel.view === "detail") {
+                send({ type: "memory_panel_action", action: "open", target: memoryPanel.target ?? undefined });
+            } else if (memoryPanel.view === "revisions") {
+                send({
+                    type: "memory_panel_action",
+                    action: "detail",
+                    target: memoryPanel.target ?? undefined,
+                    entry_id: String(memoryPanel.settings?.entry_id ?? ""),
+                });
+            } else if (memoryPanel.view === "entries") {
+                send({ type: "memory_panel_action", action: "sources" });
+            } else if (memoryPanel.view === "sources" || memoryPanel.view === "format") {
+                send({ type: "memory_panel_action", action: "root" });
+            } else {
+                send({ type: "memory_panel_action", action: "close" });
+                setMemoryPanel(null);
+                switchRegion("chat");
+            }
+        } else if (key.upArrow) {
+            setMemoryPanelIndex((current) => Math.max(0, current - 1));
+        } else if (key.downArrow) {
+            setMemoryPanelIndex((current) => Math.min(Math.max(0, count - 1), current + 1));
+        } else if (key.return) {
+            if (memoryPanel.view === "root" && memoryPanelIndex === 0) {
+                send({ type: "memory_panel_action", action: "sources" });
+            } else if (memoryPanel.view === "root" && memoryPanelIndex === 1) {
+                send({ type: "memory_panel_action", action: "format_scopes" });
+            } else if (memoryPanel.view === "sources") {
+                const target = (["user", "memory", "dump"] as const)[memoryPanelIndex];
+                send({ type: "memory_panel_action", action: "open", target });
+            } else if (memoryPanel.view === "format") {
+                const target = (["user", "memory", "all"] as const)[memoryPanelIndex];
+                send({ type: "memory_panel_action", action: "format_confirm", target });
+            } else if (memoryPanel.view === "settings" && !memoryPanel.readOnly) {
+                const settings = memoryPanel.settings ?? {};
+                const keys = [
+                    "forget_retention_days", "user_capacity", "memory_capacity", "automatic_forgetting",
+                    "idle_threshold_days", "automatic_refinement", "user_refinement_window", "memory_refinement_window",
+                ];
+                const keyName = keys[memoryPanelIndex];
+                if (keyName?.includes("capacity") || keyName?.includes("refinement_window")) {
+                    const currentValue = settings[keyName];
+                    setMemoryEditor({
+                        mode: "setting",
+                        settingKey: keyName,
+                        value: currentValue == null ? "Unlimited" : String(currentValue),
+                    });
+                    return;
+                }
+                const nextValue = keyName === "forget_retention_days"
+                    ? ({ 1: 3, 3: 7, 7: 1 } as Record<number, number>)[Number(settings[keyName] ?? 7)]
+                    : keyName === "idle_threshold_days"
+                        ? ({ 7: 15, 15: 30, 30: 7 } as Record<number, number>)[Number(settings[keyName] ?? 30)]
+                        : keyName === "automatic_refinement"
+                            ? settings[keyName] === false
+                            : keyName === "automatic_forgetting"
+                                ? ({ off: "idle", idle: "capacity", capacity: "idle_capacity", idle_capacity: "off" } as Record<string, string>)[String(settings[keyName] ?? "off")]
+                                : settings[keyName];
+                if (keyName) send({ type: "memory_panel_action", action: "setting", entry_id: keyName, value: nextValue });
+            } else if (memoryPanel.view === "entries" && selected) {
+                send({ type: "memory_panel_action", action: "detail", target: memoryPanel.target ?? undefined, entry_id: selected.entry_id });
+            } else if (memoryPanel.view === "revisions" && selected && !memoryPanel.readOnly) {
+                send({
+                    type: "memory_panel_action",
+                    action: "restore_revision",
+                    target: memoryPanel.target ?? undefined,
+                    entry_id: String(memoryPanel.settings?.entry_id ?? ""),
+                    value: Number(selected.entry_id),
+                });
+            }
+        } else if (inputKey.toLowerCase() === "f" && selected && !memoryPanel.readOnly && memoryPanel.target !== "dump") {
+            send({ type: "memory_panel_action", action: "forget", target: memoryPanel.target ?? undefined, entry_id: selected.entry_id });
+        } else if (inputKey.toLowerCase() === "r" && selected && !memoryPanel.readOnly && memoryPanel.target === "dump") {
+            send({ type: "memory_panel_action", action: "recall", target: "dump", entry_id: selected.entry_id });
+        } else if (inputKey === "/" && memoryPanel.view === "entries") {
+            setMemoryEditor({ mode: "search", value: memorySearchQuery });
+        } else if (inputKey.toLowerCase() === "a" && memoryPanel.view === "entries" && memoryPanel.target !== "dump" && !memoryPanel.readOnly) {
+            setMemoryEditor({ mode: "add", value: "" });
+        } else if (inputKey.toLowerCase() === "e" && selected && memoryPanel.target !== "dump" && !memoryPanel.readOnly) {
+            setMemoryEditor({ mode: "edit", value: selected.content });
+        } else if (inputKey.toLowerCase() === "m" && selected && memoryPanel.target !== "dump" && !memoryPanel.readOnly) {
+            const target = memoryPanel.target === "user" ? "memory" : "user";
+            send({ type: "memory_panel_action", action: "move", target, entry_id: selected.entry_id });
+        } else if (inputKey.toLowerCase() === "y" && selected?.review_pending && !memoryPanel.readOnly) {
+            send({ type: "memory_panel_action", action: "review_accept", target: memoryPanel.target ?? undefined, entry_id: selected.entry_id });
+        } else if (inputKey.toLowerCase() === "n" && selected?.review_pending && !memoryPanel.readOnly) {
+            send({ type: "memory_panel_action", action: "review_reject", target: memoryPanel.target ?? undefined, entry_id: selected.entry_id });
+        } else if (inputKey.toLowerCase() === "v" && selected && memoryPanel.view === "detail" && !memoryPanel.readOnly) {
+            send({ type: "memory_panel_action", action: "revisions", target: memoryPanel.target ?? undefined, entry_id: selected.entry_id });
+        } else if (inputKey.toLowerCase() === "b" && memoryPanel.view === "root" && memoryPanel.readOnly && memoryPanel.hint?.includes("rebuild")) {
+            send({ type: "memory_panel_action", action: "rebuild" });
+        }
+    }, { isActive: activeRegion === "memoryPanel" && Boolean(memoryPanel) && rawModeAvailable && !confirm });
+
+    useInput((inputKey, key) => {
         if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
         if (key.tab || inputKey === "\t") {
             switchRegion(toggleShellRegion(
@@ -1383,6 +1551,10 @@ export const App: React.FC<{
                         modelPanelIndex={loginSelectionIndex}
                         trackPanel={trackPanel}
                         trackPanelIndex={trackPanelIndex}
+                        memoryPanel={memoryPanel}
+                        memoryPanelIndex={memoryPanelIndex}
+                        memorySearchQuery={memorySearchQuery}
+                        memoryEditor={memoryEditor}
                         activeRegion={activeRegion}
                         miniSnapshotRevision={miniSnapshotRevision}
                         miniLayout={miniLayout}

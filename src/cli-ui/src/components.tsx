@@ -22,7 +22,7 @@ import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, Pane
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, NetEaseLoginState, NetEaseQrItem, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, NetEaseLoginState, NetEaseQrItem, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -740,6 +740,122 @@ const TrackPanelOverlay = ({
         />
     </Box>
 );
+
+const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor = null, panelWidth = 74 }: {
+    panel: MemoryPanelState;
+    selectedIndex?: number;
+    searchQuery?: string;
+    editor?: { mode: "search" | "add" | "edit" | "setting"; value: string; settingKey?: string } | null;
+    panelWidth?: number;
+}) => {
+    if (!panel) return null;
+    const width = Math.max(3, Math.min(74, Math.floor(panelWidth)));
+    if (editor) {
+        return (
+            <Box width="100%" height="100%" flexDirection="column" flexGrow={1} minHeight={0}>
+                <PanelFrame
+                    width={width}
+                    paddingX={2}
+                    title={editor.mode === "search"
+                        ? "Search memory"
+                        : editor.mode === "add"
+                            ? "Add memory"
+                            : editor.mode === "edit"
+                                ? "Edit memory"
+                                : "Change memory setting"}
+                    hint={editor.mode === "search" || editor.mode === "setting"
+                        ? "Enter to apply; Esc to cancel"
+                        : "Ctrl+S to save; Enter for a new line; Esc to cancel"}
+                >
+                    <PanelRow
+                        width={width}
+                        paddingX={2}
+                        segments={[{ text: `${editor.mode === "search" ? "/" : ""}${editor.value || " "}`, color: PANEL_PRIMARY }]}
+                    />
+                </PanelFrame>
+            </Box>
+        );
+    }
+    const rootItems = panel.view === "root"
+        ? ["View memory entries", "Format memory"]
+        : panel.view === "sources"
+            ? ["USER.md", "MEMORY.md", "Memory Dump"]
+            : panel.view === "format"
+                ? ["Format USER.md", "Format MEMORY.md", "Format all memory"]
+            : panel.view === "settings"
+                ? [
+                    `Forget retention  ${panel.settings?.forget_retention_days ?? 7} days`,
+                    `USER.md capacity  ${panel.settings?.user_capacity ?? "Unlimited"}`,
+                    `MEMORY.md capacity  ${panel.settings?.memory_capacity ?? "Unlimited"}`,
+                    `Automatic forgetting  ${panel.settings?.automatic_forgetting ?? "off"}`,
+                    `Idle threshold  ${panel.settings?.idle_threshold_days ?? 30} days`,
+                    `Automatic refinement  ${panel.settings?.automatic_refinement === false ? "Off" : "On"}`,
+                    `USER.md refinement window  ${panel.settings?.user_refinement_window ?? 8}`,
+                    `MEMORY.md refinement window  ${panel.settings?.memory_refinement_window ?? 12}`,
+                ]
+                : [];
+    if (panel.view === "detail") {
+        const entry = panel.entries[0];
+        const revisions = Array.isArray(panel.settings?.revisions) ? panel.settings.revisions : [];
+        return (
+            <Box width="100%" height="100%" flexDirection="column" flexGrow={1} minHeight={0}>
+                <PanelFrame width={width} paddingX={2} title={`${panel.title}${panel.readOnly ? " · Read only" : ""}`} hint={panel.hint}>
+                    {entry ? (
+                        <Box flexDirection="column" paddingX={2}>
+                            <Text color={PANEL_PRIMARY}>{entry.content}</Text>
+                            <Text color={PANEL_SECONDARY}>{entry.protected ? "Protected" : "Inferred"} · {entry.source}</Text>
+                            <Text color={PANEL_SECONDARY}>Updated: {entry.updated_at ?? "Never"}</Text>
+                            <Text color={PANEL_SECONDARY}>Recalled: {entry.recall_count ?? 0} · Last: {entry.last_recalled_at ?? "Never"}</Text>
+                            {entry.reason ? <Text color={PANEL_SECONDARY}>Reason: {entry.reason}</Text> : null}
+                            {entry.expires_at ? <Text color={PANEL_SECONDARY}>Expires: {entry.expires_at}</Text> : null}
+                            {entry.review_pending ? <Text color="#facc15" bold>Review pending</Text> : null}
+                            <Text color={PANEL_SECONDARY}>Revisions: {revisions.length}</Text>
+                        </Box>
+                    ) : <PanelRow width={width} paddingX={2} segments={[{ text: "Memory entry is unavailable.", color: PANEL_SECONDARY }]} />}
+                </PanelFrame>
+            </Box>
+        );
+    }
+    const items: PanelChoiceItem[] = rootItems.length > 0
+        ? rootItems.map((label) => ({ key: label, segments: [{ text: label, color: PANEL_PRIMARY }] }))
+        : panel.entries
+        .filter((entry) => entry.content.toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase()))
+        .map((entry) => ({
+            key: entry.entry_id,
+            segments: [{
+                text: panel.view === "revisions"
+                    ? `${entry.content.replaceAll("\n", " ").slice(0, 56)}  ${entry.source ?? "unknown"}`
+                    : `${entry.content.replaceAll("\n", " ").slice(0, 64)}  ${entry.protected ? "Protected" : "Inferred"}${entry.review_pending ? " · Review pending" : ""}`,
+                color: PANEL_PRIMARY,
+            }],
+        }));
+    return (
+        <Box width="100%" height="100%" flexDirection="column" flexGrow={1} minHeight={0}>
+            <PanelFrame
+                width={width}
+                paddingX={2}
+                title={`${panel.title}${panel.readOnly ? " · Read only" : ""}`}
+                hint={searchQuery ? `Filter: /${searchQuery} · ${panel.hint ?? ""}` : panel.hint}
+            >
+                {items.length > 0 ? (
+                    <PanelChoiceList
+                        items={items}
+                        selectedIndex={selectedIndex}
+                        visibleLimit={12}
+                        width={width}
+                        paddingX={2}
+                    />
+                ) : (
+                    <PanelRow
+                        width={width}
+                        paddingX={2}
+                        segments={[{ text: "No memory entries.", color: PANEL_SECONDARY }]}
+                    />
+                )}
+            </PanelFrame>
+        </Box>
+    );
+};
 
 const CoverAtmosphere = ({ visual, art, compact }: {
     visual: CoverVisualModel;
@@ -1879,6 +1995,10 @@ export const DynamicShell = ({
     modelPanelIndex,
     trackPanel,
     trackPanelIndex,
+    memoryPanel,
+    memoryPanelIndex,
+    memorySearchQuery,
+    memoryEditor,
     activeRegion,
     miniSnapshotRevision,
     miniLayout,
@@ -1914,6 +2034,10 @@ export const DynamicShell = ({
     modelPanelIndex: number;
     trackPanel: TrackPanelState;
     trackPanelIndex: number;
+    memoryPanel: MemoryPanelState;
+    memoryPanelIndex: number;
+    memorySearchQuery: string;
+    memoryEditor: { mode: "search" | "add" | "edit" | "setting"; value: string; settingKey?: string } | null;
     activeRegion: ShellRegion;
     miniSnapshotRevision: number;
     miniLayout: MiniPlayerLayout;
@@ -1955,6 +2079,18 @@ export const DynamicShell = ({
                 panelWidth={Math.max(3, Math.floor(terminalSpace.columns ?? 80))}
                 spotifyTheme={spotifyMode.enabled}
                 language={language}
+            />
+        );
+    }
+
+    if (activeRegion === "memoryPanel" && memoryPanel) {
+        return (
+            <MemoryPanelOverlay
+                panel={memoryPanel}
+                selectedIndex={memoryPanelIndex}
+                searchQuery={memorySearchQuery}
+                editor={memoryEditor}
+                panelWidth={Math.max(3, Math.floor(terminalSpace.columns ?? 80))}
             />
         );
     }

@@ -8,6 +8,7 @@ export type ServerEvent =
     | { type: "input_state"; disabled: boolean; reason?: "recommendation" | null }
     | { type: "queue"; tracks: Array<{ index: string; title: string; artist: string; duration: string }> }
     | { type: "track_panel"; panel: "queue" | "playlist"; title: string; hint?: string | null; tracks: TrackPanelTrack[] }
+    | { type: "memory_panel"; view: MemoryPanelView; target?: "user" | "memory" | "dump" | null; title: string; hint?: string | null; read_only?: boolean; entries?: MemoryPanelEntry[]; settings?: Record<string, unknown> }
     | { type: "search_results"; tracks: TrackSummary[] }
     | { type: "player"; state: PlayerState }
     | { type: "spotify_mode"; enabled: boolean; device_id?: string | null; device_name?: string | null }
@@ -63,6 +64,7 @@ export type ClientEvent =
     | { type: "agent_turn_interrupt"; turn_id: string }
     | { type: "internal_command"; text: string }
     | { type: "track_panel_action"; action: "queue_add" | "play"; track: TrackPanelTrack; panel: "queue" | "playlist"; title: string }
+    | { type: "memory_panel_action"; action: string; target?: "user" | "memory" | "dump" | "all"; entry_id?: string; content?: string; value?: unknown }
     | { type: "confirm_result"; id: string; decision: string }
     | { type: "setup_input"; value: string }
     | { type: "auth_setup_input"; value: string }
@@ -338,6 +340,35 @@ export type TrackPanelState = {
     title: string;
     hint?: string | null;
     tracks: TrackPanelTrack[];
+} | null;
+
+export type MemoryPanelView = "root" | "sources" | "entries" | "detail" | "revisions" | "format" | "settings";
+
+export type MemoryPanelEntry = {
+    entry_id: string;
+    target: "user" | "memory" | "dump";
+    content: string;
+    protected: boolean;
+    source: string;
+    confidence?: number;
+    created_at?: string | null;
+    updated_at?: string | null;
+    recall_count?: number;
+    last_recalled_at?: string | null;
+    review_pending?: boolean;
+    reason?: string | null;
+    forgotten_at?: string | null;
+    expires_at?: string | null;
+};
+
+export type MemoryPanelState = {
+    view: MemoryPanelView;
+    target?: "user" | "memory" | "dump" | null;
+    title: string;
+    hint?: string | null;
+    readOnly: boolean;
+    entries: MemoryPanelEntry[];
+    settings?: Record<string, unknown>;
 } | null;
 
 export type LayoutMode = "compact" | "full";

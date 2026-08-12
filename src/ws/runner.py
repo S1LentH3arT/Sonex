@@ -5420,30 +5420,187 @@ class ProviderModeExitSession:
 
 
 class MemorySettingsSession:
-    """Manage the minimal long-term memory panel and destructive reset confirmation."""
+    """Manage the structured memory browser and recoverable formatting flow."""
 
     def __init__(self, ui: WebSocketUIAdapter, store: Any) -> None:
         self.ui = ui
         self.store = store
         self.confirm_id = _new_event_id("memory_settings")
         self.stage = "settings"
+        self.format_target = "all"
 
     async def start(self) -> None:
-        enabled = self.store.long_term_enabled()
+        await self.ui._send(
+            {
+                "type": "memory_panel",
+                "view": "root",
+                "title": "Memory",
+                "hint": (
+                    "b rebuild damaged metadata · Esc to hide"
+                    if getattr(self.store, "_read_only_reason", None) == "metadata_corrupt"
+                    else "Enter to select; Esc to hide"
+                ),
+                "read_only": bool(getattr(self.store, "_read_only", False)),
+                "entries": [],
+            }
+        )
+
+    async def show_sources(self) -> None:
+        await self.ui._send(
+            {
+                "type": "memory_panel",
+                "view": "sources",
+                "title": "View memory entries",
+                "hint": "Enter to open; Esc to return",
+                "read_only": bool(getattr(self.store, "_read_only", False)),
+                "entries": [],
+            }
+        )
+
+    async def show_entries(self, target: str) -> None:
+        if target == "dump":
+            records = [
+                {
+                    **item["entry"],
+                    "target": "dump",
+                    "reason": item.get("reason"),
+                    "forgotten_at": item.get("forgotten_at"),
+                    "expires_at": item.get("expires_at"),
+                }
+                for item in self.store.dump_entries()
+            ]
+            title = "Memory Dump"
+        else:
+            records = [
+                {
+                    **self.store._entry_to_dict(entry),
+                    "review_pending": bool(entry.review),
+                }
+                for entry in self.store.entries(target)
+            ]
+            title = "USER.md" if target == "user" else "MEMORY.md"
+        await self.ui._send(
+            {
+                "type": "memory_panel",
+                "view": "entries",
+                "target": target,
+                "title": title,
+                "hint": "/ search · Enter details · a add · e edit · f forget · Esc return",
+                "read_only": bool(getattr(self.store, "_read_only", False)),
+                "entries": records,
+            }
+        )
+
+    async def show_detail(self, target: str, entry_id: str) -> None:
+        if target == "dump":
+            item = next(
+                (item for item in self.store.dump_entries() if item.get("entry", {}).get("entry_id") == entry_id),
+                None,
+            )
+            records = [] if item is None else [{
+                **item["entry"],
+                "target": "dump",
+                "reason": item.get("reason"),
+                "forgotten_at": item.get("forgotten_at"),
+                "expires_at": item.get("expires_at"),
+            }]
+            revisions: list[dict[str, Any]] = []
+        else:
+            entry = next((entry for entry in self.store.entries(target) if entry.entry_id == entry_id), None)
+            records = [] if entry is None else [{
+                **self.store._entry_to_dict(entry),
+                "review_pending": bool(entry.review),
+            }]
+            revisions = self.store.revisions(entry_id)
+        active_review = bool(records and records[0].get("review_pending"))
+        await self.ui._send(
+            {
+                "type": "memory_panel",
+                "view": "detail",
+                "target": target,
+                "title": "Memory details",
+                "hint": (
+                    "e edit · f forget · m move · y accept · n reject · v revisions · Esc return"
+                    if target != "dump" and active_review
+                    else "e edit · f forget · m move · v revisions · Esc return"
+                    if target != "dump"
+                    else "r recall · Esc return"
+                ),
+                "read_only": bool(getattr(self.store, "_read_only", False)),
+                "entries": records,
+                "settings": {"revisions": revisions},
+            }
+        )
+
+    async def show_revisions(self, target: str, entry_id: str) -> None:
+        entry = next((entry for entry in self.store.entries(target) if entry.entry_id == entry_id), None)
+        revisions = self.store.revisions(entry_id) if entry is not None else []
+        records = [
+            {
+                "entry_id": str(index),
+                "target": target,
+                "content": str(revision.get("before") or ""),
+                "source": str(revision.get("actor") or "unknown"),
+                "confidence": 1.0,
+                "protected": True,
+                "updated_at": revision.get("changed_at"),
+            }
+            for index, revision in enumerate(revisions)
+        ]
+        await self.ui._send(
+            {
+                "type": "memory_panel",
+                "view": "revisions",
+                "target": target,
+                "title": "Memory revisions",
+                "hint": "Enter to restore; Esc to return",
+                "read_only": bool(getattr(self.store, "_read_only", False)),
+                "entries": records,
+                "settings": {"entry_id": entry_id},
+            }
+        )
+
+    async def show_settings(self) -> None:
+        await self.ui._send(
+            {
+                "type": "memory_panel",
+                "view": "settings",
+                "title": "Settings · Memory",
+                "hint": "Enter to change; Esc to hide",
+                "read_only": bool(getattr(self.store, "_read_only", False)),
+                "entries": [],
+                "settings": self.store.settings(),
+            }
+        )
+
+    async def show_format_scopes(self) -> None:
+        await self.ui._send(
+            {
+                "type": "memory_panel",
+                "view": "format",
+                "title": "Format memory",
+                "hint": "Choose a scope; Esc to return",
+                "read_only": bool(getattr(self.store, "_read_only", False)),
+                "entries": [],
+            }
+        )
+
+    async def confirm_format(self, target: str) -> None:
+        self.stage = "reset"
+        self.format_target = target
+        self.confirm_id = _new_event_id("memory_format")
+        label = {"user": "USER.md", "memory": "MEMORY.md", "all": "all memory"}.get(target, "all memory")
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
                 "tool_name": "memory_settings",
-                "tool_args": {"stage": "memory_settings", "enabled": enabled},
-                "message": f"Long-term memory: {'On' if enabled else 'Off'}",
+                "tool_args": {"stage": "memory_format", "target": target},
+                "message": f"Format {label}?",
+                "warning": "Every active entry in this scope will move to Memory Dump.",
                 "hide_hint": True,
                 "choices": [
-                    {
-                        "value": "disable" if enabled else "enable",
-                        "label": "Disable long-term memory" if enabled else "Enable long-term memory",
-                    },
-                    {"value": "reset", "label": "Reset long-term memory"},
-                    {"value": "deny", "label": "Cancel"},
+                    {"value": "confirm_reset", "label": f"Yes, format {label}"},
+                    {"value": "deny", "label": "No, return"},
                 ],
             }
         )
@@ -5457,7 +5614,7 @@ class MemorySettingsSession:
             setattr(self.ui, "_memory_settings", None)
             if value != "confirm_reset":
                 return
-            result = self.store.reset_long_term()
+            result = self.store.format_memory(self.format_target)
             if result.get("success"):
                 await self.ui.append_system_message("Long-term memory reset.")
             else:
@@ -5466,16 +5623,6 @@ class MemorySettingsSession:
                 )
             return
 
-        if value == "enable":
-            self.store.set_long_term_enabled(True)
-            setattr(self.ui, "_memory_settings", None)
-            await self.ui.append_system_message("Long-term memory enabled.")
-            return
-        if value == "disable":
-            self.store.set_long_term_enabled(False)
-            setattr(self.ui, "_memory_settings", None)
-            await self.ui.append_system_message("Long-term memory disabled.")
-            return
         if value != "reset":
             setattr(self.ui, "_memory_settings", None)
             return
@@ -5542,6 +5689,14 @@ class WebSocketRunner:
                 await ui.append_system_message(
                     "Sonex stores stable music preferences locally. Use /memory to configure long-term memory."
                 )
+        with suppress(OSError, ValueError):
+            forgotten = self.memory_store.run_maintenance()
+            if forgotten:
+                await ui.append_system_message(
+                    f"{len(forgotten)} inactive Agent {'memory was' if len(forgotten) == 1 else 'memories were'} moved to Memory Dump."
+                )
+            for warning in self.memory_store.capacity_warnings():
+                await ui.append_system_message(warning)
         ready, _provider, _reason = _llm_auth_ready()
         if ready and self.memory_store.long_term_enabled():
             asyncio.create_task(self._resume_pending_memory(ui))
@@ -5578,6 +5733,9 @@ class WebSocketRunner:
 
                 elif data.get("type") == "track_panel_action":
                     await self._handle_track_panel_action(ui, data)
+
+                elif data.get("type") == "memory_panel_action":
+                    await self._handle_memory_panel_action(ui, data)
 
                 elif data.get("type") == "agent_turn_interrupt":
                     await self._handle_agent_turn_interrupt(
@@ -6015,6 +6173,8 @@ class WebSocketRunner:
             )
         except Exception as exc:
             logger.warning("Memory Curator failed: %s", sanitize_error_message(exc))
+            with suppress(Exception):
+                self.memory_store.mark_memory_candidate_failure()
             if explicit and not ui.closed:
                 await ui.append_warning_message("Long-term memory could not be updated.")
             return
@@ -6429,6 +6589,15 @@ class WebSocketRunner:
             await session.start()
             return
 
+        if command_name == "settings":
+            if args.strip():
+                await ui.append_system_message("Usage: /settings")
+                return
+            session = MemorySettingsSession(ui, self.memory_store)
+            setattr(ui, "_memory_settings", session)
+            await session.show_settings()
+            return
+
         if command_name == "login":
             if args.strip():
                 await ui.append_system_message("Usage: /login")
@@ -6508,6 +6677,91 @@ class WebSocketRunner:
             detail=f"Showing playlist: {playlist_name}.",
             status="success",
         )
+
+    async def _handle_memory_panel_action(self, ui: WebSocketUIAdapter, payload: dict[str, Any]) -> None:
+        session = getattr(ui, "_memory_settings", None)
+        if session is None:
+            session = MemorySettingsSession(ui, self.memory_store)
+            setattr(ui, "_memory_settings", session)
+        action = str(payload.get("action") or "").strip()
+        target = str(payload.get("target") or "").strip()
+        entry_id = str(payload.get("entry_id") or "").strip()
+        content = str(payload.get("content") or "")
+        if action == "close":
+            setattr(ui, "_memory_settings", None)
+            return
+        if action == "sources":
+            await session.show_sources()
+            return
+        if action == "root":
+            await session.start()
+            return
+        if action == "open" and target in {"user", "memory", "dump"}:
+            await session.show_entries(target)
+            return
+        if action == "detail" and target in {"user", "memory", "dump"}:
+            await session.show_detail(target, entry_id)
+            return
+        if action == "revisions" and target in {"user", "memory"}:
+            await session.show_revisions(target, entry_id)
+            return
+        if action == "settings":
+            await session.show_settings()
+            return
+        if action == "format_scopes":
+            await session.show_format_scopes()
+            return
+        if action == "rebuild":
+            result = self.memory_store.rebuild_internal_metadata()
+            if not result.get("success"):
+                await ui.append_warning_message(str(result.get("error") or "Memory metadata could not be rebuilt."))
+                return
+            await ui.append_system_message(str(result.get("message") or "Memory metadata rebuilt."))
+            await session.start()
+            return
+        if action == "format_confirm" and target in {"user", "memory", "all"}:
+            await session.confirm_format(target)
+            return
+        result: dict[str, Any]
+        if action == "add" and target in {"user", "memory"}:
+            result = self.memory_store.add(target, content, source="explicit")
+        elif action == "edit" and target in {"user", "memory"}:
+            found = self.memory_store._find_entry(entry_id)
+            if found is None:
+                result = {"success": False, "error": "Entry not found."}
+            else:
+                result = self.memory_store.update(
+                    target,
+                    content,
+                    previous_content=found[2].content,
+                    source="explicit",
+                )
+        elif action == "forget":
+            result = self.memory_store.forget(entry_id, reason="user")
+        elif action == "recall":
+            result = self.memory_store.recall(entry_id)
+        elif action == "move" and target in {"user", "memory"}:
+            result = self.memory_store.move(entry_id, target)
+        elif action == "review_accept":
+            result = self.memory_store.resolve_review(entry_id, accept=True)
+        elif action == "review_reject":
+            result = self.memory_store.resolve_review(entry_id, accept=False)
+        elif action == "restore_revision":
+            result = self.memory_store.restore_revision(entry_id, int(payload.get("value") or 0))
+        elif action == "setting":
+            key = str(payload.get("entry_id") or "")
+            result = self.memory_store.update_settings({key: payload.get("value")})
+        else:
+            result = {"success": False, "error": "Unsupported memory action."}
+        if not result.get("success"):
+            await ui.append_warning_message(str(result.get("error") or "Memory could not be updated."))
+            return
+        await ui.append_system_message(str(result.get("message") or "Memory updated."))
+        if action == "setting":
+            await session.show_settings()
+            return
+        if target in {"user", "memory", "dump"}:
+            await session.show_entries(target)
 
     async def _handle_track_panel_action(self, ui: WebSocketUIAdapter, payload: dict[str, Any]) -> None:
         action = str(payload.get("action") or "").strip()

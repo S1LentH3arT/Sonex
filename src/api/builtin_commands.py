@@ -92,6 +92,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("lang", "/lang", "choose the TUI display language", enabled=False),
     BuiltinCommand("login", "/login", "connect or switch the active LLM provider"),
     BuiltinCommand("memory", "/memory", "configure long-term Agent memory"),
+    BuiltinCommand("settings", "/settings", "configure Sonex settings", aliases=("setting",)),
     BuiltinCommand("model", "/model", "switch the active model for this session"),
     BuiltinCommand("logout", "/logout", "sign out from the current LLM provider and exit"),
     BuiltinCommand("playlist", "/playlist [name]|save [name]", "browse playlists or save the current song"),

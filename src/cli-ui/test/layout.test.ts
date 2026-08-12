@@ -15,7 +15,7 @@ const layoutSource = readFileSync(new URL('../src/layout.ts', import.meta.url), 
 
 assert.match(
     layoutSource,
-    /export type ShellRegion = 'chat' \| 'miniPlayer' \| 'providerImmersive' \| 'spotifyImmersive' \| 'trackPanel';/,
+    /export type ShellRegion = 'chat' \| 'miniPlayer' \| 'providerImmersive' \| 'spotifyImmersive' \| 'trackPanel' \| 'memoryPanel';/,
 );
 
 const idle: PlayerState = {
