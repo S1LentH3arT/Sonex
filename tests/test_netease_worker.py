@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import threading
@@ -11,6 +12,34 @@ from src.music.netease_worker import NetEaseProviderWorker
 
 
 class NetEaseWorkerTests(unittest.TestCase):
+    def test_environment_preserves_audio_session_without_proxy(self) -> None:
+        worker = NetEaseProviderWorker(executable="/usr/bin/ncm-cli")
+
+        with patch.dict(
+            os.environ,
+            {
+                "HOME": "/home/test",
+                "PATH": "/usr/bin",
+                "XDG_RUNTIME_DIR": "/run/user/1000",
+                "PULSE_SERVER": "unix:/run/user/1000/pulse/native",
+                "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+                "DISPLAY": ":0",
+                "WAYLAND_DISPLAY": "wayland-0",
+                "HTTP_PROXY": "http://proxy.invalid:8080",
+                "HTTPS_PROXY": "http://proxy.invalid:8080",
+            },
+            clear=True,
+        ):
+            environment = worker._environment()
+
+        self.assertEqual(environment["XDG_RUNTIME_DIR"], "/run/user/1000")
+        self.assertEqual(environment["PULSE_SERVER"], "unix:/run/user/1000/pulse/native")
+        self.assertEqual(environment["DBUS_SESSION_BUS_ADDRESS"], "unix:path=/run/user/1000/bus")
+        self.assertEqual(environment["DISPLAY"], ":0")
+        self.assertEqual(environment["WAYLAND_DISPLAY"], "wayland-0")
+        self.assertNotIn("HTTP_PROXY", environment)
+        self.assertNotIn("HTTPS_PROXY", environment)
+
     def test_logout_uses_fixed_argv_without_shell(self) -> None:
         calls: list[tuple[list[str], dict[str, object]]] = []
 
@@ -104,6 +133,7 @@ class NetEaseWorkerTests(unittest.TestCase):
                     '{"code":200,"data":{"recordCount":1,"records":['
                     '{"originalId":81890,"id":"80D09E7B3E444310DAEE6B63344847C7",'
                     '"name":"BB88","duration":198706,'
+                    '"playFlag":false,"visible":false,"plLevel":"none",'
                     '"artists":[{"name":"方大同"}],'
                     '"album":{"name":"BB88"}}]}}'
                 ),
@@ -120,6 +150,7 @@ class NetEaseWorkerTests(unittest.TestCase):
         self.assertEqual(tracks[0]["artist"], "方大同")
         self.assertEqual(tracks[0]["encrypted_id"], "80D09E7B3E444310DAEE6B63344847C7")
         self.assertEqual(tracks[0]["original_id"], "81890")
+        self.assertFalse(tracks[0]["playable"])
 
     def test_health_does_not_configure_or_play(self) -> None:
         calls: list[list[str]] = []
@@ -266,6 +297,52 @@ class NetEaseWorkerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "playback failed"):
             worker.play(encrypted_id="enc", original_id="88")
+
+    def test_play_rejects_stopped_state_after_zero_exit_code(self) -> None:
+        calls: list[list[str]] = []
+
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            calls.append(argv)
+            if argv[-1] == "state":
+                stdout = '{"success":true,"state":{"status":"stopped","queueLength":0}}'
+            else:
+                stdout = ""
+            return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+
+        worker = NetEaseProviderWorker(
+            executable="/usr/bin/ncm-cli",
+            run_command=run,
+        )
+
+        with patch("src.music.netease_worker.time.sleep", return_value=None), self.assertRaisesRegex(
+            RuntimeError,
+            "did not enter an active state",
+        ):
+            worker.play(encrypted_id="enc", original_id="88")
+
+        self.assertGreaterEqual(calls.count(["/usr/bin/ncm-cli", "state"]), 1)
+
+    def test_play_accepts_stable_active_state(self) -> None:
+        states = iter(
+            [
+                '{"success":true,"state":{"status":"playing","queueLength":1}}',
+                '{"success":true,"state":{"status":"playing","queueLength":1}}',
+            ]
+        )
+
+        def run(argv: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+            stdout = next(states) if argv[-1] == "state" else ""
+            return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
+
+        worker = NetEaseProviderWorker(
+            executable="/usr/bin/ncm-cli",
+            run_command=run,
+        )
+
+        with patch("src.music.netease_worker.time.sleep", return_value=None):
+            result = worker.play(encrypted_id="enc", original_id="88")
+
+        self.assertEqual(result["status"], "success")
 
 
 if __name__ == "__main__":

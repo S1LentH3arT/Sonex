@@ -20,6 +20,9 @@ SUPPORTED_NCM_CLI_VERSIONS = frozenset({"0.1.6"})
 MAX_OUTPUT_BYTES = 256 * 1024
 DEFAULT_TIMEOUT_SECONDS = 4.0
 PLAY_TIMEOUT_SECONDS = 6.0
+PLAY_STATE_POLL_SECONDS = 0.2
+PLAY_STATE_MAX_ATTEMPTS = 8
+PLAY_STATE_STABLE_SAMPLES = 2
 LOGIN_TIMEOUT_SECONDS = 120.0
 LOGIN_POLL_SECONDS = 0.05
 _LOGIN_ALLOWED_SGR_RE = re.compile(r"\x1b\[(?:0|40|47)m")
@@ -76,7 +79,19 @@ class NetEaseProviderWorker:
         self._active_process: subprocess.Popen[str] | None = None
 
     def _environment(self) -> dict[str, str]:
-        allowed = ("HOME", "PATH", "XDG_CONFIG_HOME", "LANG", "LC_ALL")
+        allowed = (
+            "HOME",
+            "PATH",
+            "XDG_CONFIG_HOME",
+            "LANG",
+            "LC_ALL",
+            "XDG_RUNTIME_DIR",
+            "PULSE_SERVER",
+            "DBUS_SESSION_BUS_ADDRESS",
+            "DISPLAY",
+            "WAYLAND_DISPLAY",
+            "PIPEWIRE_REMOTE",
+        )
         return {key: os.environ[key] for key in allowed if key in os.environ}
 
     def _run(
@@ -319,6 +334,26 @@ class NetEaseProviderWorker:
         )
         if not _command_succeeded(result):
             raise RuntimeError("NetEase playback failed.")
+        active_samples = 0
+        for attempt in range(PLAY_STATE_MAX_ATTEMPTS):
+            if attempt:
+                time.sleep(PLAY_STATE_POLL_SECONDS)
+            try:
+                playback_state = self.state()
+            except RuntimeError:
+                active_samples = 0
+                continue
+            if _playback_is_active(playback_state):
+                active_samples += 1
+                if active_samples >= PLAY_STATE_STABLE_SAMPLES:
+                    break
+            else:
+                active_samples = 0
+        else:
+            raise RuntimeError(
+                "NetEase playback did not enter an active state. "
+                "Check the audio output and media network path."
+            )
         return {
             "status": "success",
             "provider": "NetEase",
@@ -414,6 +449,13 @@ def _command_is_available(output: str, command: str) -> bool:
     )
 
 
+def _playback_is_active(payload: dict[str, Any]) -> bool:
+    state = payload.get("state")
+    if not isinstance(state, dict):
+        state = payload
+    return str(state.get("status") or "").strip().casefold() in {"play", "playing"}
+
+
 def _normalize_song(item: dict[str, Any]) -> dict[str, Any]:
     encrypted_id = item.get("encryptedId") or item.get("encrypted_id")
     schema_id = item.get("id")
@@ -439,4 +481,5 @@ def _normalize_song(item: dict[str, Any]) -> dict[str, Any]:
         "duration_ms": item.get("duration") or item.get("duration_ms"),
         "encrypted_id": str(encrypted_id or ""),
         "original_id": str(original_id or ""),
+        "playable": item.get("visible") is not False and item.get("playFlag") is not False,
     }

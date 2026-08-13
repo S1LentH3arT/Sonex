@@ -726,6 +726,49 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             [call.kwargs.get("message") for call in runner._confirm_agent_playback_route.await_args_list],
         )
 
+    async def test_connected_netease_does_not_play_unplayable_exact_match(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        worker = ws_runner.NetEaseProviderWorker(executable="/usr/bin/ncm-cli")
+        ready = ProviderReadiness(
+            "netease",
+            True,
+            True,
+            True,
+            True,
+            session_verified=True,
+            details={"worker": worker, "signature": ("ncm-cli", "0.1.6", 1)},
+        )
+        identity = RecordingIdentity("回留", "方大同")
+
+        with patch.object(
+            worker,
+            "search",
+            return_value=[{
+                "provider": "netease",
+                "title": "回留",
+                "artist": "方大同",
+                "encrypted_id": "enc",
+                "original_id": "2635125903",
+                "playable": False,
+            }],
+        ), patch.object(worker, "play") as play:
+            result = await runner._try_selected_native_provider(
+                ui,
+                identity=identity,
+                provider="netease",
+                selected_candidate={"title": "回留", "artist": "方大同"},
+                readiness=ready,
+            )
+
+        self.assertEqual(result["status"], "playback_failed")
+        play.assert_not_called()
+        self.assertFalse(any(
+            event.get("type") == "chat"
+            and str(event.get("text", "")).startswith("on playing:")
+            for event in ui.events
+        ))
+
     async def test_explicit_unlogged_netease_rejection_never_authorizes_online(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()

@@ -8663,7 +8663,12 @@ class WebSocketRunner:
                     timeout=4,
                 )
                 exact = next(
-                    (track for track in tracks if recording_identity_matches(identity, track)),
+                    (
+                        track
+                        for track in tracks
+                        if track.get("playable") is not False
+                        and recording_identity_matches(identity, track)
+                    ),
                     None,
                 )
                 if exact is None:
