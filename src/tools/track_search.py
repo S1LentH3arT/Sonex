@@ -141,7 +141,7 @@ def _collect_itunes_candidates(
             item["_itunes_sequence"] = len(candidates)
             candidates.append(item)
             added += 1
-    candidates.sort(key=_itunes_language_sort_key)
+    candidates.sort(key=lambda candidate: _itunes_candidate_sort_key(query, candidate))
     for item in candidates:
         item.pop("_itunes_sequence", None)
     return added, normalized_count, credible_count, searched_countries, errors
@@ -158,6 +158,22 @@ def _itunes_language_sort_key(candidate: dict[str, Any]) -> tuple[int, int]:
     else:
         language_rank = 0
     return language_rank, int(candidate.get("_itunes_sequence") or 0)
+
+
+def _itunes_candidate_sort_key(query: str, candidate: dict[str, Any]) -> tuple[int, int, int]:
+    """Prefer candidates that cover the requested artist/title before display language."""
+    query_parts = _normalize_key_text(query).split()
+    searchable_fields = (
+        _normalize_key_text(candidate.get("artist")),
+        _normalize_key_text(candidate.get("name") or candidate.get("title")),
+    )
+    matched_parts = sum(
+        1
+        for part in query_parts
+        if any(part and part in field for field in searchable_fields)
+    )
+    language_rank, sequence = _itunes_language_sort_key(candidate)
+    return -matched_parts, language_rank, sequence
 
 
 def _itunes_countries(query: str, country: str | None = None) -> list[str]:
