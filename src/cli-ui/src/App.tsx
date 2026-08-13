@@ -236,7 +236,7 @@ export const App: React.FC<{
                         setMiniSnapshotRevision((prev) => prev + 1);
                     }
                 };
-                if (activeRegionRef.current === "chat") {
+                if (activeRegionRef.current === "chat" || activeRegionRef.current === "memoryPanel") {
                     updateSize();
                 } else {
                     terminalSurface.transition("alternate", updateSize);
@@ -319,7 +319,7 @@ export const App: React.FC<{
 
     const switchRegion = React.useCallback((nextRegion: ShellRegion) => {
         if (activeRegionRef.current === nextRegion) return;
-        const nextSurface = nextRegion === "chat" ? "main" : "alternate";
+        const nextSurface = nextRegion === "chat" || nextRegion === "memoryPanel" ? "main" : "alternate";
         terminalSurface.transition(nextSurface, (surface) => {
             dispatchTranscript({ type: "setSurface", surface });
             activeRegionRef.current = nextRegion;
@@ -1502,7 +1502,7 @@ export const App: React.FC<{
             <Box
                 flexDirection="column"
                 width={terminalSize.columns ?? "100%"}
-                height={activeRegion === "chat" ? undefined : dynamicSurfaceHeight}
+                height={activeRegion === "chat" || activeRegion === "memoryPanel" ? undefined : dynamicSurfaceHeight}
                 minHeight={0}
             >
                 {showFixedHeader ? (

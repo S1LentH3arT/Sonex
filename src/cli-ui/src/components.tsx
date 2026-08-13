@@ -383,6 +383,7 @@ const CONFIRM_CHOICE_LABEL_WIDTH = 18;
 const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 102;
 const MODEL_PANEL_LABEL_WIDTH = 20;
 const PLAYLIST_BROWSE_NAME_WIDTH = 32;
+const MEMORY_SETTING_LABEL_WIDTH = 48;
 const TRACK_PANEL_ROW_WIDTH = 96;
 
 const truncateDisplayWidth = (value: string, width: number): string => {
@@ -399,6 +400,10 @@ const fitDisplayWidth = (value: string, width: number): string => {
     const rendered = truncateDisplayWidth(value, width);
     return rendered + " ".repeat(Math.max(0, width - stringWidth(rendered)));
 };
+
+const formatMemorySettingRow = (label: string, value: string): string => (
+    `${fitDisplayWidth(label, MEMORY_SETTING_LABEL_WIDTH)}${value}`
+);
 
 const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): string => (
     `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
@@ -752,7 +757,7 @@ const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor
     const width = Math.max(3, Math.min(74, Math.floor(panelWidth)));
     if (editor) {
         return (
-            <Box width="100%" height="100%" flexDirection="column" flexGrow={1} minHeight={0}>
+            <Box width="100%" flexDirection="column" flexShrink={0} paddingX={1}>
                 <PanelFrame
                     width={width}
                     paddingX={2}
@@ -777,28 +782,28 @@ const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor
         );
     }
     const rootItems = panel.view === "root"
-        ? ["View memory entries", "Format memory"]
+        ? ["view memory entries", "reset memory"]
         : panel.view === "sources"
             ? ["USER.md", "MEMORY.md", "Memory Dump"]
             : panel.view === "format"
-                ? ["Format USER.md", "Format MEMORY.md", "Format all memory"]
+                ? ["USER.md", "MEMORY.md", "All memory"]
             : panel.view === "settings"
                 ? [
-                    `Forget retention  ${panel.settings?.forget_retention_days ?? 7} days`,
-                    `USER.md capacity  ${panel.settings?.user_capacity ?? "Unlimited"}`,
-                    `MEMORY.md capacity  ${panel.settings?.memory_capacity ?? "Unlimited"}`,
-                    `Automatic forgetting  ${panel.settings?.automatic_forgetting ?? "off"}`,
-                    `Idle threshold  ${panel.settings?.idle_threshold_days ?? 30} days`,
-                    `Automatic refinement  ${panel.settings?.automatic_refinement === false ? "Off" : "On"}`,
-                    `USER.md refinement window  ${panel.settings?.user_refinement_window ?? 8}`,
-                    `MEMORY.md refinement window  ${panel.settings?.memory_refinement_window ?? 12}`,
+                    formatMemorySettingRow("Forget retention", `${panel.settings?.forget_retention_days ?? 7} days`),
+                    formatMemorySettingRow("USER.md capacity", String(panel.settings?.user_capacity ?? "Unlimited")),
+                    formatMemorySettingRow("MEMORY.md capacity", String(panel.settings?.memory_capacity ?? "Unlimited")),
+                    formatMemorySettingRow("Automatic forgetting", String(panel.settings?.automatic_forgetting ?? "off")),
+                    formatMemorySettingRow("Idle threshold", `${panel.settings?.idle_threshold_days ?? 30} days`),
+                    formatMemorySettingRow("Automatic refinement", panel.settings?.automatic_refinement === false ? "Off" : "On"),
+                    formatMemorySettingRow("USER.md refinement window", String(panel.settings?.user_refinement_window ?? 8)),
+                    formatMemorySettingRow("MEMORY.md refinement window", String(panel.settings?.memory_refinement_window ?? 12)),
                 ]
                 : [];
     if (panel.view === "detail") {
         const entry = panel.entries[0];
         const revisions = Array.isArray(panel.settings?.revisions) ? panel.settings.revisions : [];
         return (
-            <Box width="100%" height="100%" flexDirection="column" flexGrow={1} minHeight={0}>
+            <Box width="100%" flexDirection="column" flexShrink={0} paddingX={1}>
                 <PanelFrame width={width} paddingX={2} title={`${panel.title}${panel.readOnly ? " · Read only" : ""}`} hint={panel.hint}>
                     {entry ? (
                         <Box flexDirection="column" paddingX={2}>
@@ -830,7 +835,7 @@ const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor
             }],
         }));
     return (
-        <Box width="100%" height="100%" flexDirection="column" flexGrow={1} minHeight={0}>
+        <Box width="100%" flexDirection="column" flexShrink={0} paddingX={1}>
             <PanelFrame
                 width={width}
                 paddingX={2}
@@ -1785,6 +1790,10 @@ export const DynamicTail = ({
     languagePanel,
     languagePanelIndex,
     modelPanelIndex,
+    memoryPanel,
+    memoryPanelIndex,
+    memorySearchQuery,
+    memoryEditor,
     terminalColumns,
     agentWorking,
     streamingMessage,
@@ -1811,6 +1820,10 @@ export const DynamicTail = ({
     languagePanel: LanguagePanelState;
     languagePanelIndex: number;
     modelPanelIndex: number;
+    memoryPanel: MemoryPanelState;
+    memoryPanelIndex: number;
+    memorySearchQuery: string;
+    memoryEditor: { mode: "search" | "add" | "edit" | "setting"; value: string; settingKey?: string } | null;
     terminalColumns: number | null;
     agentWorking: boolean;
     streamingMessage: ChatMessageItem | null;
@@ -1820,7 +1833,7 @@ export const DynamicTail = ({
     const hasModelPanel = authSetup?.active && authSetup.step === "model";
     const hasSetupPanel = Boolean(spotifySetup) || Boolean(authSetup && authSetup.step !== "model");
     const hasSlashPanel = slashSuggestions.length > 0;
-    const showInput = !helpPanel && !languagePanel && !hasModelPanel && (!confirm || Boolean(selectedChoice?.input));
+    const showInput = !helpPanel && !languagePanel && !hasModelPanel && !memoryPanel && (!confirm || Boolean(selectedChoice?.input));
     const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;
 
     return (
@@ -1840,31 +1853,42 @@ export const DynamicTail = ({
             {showMiniMascotStatus ? (
                 agentWorking ? <AgentWorkingStatus /> : <MiniMascotStatus />
             ) : null}
-            <InputDock
-                input={input}
-                setInput={setInput}
-                onSubmit={onSubmit}
-                inputPlaceholder={inputPlaceholder}
-                inputMask={inputMask}
-                inputFocus={inputFocus}
-                inputRevision={inputRevision}
-                confirm={confirm}
-                confirmIndex={confirmIndex}
-                spotifyMode={spotifyMode}
-                providerMode={providerMode}
-                spotifySetup={spotifySetup}
-                authSetup={authSetup}
-                modelStatus={modelStatus}
-                slashSuggestions={slashSuggestions}
-                slashIndex={slashIndex}
-                helpPanel={helpPanel}
-                helpPanelIndex={helpPanelIndex}
-                languagePanel={languagePanel}
-                languagePanelIndex={languagePanelIndex}
-                modelPanelIndex={modelPanelIndex}
-                terminalColumns={terminalColumns}
-                language={language}
-            />
+            {memoryPanel ? (
+                <MemoryPanelOverlay
+                    panel={memoryPanel}
+                    selectedIndex={memoryPanelIndex}
+                    searchQuery={memorySearchQuery}
+                    editor={memoryEditor}
+                    panelWidth={Math.max(3, Math.floor(terminalColumns ?? 80) - 2)}
+                />
+            ) : null}
+            {!memoryPanel ? (
+                <InputDock
+                    input={input}
+                    setInput={setInput}
+                    onSubmit={onSubmit}
+                    inputPlaceholder={inputPlaceholder}
+                    inputMask={inputMask}
+                    inputFocus={inputFocus}
+                    inputRevision={inputRevision}
+                    confirm={confirm}
+                    confirmIndex={confirmIndex}
+                    spotifyMode={spotifyMode}
+                    providerMode={providerMode}
+                    spotifySetup={spotifySetup}
+                    authSetup={authSetup}
+                    modelStatus={modelStatus}
+                    slashSuggestions={slashSuggestions}
+                    slashIndex={slashIndex}
+                    helpPanel={helpPanel}
+                    helpPanelIndex={helpPanelIndex}
+                    languagePanel={languagePanel}
+                    languagePanelIndex={languagePanelIndex}
+                    modelPanelIndex={modelPanelIndex}
+                    terminalColumns={terminalColumns}
+                    language={language}
+                />
+            ) : null}
         </Box>
     );
 };
@@ -2083,18 +2107,6 @@ export const DynamicShell = ({
         );
     }
 
-    if (activeRegion === "memoryPanel" && memoryPanel) {
-        return (
-            <MemoryPanelOverlay
-                panel={memoryPanel}
-                selectedIndex={memoryPanelIndex}
-                searchQuery={memorySearchQuery}
-                editor={memoryEditor}
-                panelWidth={Math.max(3, Math.floor(terminalSpace.columns ?? 80))}
-            />
-        );
-    }
-
     return (
         <DynamicTail
             input={input}
@@ -2118,6 +2130,10 @@ export const DynamicShell = ({
             languagePanel={languagePanel}
             languagePanelIndex={languagePanelIndex}
             modelPanelIndex={modelPanelIndex}
+            memoryPanel={activeRegion === "memoryPanel" ? memoryPanel : null}
+            memoryPanelIndex={memoryPanelIndex}
+            memorySearchQuery={memorySearchQuery}
+            memoryEditor={memoryEditor}
             terminalColumns={terminalSpace.columns}
             agentWorking={agentWorking}
             streamingMessage={streamingMessage}

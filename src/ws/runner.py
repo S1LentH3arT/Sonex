@@ -5450,7 +5450,7 @@ class MemorySettingsSession:
             {
                 "type": "memory_panel",
                 "view": "sources",
-                "title": "View memory entries",
+                "title": "view memory entries",
                 "hint": "Enter to open; Esc to return",
                 "read_only": bool(getattr(self.store, "_read_only", False)),
                 "entries": [],
@@ -5578,8 +5578,8 @@ class MemorySettingsSession:
             {
                 "type": "memory_panel",
                 "view": "format",
-                "title": "Format memory",
-                "hint": "Choose a scope; Esc to return",
+                "title": "reset memory",
+                "hint": "select the memory to clear",
                 "read_only": bool(getattr(self.store, "_read_only", False)),
                 "entries": [],
             }

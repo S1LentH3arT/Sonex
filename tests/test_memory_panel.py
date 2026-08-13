@@ -76,6 +76,14 @@ class MemoryPanelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ui.events[1]["target"], "user")
         self.assertEqual(ui.events[1]["entries"][0]["content"], "Prefers jazz")
 
+    async def test_reset_scope_panel_uses_clear_copy(self) -> None:
+        ui = FakeUI()
+        session = MemorySettingsSession(ui, FakeStore())
+        await session.show_format_scopes()
+
+        self.assertEqual(ui.events[-1]["title"], "reset memory")
+        self.assertEqual(ui.events[-1]["hint"], "select the memory to clear")
+
     async def test_settings_are_served_by_backend_memory_store(self) -> None:
         ui = FakeUI()
         session = MemorySettingsSession(ui, FakeStore())
