@@ -10,6 +10,7 @@ from unittest.mock import patch
 from src.api.ws_runner import WebSocketRunner
 from src.music.connections import MusicConnectionRecord
 from src.music.connections import MusicConnectionManager
+from src.music.netease_worker import NetEaseLoginResult
 
 
 async def _to_thread_inline(function: object, *args: object, **kwargs: object) -> object:
@@ -80,14 +81,18 @@ class MusicConnectCommandTests(unittest.IsolatedAsyncioTestCase):
         )()
 
         with patch("src.api.ws_runner.NetEaseProviderWorker.health", return_value=health), patch(
-            "src.api.ws_runner.NetEaseProviderWorker.login"
+            "src.api.ws_runner.NetEaseProviderWorker.login",
+            return_value=NetEaseLoginResult("cancelled", ""),
         ) as login:
             await runner._connect_music_provider(ui, "netease", emit_feedback=False)
-
-        self.assertIsNotNone(getattr(ui, "_netease_login_session"))
-        self.assertEqual(ui.events[-1]["type"], "netease_login")
-        self.assertTrue(ui.events[-1]["active"])
-        login.assert_not_called()
+            session = getattr(ui, "_netease_login_session")
+            self.assertIsNotNone(session)
+            self.assertEqual(ui.events[-1]["type"], "netease_login")
+            self.assertTrue(ui.events[-1]["active"])
+            login.assert_not_called()
+            await session.cancel()
+            if session.task is not None:
+                await session.task
 
     async def test_connect_opens_unified_interactive_panel_with_actionable_accounts_only(self) -> None:
         runner = WebSocketRunner(
