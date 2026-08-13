@@ -656,6 +656,76 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "playback_completed")
         self.assertEqual(runner._try_selected_native_provider.await_args.kwargs["provider"], "netease")
 
+    async def test_connected_netease_matches_featured_track_without_community_fallback(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        worker = ws_runner.NetEaseProviderWorker(executable="/usr/bin/ncm-cli")
+        ready = ProviderReadiness(
+            "netease",
+            True,
+            True,
+            True,
+            True,
+            session_verified=True,
+            details={"worker": worker, "signature": ("ncm-cli", "0.1.6", 1)},
+        )
+        runner._probe_authoritative_providers = AsyncMock(return_value=[ready])
+        runner._confirm_agent_playback_route = AsyncMock(return_value=False)
+        identity = RecordingIdentity(
+            "爱不来",
+            "方大同",
+            album="危险世界",
+            duration_ms=280_195,
+        )
+        selection_ref = runner._playback_coordinator.selections.issue(
+            session_id=ui.session_id,
+            turn_id="turn-featured-track",
+            identity=identity,
+        )
+        search_result = [{
+            "provider": "netease",
+            "title": "爱不来 (feat. Miss Ko葛仲珊)",
+            "artist": "方大同, 葛仲珊",
+            "album": "危险世界",
+            "duration_ms": 280_195,
+            "encrypted_id": "08CF323E6573092008F526C262097CB3",
+            "original_id": "28406197",
+        }]
+
+        with patch.object(runner, "_verified_cached_recording", return_value=None), patch.object(
+            worker,
+            "search",
+            return_value=search_result,
+        ), patch.object(
+            worker,
+            "play",
+            return_value={"status": "success", "provider": "NetEase", "player": "ncm-cli/mpv"},
+        ) as play:
+            result = await runner._commit_agent_playback_selection(
+                ui,
+                selection_ref=selection_ref,
+                turn_id="turn-featured-track",
+                query="方大同 爱不来",
+                candidate={
+                    "title": "爱不来",
+                    "artist": "方大同",
+                    "album": "危险世界",
+                    "duration_ms": 280_195,
+                },
+                requested_provider=None,
+                hard_provider=False,
+            )
+
+        self.assertEqual(result["status"], "playback_completed")
+        play.assert_called_once_with(
+            encrypted_id="08CF323E6573092008F526C262097CB3",
+            original_id="28406197",
+        )
+        self.assertNotIn(
+            "No authoritative provider is available. Try community audio sources?",
+            [call.kwargs.get("message") for call in runner._confirm_agent_playback_route.await_args_list],
+        )
+
     async def test_explicit_unlogged_netease_rejection_never_authorizes_online(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
