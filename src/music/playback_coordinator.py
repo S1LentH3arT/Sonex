@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 import secrets
 import time
 import unicodedata
@@ -146,6 +147,27 @@ def _normalized(value: Any) -> str:
     return " ".join(text.split())
 
 
+_FEATURE_TITLE_SUFFIX_RE = re.compile(
+    r"\s*[\(\[（【](?:feat\.?|ft\.?|featuring)\s+[^\)\]）】]+[\)\]）】]\s*$",
+    re.IGNORECASE,
+)
+_PRIMARY_ARTIST_SEPARATOR_RE = re.compile(
+    r"\s*(?:,|，|、|;|；|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b)\s*",
+    re.IGNORECASE,
+)
+
+
+def _recording_title(value: Any) -> str:
+    """Normalize only featured-artist title suffixes, preserving edition cues."""
+    return _normalized(_FEATURE_TITLE_SUFFIX_RE.sub("", str(value or "")))
+
+
+def _primary_artist(value: Any) -> str:
+    """Return the first credited artist for cross-catalog identity matching."""
+    text = unicodedata.normalize("NFKC", str(value or "")).strip()
+    return _normalized(_PRIMARY_ARTIST_SEPARATOR_RE.split(text, maxsplit=1)[0])
+
+
 def recording_identity_matches(
     selected: RecordingIdentity,
     candidate: Mapping[str, Any],
@@ -155,9 +177,9 @@ def recording_identity_matches(
     """Require the selected title, primary artist, edition cues, and duration."""
     title = candidate.get("title") or candidate.get("name")
     artist = candidate.get("artist")
-    if _normalized(title) != _normalized(selected.title):
+    if _recording_title(title) != _recording_title(selected.title):
         return False
-    if _normalized(artist) != _normalized(selected.artist):
+    if _primary_artist(artist) != _primary_artist(selected.artist):
         return False
     if selected.edition and _normalized(selected.edition) not in _normalized(title):
         return False

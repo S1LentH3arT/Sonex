@@ -75,7 +75,7 @@ class PlaybackCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result["error_code"], "SELECTION_EXPIRED")
 
-    def test_recording_identity_requires_exact_title_artist_and_duration_tolerance(self) -> None:
+    def test_recording_identity_preserves_edition_and_duration_constraints(self) -> None:
         selected = RecordingIdentity("BB88", "方大同", duration_ms=240_000)
         self.assertTrue(
             recording_identity_matches(
@@ -93,6 +93,54 @@ class PlaybackCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             recording_identity_matches(
                 selected,
                 {"title": "BB88", "artist": "方大同", "duration_ms": 245_001},
+            )
+        )
+
+    def test_recording_identity_does_not_split_artist_group_names(self) -> None:
+        self.assertFalse(
+            recording_identity_matches(
+                RecordingIdentity("The Sound of Silence", "Simon"),
+                {"title": "The Sound of Silence", "artist": "Simon & Garfunkel"},
+            )
+        )
+        self.assertFalse(
+            recording_identity_matches(
+                RecordingIdentity("Thunderstruck", "AC"),
+                {"title": "Thunderstruck", "artist": "AC/DC"},
+            )
+        )
+
+    def test_recording_identity_allows_feature_credit_with_same_primary_artist(self) -> None:
+        selected = RecordingIdentity("爱不来", "方大同", duration_ms=280_195)
+
+        self.assertTrue(
+            recording_identity_matches(
+                selected,
+                {
+                    "title": "爱不来 (feat. Miss Ko葛仲珊)",
+                    "artist": "方大同, 葛仲珊",
+                    "duration_ms": 280_195,
+                },
+            )
+        )
+        self.assertFalse(
+            recording_identity_matches(
+                selected,
+                {
+                    "title": "爱不来 (Live版)",
+                    "artist": "方大同, 葛仲珊",
+                    "duration_ms": 280_195,
+                },
+            )
+        )
+        self.assertFalse(
+            recording_identity_matches(
+                selected,
+                {
+                    "title": "爱不来 (feat. Miss Ko葛仲珊)",
+                    "artist": "葛仲珊, 方大同",
+                    "duration_ms": 280_195,
+                },
             )
         )
 
