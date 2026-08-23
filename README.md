@@ -238,18 +238,22 @@ read-timeout failures are reported separately. If the saved token is missing
 newly required Spotify scopes, Sonex starts the Spotify authorization guide in
 the current chat so you can grant the updated permissions.
 
-### Local and Online Playback
+### Local and Provider Playback
 
-Install `mpv` if you want controllable local-file or online playback. Sonex uses
-mpv directly for these routes. Spotify Connect remains a separate provider mode
-and does not use the local player.
+Install `mpv` if you want controllable local-file, NetEase, or online playback.
+Spotify playback uses Spotify Connect and does not use the local player.
+Persistent Spotify Mode still keeps the whole music surface on Spotify, while
+normal mode can select a ready Spotify connection for one playback request.
 
-### Online Audio Fallback
+### Playback Source Selection
 
-In normal mode, Sonex uses local files first and then resolves selected songs
-through online audio sources. Spotify playback belongs to Spotify Mode.
-iTunes Search remains part of metadata discovery in the normal search chain; it
-is not a playback mode. Configure at least one online audio provider:
+In normal mode, Sonex checks local files first. If no local result is found or
+you skip it, Sonex offers each ready native source—NetEase and Spotify—alongside
+Online. It searches only the selected catalog, keeps the native NetEase ID or
+Spotify URI, and lets you retry, refine the query, or choose another source when
+the search cannot produce a playable match. iTunes Search remains metadata
+discovery rather than a playback source. Configure at least one online audio
+provider to use the Online route:
 
 Use `/connect` and choose Jamendo or Audius.
 

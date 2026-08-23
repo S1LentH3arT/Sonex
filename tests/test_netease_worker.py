@@ -119,7 +119,15 @@ class NetEaseWorkerTests(unittest.TestCase):
 
         self.assertEqual(
             calls[0][0],
-            ["/usr/bin/ncm-cli", "search", "song", "--keyword", "方大同 BB88"],
+            [
+                "/usr/bin/ncm-cli",
+                "search",
+                "song",
+                "--keyword",
+                "方大同 BB88",
+                "--limit",
+                "10",
+            ],
         )
         self.assertIs(calls[0][1]["shell"], False)
         self.assertEqual(songs[0]["id"], "enc|88")

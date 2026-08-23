@@ -3065,9 +3065,12 @@ class PlaySelectionSession:
         self.active_confirm_id: str | None = None
         self.pending_player_confirm_result: dict[str, Any] | None = None
         self.metadata_candidates: list[dict[str, Any]] = []
+        self.native_candidates: list[dict[str, Any]] = []
         self.online_audio_candidates: list[dict[str, Any]] = []
+        self.playback_source: str | None = None
         self.selected_playback_metadata: dict[str, Any] | None = None
         self.awaiting_metadata_refinement = False
+        self.awaiting_native_refinement = False
         self.awaiting_online_refinement = False
         self._on_finish = on_finish
         self._finished = False
@@ -3091,7 +3094,7 @@ class PlaySelectionSession:
             await self._ask_local_choice(local_result)
             return
 
-        await self._ask_metadata_candidates(self.query)
+        await self._begin_source_selection()
 
     def owns_confirm(self, confirm_id: str) -> bool:
         """Coordinates owns confirm for the current Sonex flow.
@@ -3117,6 +3120,37 @@ class PlaySelectionSession:
         if choice in {"deny", "cancel"}:
             await self._finish("Playback canceled.", status="error")
             return
+        if choice.startswith("playback_source:"):
+            source = choice.partition(":")[2].strip().casefold()
+            if source not in {"netease", "spotify", "online"}:
+                await self._finish("Playback canceled.", status="error")
+                return
+            self.playback_source = source
+            if source == "online":
+                self.native_candidates = []
+                await self._ask_metadata_candidates(self.query)
+            else:
+                await self._ask_native_candidates(source, self.query)
+            return
+        if choice == "choose_other_source":
+            await self._begin_source_selection(exclude=self.playback_source)
+            return
+        if choice.startswith("refine_native_query:"):
+            extra = unquote(choice.partition(":")[2]).strip()
+            if not extra:
+                await self.ui.append_activity(kind="error", title="Refine song search", detail="Search details cannot be empty.", status="error")
+                return
+            self.awaiting_native_refinement = False
+            self.query = f"{self.query} {extra}".strip()
+            await self._ask_native_candidates(self.playback_source or "", self.query)
+            return
+        if choice == "retry_native_query":
+            await self._ask_native_candidates(self.playback_source or "", self.query)
+            return
+        if choice == "refine_native_query":
+            self.awaiting_native_refinement = True
+            await self.ui.append_activity(kind="status", title="Refine song search", detail="Send more song details to search again.", status="pending")
+            return
         if choice.startswith("refine_spotify_query:") or choice.startswith("refine_song_metadata_query:"):
             extra = unquote(choice.partition(":")[2]).strip()
             if not extra:
@@ -3129,6 +3163,9 @@ class PlaySelectionSession:
                 return
             self.awaiting_metadata_refinement = False
             self.query = f"{self.query} {extra}".strip()
+            await self._ask_metadata_candidates(self.query)
+            return
+        if choice == "retry_metadata_query":
             await self._ask_metadata_candidates(self.query)
             return
         if choice in {"refine_spotify_query", "refine_song_metadata_query"}:
@@ -3154,6 +3191,9 @@ class PlaySelectionSession:
             self.query = f"{self.query} {extra}".strip()
             await self._ask_online_audio_candidates(self.query, playback_metadata=self.selected_playback_metadata)
             return
+        if choice == "retry_online_query":
+            await self._ask_online_audio_candidates(self.query, playback_metadata=self.selected_playback_metadata)
+            return
         if choice == "refine_query":
             self.awaiting_online_refinement = True
             await self.ui.append_activity(
@@ -3169,7 +3209,8 @@ class PlaySelectionSession:
                 index = int(index_text)
             except ValueError:
                 index = -1
-            candidate = self.metadata_candidates[index] if 0 <= index < len(self.metadata_candidates) else None
+            source_candidates = self.native_candidates or self.metadata_candidates
+            candidate = source_candidates[index] if 0 <= index < len(source_candidates) else None
             if candidate is None:
                 await self._finish("Selected song metadata candidate expired.", status="error")
                 return
@@ -3178,6 +3219,13 @@ class PlaySelectionSession:
             )
             self.selected_playback_metadata = dict(candidate)
             self.selected_playback_metadata.setdefault("original_query", self.query)
+            if self.native_candidates:
+                result = await self._play_native_candidate(candidate)
+                if _is_failed_tool_result(result):
+                    await self._finish("Playback failed.", status="error")
+                else:
+                    await self._finish("Playback selected.")
+                return
             youtube_query = str(candidate.get("youtube_query") or f"{candidate.get('artist') or ''} {candidate.get('name') or ''}").strip()
             self.query = youtube_query or self.query
             await self._play_selected_metadata_candidate(self.query, self.selected_playback_metadata)
@@ -3210,14 +3258,18 @@ class PlaySelectionSession:
             result = await self._invoke_playback("play_local_song", {"query": self.query, "player": "auto"})
             if _is_player_confirm_result(result):
                 return
+            if isinstance(result, dict) and result.get("status") == "success":
+                await self.runner._handoff_previous_provider(self.ui, "local")
+                setattr(self.ui, "_active_playback_provider", "local")
             await self._finish("Local playback selected.")
             return
         if choice == "skip_local":
-            await self._ask_metadata_candidates(self.query)
+            await self._begin_source_selection()
             return
         if choice == "online_play":
             # Compatibility for an in-flight client that still owns the removed
             # playback-method confirmation. New normal-mode sessions never emit it.
+            self.playback_source = "online"
             await self._ask_metadata_candidates(self.query)
             return
         await self._finish("Unknown playback choice.", status="error")
@@ -3229,6 +3281,15 @@ class PlaySelectionSession:
 
         Example: await handle_refinement(text=...) -> returns the value used by the surrounding Sonex flow.
         """
+        if self.awaiting_native_refinement:
+            extra = text.strip()
+            if not extra:
+                await self.ui.append_activity(kind="error", title="Refine song search", detail="Search details cannot be empty.", status="error")
+                return True
+            self.awaiting_native_refinement = False
+            self.query = f"{self.query} {extra}".strip()
+            await self._ask_native_candidates(self.playback_source or "", self.query)
+            return True
         if self.awaiting_metadata_refinement:
             extra = text.strip()
             if not extra:
@@ -3258,6 +3319,111 @@ class PlaySelectionSession:
         self.query = f"{self.query} {extra}".strip()
         await self._ask_online_audio_candidates(self.query, playback_metadata=self.selected_playback_metadata)
         return True
+
+    async def _begin_source_selection(self, *, exclude: str | None = None) -> None:
+        source = await self.runner._select_playback_source(
+            self.ui,
+            exclude=exclude,
+        )
+        if source is None:
+            await self._finish("Playback canceled.", status="error")
+            return
+        self.playback_source = source
+        if source == "online":
+            self.native_candidates = []
+            await self._ask_metadata_candidates(self.query)
+        else:
+            await self._ask_native_candidates(source, self.query)
+
+    async def _ask_native_candidates(self, provider: str, query: str) -> None:
+        self.native_candidates = []
+        self.metadata_candidates = []
+        try:
+            self.native_candidates = await self.runner._search_authoritative_candidates(
+                self.ui,
+                provider,
+                query,
+            )
+        except Exception as exc:
+            message = sanitize_error_message(exc)
+            await self.ui.append_activity(
+                kind="error",
+                title=f"{provider.title()} search",
+                detail=message,
+                status="error",
+            )
+            await self._ask_confirm(
+                message=f"{provider.title()} search failed",
+                choices=[
+                    {"value": "retry_native_query", "label": "Retry"},
+                    {"value": "refine_native_query", "label": "Type to supplement.", "input": {"placeholder": ""}},
+                    {"value": "choose_other_source", "label": "Choose another source"},
+                    {"value": "cancel", "label": "Cancel"},
+                ],
+                tool_args={"query": query, "stage": "authoritative_search_error", "provider": provider},
+                tool_name="song_candidate",
+            )
+            return
+        if not self.native_candidates:
+            await self.ui.append_activity(
+                kind="error",
+                title=f"{provider.title()} search",
+                detail=f"No playable {provider.title()} tracks found.",
+                status="error",
+            )
+            await self._ask_confirm(
+                message=f"No {provider.title()} tracks found",
+                choices=[
+                    {"value": "retry_native_query", "label": "Retry"},
+                    {"value": "refine_native_query", "label": "Type to supplement.", "input": {"placeholder": ""}},
+                    {"value": "choose_other_source", "label": "Choose another source"},
+                    {"value": "cancel", "label": "Cancel"},
+                ],
+                tool_args={"query": query, "stage": "authoritative_candidates", "provider": provider},
+                tool_name="song_candidate",
+            )
+            return
+        choices = [
+            self._metadata_candidate_choice(index, candidate)
+            for index, candidate in enumerate(self.native_candidates[:5])
+        ]
+        choices.extend(
+            [
+                {"value": "refine_native_query", "label": "Not found? Type to supplement.", "input": {"placeholder": ""}},
+                {"value": "choose_other_source", "label": "Choose another source"},
+            ]
+        )
+        await self._ask_confirm(
+            message=f"Choose a {provider.title()} track",
+            choices=choices,
+            tool_args={"query": query, "stage": "authoritative_candidates", "provider": provider},
+            tool_name="song_candidate",
+        )
+
+    async def _play_native_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        provider = str(candidate.get("provider") or self.playback_source or "").casefold()
+        if provider not in {"netease", "spotify"}:
+            return {"status": "fail", "message": "Unsupported native playback source."}
+        readiness = await self.runner._activate_authoritative_source(self.ui, provider)
+        if readiness is None:
+            return {"status": "fail", "message": f"{provider.title()} is no longer ready."}
+        identity = RecordingIdentity(
+            title=str(candidate.get("title") or candidate.get("name") or ""),
+            artist=str(candidate.get("artist") or ""),
+            album=str(candidate.get("album") or ""),
+            duration_ms=_duration_ms_or_none(candidate.get("duration_ms")),
+            metadata_source=provider,
+        )
+        result = await self.runner._try_selected_native_provider(
+            self.ui,
+            identity=identity,
+            provider=provider,
+            selected_candidate=candidate,
+            readiness=readiness,
+        )
+        if result.get("status") == "playback_completed":
+            setattr(self.ui, "_preferred_playback_provider", provider)
+        return result
 
     async def _show_online_audio_setup_required(self) -> None:
         """Prepares show online audio setup required for an internal Sonex flow.
@@ -3302,7 +3468,9 @@ class PlaySelectionSession:
             detail=f"Finding song metadata for {query}.",
             status="pending",
         )
+        self.native_candidates = []
         attempts: list[dict[str, Any]] = []
+        search_failed = False
         try:
             result = await asyncio.to_thread(search_track_metadata_candidates, query, 5)
             if isinstance(result, dict):
@@ -3314,6 +3482,7 @@ class PlaySelectionSession:
             else:
                 self.metadata_candidates = []
         except Exception as exc:
+            search_failed = True
             self.metadata_candidates = []
             attempts = [{
                 "provider": "metadata",
@@ -3325,6 +3494,19 @@ class PlaySelectionSession:
         await self._append_metadata_attempts(attempts)
         self.metadata_candidates = self.metadata_candidates[:5]
         if not self.metadata_candidates:
+            if search_failed:
+                await self._ask_confirm(
+                    message="Song metadata search failed",
+                    choices=[
+                        {"value": "retry_metadata_query", "label": "Retry"},
+                        {"value": "refine_song_metadata_query", "label": "Type to supplement.", "input": {"placeholder": ""}},
+                        {"value": "choose_other_source", "label": "Choose another source"},
+                        {"value": "cancel", "label": "Cancel"},
+                    ],
+                    tool_args={"query": query, "stage": "song_metadata_search_error"},
+                    tool_name="song_candidate",
+                )
+                return
             if attempts:
                 message = "No song metadata candidates found. Searching online audio directly."
                 await self.ui.append_agent_message(message)
@@ -3340,6 +3522,7 @@ class PlaySelectionSession:
                 "input": {"placeholder": ""},
             }
         )
+        choices.append({"value": "choose_other_source", "label": "Choose another source"})
         await self._ask_confirm(
             message="Select the version to play",
             choices=choices,
@@ -3407,17 +3590,39 @@ class PlaySelectionSession:
             await self.runner._sync_tool_result_ui(self.ui, "play_online_audio", result)
             message = _friendly_runtime_error_message(result, fallback="Online audio search failed.")
             await self.ui.send_error(message)
-            await self._finish("Online playback failed.", status="error")
+            await self._ask_confirm(
+                message="Online audio search failed",
+                choices=[
+                    {"value": "retry_online_query", "label": "Retry"},
+                    {"value": "refine_query", "label": "Type to supplement.", "input": {"placeholder": ""}},
+                    {"value": "choose_other_source", "label": "Choose another source"},
+                    {"value": "cancel", "label": "Cancel"},
+                ],
+                tool_args={"query": query, "stage": "online_audio_search_error"},
+                tool_name="online_audio_candidate",
+            )
             return
 
         choices = [self._online_audio_candidate_choice(item) for item in self.online_audio_candidates]
-        choices.append(
-            {
-                "value": "refine_query",
-                "label": "Not found? Type to supplement.",
-                "input": {"placeholder": ""},
-            }
-        )
+        if not choices:
+            choices.extend(
+                [
+                    {"value": "retry_online_query", "label": "Retry"},
+                    {"value": "refine_query", "label": "Type to supplement.", "input": {"placeholder": ""}},
+                    {"value": "choose_other_source", "label": "Choose another source"},
+                    {"value": "cancel", "label": "Cancel"},
+                ]
+            )
+        else:
+            choices.append(
+                {
+                    "value": "refine_query",
+                    "label": "Not found? Type to supplement.",
+                    "input": {"placeholder": ""},
+                }
+            )
+        if self.online_audio_candidates:
+            choices.append({"value": "choose_other_source", "label": "Choose another source"})
         await self._ask_confirm(
             message="Choose an online audio match",
             choices=choices,
@@ -3795,6 +4000,8 @@ class PlaySelectionSession:
             message = _friendly_runtime_error_message(result, fallback="Playback failed.")
             await self.ui.send_error(message)
         if isinstance(result, dict) and result.get("status") == "success":
+            await self.runner._handoff_previous_provider(self.ui, "online")
+            setattr(self.ui, "_active_playback_provider", "online")
             try:
                 await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
             except Exception:
@@ -3844,6 +4051,10 @@ class PlaySelectionSession:
             await self._finish("Playback failed.", status="error")
             return
         if isinstance(result, dict) and result.get("status") == "success":
+            provider = "online" if tool_name == "play_online_audio" else "local" if tool_name == "play_local_song" else None
+            if provider is not None:
+                await self.runner._handoff_previous_provider(self.ui, provider)
+                setattr(self.ui, "_active_playback_provider", provider)
             try:
                 await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
             except Exception:
@@ -3880,6 +4091,8 @@ class PlaySelectionSession:
         Example: await _finish(detail=..., status=...) -> returns the value used by the surrounding Sonex flow.
         """
         setattr(self.ui, "_play_selection", None)
+        if status == "success" and self.playback_source:
+            setattr(self.ui, "_preferred_playback_provider", self.playback_source)
         await self.ui.append_activity(kind="status", title="Playback selection", detail=detail, status=status)
         if self._finished:
             return
@@ -3960,6 +4173,85 @@ class AgentPlaybackRouteConfirmationSession:
         )
         if not self.result.done():
             self.result.set_result(allowed)
+
+
+class PlaybackSourceSelectionSession:
+    """Choose the catalog that owns the next single-song search."""
+
+    SOURCE_LABELS = {
+        "netease": ("NetEase", "ncm-cli / mpv"),
+        "spotify": ("Spotify", "Spotify Connect"),
+        "online": ("Online", "Jamendo / Audius / YouTube"),
+    }
+
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        sources: list[str],
+        *,
+        exclude: str | None = None,
+    ) -> None:
+        self.ui = ui
+        self.sources = [source for source in sources if source in self.SOURCE_LABELS]
+        self.exclude = exclude
+        self.confirm_id = _new_event_id("playback_source")
+        self.result: asyncio.Future[str | None] = asyncio.get_running_loop().create_future()
+
+    async def start(self) -> None:
+        choices = []
+        for source in self.sources:
+            label, description = self.SOURCE_LABELS[source]
+            choices.append(
+                {
+                    "value": f"playback_source:{source}",
+                    "label": label,
+                    "description": description,
+                }
+            )
+        choices.append({"value": "cancel", "label": "Cancel"})
+        await self.ui.append_activity(
+            kind="confirm",
+            title="Playback source",
+            detail="Choose the source for this song search.",
+            status="pending",
+            activity_id=self.confirm_id,
+        )
+        await self.ui.ask_confirm(
+            {
+                "id": self.confirm_id,
+                "tool_name": "playback_source",
+                "tool_args": {
+                    "stage": "playback_source",
+                    "exclude": self.exclude,
+                },
+                "message": "Choose playback source",
+                "choices": choices,
+            }
+        )
+
+    def owns_confirm(self, confirm_id: str) -> bool:
+        return confirm_id == self.confirm_id
+
+    async def handle_choice(self, decision: Any) -> None:
+        value = str(decision or "cancel")
+        source = value.removeprefix("playback_source:").strip().casefold()
+        if value in {"cancel", "deny", "false"} or source not in self.sources:
+            source = None
+        if getattr(self.ui, "_playback_source_selection", None) is self:
+            setattr(self.ui, "_playback_source_selection", None)
+        await self.ui.append_activity(
+            kind="status",
+            title="Playback source",
+            detail=(
+                f"{self.SOURCE_LABELS[source][0]} selected."
+                if source
+                else "Playback source selection canceled."
+            ),
+            status="success" if source else "error",
+            activity_id=self.confirm_id,
+        )
+        if not self.result.done():
+            self.result.set_result(source)
 
 
 class NetEaseLoginOfferSession:
@@ -4152,6 +4444,7 @@ class AgentCandidateSelectionSession:
         self.timeout_seconds = timeout_seconds
         self.confirm_id = _new_event_id("agent_candidate")
         self.candidates: list[dict[str, Any]] = []
+        self.playback_source: str | None = None
         self._done = False
         self._timeout_task: asyncio.Task[None] | None = None
 
@@ -4168,12 +4461,36 @@ class AgentCandidateSelectionSession:
                     "playback_path": local_path,
                 }
             )
-        try:
-            result = await asyncio.to_thread(
-                search_track_metadata_candidates,
-                self.query,
-                5,
+        self.playback_source = await self.runner._select_playback_source(
+            self.ui,
+            requested_provider=self.requested_provider,
+            hard_provider=self.hard_provider,
+        )
+        if self.playback_source is None:
+            await self._complete(
+                {
+                    "status": "cancelled",
+                    "tool": "Call",
+                    "message": "Playback source selection was cancelled.",
+                    "data": {"workflow": "playback.select", "reason": "source_cancelled", "query": self.query},
+                    "error_code": None,
+                }
             )
+            return
+        try:
+            if self.playback_source in {"netease", "spotify"}:
+                raw_candidates = await self.runner._search_authoritative_candidates(
+                    self.ui,
+                    self.playback_source,
+                    self.query,
+                )
+                result = {"candidates": raw_candidates}
+            else:
+                result = await asyncio.to_thread(
+                    search_track_metadata_candidates,
+                    self.query,
+                    5,
+                )
         except Exception as exc:
             result = {
                 "candidates": [],
@@ -4192,6 +4509,8 @@ class AgentCandidateSelectionSession:
                 for candidate in raw_candidates[:5]
                 if isinstance(candidate, dict)
             )
+        for candidate in self.candidates:
+            candidate.setdefault("playback_source", self.playback_source)
         if not self.candidates:
             await self._complete(
                 {
@@ -4246,6 +4565,7 @@ class AgentCandidateSelectionSession:
                     "query": self.query,
                     "workflow": "playback.select",
                     "interaction_id": self.interaction_id,
+                    "provider": self.playback_source,
                 },
                 "message": "Select the version",
                 "choices": choices,
@@ -4305,12 +4625,17 @@ class AgentCandidateSelectionSession:
             ref = f"{provider}:ref:{ref}"
         metadata = {
             "provider": provider,
+            "playback_source": candidate.get("playback_source") or self.playback_source,
             "ref": ref or None,
             "title": candidate.get("name") or candidate.get("title"),
             "artist": candidate.get("artist"),
             "artists": candidate.get("artists"),
             "album": candidate.get("album"),
             "duration_ms": candidate.get("duration_ms"),
+            "encrypted_id": candidate.get("encrypted_id"),
+            "original_id": candidate.get("original_id"),
+            "uri": candidate.get("uri"),
+            "native_source": candidate.get("native_source"),
         }
         self._done = True
         if self._timeout_task is not None:
@@ -5115,7 +5440,7 @@ class SpotifyPlaySelectionSession:
             await self.ui.append_activity(kind="status", title="Spotify playback", detail="Playback canceled.", status="success")
             return
         try:
-            index = int(value.removeprefix("spotify_track:"))
+            index = int(value.removeprefix("spotify_track:").removeprefix("song_candidate:"))
         except ValueError:
             index = -1
         track = self.tracks[index] if 0 <= index < len(self.tracks) else None
@@ -5135,6 +5460,9 @@ class SpotifyPlaySelectionSession:
             await self.ui.append_agent_message(message)
             await self.ui.send_error(message)
         else:
+            await self.runner._handoff_previous_provider(self.ui, "spotify")
+            setattr(self.ui, "_active_playback_provider", "spotify")
+            setattr(self.ui, "_preferred_playback_provider", "spotify")
             await self.ui.append_activity(kind="status", title="Spotify playback", detail="Spotify playback selected.", status="success")
         setattr(self.ui, "_spotify_play_selection", None)
 
@@ -5856,6 +6184,10 @@ class WebSocketRunner:
         if playback_route and playback_route.owns_confirm(confirm_id):
             await playback_route.handle_choice(decision)
             return True
+        playback_source = getattr(ui, "_playback_source_selection", None)
+        if playback_source and playback_source.owns_confirm(confirm_id):
+            await playback_source.handle_choice(decision)
+            return True
         netease_offer = getattr(ui, "_netease_login_offer", None)
         if netease_offer and netease_offer.owns_confirm(confirm_id):
             await netease_offer.handle_choice(decision)
@@ -6233,6 +6565,7 @@ class WebSocketRunner:
         setattr(ui, "_spotify_play_selection", None)
         setattr(ui, "_provider_mode_exit", None)
         setattr(ui, "_preferred_playback_provider", None)
+        setattr(ui, "_active_playback_provider", None)
         _clear_persistent_spotify_mode()
         clear_provider_mode_intent()
         await self.provider_modes.restore(ProviderModeState())
@@ -8037,16 +8370,52 @@ class WebSocketRunner:
                 )
                 await playback._finish("Local playback selected.")
                 return await finished
-            authoritative_result = await self._route_authoritative_provider(
-                ui,
-                identity=identity,
-                selected_candidate=candidate,
-                requested_provider=requested_provider,
-                hard_provider=hard_provider,
-            )
+            selected_source = str(
+                candidate.get("playback_source")
+                or candidate.get("native_source")
+                or requested_provider
+                or ""
+            ).casefold()
+            if selected_source in {"netease", "spotify"} and (
+                candidate.get("encrypted_id")
+                or candidate.get("uri")
+            ):
+                readiness = await self._activate_authoritative_source(ui, selected_source)
+                if readiness is None:
+                    message = f"{self._provider_label(selected_source)} is no longer ready."
+                    await ui.send_error(message)
+                    return {
+                        "status": "playback_failed",
+                        "message": message,
+                        "error_code": "AUTHORITATIVE_PROVIDER_UNAVAILABLE",
+                        "data": {"provider": selected_source},
+                    }
+                native_result = await self._try_selected_native_provider(
+                    ui,
+                    identity=identity,
+                    provider=selected_source,
+                    selected_candidate=candidate,
+                    readiness=readiness,
+                )
+                if native_result.get("status") == "playback_completed":
+                    setattr(ui, "_preferred_playback_provider", selected_source)
+                return native_result
+            if selected_source == "online":
+                authoritative_result = {
+                    "status": "playback_failed",
+                    "data": {"online_allowed": True},
+                }
+            else:
+                authoritative_result = await self._route_authoritative_provider(
+                    ui,
+                    identity=identity,
+                    selected_candidate=candidate,
+                    requested_provider=requested_provider,
+                    hard_provider=hard_provider,
+                )
             if authoritative_result.get("status") == "playback_completed":
                 return authoritative_result
-            if hard_provider:
+            if hard_provider and selected_source != "online":
                 await ui.send_error(
                     str(
                         authoritative_result.get("message")
@@ -8083,6 +8452,7 @@ class WebSocketRunner:
                 query,
                 on_finish=finish,
             )
+            playback.playback_source = "online"
             playback.selected_playback_metadata = dict(candidate)
             playback.selected_playback_metadata.setdefault("original_query", query)
             setattr(ui, "_play_selection", playback)
@@ -8186,11 +8556,12 @@ class WebSocketRunner:
                     (device for device in devices if device.get("is_active")),
                     None,
                 )
+                selected_device = active_device or (devices[0] if devices else None)
                 capabilities = data.get("capabilities")
                 capabilities = capabilities if isinstance(capabilities, dict) else {}
                 logged_in = bool(data.get("logged_in"))
                 subscribed = not _product_is_known_non_premium(data.get("product"))
-                transport_ready = active_device is not None
+                transport_ready = selected_device is not None
                 return ProviderReadiness(
                     "spotify",
                     configured=logged_in,
@@ -8214,7 +8585,8 @@ class WebSocketRunner:
                         else "No active Spotify Connect device is available."
                     ),
                     details={
-                        "device": active_device,
+                        "device": selected_device,
+                        "active_device": active_device,
                         "devices": devices,
                         "scopes": set(data.get("scopes") or []),
                     },
@@ -8285,6 +8657,180 @@ class WebSocketRunner:
                 status="success" if snapshot.ready else "error",
             )
         return snapshots
+
+    async def _select_playback_source(
+        self,
+        ui: WebSocketUIAdapter,
+        *,
+        requested_provider: str | None = None,
+        hard_provider: bool = False,
+        exclude: str | None = None,
+    ) -> str | None:
+        """Resolve the source that owns a single-song search before searching."""
+        requested = str(requested_provider or "").strip().casefold()
+        excluded = str(exclude or "").strip().casefold()
+        if requested in {"online", "metadata", "online_audio"}:
+            return None if excluded == "online" else "online"
+
+        snapshots = await self._probe_authoritative_providers(ui)
+        by_provider = {snapshot.provider: snapshot for snapshot in snapshots}
+        if requested in {"netease", "spotify"}:
+            snapshot = by_provider.get(requested)
+            if snapshot is not None and snapshot.ready:
+                return None if excluded == requested else requested
+            recovered = await self._recover_explicit_provider(ui, requested, snapshot)
+            if recovered is not None and recovered.ready and excluded != requested:
+                return requested
+            return None
+
+        if self._spotify_mode_enabled(ui) and excluded != "spotify":
+            snapshot = by_provider.get("spotify")
+            if snapshot is not None and snapshot.ready:
+                return "spotify"
+
+        preferred = str(getattr(ui, "_preferred_playback_provider", None) or "").casefold()
+        if preferred in {"netease", "spotify"} and preferred != excluded:
+            snapshot = by_provider.get(preferred)
+            if snapshot is not None and snapshot.ready:
+                return preferred
+
+        sources = [
+            provider
+            for provider in ("netease", "spotify")
+            if provider != excluded
+            and by_provider.get(provider) is not None
+            and by_provider[provider].ready
+        ]
+        if excluded != "online":
+            sources.append("online")
+        if not sources:
+            return None
+        if not any(provider in {"netease", "spotify"} for provider in sources):
+            return "online"
+
+        session = PlaybackSourceSelectionSession(ui, sources, exclude=excluded or None)
+        setattr(ui, "_playback_source_selection", session)
+        await session.start()
+        return await session.result
+
+    async def _search_authoritative_candidates(
+        self,
+        ui: WebSocketUIAdapter,
+        provider: str,
+        query: str,
+    ) -> list[dict[str, Any]]:
+        """Search one authoritative catalog and keep its native references."""
+        normalized_provider = str(provider or "").strip().casefold()
+        label = PlaybackSourceSelectionSession.SOURCE_LABELS.get(
+            normalized_provider,
+            (normalized_provider.title(), normalized_provider),
+        )[0]
+        await ui.append_activity(
+            kind="tool",
+            title=f"Searching {label}",
+            detail=f"Finding {label} tracks for {query}.",
+            status="pending",
+        )
+        if normalized_provider == "netease":
+            worker = NetEaseProviderWorker()
+            tracks = await asyncio.wait_for(
+                asyncio.to_thread(worker.search, query, limit=5),
+                timeout=4,
+            )
+            candidates: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for track in tracks:
+                if not isinstance(track, dict) or track.get("playable") is False:
+                    continue
+                encrypted_id = str(track.get("encrypted_id") or "").strip()
+                original_id = str(track.get("original_id") or "").strip()
+                if not encrypted_id or not original_id:
+                    continue
+                key = f"{encrypted_id}|{original_id}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                title = track.get("title") or track.get("name")
+                candidates.append(
+                    {
+                        **track,
+                        "provider": "netease",
+                        "metadata_source": "netease",
+                        "name": title,
+                        "title": title,
+                        "native_source": "netease",
+                    }
+                )
+            return candidates[:5]
+        if normalized_provider == "spotify":
+            query_plan = build_music_search_query_plan(query)
+            tracks = await asyncio.to_thread(
+                search_spotify_track_candidates,
+                query_plan.original_query or query,
+                5,
+                query_variants=query_plan.variants,
+            )
+            return [
+                {
+                    **track,
+                    "provider": "spotify",
+                    "metadata_source": "spotify",
+                    "native_source": "spotify",
+                }
+                for track in tracks[:5]
+                if str(track.get("uri") or "").startswith("spotify:track:")
+            ]
+        raise ValueError(f"Unsupported authoritative playback provider: {provider}")
+
+    async def _activate_authoritative_source(
+        self,
+        ui: WebSocketUIAdapter,
+        provider: str,
+    ) -> ProviderReadiness | None:
+        snapshots = await self._probe_authoritative_providers(ui)
+        readiness = next(
+            (snapshot for snapshot in snapshots if snapshot.provider == provider),
+            None,
+        )
+        if readiness is None or not readiness.ready:
+            return None
+        if provider == "spotify" and not readiness.details.get("active_device"):
+            recovered = await self._recover_explicit_provider(ui, provider, readiness)
+            if recovered is None:
+                return None
+            readiness = recovered
+        if not await self._ensure_authoritative_mode(ui, readiness):
+            return None
+        return readiness
+
+    async def _handoff_previous_provider(self, ui: WebSocketUIAdapter, new_provider: str) -> None:
+        """Stop the previous Sonex-owned source after a new source starts."""
+        previous = str(
+            getattr(ui, "_active_playback_provider", None)
+            or getattr(ui, "_preferred_playback_provider", None)
+            or ""
+        ).casefold()
+        if not previous or previous == new_provider:
+            return
+        try:
+            if previous == "spotify":
+                mode = getattr(ui, "_spotify_mode", {}) or {}
+                args = {"device_id": mode.get("device_id")} if mode.get("device_id") else {}
+                await asyncio.to_thread(registry.invoke_system, "spotify_pause", args)
+            elif previous == "netease":
+                worker = getattr(ui, "_active_netease_worker", None)
+                if not isinstance(worker, NetEaseProviderWorker):
+                    worker = NetEaseProviderWorker()
+                await asyncio.to_thread(worker.control, "stop")
+            elif previous in {"online", "local"}:
+                await asyncio.to_thread(registry.invoke_system, "local_playback_stop", {})
+        except Exception as exc:
+            await ui.append_activity(
+                kind="warning",
+                title="Playback handoff",
+                detail=f"Previous {previous} playback could not be stopped: {sanitize_error_message(exc)}",
+                status="warning",
+            )
 
     @staticmethod
     def _netease_health_signature(
@@ -8658,21 +9204,26 @@ class WebSocketRunner:
                     health = await asyncio.to_thread(worker.health)
                     if not health.ready:
                         raise RuntimeError(health.reason or "NetEase is not ready.")
-                tracks = await asyncio.wait_for(
-                    asyncio.to_thread(worker.search, query, limit=10),
-                    timeout=4,
-                )
-                exact = next(
-                    (
-                        track
-                        for track in tracks
-                        if track.get("playable") is not False
-                        and recording_identity_matches(identity, track)
-                    ),
-                    None,
-                )
+                exact = selected_candidate if selected_candidate.get("encrypted_id") and selected_candidate.get("original_id") else None
                 if exact is None:
-                    raise RuntimeError("NetEase has no exact playable match for the selected recording.")
+                    # Compatibility for legacy queue entries that predate native
+                    # candidate references. New interactive searches never use
+                    # this branch.
+                    tracks = await asyncio.wait_for(
+                        asyncio.to_thread(worker.search, query, limit=5),
+                        timeout=4,
+                    )
+                    exact = next(
+                        (
+                            track
+                            for track in tracks
+                            if track.get("playable") is not False
+                            and recording_identity_matches(identity, track)
+                        ),
+                        None,
+                    )
+                if exact is None or exact.get("playable") is False:
+                    raise RuntimeError("NetEase selected track is not playable.")
                 data = await asyncio.wait_for(
                     asyncio.to_thread(
                         worker.play,
@@ -8702,6 +9253,8 @@ class WebSocketRunner:
                     "artist": identity.artist,
                 },
             }
+            await self._handoff_previous_provider(ui, "netease")
+            setattr(ui, "_active_playback_provider", "netease")
             await self._sync_tool_result_ui(ui, "netease_play", result)
             await ui.append_system_message(
                 format_agent_playing_feedback(result, selected_candidate)
@@ -8716,29 +9269,35 @@ class WebSocketRunner:
         search_tool = "spotify_search"
         play_tool = "spotify_play"
         try:
-            search_result = await asyncio.wait_for(
-                asyncio.to_thread(
-                    registry.invoke_system,
-                    search_tool,
-                    {"query": query, "limit": 10},
-                ),
-                timeout=4,
-            )
-            tracks = _search_results_payload(search_result)
-            exact = next(
-                (track for track in tracks if recording_identity_matches(identity, track)),
-                None,
-            )
-            if exact is None:
-                raise RuntimeError(
-                    f"{provider} has no exact playable match for the selected recording."
+            uri = selected_candidate.get("uri") or selected_candidate.get("spotify_uri")
+            if not isinstance(uri, str) or not uri.startswith("spotify:track:"):
+                # Compatibility for legacy queue entries. New interactive
+                # Spotify candidates always carry their native URI.
+                search_result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        registry.invoke_system,
+                        search_tool,
+                        {"query": query, "limit": 5},
+                    ),
+                    timeout=4,
                 )
-            uri = exact.get("uri") or exact.get("ref")
+                tracks = _search_results_payload(search_result)
+                exact = next(
+                    (track for track in tracks if recording_identity_matches(identity, track)),
+                    None,
+                )
+                if exact is None:
+                    raise RuntimeError(
+                        f"{provider} has no exact playable match for the selected recording."
+                    )
+                uri = exact.get("uri") or exact.get("ref")
+            if not isinstance(uri, str) or not uri.startswith("spotify:track:"):
+                raise RuntimeError("Spotify selected track has no playable URI.")
             play_result = await asyncio.wait_for(
                 asyncio.to_thread(
                     registry.invoke_system,
                     play_tool,
-                    {"query": None if uri else query, "uri": uri},
+                    {"uri": uri},
                 ),
                 timeout=6,
             )
@@ -8756,6 +9315,8 @@ class WebSocketRunner:
                 "error_code": play_result.get("error_code"),
                 "data": {"provider": provider},
             }
+        await self._handoff_previous_provider(ui, "spotify")
+        setattr(ui, "_active_playback_provider", "spotify")
         await self._sync_tool_result_ui(ui, play_tool, play_result)
         await ui.append_system_message(
             format_agent_playing_feedback(play_result, selected_candidate)

@@ -327,6 +327,7 @@ def _spotify_track_metadata(query: str, track: dict[str, Any]) -> dict[str, Any]
         "spotify_url": _non_placeholder_text(track.get("spotify_url")),
         "uri": _non_placeholder_text(track.get("uri")),
         "spotify_track_id": _non_placeholder_text(track.get("id")),
+        "is_playable": track.get("is_playable"),
     }
 
 
@@ -365,6 +366,8 @@ def search_spotify_track_candidates(
         if result.get("status") != "success":
             break
         for track in _spotify_tracks_from_result(result):
+            if isinstance(track, dict) and track.get("is_playable") is False:
+                continue
             metadata = _spotify_track_metadata(clean_query, track)
             if not metadata:
                 continue

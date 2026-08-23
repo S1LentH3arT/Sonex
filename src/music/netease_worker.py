@@ -304,7 +304,16 @@ class NetEaseProviderWorker:
 
     def search(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
         bounded = min(20, max(1, int(limit)))
-        result = self._run(("search", "song", "--keyword", query))
+        result = self._run(
+            (
+                "search",
+                "song",
+                "--keyword",
+                query,
+                "--limit",
+                str(bounded),
+            )
+        )
         if not _command_succeeded(result):
             raise RuntimeError("NetEase catalog search failed.")
         payload = _parse_json_output(result.stdout)
