@@ -756,7 +756,12 @@ export const App: React.FC<{
                 setAuthState(nextAuthState);
                 if (!startupInfoCapturedRef.current) {
                     startupInfoCapturedRef.current = true;
-                    commitItems([createInfoBannerItem(nextAuthState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
+                    commitItems([createInfoBannerItem(
+                        nextAuthState,
+                        RUNTIME_WORKING_DIRECTORY,
+                        sessionIdRef.current,
+                        { showLogo: true },
+                    )]);
                 }
                 break;
             case "help_panel":

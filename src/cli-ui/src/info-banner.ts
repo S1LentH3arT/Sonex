@@ -24,12 +24,14 @@ export function createInfoBannerItem(
     authState: AuthRuntimeState,
     cwd: string,
     sessionId: string | null,
+    { showLogo = false }: { showLogo?: boolean } = {},
 ): InfoBannerItem {
     return {
         type: "info_banner",
         authState: { ...authState },
         cwd,
         sessionId,
+        showLogo,
     };
 }
 

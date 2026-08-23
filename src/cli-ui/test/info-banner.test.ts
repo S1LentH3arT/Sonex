@@ -15,11 +15,19 @@ const authState: AuthRuntimeState = {
     credential_source: 'auth.json',
 };
 const snapshot = createInfoBannerItem(authState, '/home/user/project', 'session-1');
+const startupSnapshot = createInfoBannerItem(
+    authState,
+    '/home/user/project',
+    'session-1',
+    { showLogo: true },
+);
 
 authState.model = 'gpt-after';
 assert.equal(snapshot.authState.model, 'gpt-before');
 assert.equal(snapshot.cwd, '/home/user/project');
 assert.equal(snapshot.sessionId, 'session-1');
+assert.equal(snapshot.showLogo, false);
+assert.equal(startupSnapshot.showLogo, true);
 assert.equal('tokenUsage' in snapshot, false);
 
 assert.equal(formatWorkingDirectory('/home/user', '/home/user'), '~');

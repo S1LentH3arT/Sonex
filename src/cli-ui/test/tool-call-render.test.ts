@@ -40,7 +40,7 @@ test('renders tool names in bold navy and values in white ANSI spans', async () 
                 },
                 presentation: {
                     contentWidth: 60,
-                    headerVariant: 'complete',
+                    headerVariant: 'mascot',
                     language: 'en',
                 },
             },

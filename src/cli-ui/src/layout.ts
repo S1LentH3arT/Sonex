@@ -12,7 +12,7 @@ export type TerminalSize = {
     rows: number | null;
 };
 
-export type ChatHeaderVariant = 'full' | 'compact';
+export type ChatHeaderVariant = 'mascot' | 'compact';
 
 export type TerminalLinePosition = {
     row: number;
@@ -39,7 +39,7 @@ export type SpotifyImmersiveLayout = {
     deviceSlot: TerminalLinePosition;
 };
 
-const CHAT_HEADER_FULL_MIN_COLUMNS = 72;
+const CHAT_HEADER_MASCOT_MIN_COLUMNS = 72;
 const MINI_COLUMN_GAP = 1;
 const MINI_INFO_RATIO = 0.32;
 const MINI_INFO_MIN_COLUMNS = 24;
@@ -56,7 +56,9 @@ const SPOTIFY_PROGRESS_MIN_COLUMNS = 18;
 const SPOTIFY_PROGRESS_MAX_COLUMNS = 48;
 
 export function resolveChatHeaderVariant(columns: number | null): ChatHeaderVariant {
-    return (columns ?? 0) >= CHAT_HEADER_FULL_MIN_COLUMNS ? 'full' : 'compact';
+    const availableColumns = columns ?? 0;
+    if (availableColumns >= CHAT_HEADER_MASCOT_MIN_COLUMNS) return 'mascot';
+    return 'compact';
 }
 
 export function resolveMiniPlayerLayout(size: TerminalSize): MiniPlayerLayout {

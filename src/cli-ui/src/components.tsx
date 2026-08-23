@@ -19,6 +19,7 @@ import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout,
 import { filterModelChoices } from './model-selection.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem } from './panel-frame.js';
+import { SONEX_LOGO } from './sonex-logo.js';
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
@@ -34,6 +35,23 @@ const Mascot = () => {
                             {segment.text}
                         </Text>
                     ))}
+                </Text>
+            ))}
+        </Box>
+    );
+};
+
+export const SonexLogo = () => {
+    const useColor = process.env.NO_COLOR === undefined;
+    return (
+        <Box width="100%" flexDirection="column">
+            {SONEX_LOGO.map((line, rowIndex) => (
+                <Text
+                    key={rowIndex}
+                    color={useColor ? BORDER_BLUE_SOFT : undefined}
+                    wrap="truncate-end"
+                >
+                    {line}
                 </Text>
             ))}
         </Box>
@@ -104,23 +122,28 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
 }) => {
     const identityModel = authState.model_label || authState.model || authState.provider || FALLBACK_MODEL_NAME;
     const displayCwd = formatWorkingDirectory(cwd);
+    const runtimeInformation = (
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+            <Text wrap="truncate-end"><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
+            <Box height={1} />
+            <Text color="#d8bcc7" wrap="truncate-end">
+                {identityModel} • {authState.ready
+                    ? formatAuthLabel(authState)
+                    : <Text color="#facc15" bold>Not logged in</Text>}
+            </Text>
+            <Text color="#fff4f6" wrap="truncate-end">{displayCwd}</Text>
+            {sessionId ? (
+                <>
+                    <Text color="#808791">session id:</Text>
+                    <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
+                </>
+            ) : null}
+        </Box>
+    );
     if (variant === 'compact') {
         return (
             <Box width="100%" flexDirection="column" marginBottom={2}>
-                <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
-                <Box height={1} />
-                <Text color="#d8bcc7" wrap="truncate-end">
-                    {identityModel} • {authState.ready
-                        ? formatAuthLabel(authState)
-                        : <Text color="#facc15" bold>Not logged in</Text>}
-                </Text>
-                <Text color="#fff4f6" wrap="truncate-end">{displayCwd}</Text>
-                {sessionId ? (
-                    <>
-                        <Text color="#808791">session id:</Text>
-                        <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
-                    </>
-                ) : null}
+                {runtimeInformation}
             </Box>
         );
     }
@@ -128,22 +151,7 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
     return (
         <Box width="100%" marginBottom={2}>
             <Mascot />
-            <Box flexDirection="column" justifyContent="flex-start">
-                <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
-                <Box height={1} />
-                <Text color="#d8bcc7">
-                    {identityModel} • {authState.ready
-                        ? formatAuthLabel(authState)
-                        : <Text color="#facc15" bold>Not logged in</Text>}
-                </Text>
-                <Text color="#fff4f6">{displayCwd}</Text>
-                {sessionId ? (
-                    <>
-                        <Text color="#808791">session id:</Text>
-                        <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
-                    </>
-                ) : null}
-            </Box>
+            {runtimeInformation}
         </Box>
     );
 };
@@ -578,13 +586,21 @@ export const CommittedRecord = ({
 }) => (
     <Box flexDirection="column" paddingX={1}>
         {record.item.type === "info_banner" ? (
-            <HeaderFrame
-                authState={record.item.authState}
-                cwd={record.item.cwd}
-                sessionId={record.item.sessionId}
-                variant={record.presentation.headerVariant}
-                language={record.presentation.language}
-            />
+            <>
+                {record.item.showLogo ? (
+                    <>
+                        <SonexLogo />
+                        <Box height={1} />
+                    </>
+                ) : null}
+                <HeaderFrame
+                    authState={record.item.authState}
+                    cwd={record.item.cwd}
+                    sessionId={record.item.sessionId}
+                    variant={record.presentation.headerVariant}
+                    language={record.presentation.language}
+                />
+            </>
         ) : record.item.type === "netease_qr" ? (
             <NetEaseQrMessage item={record.item} />
         ) : (
