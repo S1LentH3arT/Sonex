@@ -339,6 +339,15 @@ def test_sandbox_denies_execution_when_not_ready(tmp_path: Path) -> None:
     assert result.audit_id
 
 
+def test_sandbox_shares_network_namespace_for_provider_cli(tmp_path: Path) -> None:
+    manager = SandboxManager(root=tmp_path / "sandbox")
+
+    command = manager._base_command()
+
+    assert "--unshare-all" in command
+    assert "--share-net" in command
+
+
 def test_sandbox_pipe_reader_caps_retained_output() -> None:
     buffer = bytearray()
     state = {"truncated": False}
