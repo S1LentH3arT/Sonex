@@ -6,6 +6,7 @@ Key public entry points include login, set_key, list_auth, logout, set_default_a
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -39,6 +40,7 @@ from src.auth.store import (
     set_provider_config,
 )
 from src.log import configure_file_logging, sonex_log_path
+from src.tools.audio_doctor import audio_doctor_report
 from src.workspace import user_workspace_root
 
 APP_VERSION = "0.1.0-alpha.1"
@@ -48,6 +50,8 @@ SERVER_START_TIMEOUT = 15.0
 
 app = typer.Typer(no_args_is_help=False, add_completion=False)
 auth_app = typer.Typer(no_args_is_help=True, help="Manage Sonex provider credentials.")
+doctor_app = typer.Typer(no_args_is_help=True, help="Inspect local Sonex runtime health.")
+app.add_typer(doctor_app, name="doctor")
 console = Console()
 _RETIRED_PROVIDERS = {"apple_music", "apple_mode"}
 
@@ -544,6 +548,34 @@ def tui(
     exit_code = _run_ink_tui(host=host, port=port)
     if exit_code:
         raise typer.Exit(exit_code)
+
+
+@doctor_app.command("audio")
+def doctor_audio(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+    check_updates: bool = typer.Option(True, "--check-updates/--no-check-updates", help="Check the latest stable yt-dlp release."),
+) -> None:
+    """Check yt-dlp, worker isolation, local audio state, and cooldown."""
+    report = audio_doctor_report(check_updates=check_updates)
+    if json_output:
+        typer.echo(json.dumps(report, ensure_ascii=False, default=str))
+        return
+    typer.echo(f"yt-dlp: {report['yt_dlp_version']}")
+    typer.echo(f"worker: {'ready' if report['worker_module'] else 'missing'}")
+    typer.echo(f"audio state: {'writable' if report['storage_writable'] else 'read-only'} ({report['storage_path']})")
+    cooldown = report.get("cooldown")
+    if cooldown and cooldown.get("remaining_seconds", 0) > 0:
+        typer.echo(
+            f"YouTube cooldown: {cooldown['failure_class']} "
+            f"({int(cooldown['remaining_seconds'])}s remaining)"
+        )
+    else:
+        typer.echo("YouTube cooldown: clear")
+    if report.get("latest_version"):
+        update = "available" if report["update_available"] else "current"
+        typer.echo(f"latest stable: {report['latest_version']} ({update})")
+    elif report.get("update_error"):
+        typer.echo("latest stable: unavailable")
 
 
 if __name__ == "__main__":

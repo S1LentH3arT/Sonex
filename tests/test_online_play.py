@@ -1269,20 +1269,6 @@ class OnlinePlayTests(unittest.TestCase):
             candidates[0]["source_attempts"],
             [
                 {
-                    "provider": "jamendo",
-                    "status": "missing_config",
-                    "candidate_count": 0,
-                    "credible_count": 0,
-                    "message": "Jamendo is not configured.",
-                },
-                {
-                    "provider": "audius",
-                    "status": "missing_config",
-                    "candidate_count": 0,
-                    "credible_count": 0,
-                    "message": "Audius is not configured.",
-                },
-                {
                     "provider": "youtube",
                     "status": "success",
                     "candidate_count": 1,
@@ -1291,8 +1277,7 @@ class OnlinePlayTests(unittest.TestCase):
                 },
             ],
         )
-        self.assertIn("Jamendo is not configured", candidates[0]["fallback_reason"])
-        self.assertIn("Audius is not configured", candidates[0]["fallback_reason"])
+        self.assertNotIn("fallback_provider", candidates[0])
 
     def test_resolve_online_audio_youtube_search_failure_keeps_attempt_trace(self) -> None:
         """Verifies that resolve online audio youtube search failure keeps attempt trace behaves as expected.
@@ -1312,7 +1297,7 @@ class OnlinePlayTests(unittest.TestCase):
             message = str(cm.exception)
 
         self.assertIn("Audius is not configured", message)
-        self.assertIn("Sonex fell back to YouTube", message)
+        self.assertIn("YouTube failed", message)
         self.assertIn("Selected YouTube result is not available", message)
         self.assertNotIn("ERROR: [youtube]", message)
         self.assertNotIn("wYB9Vu282ZU", message)
@@ -1349,7 +1334,8 @@ class OnlinePlayTests(unittest.TestCase):
         error = caught.exception
         self.assertEqual(error.search_trace["final_state"], "no_candidate")
         self.assertEqual(error.search_trace["confidence_counts"]["high"], 0)
-        self.assertEqual(error.source_attempts[-1]["provider"], "youtube")
+        self.assertEqual(error.source_attempts[0]["provider"], "youtube")
+        self.assertEqual(error.source_attempts[-1]["provider"], "audius")
         self.assertIn("youtube", error.search_trace["provider_elapsed_ms"])
 
     def test_resolve_online_audio_reports_youtube_identity_mismatch(self) -> None:
@@ -1399,38 +1385,11 @@ class OnlinePlayTests(unittest.TestCase):
              patch("src.tools.online_play.search_youtube_songs", return_value=[youtube_candidate]) as youtube_search:
             candidates = online.resolve_online_audio_candidates("Artist Song", config=config)
 
-        jamendo_search.assert_called_once()
+        jamendo_search.assert_not_called()
         audius_search.assert_not_called()
         youtube_search.assert_called_once()
         self.assertEqual(candidates[0]["cache_id"], "youtube_yt-1")
-        self.assertEqual(candidates[0]["fallback_provider"], "youtube")
-        self.assertIn("Jamendo returned no credible matches", candidates[0]["fallback_reason"])
-        self.assertEqual(
-            candidates[0]["source_attempts"],
-            [
-                {
-                    "provider": "jamendo",
-                    "status": "no_credible_matches",
-                    "candidate_count": 0,
-                    "credible_count": 0,
-                    "message": "Jamendo returned no credible matches.",
-                },
-                {
-                    "provider": "audius",
-                    "status": "missing_config",
-                    "candidate_count": 0,
-                    "credible_count": 0,
-                    "message": "Audius is not configured.",
-                },
-                {
-                    "provider": "youtube",
-                    "status": "success",
-                    "candidate_count": 1,
-                    "credible_count": 1,
-                    "message": "YouTube returned 1 credible match.",
-                },
-            ],
-        )
+        self.assertNotIn("fallback_provider", candidates[0])
 
     def test_resolve_online_audio_unifies_configured_provider_candidates(self) -> None:
         config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
@@ -1475,11 +1434,11 @@ class OnlinePlayTests(unittest.TestCase):
                 config=config,
             )
 
-        jamendo_search.assert_called_once()
-        youtube_search.assert_not_called()
+        jamendo_search.assert_not_called()
+        youtube_search.assert_called_once()
         self.assertEqual(
             [candidate["cache_id"] for candidate in candidates],
-            ["jamendo_jam-1"],
+            ["youtube_yt-1"],
         )
         self.assertTrue(all(candidate.get("source_attempts") for candidate in candidates))
         trace = candidates[0]["search_trace"]
@@ -1513,13 +1472,13 @@ class OnlinePlayTests(unittest.TestCase):
 
         with patch("src.tools.online_play.search_jamendo_audio_candidates", return_value=[jamendo_candidate]), \
              patch("src.tools.online_play.search_audius_audio_candidates", return_value=[]), \
-             patch("src.tools.online_play.search_youtube_songs") as youtube_search:
+             patch("src.tools.online_play.search_youtube_songs", return_value=[]) as youtube_search:
             candidates = online.resolve_online_audio_candidates("Canonical Artist Canonical Song", config=config)
 
-        youtube_search.assert_not_called()
+        youtube_search.assert_called_once()
         self.assertEqual([candidate["cache_id"] for candidate in candidates], ["jamendo_high"])
-        self.assertEqual(candidates[0]["source_attempts"][-1]["provider"], "youtube")
-        self.assertEqual(candidates[0]["source_attempts"][-1]["status"], "skipped_high_confidence")
+        self.assertEqual(candidates[0]["source_attempts"][0]["provider"], "youtube")
+        self.assertEqual(candidates[0]["source_attempts"][1]["provider"], "jamendo")
 
     def test_resolve_online_audio_runs_open_stage_before_youtube_with_split_budget(self) -> None:
         config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key="audius-key")
@@ -1546,17 +1505,17 @@ class OnlinePlayTests(unittest.TestCase):
         ) -> tuple[dict[str, list[dict[str, object]]], dict[str, Exception]]:
             calls.append((tuple(jobs), timeout))
             if "youtube" in jobs:
-                return {"youtube": [youtube]}, {}
+                return {"youtube": []}, {}
             return {"jamendo": [], "audius": [medium]}, {}
 
         with patch("src.tools.online_play._run_online_provider_searches", side_effect=fake_run):
             candidates = online.resolve_online_audio_candidates("Canonical Artist Canonical Song", config=config)
 
-        self.assertEqual([providers for providers, _ in calls], [("jamendo", "audius"), ("youtube",)])
-        self.assertEqual(calls[0][1], 4.0)
-        self.assertGreater(calls[1][1], 0.0)
-        self.assertLessEqual(calls[1][1], 8.0)
-        self.assertEqual([candidate["cache_id"] for candidate in candidates], ["youtube_high", "audius_review"])
+        self.assertEqual([providers for providers, _ in calls], [("youtube",), ("jamendo", "audius")])
+        self.assertGreater(calls[0][1], 0.0)
+        self.assertLessEqual(calls[0][1], 8.0)
+        self.assertEqual(calls[1][1], 4.0)
+        self.assertEqual([candidate["cache_id"] for candidate in candidates], ["audius_review"])
 
     def test_provider_searches_start_concurrently(self) -> None:
         barrier = Barrier(2)
@@ -1623,10 +1582,8 @@ class OnlinePlayTests(unittest.TestCase):
             )
 
         self.assertEqual([candidate["youtube_id"] for candidate in candidates], ["official"])
-        self.assertEqual(candidates[0]["fallback_provider"], "youtube")
         self.assertEqual(candidates[0]["identity_match_source"], "youtube_title_query")
-        self.assertIn("Jamendo returned no credible matches", candidates[0]["fallback_reason"])
-        self.assertIn("Audius is not configured", candidates[0]["fallback_reason"])
+        self.assertNotIn("fallback_provider", candidates[0])
 
     def test_resolve_online_audio_filters_low_similarity_before_youtube_fallback(self) -> None:
         """Verifies that resolve online audio filters low similarity before youtube fallback behaves as expected.
@@ -1661,7 +1618,7 @@ class OnlinePlayTests(unittest.TestCase):
 
         youtube_search.assert_called_once()
         self.assertEqual(candidates[0]["cache_id"], "youtube_yt-1")
-        self.assertEqual(candidates[0]["fallback_provider"], "youtube")
+        self.assertNotIn("fallback_provider", candidates[0])
 
     def test_resolve_online_audio_reports_identity_mismatch_rejections(self) -> None:
         config = online.OnlineAudioConfig(jamendo_client_id="jamendo-id", audius_api_key=None)
@@ -1679,6 +1636,7 @@ class OnlinePlayTests(unittest.TestCase):
             "name": "Sorry",
             "artist": "Fang Datong",
             "similarity_score": 100,
+            "assessment": {"confidence": "medium", "evidence": [], "conflicts": []},
         }
 
         with patch("src.tools.online_play._json_get", return_value=wrong_payload), \
@@ -1694,7 +1652,9 @@ class OnlinePlayTests(unittest.TestCase):
                 },
             )
 
-        attempt = candidates[0]["source_attempts"][0]
+        attempt = next(
+            item for item in candidates[0]["source_attempts"] if item["provider"] == "jamendo"
+        )
         self.assertEqual(attempt["status"], "identity_mismatch")
         self.assertEqual(attempt["rejected_count"], 2)
 
@@ -1714,6 +1674,7 @@ class OnlinePlayTests(unittest.TestCase):
             "artist": "Artist",
             "quality_label": "clean_audio_match",
             "similarity_score": 92,
+            "assessment": {"confidence": "medium", "evidence": [], "conflicts": []},
         }
 
         with patch("src.tools.online_play.search_jamendo_audio_candidates", side_effect=RuntimeError("token secret=abc123 failed")), \
@@ -1721,10 +1682,9 @@ class OnlinePlayTests(unittest.TestCase):
             candidates = online.resolve_online_audio_candidates("Artist Song", config=config)
 
         self.assertEqual(candidates[0]["cache_id"], "youtube_yt-1")
-        self.assertEqual(candidates[0]["source_attempts"][0]["status"], "provider_error")
-        self.assertIn("Jamendo failed:", candidates[0]["source_attempts"][0]["message"])
-        self.assertNotIn("secret=abc123", candidates[0]["source_attempts"][0]["message"])
-        self.assertIn("Jamendo failed:", candidates[0]["fallback_reason"])
+        self.assertEqual(candidates[0]["source_attempts"][1]["status"], "provider_error")
+        self.assertIn("Jamendo failed:", candidates[0]["source_attempts"][1]["message"])
+        self.assertNotIn("secret=abc123", candidates[0]["source_attempts"][1]["message"])
 
     def test_rank_online_audio_candidates_uses_similarity_quality_before_provider_priority(self) -> None:
         """Verifies that rank online audio candidates uses similarity quality before provider priority behaves as expected.
@@ -3059,13 +3019,12 @@ class OnlinePlayTests(unittest.TestCase):
                 result = online.play_youtube_song("Artist Song", player="mpv", cache_root=Path(tmp))
 
         self.assertEqual(result["status"], "fail")
-        self.assertEqual(result["tool"], "play_online_audio")
+        self.assertEqual(result["tool"], "play_youtube_song")
         self.assertEqual(result["error_code"], "YOUTUBE_UNAVAILABLE")
-        self.assertIn("Jamendo returned no credible matches", result["message"])
-        self.assertIn("fell back to YouTube", result["message"])
+        self.assertIn("Selected YouTube result is not available", result["message"])
         self.assertIn("Choose another candidate or refine", result["message"])
         self.assertNotIn("wYB9Vu282ZU", result["message"])
-        self.assertEqual(result["data"]["source_attempts"][0]["provider"], "jamendo")
+        self.assertEqual(result["data"]["source_attempts"][0]["provider"], "youtube")
         launch.assert_not_called()
 
     def test_play_youtube_candidate_returns_age_restricted_failure_without_cookie_instructions(self) -> None:
