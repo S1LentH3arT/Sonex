@@ -4477,6 +4477,11 @@ class AgentCandidateSelectionSession:
                 }
             )
             return
+        await self._search_candidates()
+
+    async def _search_candidates(self) -> None:
+        """Search the selected source without ending the Agent on failure."""
+        search_error: str | None = None
         try:
             if self.playback_source in {"netease", "spotify"}:
                 raw_candidates = await self.runner._search_authoritative_candidates(
@@ -4492,16 +4497,8 @@ class AgentCandidateSelectionSession:
                     5,
                 )
         except Exception as exc:
-            result = {
-                "candidates": [],
-                "source_attempts": [
-                    {
-                        "provider": "metadata",
-                        "status": "error",
-                        "message": sanitize_error_message(exc),
-                    }
-                ],
-            }
+            result = {"candidates": []}
+            search_error = sanitize_error_message(exc)
         raw_candidates = result.get("candidates") if isinstance(result, dict) else result
         if isinstance(raw_candidates, list):
             self.candidates.extend(
@@ -4512,18 +4509,37 @@ class AgentCandidateSelectionSession:
         for candidate in self.candidates:
             candidate.setdefault("playback_source", self.playback_source)
         if not self.candidates:
-            await self._complete(
-                {
-                    "status": "cancelled",
-                    "tool": "Call",
-                    "message": "No playback candidates were found.",
-                    "data": {
-                        "workflow": "playback.select",
-                        "reason": "no_candidates",
-                        "query": self.query,
+            provider_label = self.playback_source.title() if self.playback_source else "Playback"
+            await self.ui.append_activity(
+                kind="error",
+                title=f"{provider_label} search",
+                detail=search_error or f"No playable {provider_label} tracks found.",
+                status="error",
+            )
+            await self._ask_confirm(
+                message=(
+                    f"{provider_label} search failed"
+                    if search_error
+                    else f"No {provider_label} tracks found"
+                ),
+                choices=[
+                    {"value": "retry_native_query", "label": "Retry"},
+                    {
+                        "value": "refine_native_query",
+                        "label": "Type to supplement.",
+                        "input": {"placeholder": ""},
                     },
-                    "error_code": None,
-                }
+                    {"value": "cancel", "label": "Cancel"},
+                ],
+                tool_args={
+                    "query": self.query,
+                    "stage": (
+                        "authoritative_search_error"
+                        if search_error
+                        else "authoritative_candidates"
+                    ),
+                    "provider": self.playback_source,
+                },
             )
             return
         choices = [
@@ -4549,6 +4565,26 @@ class AgentCandidateSelectionSession:
             }
             for index, candidate in enumerate(self.candidates)
         ]
+        await self._ask_confirm(
+            message="Select the version",
+            choices=choices,
+            tool_args={
+                "query": self.query,
+                "workflow": "playback.select",
+                "interaction_id": self.interaction_id,
+                "provider": self.playback_source,
+            },
+        )
+
+    async def _ask_confirm(
+        self,
+        *,
+        message: str,
+        choices: list[dict[str, Any]],
+        tool_args: dict[str, Any],
+    ) -> None:
+        if self._timeout_task is not None:
+            self._timeout_task.cancel()
         await self.ui.append_activity(
             kind="confirm",
             title="Playback selection",
@@ -4561,13 +4597,8 @@ class AgentCandidateSelectionSession:
                 "type": "confirm",
                 "id": self.confirm_id,
                 "tool_name": "song_candidate",
-                "tool_args": {
-                    "query": self.query,
-                    "workflow": "playback.select",
-                    "interaction_id": self.interaction_id,
-                    "provider": self.playback_source,
-                },
-                "message": "Select the version",
+                "tool_args": tool_args,
+                "message": message,
                 "choices": choices,
             }
         )
@@ -4578,6 +4609,26 @@ class AgentCandidateSelectionSession:
 
     async def handle_choice(self, decision: Any) -> None:
         value = str(decision or "deny")
+        if value == "retry_native_query":
+            self.candidates = []
+            await self._search_candidates()
+            return
+        if value == "refine_native_query":
+            await self.ui.append_activity(
+                kind="status",
+                title="Refine song search",
+                detail="Send more song details to search again.",
+                status="pending",
+            )
+            return
+        if value.startswith("refine_native_query:"):
+            extra = unquote(value.partition(":")[2]).strip()
+            if not extra:
+                return
+            self.query = f"{self.query} {extra}".strip()
+            self.candidates = []
+            await self._search_candidates()
+            return
         if value in {"deny", "cancel", "false"}:
             await self._complete(
                 {
