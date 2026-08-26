@@ -21,6 +21,7 @@ from typing import Any, Literal
 import fcntl
 
 from src.log import sonex_home
+from src.session_id import create_session_id
 
 
 MemoryTarget = Literal["memory", "user"]
@@ -117,7 +118,7 @@ class MemoryStore:
     def init_session(self, session_id: str | None = None) -> None:
         """Initialize the current session database and rebuild markdown indexes."""
         self._ensure_markdown_files()
-        session_id = session_id or datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%fZ")
+        session_id = session_id or create_session_id()
         root = self.paths.memory.parent / "sessions" / session_id
         root.mkdir(parents=True, exist_ok=True)
 
@@ -336,12 +337,15 @@ class MemoryStore:
 
     def pending_memory_candidates(self, limit: int = 8) -> list[dict[str, str]]:
         """Discover retained asynchronous candidates across prior session databases."""
-        candidates: list[dict[str, str]] = []
+        limit = max(0, int(limit))
+        if limit == 0:
+            return []
+        candidates: list[tuple[str, str, str, str]] = []
         reset_epoch = self.reset_epoch()
         sessions_root = self.paths.memory.parent / "sessions"
         if not sessions_root.exists():
             return []
-        for db_path in sorted(sessions_root.glob("*/agent.db"), reverse=True):
+        for db_path in sessions_root.glob("*/agent.db"):
             try:
                 with sqlite3.connect(db_path) as conn:
                     rows = conn.execute(
@@ -360,15 +364,22 @@ class MemoryStore:
                 if reset_epoch is not None and str(created_at) <= reset_epoch:
                     continue
                 candidates.append(
-                    {
-                        "session_id": db_path.parent.name,
-                        "turn_id": str(turn_id),
-                        "user_input": str(user_input),
-                    }
+                    (
+                        str(created_at),
+                        db_path.parent.name,
+                        str(turn_id),
+                        str(user_input),
+                    )
                 )
-                if len(candidates) >= limit:
-                    return candidates
-        return candidates
+        candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+        return [
+            {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "user_input": user_input,
+            }
+            for _created_at, session_id, turn_id, user_input in candidates[:limit]
+        ]
 
     def record_behavior_signal(self, kind: str, item: dict[str, Any]) -> int:
         """Accumulate provider-neutral music behavior without asserting a preference."""

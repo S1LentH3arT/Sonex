@@ -4,6 +4,7 @@ import json
 import sqlite3
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -21,6 +22,15 @@ class MemoryHarnessTests(unittest.TestCase):
     def _store(self, home: str) -> MemoryStore:
         with patch.dict("os.environ", {"SONEX_HOME": home}):
             return MemoryStore()
+
+    def test_unscoped_memory_session_uses_uuidv7(self) -> None:
+        with tempfile.TemporaryDirectory() as home:
+            store = self._store(home)
+            bind_memory_scope("")
+            store.init_session()
+
+            self.assertIsNotNone(store.current_session_id)
+            self.assertEqual(uuid.UUID(str(store.current_session_id)).version, 7)
 
     def test_sqlite_context_is_isolated_by_canonical_chat_session(self) -> None:
         with tempfile.TemporaryDirectory() as home:
@@ -211,6 +221,31 @@ class MemoryHarnessTests(unittest.TestCase):
                     ).fetchone(),
                     ("failed", 3),
                 )
+
+    def test_pending_candidates_sort_by_created_at_across_mixed_session_ids(self) -> None:
+        with tempfile.TemporaryDirectory() as home:
+            store = self._store(home)
+            old_session = "20260725091530123456Z"
+            new_session = "019f988e-e7cb-7000-8000-000000000000"
+
+            bind_memory_scope(old_session, "turn-old")
+            store.enqueue_memory_candidate("older candidate")
+            with sqlite3.connect(store.get_db()) as conn:
+                conn.execute(
+                    "UPDATE memory_candidates SET created_at = ? WHERE turn_id = ?",
+                    ("2026-07-25T09:15:30+00:00", "turn-old"),
+                )
+
+            bind_memory_scope(new_session, "turn-new")
+            store.enqueue_memory_candidate("newer candidate")
+            with sqlite3.connect(store.get_db()) as conn:
+                conn.execute(
+                    "UPDATE memory_candidates SET created_at = ? WHERE turn_id = ?",
+                    ("2026-07-25T09:15:31+00:00", "turn-new"),
+                )
+
+            candidates = store.pending_memory_candidates(limit=2)
+            self.assertEqual([item["turn_id"] for item in candidates], ["turn-new", "turn-old"])
 
     def test_capacity_warning_is_emitted_once_per_day_at_eighty_percent(self) -> None:
         with tempfile.TemporaryDirectory() as home:

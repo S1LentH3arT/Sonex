@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -15,10 +16,16 @@ from src.ws.transcript import (
 
 
 class SessionTranscriptTests(unittest.TestCase):
-    def test_create_session_id_uses_utc_timestamp_format(self) -> None:
+    def test_create_session_id_uses_uuidv7_format(self) -> None:
         now = datetime(2026, 7, 25, 9, 15, 30, 123456, tzinfo=timezone.utc)
 
-        self.assertEqual(create_session_id(now), "20260725091530123456Z")
+        with patch("src.session_id.secrets.randbits", return_value=0):
+            session_id = create_session_id(now)
+
+        self.assertEqual(session_id, "019f988e-e7cb-7000-8000-000000000000")
+        parsed = uuid.UUID(session_id)
+        self.assertEqual(parsed.version, 7)
+        self.assertEqual(parsed.variant, uuid.RFC_4122)
 
     def test_save_uses_supplied_session_id_for_path_and_records(self) -> None:
         with tempfile.TemporaryDirectory() as directory, patch(
