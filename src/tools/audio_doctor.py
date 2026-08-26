@@ -16,6 +16,7 @@ import yt_dlp
 
 from src.log import sonex_home
 from src.tools.online_provider_health import provider_cooldown
+from src.tools.youtube_runtime import runtime_status, update_state
 
 UPDATE_CHECK_TTL_SECONDS = 24 * 60 * 60
 
@@ -73,6 +74,8 @@ def audio_doctor_report(*, check_updates: bool = True) -> dict[str, Any]:
         "cooldown": None,
         "latest_version": None,
         "update_available": False,
+        "youtube_runtime": runtime_status(),
+        "youtube_update": update_state(),
     }
     try:
         report["cooldown"] = provider_cooldown("youtube")

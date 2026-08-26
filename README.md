@@ -105,6 +105,26 @@ Run:
 `sonex` command, `~/.sonex`, optional local players, and Spotify configuration
 status.
 
+### YouTube PO Token runtime
+
+YouTube's yt-dlp and PO Token Provider run in an isolated runtime under
+`SONEX_HOME`. Sonex checks the local runtime in the background at application
+startup and checks stable releases at most once every 24 hours; startup checks
+never request YouTube. The first uncached YouTube playback asks before setup.
+Installation and updates continue in the background, and completion prompts a
+restart.
+
+```bash
+sonex youtube setup       # interactive confirmation, then background setup
+sonex youtube status      # read-only status
+sonex youtube status --json
+sonex youtube repair      # manually retry setup/update
+```
+
+The managed runtime does not read YouTube account/browser cookies or user-level
+yt-dlp configuration, and it does not discover arbitrary external PO Token
+Providers.
+
 ## LLM Provider Setup
 
 Sonex stores local credentials under `~/.sonex` by default. Set `SONEX_HOME` if

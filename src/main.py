@@ -41,6 +41,13 @@ from src.auth.store import (
 )
 from src.log import configure_file_logging, sonex_log_path
 from src.tools.audio_doctor import audio_doctor_report
+from src.tools.youtube_runtime import (
+    refresh_local_health_check,
+    runtime_status,
+    start_background_health_check,
+    start_update_job,
+    update_state,
+)
 from src.workspace import user_workspace_root
 
 APP_VERSION = "0.1.0-alpha.1"
@@ -51,7 +58,9 @@ SERVER_START_TIMEOUT = 15.0
 app = typer.Typer(no_args_is_help=False, add_completion=False)
 auth_app = typer.Typer(no_args_is_help=True, help="Manage Sonex provider credentials.")
 doctor_app = typer.Typer(no_args_is_help=True, help="Inspect local Sonex runtime health.")
+youtube_app = typer.Typer(no_args_is_help=True, help="Manage the managed YouTube runtime.")
 app.add_typer(doctor_app, name="doctor")
+app.add_typer(youtube_app, name="youtube")
 console = Console()
 _RETIRED_PROVIDERS = {"apple_music", "apple_mode"}
 
@@ -518,6 +527,9 @@ def main(
         typer.echo(f"v{APP_VERSION}")
         raise typer.Exit()
 
+    if ctx.invoked_subcommand != "youtube":
+        start_background_health_check()
+
     if ctx.invoked_subcommand is None:
         _run_full_tui(host=host, port=port)
         raise typer.Exit()
@@ -562,6 +574,11 @@ def doctor_audio(
         return
     typer.echo(f"yt-dlp: {report['yt_dlp_version']}")
     typer.echo(f"worker: {'ready' if report['worker_module'] else 'missing'}")
+    youtube_runtime = report.get("youtube_runtime") or {}
+    typer.echo(
+        f"YouTube runtime: {youtube_runtime.get('status', 'unknown')} "
+        f"(provider {youtube_runtime.get('provider_runtime', 'unknown')})"
+    )
     typer.echo(f"audio state: {'writable' if report['storage_writable'] else 'read-only'} ({report['storage_path']})")
     cooldown = report.get("cooldown")
     if cooldown and cooldown.get("remaining_seconds", 0) > 0:
@@ -576,6 +593,81 @@ def doctor_audio(
         typer.echo(f"latest stable: {report['latest_version']} ({update})")
     elif report.get("update_error"):
         typer.echo("latest stable: unavailable")
+
+
+def _youtube_confirmation(action: str, yes: bool) -> None:
+    if yes:
+        return
+    if not sys.stdin.isatty():
+        raise typer.BadParameter("Non-interactive setup requires --yes.")
+    if not typer.confirm(
+        f"{action} will download and build the managed yt-dlp + PO Token runtime. Continue?",
+        default=False,
+    ):
+        raise typer.Abort()
+
+
+@youtube_app.command("setup")
+def youtube_setup(
+    yes: bool = typer.Option(False, "--yes", help="Confirm setup without an interactive prompt."),
+) -> None:
+    """Authorize and start managed YouTube runtime setup in the background."""
+    _youtube_confirmation("YouTube runtime setup", yes)
+    state = start_update_job(reason="setup")
+    typer.echo(
+        "YouTube runtime setup started in the background. "
+        f"Use `sonex youtube status` to monitor it (state: {state.get('status', 'running')})."
+    )
+
+
+@youtube_app.command("repair")
+def youtube_repair(
+    yes: bool = typer.Option(False, "--yes", help="Confirm repair without an interactive prompt."),
+) -> None:
+    """Retry managed YouTube runtime setup/update immediately."""
+    _youtube_confirmation("YouTube runtime repair", yes)
+    state = start_update_job(reason="repair", force=True)
+    typer.echo(
+        "YouTube runtime repair started in the background. "
+        f"Use `sonex youtube status` to monitor it (state: {state.get('status', 'running')})."
+    )
+
+
+@youtube_app.command("status")
+def youtube_status(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+    refresh: bool = typer.Option(False, "--refresh", help="Start a local background health refresh."),
+) -> None:
+    """Read the managed YouTube runtime state without starting playback."""
+    if refresh:
+        refresh_local_health_check()
+    report = {
+        "runtime": runtime_status(),
+        "update": update_state(),
+    }
+    if json_output:
+        typer.echo(json.dumps(report, ensure_ascii=False, default=str))
+    else:
+        runtime = report["runtime"]
+        update = report["update"]
+        typer.echo(f"status: {runtime.get('status')}")
+        typer.echo(f"provider: {runtime.get('provider_runtime')}")
+        if runtime.get("yt_dlp_version"):
+            typer.echo(f"yt-dlp: {runtime['yt_dlp_version']}")
+        if runtime.get("provider_version"):
+            typer.echo(f"PO Token Provider: {runtime['provider_version']}")
+        if runtime.get("status") == "restart_required":
+            typer.echo("Restart Sonex to apply the staged YouTube runtime update.")
+        if update.get("status") not in {None, "idle"}:
+            typer.echo(f"updater: {update.get('status')} ({update.get('phase', 'unknown')})")
+            if update.get("error"):
+                typer.echo(f"updater error: {update['error']}", err=True)
+    status = str(report["runtime"].get("status") or "degraded")
+    if status in {"ready", "restart_required"}:
+        return
+    if status == "setup_required":
+        raise typer.Exit(2)
+    raise typer.Exit(3)
 
 
 if __name__ == "__main__":

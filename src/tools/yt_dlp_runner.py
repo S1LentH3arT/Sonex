@@ -116,11 +116,12 @@ def run_ytdlp(
         "options": options,
     }
     process = subprocess.Popen(
-        [sys.executable, "-m", "src.tools.yt_dlp_worker"],
+        _worker_command(),
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=_worker_environment(),
     )
     serialized_payload = json.dumps(payload, ensure_ascii=False, default=str)
     try:
@@ -165,3 +166,16 @@ def run_ytdlp(
     if process.returncode not in (0, None):
         raise YtDlpError((stderr or "yt-dlp worker failed").strip())
     return result
+
+
+def _worker_command() -> list[str]:
+    """Return the active managed worker command, preserving direct test use."""
+    from src.tools.youtube_runtime import worker_command
+
+    return worker_command()
+
+
+def _worker_environment() -> dict[str, str]:
+    from src.tools.youtube_runtime import worker_env
+
+    return worker_env()

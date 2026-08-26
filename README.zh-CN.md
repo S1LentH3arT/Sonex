@@ -99,6 +99,23 @@ sonex tui
 `doctor.sh` 会检查 Python 依赖、Node 依赖、TUI 构建产物、`sonex` 命令、
 `~/.sonex`、可选本地播放器，以及 Spotify 配置状态。
 
+### YouTube PO Token 运行时
+
+YouTube 的 yt-dlp 与 PO Token Provider 运行在 `SONEX_HOME` 下的独立 runtime
+中。启动 Sonex 时会在后台检查本地 runtime，并最多每 24 小时检查一次稳定版；
+不会在启动检查中请求 YouTube。首次未缓存的 YouTube 播放会提示是否安装，安装和
+更新在后台进行，完成后提示重启应用。
+
+```bash
+sonex youtube setup       # 交互确认后后台安装
+sonex youtube status      # 查看状态，不启动播放
+sonex youtube status --json
+sonex youtube repair      # 忽略自动重试冷却并人工修复
+```
+
+受管 runtime 不读取 YouTube 账号 Cookie、浏览器 Cookie 或用户级 yt-dlp 配置，
+也不会加载任意外部 PO Token Provider。
+
 ## LLM Provider 设置
 
 Sonex 默认把本地凭据保存到 `~/.sonex`。如果想使用其他状态目录，可以设置

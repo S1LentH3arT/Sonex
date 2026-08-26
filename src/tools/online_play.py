@@ -42,6 +42,14 @@ from src.tools.online_provider_health import (
     activate_provider_cooldown,
     provider_cooldown,
 )
+from src.tools.youtube_runtime import (
+    YoutubeQueueBusy,
+    YoutubeRuntimeUnavailable,
+    mark_runtime_failure,
+    mark_runtime_success,
+    prepare_worker,
+    youtube_request_gate,
+)
 from src.tools.audio_diagnostics import record_audio_event
 from src.tools.online_search_cache import (
     get_search_cache,
@@ -132,7 +140,7 @@ YOUTUBE_RESOLVE_OPERATION_TIMEOUT_SECONDS = 12.0
 YOUTUBE_DOWNLOAD_OPERATION_TIMEOUT_SECONDS = 60.0
 _youtube_search_cooldown_until = 0.0
 _youtube_search_cooldown_lock = Lock()
-YOUTUBE_MIN_SEARCH_INTERVAL_SECONDS = 2.0
+YOUTUBE_MIN_SEARCH_INTERVAL_SECONDS = 3.0
 _youtube_search_gate = Condition(Lock())
 _youtube_search_active = False
 _youtube_last_search_started = 0.0
@@ -154,12 +162,25 @@ def _extract_ytdlp_info(
         if not isinstance(result, dict):
             raise YtDlpError("Invalid response returned.")
         return result
-    return run_ytdlp(
-        operation=operation,
-        target=target,
-        options=options,
-        timeout_seconds=timeout_seconds,
-    )
+    safe_options, _provider_url = prepare_worker(options, operation=operation)
+    try:
+        with youtube_request_gate(options=safe_options):
+            result = run_ytdlp(
+                operation=operation,
+                target=target,
+                options=safe_options,
+                timeout_seconds=timeout_seconds,
+            )
+            return result
+    except YoutubeQueueBusy:
+        raise
+    except YoutubeRuntimeUnavailable:
+        raise
+    except YtDlpError as exc:
+        lowered = str(exc).casefold()
+        if any(marker in lowered for marker in ("bgutil", "pot provider", "plugin", "extractor")):
+            mark_runtime_failure(type(exc).__name__)
+        raise
 
 
 def _record_audio_event_safe(
@@ -2171,6 +2192,11 @@ def _friendly_youtube_failure_message(message: str) -> str:
 
     Example: _friendly_youtube_failure_message(message=...) -> returns the value used by the surrounding Sonex flow.
     """
+    lowered = str(message).casefold()
+    if "youtube_po_provider_unavailable" in lowered or "po token provider" in lowered:
+        return "YouTube playback is not configured. Run `sonex youtube setup`, then restart Sonex."
+    if "youtube_queue_busy" in lowered or "request queue is busy" in lowered:
+        return "Another YouTube request is still running. Try again shortly."
     if _is_age_verification_error(message):
         return AGE_RESTRICTED_MESSAGE
     if _is_unavailable_error(message):
@@ -2459,6 +2485,10 @@ def search_audius_audio_candidates(
 
 def _provider_failure_code(error: Exception) -> str:
     message = str(error).casefold()
+    if isinstance(error, YoutubeRuntimeUnavailable) or "po token provider" in message or "youtube_po_provider_unavailable" in message:
+        return "youtube_po_provider_unavailable"
+    if isinstance(error, YoutubeQueueBusy) or "youtube request queue is busy" in message:
+        return "youtube_queue_busy"
     if isinstance(error, TimeoutError) or "timed out" in message or "timeout" in message:
         return "provider_timeout"
     if "429" in message or "too many requests" in message or "rate limit" in message:
@@ -3286,6 +3316,7 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
         cache_root=cache_root,
         candidate_count=1,
     )
+    mark_runtime_success()
     return item
 
 
@@ -3479,6 +3510,12 @@ def play_youtube_candidate(
         elif _is_unavailable_error(message):
             message = UNAVAILABLE_MESSAGE
             error_code = "YOUTUBE_UNAVAILABLE"
+        elif failure_code == "youtube_po_provider_unavailable":
+            message = "YouTube playback is not configured. Run `sonex youtube setup`, then restart Sonex."
+            error_code = "YOUTUBE_PO_PROVIDER_UNAVAILABLE"
+        elif failure_code == "youtube_queue_busy":
+            message = "Another YouTube request is still running. Try again shortly."
+            error_code = "YOUTUBE_QUEUE_BUSY"
         else:
             error_code = "NO_PLAYABLE_AUDIO" if "No playable audio" in message else "YOUTUBE_RESOLVE_FAILED"
         _record_audio_event_safe(

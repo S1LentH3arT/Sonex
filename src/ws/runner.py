@@ -116,6 +116,12 @@ from src.llm.models import model_choices_for_provider, model_display_name
 from src.llm.transport import ChatRequest, sanitize_error_message
 from src.llm.usage import reset_token_usage_observer, set_token_usage_observer
 from src.log import sonex_home
+from src.tools.youtube_runtime import (
+    consume_restart_notice,
+    start_background_health_check,
+    start_update_job,
+    YoutubeRuntimeUnavailable,
+)
 from src.memory.memory import bind_memory_scope, memory_store
 from src.memory.curator import (
     curate_completed_turn,
@@ -3194,6 +3200,21 @@ class PlaySelectionSession:
         if choice == "retry_online_query":
             await self._ask_online_audio_candidates(self.query, playback_metadata=self.selected_playback_metadata)
             return
+        if choice == "setup_youtube_runtime":
+            await asyncio.to_thread(start_update_job, reason="setup")
+            await self.ui.append_system_message(
+                "YouTube runtime setup started in the background. "
+                "Restart Sonex when the update is ready to apply it."
+            )
+            await self._finish(
+                "YouTube setup is running in the background.",
+                status="error",
+            )
+            return
+        if choice == "defer_youtube_runtime":
+            setattr(self.ui, "_youtube_setup_declined", True)
+            await self._finish("YouTube setup deferred.", status="error")
+            return
         if choice == "refine_query":
             self.awaiting_online_refinement = True
             await self.ui.append_activity(
@@ -3442,6 +3463,24 @@ class PlaySelectionSession:
         await self.ui.send_error(ONLINE_AUDIO_SETUP_MESSAGE)
         await self._finish("Online audio setup required.", status="error")
 
+    async def _ask_youtube_runtime_setup(self, query: str) -> None:
+        """Ask once per TUI session before staging the managed runtime."""
+        if getattr(self.ui, "_youtube_setup_declined", False):
+            await self._finish(
+                "YouTube setup is still required. Run `sonex youtube setup` when ready.",
+                status="error",
+            )
+            return
+        await self._ask_confirm(
+            message="YouTube playback requires the managed PO Token Provider.",
+            choices=[
+                {"value": "setup_youtube_runtime", "label": "Set up"},
+                {"value": "defer_youtube_runtime", "label": "Not now"},
+            ],
+            tool_args={"query": query, "stage": "youtube_runtime_setup"},
+            tool_name="youtube_setup",
+        )
+
     async def _ask_local_choice(self, local_file: str) -> None:
         """Prepares ask local choice for an internal Sonex flow.
 
@@ -3576,6 +3615,9 @@ class PlaySelectionSession:
                 )
             else:
                 self.online_audio_candidates = await asyncio.to_thread(_search_online_audio_for_runner, query, 5)
+        except YoutubeRuntimeUnavailable:
+            await self._ask_youtube_runtime_setup(query)
+            return
         except OnlineAudioSetupRequired:
             await self._show_online_audio_setup_required()
             return
@@ -3658,6 +3700,10 @@ class PlaySelectionSession:
         )
         try:
             candidates = await audio_task
+        except YoutubeRuntimeUnavailable:
+            await self._send_cover_from_task(cover_task)
+            await self._ask_youtube_runtime_setup(query)
+            return
         except Exception as exc:
             await self._send_cover_from_task(cover_task)
             result = {
@@ -6056,12 +6102,16 @@ class WebSocketRunner:
         """
         await ws.accept()
         ui = WebSocketUIAdapter(ws, session_id=create_session_id())
+        start_background_health_check()
         bind_memory_scope(ui.session_id)
         await ui.send_session_state()
         if has_interrupted_interaction():
             await ui.append_system_message(INTERRUPTED_INTERACTION_MESSAGE)
             clear_interrupted_interaction()
         await ui._send({"type": "queue", "tracks": _queue_payload()})
+        startup_youtube_notice = consume_restart_notice()
+        if startup_youtube_notice:
+            await ui.append_system_message(startup_youtube_notice)
         await self._handle_startup_auth(ui)
         with suppress(OSError):
             if self.memory_store.consume_first_notice():
@@ -6083,6 +6133,7 @@ class WebSocketRunner:
         await self._restore_provider_mode(ui)
         playback_sync_task = asyncio.create_task(self._sync_spotify_playback(ui))
         local_playback_sync_task = asyncio.create_task(self._sync_local_playback(ui))
+        youtube_update_watch_task = asyncio.create_task(self._watch_youtube_updates(ui))
 
         unexpected_disconnect = False
         usage_observer_token = set_token_usage_observer(ui.record_token_usage)
@@ -6196,6 +6247,7 @@ class WebSocketRunner:
                 await netease_login.cancel()
             playback_sync_task.cancel()
             local_playback_sync_task.cancel()
+            youtube_update_watch_task.cancel()
             with suppress(asyncio.CancelledError):
                 if spotify_setup and spotify_setup.oauth_task:
                     await spotify_setup.oauth_task
@@ -6209,6 +6261,8 @@ class WebSocketRunner:
                 await playback_sync_task
             with suppress(asyncio.CancelledError):
                 await local_playback_sync_task
+            with suppress(asyncio.CancelledError):
+                await youtube_update_watch_task
             self._confirm_queue.put(
                 (
                     "",
@@ -6221,6 +6275,15 @@ class WebSocketRunner:
                 )
             )
             reset_token_usage_observer(usage_observer_token)
+
+    async def _watch_youtube_updates(self, ui: WebSocketUIAdapter) -> None:
+        """Surface one background updater completion notice without a modal."""
+        while True:
+            await asyncio.sleep(2.0)
+            notice = consume_restart_notice()
+            if notice:
+                await ui.append_system_message(notice)
+                return
 
     async def _handle_confirm_result(self, ui: WebSocketUIAdapter, confirm_id: str, decision: Any) -> bool:
         memory_settings = getattr(ui, "_memory_settings", None)
