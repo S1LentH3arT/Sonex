@@ -137,13 +137,16 @@ assert.match(
 assert.doesNotMatch(compactSetupBody, /borderStyle=|selectedBackground|trailingRowBackgroundMarker|\{"> "\}/);
 
 // Model selection is a formal panel, while InputDock itself remains excluded.
-assert.match(source, /const formatModelPanelLabel = \(model: AuthMethodChoice\): string => \(\s*model\.label\.padEnd/);
+assert.match(source, /import \{ filterModelChoices, formatModelPanelLabel, modelPanelLabelWidth \} from '\.\/model-selection\.js'/);
+assert.match(source, /const allModelChoices = authSetup\?\.models \?\? \[\]/);
+assert.match(source, /const modelLabelWidth = modelPanelLabelWidth\(allModelChoices\)/);
+assert.match(source, /formatModelPanelLabel\(model, modelLabelWidth\)/);
 assert.match(inputDockBody, /const insetPanelWidth = Math\.max\(3, Math\.floor\(terminalColumns \?\? 80\) - 2\)/);
 assert.match(
     inputDockBody,
     /<PanelFrame width=\{insetPanelWidth\} title=\{modelPanel\.title\} hint=\{modelPanel\.hint\}>[\s\S]*<PanelChoiceList[\s\S]*visibleLimit=\{MAX_VISIBLE_MODEL_CHOICES\}/,
 );
-assert.match(inputDockBody, /filterModelChoices\(authSetup\?\.models \?\? \[\], input\)/);
+assert.match(inputDockBody, /const filteredModelChoices = filterModelChoices\(allModelChoices, input\)/);
 assert.match(inputDockBody, /text: "Search: "/);
 assert.match(inputDockBody, /const spotifyTheme = Boolean\(spotifyMode\?\.enabled \|\| spotifySetup\)/);
 assert.match(inputDockBody, /<SlashCommandList suggestions=\{slashSuggestions\} selectedIndex=\{slashIndex\} spotifyTheme=\{spotifyTheme\} \/>/);

@@ -16,7 +16,7 @@ import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
-import { filterModelChoices } from './model-selection.js';
+import { filterModelChoices, formatModelPanelLabel, modelPanelLabelWidth } from './model-selection.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem } from './panel-frame.js';
 import { SONEX_LOGO } from './sonex-logo.js';
@@ -389,7 +389,6 @@ type ConfirmChoiceLabel = {
 const COMMAND_LIST_LABEL_WIDTH = 12;
 const CONFIRM_CHOICE_LABEL_WIDTH = 18;
 const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 102;
-const MODEL_PANEL_LABEL_WIDTH = 20;
 const PLAYLIST_BROWSE_NAME_WIDTH = 32;
 const MEMORY_SETTING_LABEL_WIDTH = 48;
 const TRACK_PANEL_ROW_WIDTH = 96;
@@ -415,10 +414,6 @@ const formatMemorySettingRow = (label: string, value: string): string => (
 
 const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): string => (
     `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
-);
-
-const formatModelPanelLabel = (model: AuthMethodChoice): string => (
-    model.label.padEnd(MODEL_PANEL_LABEL_WIDTH, " ")
 );
 
 const formatPlaylistBrowseName = (label: string): string => (
@@ -1653,7 +1648,9 @@ const InputDock = ({
     const spotifyTheme = Boolean(spotifyMode?.enabled || spotifySetup);
     const isSongCandidateConfirm = confirm?.tool_name === "song_candidate";
     const insetPanelWidth = Math.max(3, Math.floor(terminalColumns ?? 80) - 2);
-    const filteredModelChoices = filterModelChoices(authSetup?.models ?? [], input);
+    const allModelChoices = authSetup?.models ?? [];
+    const filteredModelChoices = filterModelChoices(allModelChoices, input);
+    const modelLabelWidth = modelPanelLabelWidth(allModelChoices);
     const modelPanel = authSetup?.active && authSetup.step === "model"
         ? {
             title: authSetup.title,
@@ -1661,7 +1658,7 @@ const InputDock = ({
             items: filteredModelChoices.map((model) => ({
                 key: model.value,
                 segments: [
-                    { text: formatModelPanelLabel(model), color: PANEL_PRIMARY },
+                    { text: formatModelPanelLabel(model, modelLabelWidth), color: PANEL_PRIMARY },
                     { text: model.provider ?? model.value, color: PANEL_SECONDARY },
                 ],
             })),
