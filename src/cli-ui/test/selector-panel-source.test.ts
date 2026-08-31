@@ -107,8 +107,8 @@ assert.match(compactConfirmBody, /color: choice\.disabled \? PANEL_SECONDARY : P
 assert.match(compactConfirmBody, /if \(confirm\.tool_name === "playlist_browse"\)/);
 assert.match(compactConfirmBody, /formatPlaylistBrowseName\(choice\.label\)/);
 assert.match(compactConfirmBody, /playlistBrowseTrackCount\(choice\)/);
-assert.equal((compactConfirmBody.match(/<PanelFrame/g) ?? []).length, 6);
-assert.equal((compactConfirmBody.match(/<PanelChoiceList/g) ?? []).length, 5);
+assert.equal((compactConfirmBody.match(/<PanelFrame/g) ?? []).length, 5);
+assert.equal((compactConfirmBody.match(/<PanelChoiceList/g) ?? []).length, 4);
 assert.match(compactConfirmBody, /confirm\.tool_name === "provider_mode_exit"/);
 assert.match(compactConfirmBody, /const includeCancelChoice = confirm\.tool_name === "provider_mode_exit"/);
 assert.match(compactConfirmBody, /getVisibleConfirmChoices\(confirm\.choices, includeCancelChoice\)/);

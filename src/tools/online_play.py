@@ -123,7 +123,7 @@ UNAVAILABLE_MESSAGE = (
 )
 ONLINE_AUDIO_SETUP_MESSAGE = (
     "Online playback requires Jamendo or Audius setup. "
-    "Run /connect first."
+    "Open /extension to configure a music source first."
 )
 ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS = 12.0
 OPEN_AUDIO_SEARCH_TIMEOUT_SECONDS = 4.0
@@ -2194,7 +2194,7 @@ def _friendly_youtube_failure_message(message: str) -> str:
     """
     lowered = str(message).casefold()
     if "youtube_po_provider_unavailable" in lowered or "po token provider" in lowered:
-        return "YouTube playback is not configured. Run `sonex youtube setup`, then restart Sonex."
+        return "YouTube playback is not configured. Open /extension to configure it."
     if "youtube_queue_busy" in lowered or "request queue is busy" in lowered:
         return "Another YouTube request is still running. Try again shortly."
     if _is_age_verification_error(message):
@@ -3511,7 +3511,7 @@ def play_youtube_candidate(
             message = UNAVAILABLE_MESSAGE
             error_code = "YOUTUBE_UNAVAILABLE"
         elif failure_code == "youtube_po_provider_unavailable":
-            message = "YouTube playback is not configured. Run `sonex youtube setup`, then restart Sonex."
+            message = "YouTube playback is not configured. Open /extension to configure it."
             error_code = "YOUTUBE_PO_PROVIDER_UNAVAILABLE"
         elif failure_code == "youtube_queue_busy":
             message = "Another YouTube request is still running. Try again shortly."

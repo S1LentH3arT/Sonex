@@ -133,7 +133,6 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
 
 const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     bye: { en: "save and exit", "zh-CN": "保存会话并退出" },
-    connect: { en: "connect a music account", "zh-CN": "连接音乐账号" },
     help: { en: "show commands", "zh-CN": "显示可用的 Sonex 命令" },
     info: { en: "show runtime info", "zh-CN": "显示当前运行信息" },
     keymap: { en: "toggle playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
@@ -153,7 +152,6 @@ const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = 
 
 const helpCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     bye: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
-    connect: { en: "connect a supported music account", "zh-CN": "连接支持的音乐账号" },
     exit: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
     help: { en: "show available Sonex commands", "zh-CN": "显示可用的 Sonex 命令" },
     info: { en: "show current runtime information", "zh-CN": "显示当前运行信息" },

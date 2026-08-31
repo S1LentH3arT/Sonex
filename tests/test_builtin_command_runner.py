@@ -29,7 +29,6 @@ from src.auth.models import OAuthToken
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
 from src.music.playback_coordinator import ProviderReadiness, RecordingIdentity
-from src.music.connections import MusicConnectionManager
 from src.thinking.config import ThinkingConfig
 
 
@@ -121,6 +120,9 @@ class FakeUI:
         Example: send_spotify_setup() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "spotify_setup", **kwargs})
+
+    async def send_extension_panel(self, payload: dict[str, object]) -> None:
+        self.events.append({"type": "extension_panel", **payload})
 
     async def send_auth_setup(self, **kwargs: object) -> None:
         """Verifies that send auth setup behaves as expected.
@@ -1479,23 +1481,20 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }), patch("src.api.ws_runner.spotify_devices") as devices, \
              patch("src.api.ws_runner.spotify_redirect_uri", return_value="http://127.0.0.1:9957/callback"), \
-             patch("src.api.ws_runner.spotify_authorize_url", return_value=("https://accounts.spotify.com/authorize", "state")), \
-             patch("src.api.ws_runner.SpotifySetupSession._finish_oauth", new_callable=AsyncMock), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "/spotify")
 
         devices.assert_not_called()
         self.assertFalse(runner._run_agent_turn.called)
         self.assertIsNone(getattr(ui, "_spotify_mode", None))
-        self.assertTrue(getattr(ui, "_spotify_setup"))
-        spotify_setup_events = [event for event in ui.events if event.get("type") == "spotify_setup"]
-        self.assertTrue(spotify_setup_events)
-        self.assertEqual(spotify_setup_events[-1]["step"], "oauth")
-        messages = [str(event.get("text")) for event in ui.events if event.get("type") == "chat"]
-        self.assertTrue(any("Spotify authorization must be renewed" in message for message in messages))
-        self.assertTrue(any("playlist-read-private" in message for message in messages))
-        self.assertTrue(any("playlist-read-collaborative" in message for message in messages))
-        self.assertTrue(any("user-library-read" in message for message in messages))
+        self.assertFalse(getattr(ui, "_spotify_setup", None))
+        extension_events = [event for event in ui.events if event.get("type") == "extension_panel"]
+        self.assertTrue(extension_events)
+        self.assertEqual(extension_events[-1]["view"], "setup")
+        self.assertEqual(extension_events[-1]["selected_extension"], "spotify")
+        self.assertIn("playlist-read-private", str(extension_events[-1]["setup"]))
+        self.assertIn("playlist-read-collaborative", str(extension_events[-1]["setup"]))
+        self.assertIn("user-library-read", str(extension_events[-1]["setup"]))
 
     async def test_spotify_command_asks_for_inactive_device_choice(self) -> None:
         runner = WebSocketRunner()
@@ -1908,23 +1907,19 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(event.get("text") == "You are not logged in." for event in ui.events))
 
     async def test_logout_netease_clears_external_and_session_state(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            manager = MusicConnectionManager(path=Path(directory) / "connections.json")
-            manager.mark_connected("netease", account_label="ncm-cli")
-            runner = WebSocketRunner(music_connection_manager_factory=lambda: manager)
-            ui = FakeUI()
-            setattr(ui, "_netease_login_declined", True)
-            setattr(ui, "_netease_verified_signature", ("ncm-cli", "0.1.6", 1))
-            setattr(ui, "_preferred_playback_provider", "netease")
-            with patch("src.api.ws_runner.NetEaseProviderWorker.is_logged_in", return_value=True), patch(
-                "src.api.ws_runner.NetEaseProviderWorker.logout",
-                return_value=True,
-            ) as logout:
-                changed = await runner._logout_netease(ui)
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        setattr(ui, "_netease_login_declined", True)
+        setattr(ui, "_netease_verified_signature", ("ncm-cli", "0.1.6", 1))
+        setattr(ui, "_preferred_playback_provider", "netease")
+        with patch("src.api.ws_runner.NetEaseProviderWorker.is_logged_in", return_value=True), patch(
+            "src.api.ws_runner.NetEaseProviderWorker.logout",
+            return_value=True,
+        ) as logout:
+            changed = await runner._logout_netease(ui)
 
         self.assertTrue(changed)
         logout.assert_called_once_with()
-        self.assertIsNone(manager.record("netease"))
         self.assertFalse(getattr(ui, "_netease_login_declined"))
         self.assertIsNone(getattr(ui, "_netease_verified_signature"))
         self.assertIsNone(getattr(ui, "_preferred_playback_provider"))
@@ -5816,25 +5811,15 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             any(event.get("text") == "Usage: /spotify" for event in ui.events)
         )
 
-    async def test_connect_panel_lists_initial_agent_providers_without_emoji(self) -> None:
+    async def test_connect_is_unknown_after_extension_migration(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
 
         with self._isolated_auth_env():
             await runner._handle_user_input(ui, "/connect")
 
-        confirm = [event for event in ui.events if event.get("type") == "confirm"][-1]
-        labels = [choice["label"] for choice in confirm["choices"]]
-        self.assertEqual(
-            labels,
-            [
-                "Spotify",
-                "NetEase Cloud Music",
-                "Jamendo",
-                "Audius",
-            ],
-        )
-        self.assertFalse(any(label.startswith(("🎵", "🍎", "🟢")) for label in labels))
+        self.assertFalse(any(event.get("type") == "confirm" for event in ui.events))
+        self.assertTrue(any("Unknown command: /connect" in str(event.get("text")) for event in ui.events))
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:

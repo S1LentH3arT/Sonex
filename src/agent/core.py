@@ -78,7 +78,6 @@ def _is_suspended_interaction_result(value: Any) -> bool:
     """Return whether an Agent Tool asked the UI runtime to suspend the turn."""
     return isinstance(value, dict) and value.get("status") in {
         "requires_play_selection",
-        "requires_connection",
         "requires_modify_confirmation",
     }
 

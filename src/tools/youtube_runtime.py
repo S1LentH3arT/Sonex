@@ -21,6 +21,7 @@ import sys
 import tempfile
 import threading
 import time
+import tarfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -41,7 +42,9 @@ UPDATE_COOLDOWN_SECONDS = 6 * 60 * 60
 UPDATE_TOTAL_TIMEOUT_SECONDS = 20 * 60
 REQUEST_QUEUE_TIMEOUT_SECONDS = 75.0
 REQUEST_MIN_INTERVAL_SECONDS = 3.0
-DEFAULT_PROVIDER_REPO = "https://github.com/Brainicism/bgutil-ytdlp-pot-provider.git"
+DEFAULT_PROVIDER_ARCHIVE = "https://github.com/Brainicism/bgutil-ytdlp-pot-provider/archive/refs/tags/v{version}.tar.gz"
+NODE_VERSION = "22.16.0"
+NODE_DIST_BASE = "https://nodejs.org/dist/v{version}"
 
 _health_check_lock = threading.Lock()
 _health_check_started_for: str | None = None
@@ -372,7 +375,7 @@ def _terminate_pid(pid: int | None) -> None:
 def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
     manifest = manifest or active_manifest()
     if not manifest:
-        raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Run `sonex youtube setup`.")
+        raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Open /extension to configure YouTube.")
     provider = _provider_state()
     if provider:
         base_url = str(provider.get("base_url") or "")
@@ -386,10 +389,10 @@ def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
         with contextlib.suppress(FileNotFoundError):
             _state_path("provider.json").unlink()
 
-    node = str(manifest.get("node_executable") or shutil.which("node") or "")
+    node = str(manifest.get("node_executable") or "")
     server_entry = Path(str(manifest.get("server_entry") or ""))
     if not node or not server_entry.is_file():
-        raise YoutubeRuntimeUnavailable("The managed PO Token Provider runtime is incomplete. Run `sonex youtube repair`.")
+        raise YoutubeRuntimeUnavailable("The managed PO Token Provider runtime is incomplete. Open /extension to repair YouTube.")
     port = _pick_port()
     command = [
         sys.executable,
@@ -429,7 +432,7 @@ def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
     _terminate_pid(monitor.pid)
     with contextlib.suppress(FileNotFoundError):
         _state_path("provider.json").unlink()
-    raise YoutubeRuntimeUnavailable("The managed PO Token Provider did not become healthy.")
+    raise YoutubeRuntimeUnavailable("The managed PO Token Provider did not become healthy. Open /extension to repair YouTube.")
 
 
 def ensure_provider_running(manifest: dict[str, Any] | None = None) -> str:
@@ -437,7 +440,7 @@ def ensure_provider_running(manifest: dict[str, Any] | None = None) -> str:
 
     resolved = manifest or active_manifest()
     if not resolved:
-        raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Run `sonex youtube setup`.")
+        raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Open /extension to configure YouTube.")
     with _exclusive_file_lock(state_root() / "provider.lock", timeout=10.0):
         return _ensure_provider_running_locked(resolved)
 
@@ -488,7 +491,7 @@ def prepare_worker(
 
     manifest = active_manifest()
     if not manifest:
-        raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Run `sonex youtube setup`.")
+        raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Open /extension to configure YouTube.")
     if (_read_json(_state_path("state.json")) or {}).get("rollback_pending"):
         raise YoutubeRuntimeUnavailable("The active YouTube runtime failed probation and is awaiting rollback. Restart Sonex.")
     safe_options = dict(options)
@@ -526,6 +529,11 @@ def worker_env() -> dict[str, str]:
     current = env.get("PYTHONPATH")
     env["PYTHONPATH"] = f"{project_root}{os.pathsep}{current}" if current else project_root
     env.pop("PYTHONSTARTUP", None)
+    with contextlib.suppress(Exception):
+        node_manifest = _component_manifest("node")
+        node_path = Path(str(node_manifest.get("node_executable") or ""))
+        if node_path.is_file():
+            env["PATH"] = f"{node_path.parent}{os.pathsep}{env.get('PATH', '')}"
     return env
 
 
@@ -553,7 +561,7 @@ def local_runtime_check(manifest: dict[str, Any] | None = None) -> dict[str, Any
             check=True,
             timeout=3,
         )
-        node = str(manifest.get("node_executable") or shutil.which("node") or "")
+        node = str(manifest.get("node_executable") or "")
         if node:
             subprocess.run(
                 [node, "--version"],
@@ -568,7 +576,7 @@ def local_runtime_check(manifest: dict[str, Any] | None = None) -> dict[str, Any
     return {"healthy": True, "reason": "ok"}
 
 
-def runtime_status() -> dict[str, Any]:
+def runtime_status(*, probe_provider: bool = True) -> dict[str, Any]:
     manifest = active_manifest()
     state = _read_json(_state_path("state.json")) or {}
     provider = _provider_state()
@@ -580,11 +588,9 @@ def runtime_status() -> dict[str, Any]:
         status = "restart_required"
     else:
         status = str(state.get("status") or "ready")
-    provider_running = bool(
-        provider
-        and _pid_alive(int(provider.get("monitor_pid") or 0))
-        and _provider_ping(str(provider.get("base_url") or ""))
-    )
+    provider_running = bool(provider and _pid_alive(int(provider.get("monitor_pid") or 0)))
+    if provider_running and probe_provider:
+        provider_running = _provider_ping(str(provider.get("base_url") or ""))
     return {
         "status": status,
         "provider_runtime": "running" if provider_running else "stopped",
@@ -596,6 +602,115 @@ def runtime_status() -> dict[str, Any]:
         "platform": f"{platform.system().lower()}-{platform.machine().lower()}",
         "state_path": str(_state_path("state.json")),
     }
+
+
+def _components_root() -> Path:
+    return runtime_root() / "components"
+
+
+def _component_manifest_path(component: str) -> Path:
+    return _components_root() / f"{component}.json"
+
+
+def _component_manifest(component: str) -> dict[str, Any]:
+    return _read_json(_component_manifest_path(component)) or {}
+
+
+def _node_architecture() -> str:
+    machine = platform.machine().lower()
+    if machine in {"x86_64", "amd64"}:
+        return "x64"
+    if machine in {"aarch64", "arm64"}:
+        return "arm64"
+    raise RuntimeError("Managed YouTube runtime currently supports Linux x64/arm64 and WSL2 only.")
+
+
+def _download_file(url: str, destination: Path, *, phase: str, timeout: float = 120.0) -> str:
+    """Download one archive and publish bounded byte progress."""
+    digest = hashlib.sha256()
+    received = 0
+    last_persisted = 0.0
+    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Sonex/1.0"}), timeout=10) as response:
+        total_header = response.headers.get("Content-Length")
+        total = int(total_header) if total_header and total_header.isdigit() else 0
+        _update_state(phase=phase, bytes_received=0, bytes_total=total, progress=0 if total else None)
+        with destination.open("wb") as handle:
+            while True:
+                chunk = response.read(1024 * 256)
+                if not chunk:
+                    break
+                handle.write(chunk)
+                digest.update(chunk)
+                received += len(chunk)
+                now = time.monotonic()
+                if now - last_persisted >= 1.0 or (total and received >= total):
+                    _update_state(
+                        phase=phase,
+                        bytes_received=received,
+                        bytes_total=total,
+                        progress=round(received * 100 / total, 1) if total else None,
+                    )
+                    last_persisted = now
+        if received and (not total or received < total) and last_persisted == 0.0:
+            _update_state(
+                phase=phase,
+                bytes_received=received,
+                bytes_total=total,
+                progress=round(received * 100 / total, 1) if total else None,
+            )
+    return digest.hexdigest()
+
+
+def _safe_extract_tar(archive: Path, destination: Path) -> None:
+    destination = destination.resolve()
+    with tarfile.open(archive, mode="r:*") as handle:
+        for member in handle.getmembers():
+            target = (destination / member.name).resolve()
+            if target != destination and destination not in target.parents:
+                raise RuntimeError("Downloaded source archive contains an unsafe path.")
+        handle.extractall(destination)
+
+
+def _node_download_urls(version: str, architecture: str) -> tuple[str, str]:
+    archive_name = f"node-v{version}-linux-{architecture}.tar.xz"
+    base = NODE_DIST_BASE.format(version=version)
+    return f"{base}/{archive_name}", f"{base}/SHASUMS256.txt"
+
+
+def youtube_dependency_snapshot() -> list[dict[str, Any]]:
+    """Return the user-facing private YouTube dependency checklist."""
+    manifest = pending_manifest() or active_manifest() or {}
+    runtime = runtime_status(probe_provider=False)
+    python_version = platform.python_version()
+    yt_component = _component_manifest("yt-dlp")
+    node_component = _component_manifest("node")
+    npm_component = _component_manifest("npm")
+    provider_component = _component_manifest("po-token-provider")
+    yt_installed = Path(str(yt_component.get("python_executable") or "")).is_file() or (
+        bool(manifest.get("yt_dlp_version")) and runtime.get("status") not in {"setup_required"}
+    )
+    node_installed = Path(str(node_component.get("node_executable") or "")).is_file()
+    npm_installed = Path(str(npm_component.get("npm_executable") or node_component.get("npm_executable") or "")).is_file()
+    server_path = Path(str(provider_component.get("server_entry") or manifest.get("server_entry") or ""))
+    provider_installed = server_path.is_file() and bool(provider_component.get("provider_version") or manifest.get("provider_version"))
+    provider_error = None if node_installed and npm_installed else "requires Node.js and npm"
+    update = update_state()
+    installing = str(update.get("component") or "") if update.get("status") == "running" else ""
+    failed_component = str(update.get("component") or "") if update.get("status") == "failed" else ""
+    progress = update.get("progress")
+    def state_for(component: str, installed: bool, *, error: str | None = None) -> tuple[str, Any, str | None]:
+        if installing == component:
+            return "installing", progress, None
+        if failed_component == component:
+            return "failed", None, None
+        return ("installed" if installed else "failed" if error else "missing"), None, error
+    return [
+        {"id": "python", "label": "Python runtime", "state": "installed", "version": python_version},
+        {"id": "yt-dlp", "label": "yt-dlp", "state": state_for("yt-dlp", yt_installed)[0], "progress": state_for("yt-dlp", yt_installed)[1], "version": yt_component.get("version") or manifest.get("yt_dlp_version") if yt_installed else None},
+        {"id": "node", "label": "Node.js", "state": state_for("node", node_installed)[0], "progress": state_for("node", node_installed)[1], "version": node_component.get("version") if node_installed else None},
+        {"id": "npm", "label": "npm", "state": state_for("npm", npm_installed)[0], "progress": state_for("npm", npm_installed)[1], "version": npm_component.get("version") or node_component.get("npm_version") if npm_installed else None},
+        {"id": "po-token-provider", "label": "PO Token provider", "state": state_for("po-token-provider", provider_installed, error=provider_error)[0], "progress": state_for("po-token-provider", provider_installed, error=provider_error)[1], "version": provider_component.get("provider_version") or manifest.get("provider_version") if provider_installed else None, "error": provider_error},
+    ]
 
 
 def _pypi_latest(package: str) -> str | None:
@@ -683,7 +798,7 @@ def update_state() -> dict[str, Any]:
     return _read_json(_state_path("update.json")) or {"status": "idle"}
 
 
-def start_update_job(*, reason: str = "setup", force: bool = False) -> dict[str, Any]:
+def start_update_job(*, reason: str = "setup", force: bool = False, component: str | None = None) -> dict[str, Any]:
     current = update_state()
     if current.get("status") == "running" and _pid_alive(int(current.get("pid") or 0)):
         return current
@@ -696,6 +811,8 @@ def start_update_job(*, reason: str = "setup", force: bool = False) -> dict[str,
         started_at=time.time(),
         pid=0,
         phase="queued",
+        component=component,
+        progress=None,
         error=None,
     )
     try:
@@ -755,112 +872,193 @@ def _patch_bgutil_server(source: Path) -> str:
     source.write_text(patched, encoding="utf-8")
     return hashlib.sha256(patched.encode("utf-8")).hexdigest()
 
+def _install_node_component(staging: Path, version: str) -> dict[str, Any]:
+    architecture = _node_architecture()
+    archive_url, checksums_url = _node_download_urls(version, architecture)
+    archive = staging / "node.tar.xz"
+    with urllib.request.urlopen(checksums_url, timeout=10) as response:
+        checksums = response.read(512 * 1024).decode("utf-8")
+    archive_name = archive_url.rsplit("/", 1)[-1]
+    expected = next((line.split()[0] for line in checksums.splitlines() if line.endswith(archive_name)), None)
+    if not expected:
+        raise RuntimeError("Node.js release checksum was not published.")
+    actual = _download_file(archive_url, archive, phase="download_node")
+    if actual != expected:
+        raise RuntimeError("Node.js release checksum verification failed.")
+    extracted = staging / "node-extracted"
+    _mkdir(extracted)
+    _safe_extract_tar(archive, extracted)
+    roots = [candidate for candidate in extracted.iterdir() if candidate.is_dir()]
+    if len(roots) != 1 or not (roots[0] / "bin" / "node").is_file():
+        raise RuntimeError("Node.js archive layout was not recognized.")
+    target = _components_root() / f"node-{version}-{architecture}"
+    if target.exists() and not all(
+        (target / relative).is_file()
+        for relative in (
+            "bin/node",
+            "bin/npm",
+            "lib/node_modules/npm/bin/npm-cli.js",
+        )
+    ):
+        shutil.rmtree(target)
+    if not target.exists():
+        shutil.move(str(roots[0]), str(target))
+    node = target / "bin" / "node"
+    npm = target / "bin" / "npm"
+    npm_cli = target / "lib" / "node_modules" / "npm" / "bin" / "npm-cli.js"
+    if not node.is_file() or not npm.is_file() or not npm_cli.is_file():
+        raise RuntimeError("Private Node.js bundle is incomplete.")
+    npm_package = _read_json(target / "lib" / "node_modules" / "npm" / "package.json")
+    npm_version = str(npm_package.get("version") or "bundled")
+    node_manifest = {"version": version, "node_executable": str(node), "npm_executable": str(npm), "npm_cli": str(npm_cli), "created_at": time.time()}
+    _write_json(_component_manifest_path("node"), node_manifest)
+    _write_json(_component_manifest_path("npm"), {"version": npm_version, "npm_executable": str(npm), "npm_cli": str(npm_cli), "created_at": time.time()})
+    return node_manifest
+
+
+def _install_yt_dlp_component(
+    staging: Path,
+    version: str,
+    digest: str,
+    provider_version: str,
+    provider_digest: str,
+) -> dict[str, Any]:
+    component = _components_root() / f"yt-dlp-{version}"
+    python_path = component / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    manifest = _component_manifest("yt-dlp")
+    needs_install = (
+        not python_path.is_file()
+        or manifest.get("version") != version
+        or manifest.get("wheel_sha256") != digest
+        or manifest.get("provider_package_version") != provider_version
+        or manifest.get("provider_package_sha256") != provider_digest
+    )
+    if not python_path.is_file():
+        if component.exists():
+            shutil.rmtree(component)
+        _mkdir(component.parent)
+        _run_checked([sys.executable, "-m", "venv", str(component)], cwd=staging, timeout=120, phase="create_yt_dlp_runtime")
+    if needs_install:
+        _run_checked(
+            [
+                str(python_path),
+                "-m",
+                "pip",
+                "install",
+                "--no-deps",
+                "--only-binary=:all:",
+                f"yt-dlp=={version}",
+                f"--hash=sha256:{digest}",
+                f"bgutil-ytdlp-pot-provider=={provider_version}",
+                f"--hash=sha256:{provider_digest}",
+            ],
+            cwd=staging,
+            timeout=120,
+            phase="install_yt_dlp",
+        )
+    manifest = {
+        "version": version,
+        "python_executable": str(python_path),
+        "wheel_sha256": digest,
+        "provider_package_version": provider_version,
+        "provider_package_sha256": provider_digest,
+        "created_at": time.time(),
+    }
+    _write_json(_component_manifest_path("yt-dlp"), manifest)
+    return manifest
+
+
+def _install_provider_component(staging: Path, version: str) -> dict[str, Any]:
+    node = _component_manifest("node")
+    npm = _component_manifest("npm")
+    if not node.get("node_executable") or not npm.get("npm_cli"):
+        raise RuntimeError("requires Node.js and npm")
+    archive = staging / "provider.tar.gz"
+    source_sha = _download_file(DEFAULT_PROVIDER_ARCHIVE.format(version=version), archive, phase="download_provider_source")
+    extracted = staging / "provider-extracted"
+    _mkdir(extracted)
+    _safe_extract_tar(archive, extracted)
+    roots = [candidate for candidate in extracted.iterdir() if candidate.is_dir()]
+    if len(roots) != 1:
+        raise RuntimeError("Provider source archive layout was not recognized.")
+    source_dir = roots[0]
+    patch_hash = _patch_bgutil_server(source_dir / "server" / "src" / "main.ts")
+    node_executable = str(node["node_executable"])
+    npm_cli = str(npm["npm_cli"])
+    _run_checked([node_executable, npm_cli, "ci"], cwd=source_dir / "server", timeout=12 * 60, phase="install_provider_server")
+    _run_checked([node_executable, npm_cli, "exec", "tsc"], cwd=source_dir / "server", timeout=3 * 60, phase="build_provider_server")
+    server_entry = source_dir / "server" / "build" / "main.js"
+    if not server_entry.is_file():
+        raise RuntimeError("Provider build did not produce server/build/main.js")
+    target = _components_root() / f"po-token-provider-{version}"
+    if not target.exists():
+        shutil.move(str(source_dir), str(target))
+    manifest = {"provider_version": version, "server_entry": str(target / "server" / "build" / "main.js"), "source_archive_sha256": source_sha, "localhost_patch_sha256": patch_hash, "created_at": time.time()}
+    _write_json(_component_manifest_path("po-token-provider"), manifest)
+    return manifest
+
+
+def _compose_pending_runtime(yt: dict[str, Any], node: dict[str, Any], provider: dict[str, Any]) -> dict[str, Any]:
+    runtime_id = f"yt-dlp-{yt['version']}-bgutil-{provider['provider_version']}-{int(time.time())}"
+    manifest = {
+        "format": RUNTIME_FORMAT,
+        "runtime_id": runtime_id,
+        "bundle_path": str(_components_root()),
+        "python_executable": yt["python_executable"],
+        "yt_dlp_version": yt["version"],
+        "yt_dlp_wheel_sha256": yt["wheel_sha256"],
+        "provider_version": provider["provider_version"],
+        "provider_repo": DEFAULT_PROVIDER_ARCHIVE.format(version=provider["provider_version"]),
+        "server_entry": provider["server_entry"],
+        "node_executable": node["node_executable"],
+        "npm_executable": node["npm_executable"],
+        "created_at": time.time(),
+    }
+    _write_json(_pending_manifest_path(), manifest)
+    return manifest
+
 
 def _perform_update() -> None:
     started = time.time()
-    previous = active_manifest()
+    component = str(update_state().get("component") or "all")
+    _mkdir(runtime_root() / "staging")
+    staging = Path(tempfile.mkdtemp(prefix="component-", dir=str(runtime_root() / "staging")))
     try:
-        versions = latest_versions(force=True)
+        _mkdir(_components_root())
+        versions = latest_versions(force=True) if component not in {"node", "npm"} else {}
         yt_version = str(versions.get("yt_dlp_version") or "")
         provider_version = str(versions.get("provider_version") or "")
-        if not yt_version or not provider_version:
-            raise RuntimeError("Stable yt-dlp/provider versions could not be resolved.")
-        yt_hash = _pypi_wheel_hash("yt-dlp", yt_version)
-        provider_hash = _pypi_wheel_hash("bgutil-ytdlp-pot-provider", provider_version)
-        if platform.system().lower() != "linux" or platform.machine().lower() not in {"x86_64", "amd64", "aarch64", "arm64"}:
-            raise RuntimeError("Managed YouTube runtime currently supports Linux x64/arm64 and WSL2 only.")
-        node_path = shutil.which("node")
-        if shutil.which("git") is None or shutil.which("npm") is None or not node_path:
-            raise RuntimeError("YouTube setup requires git, npm, and Node.js >= 20.")
-        node_version = subprocess.check_output([node_path, "--version"], text=True, timeout=5).strip()
-        try:
-            node_major = int(node_version.lstrip("v").split(".", 1)[0])
-        except (TypeError, ValueError):
-            node_major = 0
-        if node_major < 20:
-            raise RuntimeError("YouTube setup requires Node.js >= 20.")
-        _mkdir(runtime_root() / "staging")
-        staging = Path(tempfile.mkdtemp(prefix="candidate-", dir=str(runtime_root() / "staging")))
-        try:
-            venv = staging / "venv"
-            _run_checked([sys.executable, "-m", "venv", str(venv)], cwd=staging, timeout=120, phase="create_venv")
-            python_path = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
-            _run_checked(
-                [
-                    str(python_path),
-                    "-m",
-                    "pip",
-                    "install",
-                    "--no-deps",
-                    "--only-binary=:all:",
-                    f"yt-dlp=={yt_version}",
-                    f"--hash=sha256:{yt_hash}",
-                    f"bgutil-ytdlp-pot-provider=={provider_version}",
-                    f"--hash=sha256:{provider_hash}",
-                ],
-                cwd=staging,
-                timeout=120,
-                phase="install_python_runtime",
+        if component in {"all", "yt-dlp"} and not yt_version:
+            raise RuntimeError("Stable yt-dlp version could not be resolved.")
+        if component in {"all", "yt-dlp"} and not provider_version:
+            raise RuntimeError("Stable PO Token provider version could not be resolved.")
+        if component in {"all", "po-token-provider"} and not provider_version:
+            raise RuntimeError("Stable PO Token provider version could not be resolved.")
+        if component in {"all", "node", "npm"}:
+            _install_node_component(staging, NODE_VERSION)
+        if component in {"all", "yt-dlp"}:
+            _install_yt_dlp_component(
+                staging,
+                yt_version,
+                _pypi_wheel_hash("yt-dlp", yt_version),
+                provider_version,
+                _pypi_wheel_hash("bgutil-ytdlp-pot-provider", provider_version),
             )
-            source_dir = staging / "bgutil-ytdlp-pot-provider"
-            _run_checked(
-                ["git", "clone", "--depth", "1", "--branch", provider_version, DEFAULT_PROVIDER_REPO, str(source_dir)],
-                cwd=staging,
-                timeout=60,
-                phase="download_provider_source",
-            )
-            source_file = source_dir / "server" / "src" / "main.ts"
-            patch_hash = _patch_bgutil_server(source_file)
-            _run_checked(["npm", "ci"], cwd=source_dir / "server", timeout=12 * 60, phase="install_provider_server")
-            _run_checked(["npx", "tsc"], cwd=source_dir / "server", timeout=3 * 60, phase="build_provider_server")
-            server_entry = source_dir / "server" / "build" / "main.js"
-            if not server_entry.is_file():
-                raise RuntimeError("Provider build did not produce server/build/main.js")
-            runtime_id = f"yt-dlp-{yt_version}-bgutil-{provider_version}-{int(time.time())}"
-            bundle = runtime_root() / "versions" / runtime_id
-            _mkdir(bundle.parent)
-            shutil.move(str(staging), str(bundle))
-            staging = bundle
-            manifest = {
-                "format": RUNTIME_FORMAT,
-                "runtime_id": runtime_id,
-                "bundle_path": str(bundle),
-                "python_executable": str(bundle / "venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")),
-                "yt_dlp_version": yt_version,
-                "yt_dlp_wheel_sha256": yt_hash,
-                "provider_version": provider_version,
-                "provider_wheel_sha256": provider_hash,
-                "provider_repo": DEFAULT_PROVIDER_REPO,
-                "provider_commit": subprocess.check_output(["git", "-C", str(bundle / "bgutil-ytdlp-pot-provider"), "rev-parse", "HEAD"], text=True).strip(),
-                "server_entry": str(bundle / "bgutil-ytdlp-pot-provider" / "server" / "build" / "main.js"),
-                "node_executable": node_path,
-                "localhost_patch_sha256": patch_hash,
-                "created_at": time.time(),
-            }
-            _write_json(bundle / "manifest.json", manifest)
-            _write_json(_pending_manifest_path(), manifest)
-            _update_state(
-                status="ready",
-                phase="restart_required",
-                completed_at=time.time(),
-                candidate_runtime_id=runtime_id,
-                candidate_yt_dlp_version=yt_version,
-                previous_yt_dlp_version=(previous or {}).get("yt_dlp_version"),
-                previous_runtime_id=(previous or {}).get("runtime_id"),
-                restart_required=True,
-            )
-        finally:
-            if staging.exists() and staging.parent.name == "staging":
-                shutil.rmtree(staging, ignore_errors=True)
+        if component in {"all", "po-token-provider"}:
+            _install_provider_component(staging, provider_version)
+        node = _component_manifest("node")
+        yt = _component_manifest("yt-dlp")
+        provider = _component_manifest("po-token-provider")
+        if node and yt and provider:
+            manifest = _compose_pending_runtime(yt, node, provider)
+            _update_state(status="ready", phase="restart_required", completed_at=time.time(), candidate_runtime_id=manifest["runtime_id"], restart_required=True)
+        else:
+            _update_state(status="ready", phase="component_complete", completed_at=time.time(), restart_required=False)
     except Exception as exc:
-        _update_state(
-            status="failed",
-            phase="failed",
-            error=type(exc).__name__,
-            completed_at=time.time(),
-            retry_after=time.time() + UPDATE_COOLDOWN_SECONDS,
-            elapsed_seconds=round(time.time() - started, 2),
-        )
+        logger.info("YouTube component install failed: %s (%s)", component, type(exc).__name__)
+        _update_state(status="failed", phase="failed", error=type(exc).__name__, completed_at=time.time(), retry_after=time.time() + UPDATE_COOLDOWN_SECONDS, elapsed_seconds=round(time.time() - started, 2), component=component)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def start_background_health_check() -> None:

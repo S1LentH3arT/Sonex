@@ -22,8 +22,9 @@ import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, Pane
 import { SONEX_LOGO } from './sonex-logo.js';
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
+import { ExtensionPanelOverlay } from './extension-panel.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, NetEaseLoginState, NetEaseQrItem, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, ExtensionPanelState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, NetEaseLoginState, NetEaseQrItem, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -1187,22 +1188,6 @@ const confirmCancelHint = (choices: ConfirmChoice[]): string => (
         : "press Esc to close"
 );
 
-const MUSIC_CONNECTION_PROVIDER_WIDTH = 24;
-const MUSIC_CONNECTION_WARNING = "#facc15";
-const MUSIC_CONNECTION_MISSING = "#ef4444";
-
-const truncateConnectionDescription = (value: string, width: number): string => {
-    if (stringWidth(value) <= width) return value;
-    if (width <= 0) return "";
-    const ellipsisWidth = stringWidth("…");
-    let rendered = "";
-    for (const character of Array.from(value)) {
-        if (stringWidth(rendered + character) + ellipsisWidth > width) break;
-        rendered += character;
-    }
-    return `${rendered}${"…".slice(0, width)}`;
-};
-
 export const CompactConfirm = ({
     confirm,
     confirmIndex,
@@ -1224,23 +1209,6 @@ export const CompactConfirm = ({
     panelWidth: number;
     spotifyTheme?: boolean;
 }) => {
-    const checkingConnection = Boolean(
-        confirm?.tool_name === "music_connection"
-        && confirm.choices.some((choice) => choice.connection_status === "checking"),
-    );
-    const [connectionBlinkFilled, setConnectionBlinkFilled] = React.useState(false);
-
-    React.useEffect(() => {
-        if (!checkingConnection) {
-            setConnectionBlinkFilled(false);
-            return;
-        }
-        const timer = setInterval(() => {
-            setConnectionBlinkFilled((current) => !current);
-        }, 500);
-        return () => clearInterval(timer);
-    }, [checkingConnection, confirm?.id]);
-
     if (!confirm) return null;
     const includeCancelChoice = confirm.tool_name === "provider_mode_exit";
     const visibleChoices = getVisibleConfirmChoices(confirm.choices, includeCancelChoice);
@@ -1333,58 +1301,6 @@ export const CompactConfirm = ({
                         </React.Fragment>
                     );
                 })}
-            </PanelFrame>
-        );
-    }
-
-    if (confirm.tool_name === "music_connection") {
-        const contentWidth = Math.max(1, panelWidth - 2);
-        const descriptionWidth = Math.max(
-            0,
-            contentWidth - 2 - MUSIC_CONNECTION_PROVIDER_WIDTH,
-        );
-        const connectionItems: PanelChoiceItem[] = visibleChoices.map((choice) => {
-            const status = choice.connection_status ?? "missing";
-            const statusColor = status === "connected"
-                ? SPOTIFY_GREEN
-                : status === "missing"
-                    ? MUSIC_CONNECTION_MISSING
-                    : MUSIC_CONNECTION_WARNING;
-            const marker = status === "checking"
-                ? connectionBlinkFilled ? "•" : "◦"
-                : "•";
-            const markerColor = status === "checking" ? PANEL_PRIMARY : statusColor;
-            return {
-                key: choice.value,
-                segments: [
-                    {
-                        text: `${marker} `,
-                        color: markerColor,
-                        preserveColorWhenSelected: true,
-                    },
-                    {
-                        text: fitDisplayWidth(choice.label, MUSIC_CONNECTION_PROVIDER_WIDTH),
-                        color: PANEL_PRIMARY,
-                    },
-                    {
-                        text: truncateConnectionDescription(choice.description ?? "", descriptionWidth),
-                        color: statusColor,
-                        bold: status === "warning" || status === "checking",
-                        preserveColorWhenSelected: true,
-                    },
-                ],
-            };
-        });
-        const hint = typeof confirm.tool_args.hint === "string"
-            ? confirm.tool_args.hint
-            : "↑/↓ to select · Enter to connect/check · Esc to close";
-        return (
-            <PanelFrame width={panelWidth} title={confirm.message} hint={hint}>
-                <PanelChoiceList
-                    items={connectionItems}
-                    selectedIndex={selectedDisplayIndex}
-                    width={panelWidth}
-                />
             </PanelFrame>
         );
     }
@@ -2032,6 +1948,9 @@ export const DynamicShell = ({
     modelPanelIndex,
     trackPanel,
     trackPanelIndex,
+    extensionPanel,
+    extensionPanelIndex,
+    extensionInputFocused,
     memoryPanel,
     memoryPanelIndex,
     memorySearchQuery,
@@ -2071,6 +1990,9 @@ export const DynamicShell = ({
     modelPanelIndex: number;
     trackPanel: TrackPanelState;
     trackPanelIndex: number;
+    extensionPanel: ExtensionPanelState;
+    extensionPanelIndex: number;
+    extensionInputFocused: boolean;
     memoryPanel: MemoryPanelState;
     memoryPanelIndex: number;
     memorySearchQuery: string;
@@ -2116,6 +2038,20 @@ export const DynamicShell = ({
                 panelWidth={Math.max(3, Math.floor(terminalSpace.columns ?? 80))}
                 spotifyTheme={spotifyMode.enabled}
                 language={language}
+            />
+        );
+    }
+
+    if (extensionPanel) {
+        return (
+            <ExtensionPanelOverlay
+                panel={extensionPanel}
+                selectedIndex={extensionPanelIndex}
+                width={Math.max(3, Math.floor(terminalSpace.columns ?? 80) - 2)}
+                input={input}
+                setInput={setInput}
+                onSubmit={onSubmit}
+                inputFocus={extensionPanel.view === "setup" && extensionInputFocused}
             />
         );
     }

@@ -20,9 +20,9 @@ from src.sandbox.tool import (
     sandbox_manager,
     set_sandbox_manager_for_tests,
 )
+from src.extensions import ExtensionStatus
 from src.tools.agent_surface import (
     Call,
-    Connect,
     Recommend,
     Query,
     Workflow,
@@ -158,12 +158,7 @@ def test_local_track_reference_is_opaque_and_resolvable_by_call() -> None:
     )
 
 
-def test_connect_rejects_unregistered_provider() -> None:
-    result = Connect("apple_music")
-
-    assert result["status"] == "fail"
-    assert result["error_code"] == "PROVIDER_UNSUPPORTED"
-
+def test_extension_surface_rejects_unregistered_provider() -> None:
     query = Query("apple_music", "catalog", "Song")
     assert query["status"] == "fail"
     assert query["error_code"] == "PROVIDER_UNSUPPORTED"
@@ -177,8 +172,8 @@ def test_query_requires_catalog_query() -> None:
 
 
 def test_query_explicit_disconnected_provider_does_not_fallback(tmp_path: Path) -> None:
-    with patch("src.tools.agent_surface.MusicConnectionManager") as manager_type:
-        manager_type.return_value.record.return_value = None
+    with patch("src.extensions.ExtensionManager") as manager_type:
+        manager_type.return_value.get.return_value.status = ExtensionStatus.NOT_CONFIGURED
         result = Query("spotify", "account")
 
     assert result["status"] == "fail"
@@ -250,14 +245,15 @@ def test_recommend_reads_recent_once_and_aggregates_connected_authoritative_prov
         "Manager",
         (),
         {
-            "preferred_provider_id": "spotify",
-            "record": lambda self, provider: type("Record", (), {"status": "connected"})()
-            if provider in {"spotify", "netease"}
-            else None,
+            "get": lambda self, provider: type(
+                "View", (), {"status": ExtensionStatus.ENABLED}
+            )()
+            if provider == "spotify"
+            else type("View", (), {"status": ExtensionStatus.NOT_CONFIGURED})(),
         },
     )()
 
-    with patch("src.tools.agent_surface.MusicConnectionManager", return_value=manager), \
+    with patch("src.extensions.ExtensionManager", return_value=manager), \
         patch("src.tools.agent_surface.playback_queue_snapshot", return_value=[{"name": "Recent"}]) as recent, \
         patch("src.tools.agent_surface._recommendation_preferences", return_value="R&B") as preferences, \
         patch("src.tools.agent_surface.spotify_recommend", return_value={
@@ -288,11 +284,12 @@ def test_recommend_returns_text_only_context_without_connected_provider() -> Non
         "Manager",
         (),
         {
-            "preferred_provider_id": None,
-            "record": lambda self, provider: None,
+            "get": lambda self, provider: type(
+                "View", (), {"status": ExtensionStatus.NOT_CONFIGURED}
+            )(),
         },
     )()
-    with patch("src.tools.agent_surface.MusicConnectionManager", return_value=manager), \
+    with patch("src.extensions.ExtensionManager", return_value=manager), \
         patch("src.tools.agent_surface.playback_queue_snapshot", return_value=[]), \
         patch("src.tools.agent_surface.spotify_recommend") as spotify:
         result = Recommend("jazz")

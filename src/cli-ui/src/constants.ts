@@ -19,7 +19,7 @@ export const MAX_VISIBLE_SLASH_COMMANDS = 4;
 export const MAX_VISIBLE_MODEL_CHOICES = 4;
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "bye", usage: "/bye", description: "save and exit", needsArgument: false },
-    { name: "connect", usage: "/connect", description: "connect a music account", needsArgument: false },
+    { name: "extension", usage: "/extension", description: "check and manage music extensions", needsArgument: false },
     { name: "exit", usage: "/exit", description: "save and exit", needsArgument: false },
     { name: "help", usage: "/help", description: "show commands", needsArgument: false },
     { name: "info", usage: "/info", description: "show runtime info", needsArgument: false },

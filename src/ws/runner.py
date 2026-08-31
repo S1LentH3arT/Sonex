@@ -120,6 +120,7 @@ from src.tools.youtube_runtime import (
     consume_restart_notice,
     start_background_health_check,
     start_update_job,
+    youtube_dependency_snapshot,
     YoutubeRuntimeUnavailable,
 )
 from src.memory.memory import bind_memory_scope, memory_store
@@ -129,7 +130,7 @@ from src.memory.curator import (
     memory_operation_message,
     safe_memory_content,
 )
-from src.music.connections import MusicConnectionManager
+from src.extensions import ExtensionActionError, ExtensionManager, ExtensionStatus
 from src.music.netease_worker import NetEaseProviderWorker
 from src.music.playback_coordinator import (
     MusicPlaybackCoordinator,
@@ -303,7 +304,6 @@ from src.ws.constants import (
     RECOMMENDATION_TOOLS,
     SEARCH_RESULT_TOOLS,
     SPOTIFY_PLAYBACK_CONTROL_TOOLS,
-    SPOTIFY_SETUP_TRIGGERS,
 )
 from src.ws.transcript import (
     _coerce_transcript_messages,
@@ -903,17 +903,6 @@ def _record_playback_behavior(
         memory_store.record_behavior_signal("played", player_state)
     except Exception:
         logger.debug("Unable to persist playback behavior signal.", exc_info=True)
-
-
-def _is_spotify_setup_request(text: str) -> bool:
-    """Prepares is spotify setup request for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs is spotify setup request without duplicating the local rules.
-
-    Example: _is_spotify_setup_request(text=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    normalized = " ".join(text.strip().lower().split())
-    return normalized in SPOTIFY_SETUP_TRIGGERS
 
 
 def _rule_parse_play_request(text: str) -> PlayRequestParse:
@@ -1518,7 +1507,7 @@ def _spotify_loopback_login_for_tui(authorize_url: str, expected_state: str) -> 
     webbrowser.open(authorize_url)
 
     with HTTPServer((host, port), SpotifyCallbackHandler) as server:
-        server.timeout = 180
+        server.timeout = 600
         server.handle_request()
 
     if received.get("error"):
@@ -3464,22 +3453,14 @@ class PlaySelectionSession:
         await self._finish("Online audio setup required.", status="error")
 
     async def _ask_youtube_runtime_setup(self, query: str) -> None:
-        """Ask once per TUI session before staging the managed runtime."""
-        if getattr(self.ui, "_youtube_setup_declined", False):
-            await self._finish(
-                "YouTube setup is still required. Run `sonex youtube setup` when ready.",
-                status="error",
-            )
-            return
-        await self._ask_confirm(
-            message="YouTube playback requires the managed PO Token Provider.",
-            choices=[
-                {"value": "setup_youtube_runtime", "label": "Set up"},
-                {"value": "defer_youtube_runtime", "label": "Not now"},
-            ],
-            tool_args={"query": query, "stage": "youtube_runtime_setup"},
-            tool_name="youtube_setup",
-        )
+        """Suspend YouTube playback at the built-in extension setup action."""
+        setattr(self.ui, "_youtube_setup_query", query)
+        setattr(self.ui, "_youtube_setup_session", self)
+        setattr(self.ui, "_youtube_setup_retry_claimed", False)
+        setattr(self.ui, "_extension_panel_view", "detail")
+        setattr(self.ui, "_extension_selected_id", "youtube")
+        setattr(self.ui, "_extension_focus_action", "setup")
+        await self.runner._send_extension_panel(self.ui, view="detail", selected_id="youtube")
 
     async def _ask_local_choice(self, local_file: str) -> None:
         """Prepares ask local choice for an internal Sonex flow.
@@ -4954,7 +4935,7 @@ SPOTIFY_MODE_REQUIRED_SCOPES = {
     "user-library-read",
 }
 
-SPOTIFY_MODE_COMMANDS = {"bye", "connect", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "sandbox", "spotify"}
+SPOTIFY_MODE_COMMANDS = {"bye", "extension", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "sandbox", "spotify"}
 SPOTIFY_MODE_CALL_TIMEOUT_SECONDS = 12.0
 SPOTIFY_PLAYBACK_ACTIVE_POLL_SECONDS = 5.0
 SPOTIFY_PLAYBACK_IDLE_POLL_SECONDS = 15.0
@@ -5622,170 +5603,6 @@ class SpotifyPlaylistSelectionSession:
         await self.ui.append_activity(kind="status", title="Spotify playlists", detail=f"Showing {title}.", status="success")
 
 
-class ConnectionSelectionSession:
-    """Own the interactive `/connect` provider chooser."""
-
-    def __init__(
-        self,
-        ui: WebSocketUIAdapter,
-        runner: "WebSocketRunner",
-        manager: MusicConnectionManager,
-    ) -> None:
-        self.ui = ui
-        self.runner = runner
-        self.manager = manager
-        self.confirm_id = _new_event_id("music_connection")
-        self.busy_provider_id: str | None = None
-        self.operation_task: asyncio.Task[None] | None = None
-        self.closed = False
-
-    @staticmethod
-    def _providers() -> tuple[tuple[str, str], ...]:
-        return (
-            ("spotify", "Spotify"),
-            ("netease", "NetEase Cloud Music"),
-            ("jamendo", "Jamendo"),
-            ("audius", "Audius"),
-        )
-
-    def _choices(self) -> list[dict[str, object]]:
-        choices: list[dict[str, object]] = []
-        for provider_id, label in self._providers():
-            record = self.manager.record(provider_id)
-            if self.busy_provider_id == provider_id:
-                connection_status = "checking"
-                description = "Checking connection..."
-            elif record is not None and record.status != "connected":
-                connection_status = "warning"
-                description = "press Enter to retry"
-            elif record is not None or provider_id in {"jamendo", "audius"}:
-                connection_status = "connected"
-                account_label = (
-                    record.account_label
-                    if record is not None and provider_id not in {"jamendo", "audius"}
-                    else None
-                )
-                description = f"Connected · {account_label}" if account_label else "Connected"
-            else:
-                connection_status = "missing"
-                description = "Not connected"
-            choices.append(
-                {
-                    "value": provider_id,
-                    "label": label,
-                    "description": description,
-                    "connection_status": connection_status,
-                }
-            )
-        return choices
-
-    async def _render(self, *, preserve_selection: bool) -> None:
-        if self.closed:
-            return
-        await self.ui.ask_confirm(
-            {
-                "type": "confirm",
-                "id": self.confirm_id,
-                "tool_name": "music_connection",
-                "tool_args": {
-                    "stage": "music_connection_selection",
-                    "hint": "↑/↓ to select · Enter to connect/check · Esc to close",
-                    "preserve_selection": preserve_selection,
-                    "busy_provider": self.busy_provider_id,
-                },
-                "message": "Music connections",
-                "choices": self._choices(),
-            }
-        )
-
-    async def start(self) -> None:
-        await self._render(preserve_selection=False)
-
-    def owns_confirm(self, confirm_id: str) -> bool:
-        return confirm_id == self.confirm_id
-
-    async def handle_choice(self, decision: Any) -> None:
-        provider_id = str(decision or "deny").strip().casefold()
-        if provider_id == "deny":
-            await self.close()
-            return
-        if self.closed or self.busy_provider_id is not None:
-            return
-        if provider_id not in {provider for provider, _label in self._providers()}:
-            return
-        self.busy_provider_id = provider_id
-        await self._render(preserve_selection=True)
-        self.operation_task = asyncio.create_task(self._run_provider(provider_id))
-
-    async def close(self) -> None:
-        if self.closed:
-            return
-        self.closed = True
-        operation_task = self.operation_task
-        if operation_task is not None and not operation_task.done():
-            operation_task.cancel()
-        netease_login = getattr(self.ui, "_netease_login_session", None)
-        if netease_login is not None:
-            await netease_login.cancel()
-        self.busy_provider_id = None
-        setattr(self.ui, "_music_connection_selection", None)
-        await self.ui.dismiss_confirm(self.confirm_id)
-
-    async def _run_provider(self, provider_id: str) -> None:
-        def complete(result: dict[str, Any]) -> None:
-            asyncio.create_task(self._complete_provider(provider_id, result))
-
-        try:
-            await self.runner._connect_music_provider(
-                self.ui,
-                provider_id,
-                complete=complete,
-                emit_feedback=False,
-            )
-        except asyncio.CancelledError:
-            return
-        except Exception as exc:
-            await self._complete_provider(
-                provider_id,
-                {
-                    "status": "failed",
-                    "message": sanitize_error_message(exc),
-                    "data": {"provider": provider_id, "reason": "connection_failed"},
-                },
-            )
-
-    async def _complete_provider(self, provider_id: str, result: dict[str, Any]) -> None:
-        if self.closed or self.busy_provider_id != provider_id:
-            return
-        status = str(result.get("status") or "failed").casefold()
-        if status == "cancelled":
-            await self.close()
-            return
-        data = result.get("data") if isinstance(result.get("data"), dict) else {}
-        if status in {"connected", "success", "ok"}:
-            if self.manager.record(provider_id) is None:
-                self.manager.mark_connected(
-                    provider_id,
-                    account_label=data.get("account_label"),
-                )
-        else:
-            technical_detail = sanitize_error_message(
-                str(result.get("message") or data.get("reason") or "Connection failed.")
-            )
-            logger.warning(
-                "Music connection check failed for %s: %s",
-                provider_id,
-                technical_detail,
-            )
-            self.manager.mark_unavailable(
-                provider_id,
-                reason="connection_failed",
-            )
-        self.busy_provider_id = None
-        self.operation_task = None
-        await self._render(preserve_selection=True)
-
-
 class ProviderModeExitSession:
     """Confirm an explicit exit from the currently active provider mode."""
 
@@ -6075,11 +5892,7 @@ class WebSocketRunner:
 
     Encapsulates web socket runner data and behavior used by Sonex runtime flows.
     """
-    def __init__(
-        self,
-        *,
-        music_connection_manager_factory: Callable[[], MusicConnectionManager] = MusicConnectionManager,
-    ) -> None:
+    def __init__(self) -> None:
         """Init for web socket runner.
 
         Coordinates the init method behavior while preserving web socket runner state and contracts.
@@ -6089,9 +5902,8 @@ class WebSocketRunner:
         self._running_task: asyncio.Task[None] | None = None
         self._confirm_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.provider_modes = ProviderModeCoordinator()
-        self._music_connection_manager_factory = music_connection_manager_factory
-        self._music_connection_manager_instance: MusicConnectionManager | None = None
         self._playback_coordinator = MusicPlaybackCoordinator(SelectionStore())
+        self._extension_manager = ExtensionManager()
 
     async def handle_ws(self, ws: WebSocket) -> None:
         """Coordinates handle ws for the current Sonex flow.
@@ -6166,6 +5978,12 @@ class WebSocketRunner:
 
                 elif data.get("type") == "memory_panel_action":
                     await self._handle_memory_panel_action(ui, data)
+
+                elif data.get("type") == "extension_panel_action":
+                    await self._handle_extension_panel_action(ui, data)
+
+                elif data.get("type") == "extension_panel_input":
+                    await self._handle_extension_panel_input(ui, str(data.get("value") or ""))
 
                 elif data.get("type") == "agent_turn_interrupt":
                     await self._handle_agent_turn_interrupt(
@@ -6325,10 +6143,6 @@ class WebSocketRunner:
         playlist_browse = getattr(ui, "_playlist_browse", None)
         if playlist_browse and playlist_browse.owns_confirm(confirm_id):
             await playlist_browse.handle_choice(decision)
-            return True
-        music_connection = getattr(ui, "_music_connection_selection", None)
-        if music_connection and music_connection.owns_confirm(confirm_id):
-            await music_connection.handle_choice(decision)
             return True
         return False
 
@@ -7066,8 +6880,11 @@ class WebSocketRunner:
             await self._handle_spotify_mode_command(ui, args)
             return
 
-        if command_name == "connect":
-            await self._handle_music_connect(ui, args)
+        if command_name == "extension":
+            if args.strip():
+                await ui.append_system_message("Usage: /extension")
+                return
+            await self._open_extension_panel(ui)
             return
 
         if command_name == "playlist":
@@ -7453,7 +7270,7 @@ class WebSocketRunner:
         data = account.get("data") if isinstance(account, dict) else {}
         if not isinstance(data, dict) or not data.get("logged_in"):
             _clear_persistent_spotify_mode()
-            message = "Spotify sign-in is required. Run /connect first."
+            message = "Spotify sign-in is required. Open /extension to configure Spotify first."
             await ui.append_activity(kind="error", title="Spotify mode", detail=message, status="error")
             await ui.append_system_message(message)
             return
@@ -7588,9 +7405,18 @@ class WebSocketRunner:
         await ui.append_system_message(message)
 
     async def _start_spotify_reauthorization(self, ui: WebSocketUIAdapter, missing_scopes: list[str]) -> None:
-        setup = SpotifySetupSession(ui)
-        setattr(ui, "_spotify_setup", setup)
-        await setup.start_reauthorization(missing_scopes)
+        """Open the extension-owned Spotify authorization flow."""
+        scopes = ", ".join(missing_scopes)
+        setattr(ui, "_extension_panel_view", "setup")
+        setattr(ui, "_extension_selected_id", "spotify")
+        setattr(ui, "_extension_setup_draft", {})
+        setup = self._extension_setup_page("spotify", 7)
+        setup["body"] = (
+            "Spotify needs authorization again for: "
+            f"{scopes}.\nPress Enter to open the authorization page."
+        )
+        setattr(ui, "_extension_setup", setup)
+        await self._send_extension_panel(ui, view="setup", selected_id="spotify")
 
     async def _show_spotify_playlists(self, ui: WebSocketUIAdapter) -> None:
         coordinator = _spotify_session_requests(ui)
@@ -7912,308 +7738,389 @@ class WebSocketRunner:
             }
         await self._sync_tool_result_ui(ui, tool_name, result)
 
-    async def _handle_music_connect(
-        self,
-        ui: WebSocketUIAdapter,
-        args: str = "",
-    ) -> None:
-        if args.strip():
-            message = "Usage: /connect"
-            await ui.append_activity(
-                kind="error",
-                title="Music connections",
-                detail=message,
-                status="error",
-            )
-            await ui.append_system_message(message)
-            return
-        if self._music_connection_manager_instance is None:
-            self._music_connection_manager_instance = self._music_connection_manager_factory()
-        session = ConnectionSelectionSession(
-            ui,
-            self,
-            self._music_connection_manager_instance,
-        )
-        setattr(ui, "_music_connection_selection", session)
-        await session.start()
+    def _extension_action_for_status(self, status: ExtensionStatus) -> str | None:
+        return {
+            ExtensionStatus.ENABLED: "disable",
+            ExtensionStatus.NOT_CONFIGURED: "setup",
+            ExtensionStatus.DISABLED: "enable",
+            ExtensionStatus.UNAVAILABLE: "repair",
+            ExtensionStatus.UNAPPLIED: "restart",
+        }.get(status)
 
-    async def _start_agent_connection_interaction(
+    def _extension_panel_payload(
         self,
         ui: WebSocketUIAdapter,
-        request: dict[str, Any],
         *,
-        complete: Callable[[dict[str, Any]], None],
-    ) -> None:
-        """Suspend the Agent until a provider connection reaches a terminal state."""
-        data = request.get("data") if isinstance(request.get("data"), dict) else {}
-        provider_id = str(data.get("provider") or "").strip().casefold()
-        done = False
-        timeout_task: asyncio.Task[None] | None = None
-        setattr(ui, "_agent_connection_active", True)
-
-        def finish(result: dict[str, Any]) -> None:
-            nonlocal done
-            if done:
-                return
-            done = True
-            setattr(ui, "_agent_connection_active", False)
-            if timeout_task is not None:
-                timeout_task.cancel()
-            complete(result)
-
-        async def timeout() -> None:
-            await asyncio.sleep(300)
-            finish(
-                {
-                    "status": "cancelled",
-                    "tool": "Connect",
-                    "message": f"{provider_id} connection timed out.",
-                    "data": {
-                        "provider": provider_id,
-                        "reason": "timeout",
-                    },
-                    "error_code": None,
+        view: str = "list",
+        selected_id: str | None = None,
+        setup: dict[str, Any] | None = None,
+        armed_action: str | None = None,
+    ) -> dict[str, Any]:
+        extensions = [item.to_dict() for item in self._extension_manager.snapshot()]
+        selected = selected_id or getattr(ui, "_extension_selected_id", None)
+        detail: dict[str, Any] | None = None
+        if view == "detail" and selected:
+            extension = next((item for item in self._extension_manager.snapshot() if item.extension_id == selected), None)
+            if extension:
+                detail = {
+                    "status": extension.status.value,
+                    "action": self._extension_action_for_status(extension.status),
+                    "reset_available": extension.reset_available,
+                    "revision": extension.revision,
+                    "armed_action": armed_action,
+                    "armed_message": (
+                        "local credentials will be deleted" if armed_action == "reset"
+                        else "configuration will be applied" if armed_action == "restart"
+                        else None
+                    ),
+                    "selected_action": getattr(ui, "_extension_focus_action", None),
+                    "armed_token": (
+                        getattr(ui, "_extension_armed_token", None)[3]
+                        if getattr(ui, "_extension_armed_token", None)
+                        and len(getattr(ui, "_extension_armed_token", None)) > 3
+                        else None
+                    ),
                 }
-            )
+        return {
+            "view": view,
+            "title": "Extensions" if view == "list" else "Extension setup" if view == "setup" else "",
+            "hint": "↑/↓ select · Enter open · Esc close" if view == "list" else "↑/↓ select · Enter act · Esc back",
+            "selected_extension": selected,
+            "extensions": extensions,
+            "detail": detail,
+            "setup": setup,
+        }
 
-        timeout_task = asyncio.create_task(timeout())
-        await self._connect_music_provider(
-            ui,
-            provider_id,
-            complete=finish,
-        )
-
-    async def _connect_music_provider(
+    async def _send_extension_panel(
         self,
         ui: WebSocketUIAdapter,
-        provider_id: str,
         *,
-        complete: Callable[[dict[str, Any]], None] | None = None,
-        emit_feedback: bool = True,
+        view: str | None = None,
+        selected_id: str | None = None,
+        setup: dict[str, Any] | None = None,
+        armed_action: str | None = None,
     ) -> None:
-        if self._music_connection_manager_instance is None:
-            self._music_connection_manager_instance = self._music_connection_manager_factory()
-        manager = self._music_connection_manager_instance
-        if provider_id == "spotify":
-            try:
-                token = load_spotify_token()
-            except Exception:
-                token = None
-            if token is None:
-                async def remember_spotify(data: dict[str, Any]) -> None:
-                    account_label = data.get("display_name")
-                    manager.mark_connected("spotify", account_label=account_label)
-
-                setup = SpotifySetupSession(
-                    ui,
-                    on_connected=remember_spotify,
-                    on_completed=complete,
-                    emit_feedback=emit_feedback,
-                )
-                setattr(ui, "_spotify_setup", setup)
-                await setup.start()
-                return
-            account = await asyncio.to_thread(spotify_account, requests_timeout=1.5)
-            if _is_failed_tool_result(account):
-                message = _friendly_runtime_error_message(
-                    account,
-                    fallback="Spotify account check failed.",
-                )
-                if manager.record("spotify") is not None:
-                    manager.mark_unavailable("spotify", reason=message)
-                if emit_feedback:
-                    await ui.append_activity(
-                        kind="error",
-                        title="Spotify connection",
-                        detail=message,
-                        status="error",
-                    )
-                    await ui.append_system_message(message)
-                if complete is not None:
-                    complete(
-                        {
-                            "status": "failed",
-                            "tool": "Connect",
-                            "message": message,
-                            "data": {
-                                "provider": "spotify",
-                                "reason": "health_check_failed",
-                            },
-                            "error_code": "CONNECTION_FAILED",
-                        }
-                    )
-                return
-            data = account.get("data") if isinstance(account, dict) else {}
-            if not isinstance(data, dict) or not data.get("logged_in"):
-                setup = SpotifySetupSession(
-                    ui,
-                    on_completed=complete,
-                    emit_feedback=emit_feedback,
-                )
-                setattr(ui, "_spotify_setup", setup)
-                await setup.start()
-                return
-            account_label = data.get("display_name")
-            manager.mark_connected("spotify", account_label=account_label)
-            message = f"Spotify connected{f' · {account_label}' if account_label else ''}."
-            if emit_feedback:
-                await ui.append_activity(
-                    kind="status",
-                    title="Spotify connection",
-                    detail=message,
-                    status="success",
-                )
-                await ui.append_system_message(message)
-            if complete is not None:
-                complete(
-                    {
-                        "status": "connected",
-                        "tool": "Connect",
-                        "message": message,
-                        "data": {
-                            "provider": "spotify",
-                            "account_label": account_label,
-                        },
-                        "error_code": None,
-                    }
-                )
-            return
-
-        if provider_id in {"jamendo", "audius"}:
-            async def finish_open_audio(result: dict[str, Any]) -> None:
-                if result.get("status") == "connected":
-                    manager.mark_connected(
-                        provider_id,
-                        account_label=None,
-                    )
-                if complete is not None:
-                    complete(
-                        {
-                            "status": str(result.get("status") or "failed"),
-                            "tool": "Connect",
-                            "message": (
-                                f"{provider_id} is connected."
-                                if result.get("status") == "connected"
-                                else f"{provider_id} connection was cancelled."
-                            ),
-                            "data": {
-                                "provider": provider_id,
-                                "reason": result.get("reason"),
-                            },
-                            "error_code": (
-                                None
-                                if result.get("status") in {"connected", "cancelled"}
-                                else "CONNECTION_FAILED"
-                            ),
-                        }
-                    )
-
-            setup = OpenAudioSetupSession(
+        resolved_view = view or getattr(ui, "_extension_panel_view", "list")
+        resolved_id = selected_id or getattr(ui, "_extension_selected_id", None)
+        await ui.send_extension_panel(
+            self._extension_panel_payload(
                 ui,
-                provider_id,
-                on_completed=finish_open_audio,
-                emit_feedback=emit_feedback,
+                view=resolved_view,
+                selected_id=resolved_id,
+                setup=setup if setup is not None else getattr(ui, "_extension_setup", None),
+                armed_action=armed_action if armed_action is not None else getattr(ui, "_extension_armed_action", None),
             )
-            setattr(ui, "_auth_setup", setup)
-            await setup.start()
-            return
+        )
 
-        if provider_id == "netease":
-            worker = NetEaseProviderWorker()
-            try:
-                health = await asyncio.to_thread(worker.health)
-            except Exception as exc:
-                health = None
-                message = sanitize_error_message(exc)
+    async def _open_extension_panel(self, ui: WebSocketUIAdapter, selected_id: str | None = None) -> None:
+        setattr(ui, "_extension_panel_view", "list")
+        setattr(ui, "_extension_selected_id", selected_id)
+        setattr(ui, "_extension_setup", None)
+        setattr(ui, "_extension_armed_action", None)
+        setattr(ui, "_extension_armed_token", None)
+        setattr(ui, "_extension_focus_action", None)
+        await self._send_extension_panel(ui, view="list", selected_id=selected_id)
+        await ui.append_activity(kind="status", title="Extensions", detail="Showing built-in music extensions.", status="success")
+
+    async def _open_extension_setup(self, ui: WebSocketUIAdapter, extension_id: str, *, page: int = 1) -> None:
+        """Open the extension-owned setup flow from a runtime recovery path."""
+        self._extension_manager.get(extension_id)
+        setattr(ui, "_extension_panel_view", "setup")
+        setattr(ui, "_extension_selected_id", extension_id)
+        setattr(ui, "_extension_setup_draft", {})
+        setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page))
+        setattr(ui, "_extension_focus_action", "setup")
+        await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
+
+    def _extension_setup_page(self, extension_id: str, page: int, *, error: str | None = None) -> dict[str, Any]:
+        pages: dict[str, list[dict[str, Any]]] = {
+            "spotify": [
+                {"title": "Spotify setup · Before you start", "body": "You need Spotify Premium, a Spotify developer account, and a browser.\nOpen https://developer.spotify.com/dashboard to begin."},
+                {"title": "Spotify setup · Create an app", "body": "1. Open https://developer.spotify.com/dashboard.\n2. Select Create app.\n3. Enter an app name and description.\n4. Select Web API, accept the terms, and create the app."},
+                {"title": "Spotify setup · Redirect URI", "body": f"1. Open App settings.\n2. Add this exact Redirect URI:\n   {spotify_redirect_uri()}\n3. Save. Do not replace 127.0.0.1 with localhost."},
+                {"title": "Spotify setup · Paste value", "body": "Open App settings and copy the first value.\nPaste it in the input below.", "input": {"placeholder": "[Spotify Client ID]"}},
+                {"title": "Spotify setup · Paste value", "body": "Select View client secret and copy the complete value.\nPaste it in the input below.", "input": {"placeholder": "[Spotify Client Secret]", "mask": True}},
+                {"title": "Spotify setup · Authorize Sonex", "body": "Sonex will open the Spotify authorization page in your browser.\nApprove access, keep Sonex running, and return here after the browser callback."},
+                {"title": "Spotify setup · Verify connection", "body": "Sonex verifies the callback state, access token, scopes, account, and Premium access.\nPress Enter to start authorization."},
+            ],
+            "jamendo": [
+                {"title": "Jamendo setup · Before you start", "body": "You need a Jamendo API v3 read-only Client ID.\nJamendo does not require a client secret or OAuth for this setup."},
+                {"title": "Jamendo setup · Developer portal", "body": "Open https://devportal.jamendo.com/\nRegister or sign in and accept the developer terms."},
+                {"title": "Jamendo setup · Create an application", "body": "Create a new application in the developer portal.\nUse any recognizable name for this local Sonex installation."},
+                {"title": "Jamendo setup · Read-only access", "body": "Keep the application permission at Read only.\nDo not enable Read & Write access."},
+                {"title": "Jamendo setup · Paste value", "body": "Copy the application value and paste it in the input below.", "input": {"placeholder": "[Jamendo Client ID]"}},
+                {"title": "Jamendo setup · Verify connection", "body": "Sonex sends one minimum read-only request.\nA valid response saves the Client ID atomically and enables Jamendo."},
+            ],
+            "audius": [
+                {"title": "Audius setup · Before you start", "body": "You need an Audius API Key.\nSonex does not require a Bearer token or OAuth for this setup."},
+                {"title": "Audius setup · API plans", "body": "Open https://api.audius.co/plans\nor open Developer Apps from your Audius API settings."},
+                {"title": "Audius setup · Create a developer app", "body": "Create a developer app and choose Create API Key.\nThe Free plan is sufficient for Sonex search and streaming."},
+                {"title": "Audius setup · Copy the API Key", "body": "Copy the API Key, not a Bearer token or OAuth credential.\nKeep the value private."},
+                {"title": "Audius setup · Paste value", "body": "Paste the copied value in the input below.", "input": {"placeholder": "[Audius API Key]", "mask": True}},
+                {"title": "Audius setup · Verify connection", "body": "Sonex checks the node and performs one minimum read-only request.\nA valid response saves the key atomically and enables Audius."},
+            ],
+            "youtube": [
+                {"title": "YouTube setup", "body": "Select a missing item and press Enter to install it privately under SONEX_HOME.\nInstalled items are kept across retries; failures can be retried.", "dependencies": youtube_dependency_snapshot()},
+            ],
+        }
+        selected = pages.get(extension_id, pages["youtube"])
+        bounded_page = max(1, min(page, len(selected)))
+        result = dict(selected[bounded_page - 1])
+        result.update({"extension_id": extension_id, "page": bounded_page, "page_count": len(selected)})
+        if error:
+            result["error"] = error
+        return result
+
+    async def _handle_extension_panel_action(self, ui: WebSocketUIAdapter, payload: dict[str, Any]) -> None:
+        action = str(payload.get("action") or "")
+        extension_id = str(payload.get("extension_id") or getattr(ui, "_extension_selected_id", "") or "")
+        current_view = getattr(ui, "_extension_panel_view", "list")
+        if action == "open_detail":
+            self._extension_manager.get(extension_id)
+            setattr(ui, "_extension_panel_view", "detail")
+            setattr(ui, "_extension_selected_id", extension_id)
+            setattr(ui, "_extension_armed_action", None)
+            setattr(ui, "_extension_armed_token", None)
+            await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
+            return
+        if action == "back":
+            if current_view == "setup":
+                setattr(ui, "_extension_panel_view", "detail")
+                setattr(ui, "_extension_setup", None)
+                await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
+            elif getattr(ui, "_extension_armed_action", None):
+                setattr(ui, "_extension_armed_action", None)
+                setattr(ui, "_extension_armed_token", None)
+                await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
             else:
-                message = health.reason or "NetEase is ready, with playback not yet verified."
-            if health is not None and health.ready:
-                manager.mark_connected("netease", account_label="ncm-cli")
-                message = "NetEase connected · Ready, unverified playback."
-                if emit_feedback:
-                    await ui.append_activity(
-                        kind="status",
-                        title="NetEase connection",
-                        detail=message,
-                        status="success",
-                    )
-                    await ui.append_system_message(message)
-                if complete is not None:
-                    complete(
-                        {
-                            "status": "connected",
-                            "tool": "Connect",
-                            "message": message,
-                            "data": {
-                                "provider": "netease",
-                                "verification": "unverified_playback",
-                            },
-                            "error_code": None,
-                        }
-                    )
+                await self._open_extension_panel(ui, extension_id)
+            return
+        if current_view == "setup" and action == "install_dependency":
+            await self._install_youtube_dependency(ui, str(payload.get("dependency_id") or ""))
+            return
+        if current_view != "detail":
+            return
+        try:
+            if action == "setup":
+                await self._open_extension_setup(ui, extension_id)
                 return
-            if health is not None and health.login_available and not health.login_ready:
-                def finish_netease(result: dict[str, Any]) -> None:
-                    if result.get("status") == "connected":
-                        manager.mark_connected("netease", account_label="ncm-cli")
-                    if complete is not None:
-                        complete(result)
+            if action in {"next_page", "prev_page"}:
+                setup = getattr(ui, "_extension_setup", None) or {}
+                page = int(setup.get("page") or 1) + (1 if action == "next_page" else -1)
+                setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page))
+                await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
+                return
+            if action in {"quick_check", "repair", "enable", "disable"}:
+                async def update(view: Any) -> None:
+                    await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
 
-                session = NetEaseLoginSession(
-                    ui,
-                    worker,
-                    on_completed=finish_netease,
-                    fallback_online=False,
-                    emit_feedback=emit_feedback,
-                )
-                setattr(ui, "_netease_login_session", session)
-                await session.start()
+                await self._extension_manager.run_action(extension_id, action, on_update=update)
+                await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
                 return
-            if emit_feedback:
-                await ui.append_activity(
-                    kind="error",
-                    title="NetEase connection",
-                    detail=message,
-                    status="error",
+            if action == "prepare_reset":
+                view = self._extension_manager.get(extension_id)
+                if not view.reset_available:
+                    raise ExtensionActionError("This extension has no locally stored credentials to reset.")
+                setattr(ui, "_extension_armed_action", "reset")
+                view = self._extension_manager.get(extension_id)
+                setattr(ui, "_extension_armed_token", (time.time() + 60, extension_id, "reset", uuid.uuid4().hex, view.revision))
+                await self._send_extension_panel(ui, view="detail", selected_id=extension_id, armed_action="reset")
+                return
+            if action == "cancel_armed":
+                setattr(ui, "_extension_armed_action", None)
+                setattr(ui, "_extension_armed_token", None)
+                await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
+                return
+            if action == "confirm_reset":
+                armed = getattr(ui, "_extension_armed_token", None)
+                if not armed or armed[0] < time.time() or armed[1:3] != (extension_id, "reset") or str(payload.get("token") or "") != armed[3] or self._extension_manager.get(extension_id).revision != armed[4]:
+                    raise ExtensionActionError("Reset confirmation expired.")
+                self._extension_manager.reset_credentials(extension_id)
+                if extension_id == "spotify" and self._spotify_mode_enabled(ui):
+                    await self._reset_spotify_mode_locally(ui)
+                setattr(ui, "_extension_armed_action", None)
+                setattr(ui, "_extension_armed_token", None)
+                await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
+                return
+            if action == "prepare_restart":
+                if self._extension_manager.get(extension_id).status is not ExtensionStatus.UNAPPLIED:
+                    raise ExtensionActionError("Restart is only available when configuration is unapplied.")
+                setattr(ui, "_extension_armed_action", "restart")
+                view = self._extension_manager.get(extension_id)
+                setattr(ui, "_extension_armed_token", (time.time() + 60, extension_id, "restart", uuid.uuid4().hex, view.revision))
+                await self._send_extension_panel(ui, view="detail", selected_id=extension_id, armed_action="restart")
+                return
+            if action == "confirm_restart":
+                if self._extension_manager.get(extension_id).status is not ExtensionStatus.UNAPPLIED:
+                    raise ExtensionActionError("Restart is only available when configuration is unapplied.")
+                armed = getattr(ui, "_extension_armed_token", None)
+                if not armed or armed[0] < time.time() or armed[1:3] != (extension_id, "restart") or str(payload.get("token") or "") != armed[3] or self._extension_manager.get(extension_id).revision != armed[4]:
+                    raise ExtensionActionError("Restart confirmation expired.")
+                from src.tools.youtube_runtime import activate_pending_runtime
+
+                activate_pending_runtime()
+                setattr(ui, "_extension_armed_action", None)
+                setattr(ui, "_extension_armed_token", None)
+                await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
+                if extension_id == "youtube":
+                    playback = getattr(ui, "_youtube_setup_session", None)
+                    query = str(getattr(ui, "_youtube_setup_query", "") or "").strip()
+                    if playback is not None and query and not getattr(ui, "_youtube_setup_retry_claimed", False):
+                        setattr(ui, "_youtube_setup_retry_claimed", True)
+                        setattr(ui, "_youtube_setup_session", None)
+                        setattr(ui, "_youtube_setup_query", None)
+                        await playback.start()
+                return
+        except (ExtensionActionError, ValueError) as exc:
+            logger.info("extension action failed: %s (%s)", extension_id, type(exc).__name__)
+            await ui.append_activity(kind="error", title="Extension action failed", status="error")
+            await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
+
+    async def _handle_extension_panel_input(self, ui: WebSocketUIAdapter, value: str) -> None:
+        setup = getattr(ui, "_extension_setup", None)
+        if not setup or getattr(ui, "_extension_panel_view", "") != "setup":
+            return
+        extension_id = str(setup.get("extension_id") or "")
+        page = int(setup.get("page") or 1)
+        value = value.strip()
+        if value in {"__cancel__", "cancel"}:
+            setattr(ui, "_extension_panel_view", "detail")
+            setattr(ui, "_extension_setup", None)
+            await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
+            return
+        input_page = {"spotify": {4: "client_id", 5: "client_secret"}, "jamendo": {5: "api_key"}, "audius": {5: "api_key"}}.get(extension_id, {}).get(page)
+        if extension_id == "youtube" and page == 1:
+            dependency_id = str((setup.get("selected_dependency") or ""))
+            if dependency_id and dependency_id != "python":
+                await self._install_youtube_dependency(ui, dependency_id)
+            return
+        if input_page:
+            if not value:
+                setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page, error="Input cannot be empty."))
+            else:
+                draft = getattr(ui, "_extension_setup_draft", {})
+                draft[input_page] = value
+                setattr(ui, "_extension_setup_draft", draft)
+                next_page = page + 1
+                setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, next_page))
+            await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
+            return
+        if page < int(setup.get("page_count") or 1):
+            setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page + 1))
+            await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
+            return
+        draft = getattr(ui, "_extension_setup_draft", {})
+        try:
+            if extension_id == "spotify" and draft.get("client_id") and draft.get("client_secret"):
+                save_spotify_app_credentials(draft["client_id"], draft["client_secret"])
+                self._extension_manager.clear_health(extension_id)
+                setattr(ui, "_extension_setup_draft", {})
+                await self._start_extension_spotify_oauth(ui)
+                return
+            elif extension_id in {"jamendo", "audius"} and draft.get("api_key"):
+                set_api_key(extension_id, draft["api_key"])
+                self._extension_manager.clear_health(extension_id)
+                await ui.append_system_message(f"{self._extension_manager.get(extension_id).name} credentials saved.")
+            setattr(ui, "_extension_setup_draft", {})
+            setattr(ui, "_extension_panel_view", "detail")
+            setattr(ui, "_extension_setup", None)
+            await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
+            if extension_id in {"jamendo", "audius"}:
+                async def update(view: Any) -> None:
+                    await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
+
+                await self._extension_manager.run_action(
+                    extension_id,
+                    "quick_check",
+                    on_update=update,
                 )
-                await ui.append_system_message(message)
-            if complete is not None:
-                complete(
-                    {
-                        "status": "failed",
-                        "tool": "Connect",
-                        "message": message,
-                        "data": {
-                            "provider": "netease",
-                            "reason": "worker_not_ready",
-                        },
-                        "error_code": "CONNECTION_NOT_READY",
-                    }
-                )
+        except Exception as exc:
+            setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page, error="Configuration could not be saved."))
+            logger.info("extension setup failed: %s (%s)", extension_id, type(exc).__name__)
+            await ui.append_activity(kind="error", title="Extension setup failed", status="error")
+            await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
+
+    async def _reset_spotify_mode_locally(self, ui: WebSocketUIAdapter) -> None:
+        """Leave Spotify mode without sending a remote pause command."""
+        setattr(ui, "_spotify_mode", None)
+        setattr(ui, "_spotify_library_synced", False)
+        setattr(ui, "_spotify_device_selection", None)
+        setattr(ui, "_spotify_play_selection", None)
+        _clear_persistent_spotify_mode()
+        clear_provider_mode_intent()
+        await _send_spotify_mode(ui, None)
+        await _send_provider_mode(ui, ProviderMode.NORMAL)
+
+    async def _start_extension_spotify_oauth(self, ui: WebSocketUIAdapter) -> None:
+        try:
+            authorize_url, expected_state = spotify_authorize_url()
+        except Exception:
+            setup = self._extension_setup_page("spotify", 7, error="Spotify authorization could not start.")
+            setattr(ui, "_extension_setup", setup)
+            await self._send_extension_panel(ui, view="setup", selected_id="spotify")
+            return
+        setup = self._extension_setup_page("spotify", 7)
+        setup["body"] = f"Approve access in your browser, then return here.\nAuthorization URL: {authorize_url}"
+        setattr(ui, "_extension_setup", setup)
+        await self._send_extension_panel(ui, view="setup", selected_id="spotify")
+
+        async def finish() -> None:
+            try:
+                account = await asyncio.to_thread(_spotify_loopback_login_for_tui, authorize_url, expected_state)
+                if _is_failed_tool_result(account):
+                    raise RuntimeError("Spotify account verification failed.")
+                self._extension_manager.clear_health("spotify")
+                await ui.append_system_message("Spotify connection verified.")
+                setattr(ui, "_extension_panel_view", "detail")
+                setattr(ui, "_extension_setup", None)
+                await self._send_extension_panel(ui, view="detail", selected_id="spotify")
+            except Exception as exc:
+                setup = self._extension_setup_page("spotify", 7, error="Spotify authorization or verification failed.")
+                setattr(ui, "_extension_setup", setup)
+                await self._send_extension_panel(ui, view="setup", selected_id="spotify")
+
+        setattr(ui, "_extension_spotify_oauth_task", asyncio.create_task(finish()))
+
+    async def _install_youtube_dependency(self, ui: WebSocketUIAdapter, dependency_id: str) -> None:
+        if dependency_id == "python":
+            return
+        dependency_ids = {item["id"] for item in youtube_dependency_snapshot()}
+        if dependency_id not in dependency_ids:
+            return
+        if dependency_id == "po-token-provider":
+            missing = next((item["id"] for item in youtube_dependency_snapshot() if item["id"] in {"node", "npm"} and item["state"] != "installed"), None)
+            if missing:
+                setup = self._extension_setup_page("youtube", 1)
+                setup["selected_dependency"] = missing
+                setattr(ui, "_extension_setup", setup)
+                await self._send_extension_panel(ui, view="setup", selected_id="youtube")
+                return
+        current = getattr(ui, "_extension_youtube_install_task", None)
+        if isinstance(current, asyncio.Task) and not current.done():
+            return
+        try:
+            start_update_job(reason=f"setup:{dependency_id}", force=True, component=dependency_id)
+        except OSError as exc:
+            await ui.append_activity(kind="error", title="YouTube setup failed", detail=sanitize_error_message(exc), status="error")
             return
 
-        message = "Selected music connection is not available."
-        if emit_feedback:
-            await ui.append_activity(
-                kind="error",
-                title="Music connections",
-                detail=message,
-                status="error",
-            )
-            await ui.append_system_message(message)
-        if complete is not None:
-            complete(
-                {
-                    "status": "failed",
-                    "tool": "Connect",
-                    "message": message,
-                    "data": {
-                        "provider": provider_id,
-                        "reason": "provider_unavailable",
-                    },
-                    "error_code": "PROVIDER_UNSUPPORTED",
-                }
-            )
+        async def watch() -> None:
+            from src.tools.youtube_runtime import update_state
+
+            while True:
+                state = update_state()
+                setup = self._extension_setup_page("youtube", 1)
+                setup["selected_dependency"] = dependency_id
+                setup["dependencies"] = youtube_dependency_snapshot()
+                setattr(ui, "_extension_setup", setup)
+                await self._send_extension_panel(ui, view="setup", selected_id="youtube")
+                if state.get("status") in {"ready", "failed"}:
+                    return
+                await asyncio.sleep(0.1)
+
+        task = asyncio.create_task(watch())
+        setattr(ui, "_extension_youtube_install_task", task)
+
     async def _handle_logout(self, ui: WebSocketUIAdapter, args: str = "") -> None:
         """Prepares handle logout for an internal Sonex flow.
 
@@ -8298,10 +8205,6 @@ class WebSocketRunner:
         setattr(ui, "_netease_verified_signature", None)
         if getattr(ui, "_preferred_playback_provider", None) == "netease":
             setattr(ui, "_preferred_playback_provider", None)
-        if self._music_connection_manager_instance is None:
-            self._music_connection_manager_instance = self._music_connection_manager_factory()
-        manager = self._music_connection_manager_instance
-        had_connection = manager.record("netease") is not None
         worker = NetEaseProviderWorker()
         logged_out = False
         try:
@@ -8309,8 +8212,7 @@ class WebSocketRunner:
                 logged_out = await asyncio.to_thread(worker.logout)
         except Exception as exc:
             logger.warning("NetEase logout check failed: %s", sanitize_error_message(exc))
-        manager.remove("netease")
-        return had_connection or logged_out
+        return logged_out
 
     async def _handle_bye(
         self,
@@ -9139,41 +9041,8 @@ class WebSocketRunner:
         if readiness is None or not readiness.configured or not readiness.logged_in:
             if not allow_setup:
                 return None
-            completed: asyncio.Future[dict[str, Any]] = (
-                asyncio.get_running_loop().create_future()
-            )
-
-            def finish(result: dict[str, Any]) -> None:
-                if not completed.done():
-                    completed.set_result(result)
-
-            setattr(ui, "_agent_connection_active", True)
-            try:
-                await self._connect_music_provider(
-                    ui,
-                    provider,
-                    complete=finish,
-                )
-                connection = await completed
-            finally:
-                setattr(ui, "_agent_connection_active", False)
-            if connection.get("status") != "connected":
-                return None
-            refreshed = await self._probe_authoritative_providers(ui)
-            readiness = next(
-                (
-                    snapshot
-                    for snapshot in refreshed
-                    if snapshot.provider == provider
-                ),
-                None,
-            )
-            return await self._recover_explicit_provider(
-                ui,
-                provider,
-                readiness,
-                allow_setup=False,
-            )
+            await self._open_extension_setup(ui, provider)
+            return None
 
         devices = [
             device
@@ -9261,9 +9130,6 @@ class WebSocketRunner:
         if connection.get("status") != "connected":
             setattr(ui, "_netease_login_declined", True)
             return None, str(connection.get("status") or "failed")
-        if self._music_connection_manager_instance is None:
-            self._music_connection_manager_instance = self._music_connection_manager_factory()
-        self._music_connection_manager_instance.mark_connected("netease", account_label="ncm-cli")
         refreshed = await self._probe_authoritative_providers(ui)
         recovered = next(
             (snapshot for snapshot in refreshed if snapshot.provider == "netease" and snapshot.ready),
@@ -9808,13 +9674,6 @@ class WebSocketRunner:
                     )
                     setattr(ui, "_agent_candidate_selection", session)
                     await session.start()
-                    continue
-                if status == "requires_connection":
-                    await self._start_agent_connection_interaction(
-                        ui,
-                        request,
-                        complete=complete_interaction,
-                    )
                     continue
                 if status == "requires_modify_confirmation":
                     data = request.get("data") if isinstance(request.get("data"), dict) else {}

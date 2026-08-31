@@ -46,7 +46,7 @@ def register_bash_tool(tool_registry: ToolRegistry = registry) -> None:
             "Each commands item must contain one command or one single-line pipeline. "
             "Commands run sequentially and stop on failure; cd affects later items in "
             "this call only. Complex or inline shell programs are rejected. The shell "
-            "has no public network or credentials; use Query, Connect, and Call for "
+            "has no public network or credentials; use Query, /extension, and Call for "
             "provider operations."
         ),
         parameters=Params(

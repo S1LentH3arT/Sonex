@@ -11,7 +11,6 @@ from typing import Any, Callable
 
 from src.memory.tool import search_context, search_memory
 from src.log import sonex_home
-from src.music.connections import MusicConnectionManager
 from src.tools.agent_modify import Modify
 from src.tools.local_play import search_local_file
 from src.tools.playback_queue import playback_queue_snapshot
@@ -43,7 +42,6 @@ QUERY_RESOURCES = (
     "devices",
     "playback",
 )
-CONNECT_PROVIDERS = ("spotify", "netease", "jamendo", "audius")
 RECOMMEND_PROVIDERS = ("spotify", "netease")
 RECOMMEND_TIMEOUT_SECONDS = 8.0
 _MAX_LOCAL_REFS = 512
@@ -312,7 +310,7 @@ def _resolve_query_provider(provider: str) -> tuple[str | None, dict[str, Any] |
         )
     if normalized != "current":
         return normalized, None
-    current = MusicConnectionManager().preferred_provider_id
+    current = _current_extension_provider()
     if current is None:
         return None, _failure(
             "Query",
@@ -320,6 +318,17 @@ def _resolve_query_provider(provider: str) -> tuple[str | None, dict[str, Any] |
             "CONNECTION_REQUIRED",
         )
     return current, None
+
+
+def _current_extension_provider() -> str | None:
+    """Return the first enabled built-in provider without legacy state."""
+    from src.extensions import ExtensionManager, ExtensionStatus
+
+    manager = ExtensionManager()
+    for provider in ("spotify", "jamendo", "audius", "youtube"):
+        if manager.get(provider).status is ExtensionStatus.ENABLED:
+            return provider
+    return None
 
 
 def _query_tool_and_args(
@@ -371,8 +380,14 @@ def _decode_ref(provider: str, ref: str | None) -> str | None:
 def _provider_connected(provider: str) -> bool:
     if provider == "local":
         return True
-    record = MusicConnectionManager().record(provider)
-    return record is not None and record.status == "connected"
+    if provider == "netease":
+        return False
+    try:
+        from src.extensions import ExtensionManager, ExtensionStatus
+
+        return ExtensionManager().get(provider).status is ExtensionStatus.ENABLED
+    except Exception:
+        return False
 
 
 def Query(
@@ -584,9 +599,11 @@ def Recommend(
             data={"providers": ["current", *RECOMMEND_PROVIDERS]},
         )
 
-    manager = MusicConnectionManager()
+    from src.extensions import ExtensionManager, ExtensionStatus
+
+    manager = ExtensionManager()
     preferred = (
-        manager.preferred_provider_id
+        _current_extension_provider()
         if requested == "current"
         else requested
     )
@@ -600,18 +617,17 @@ def Recommend(
     skipped: list[dict[str, str]] = []
     connected: list[str] = []
     for provider_id in ordered:
-        record = manager.record(provider_id)
-        if record is None or record.status != "connected":
-            skipped.append(
-                {"provider": provider_id, "reason": "not_connected"}
-            )
-            continue
         if provider_id == "netease":
             skipped.append(
                 {
                     "provider": provider_id,
                     "reason": "recommendation_capability_unavailable",
                 }
+            )
+            continue
+        if manager.get(provider_id).status is not ExtensionStatus.ENABLED:
+            skipped.append(
+                {"provider": provider_id, "reason": "not_connected"}
             )
             continue
         connected.append(provider_id)
@@ -709,33 +725,6 @@ def Recommend(
     ).to_dict()
 
 
-def Connect(provider: str) -> dict[str, Any]:
-    """Request one provider connection or health-check interaction."""
-    normalized = _normalize_provider(provider)
-    if normalized not in CONNECT_PROVIDERS:
-        return _failure(
-            "Connect",
-            f"Unknown connection provider: {provider}.",
-            "PROVIDER_UNSUPPORTED",
-            data={"providers": list(CONNECT_PROVIDERS)},
-        )
-    record = MusicConnectionManager().record(normalized)
-    action = "health_check" if record and record.status == "connected" else "connect"
-    if record and record.status != "connected":
-        action = "reauthorize"
-    return {
-        "status": "requires_connection",
-        "tool": "Connect",
-        "message": f"{action.replace('_', ' ').title()} requested for {normalized}.",
-        "data": {
-            "provider": normalized,
-            "action": action,
-            "timeout_seconds": 300,
-        },
-        "error_code": None,
-    }
-
-
 @dataclass(frozen=True)
 class Workflow:
     name: str
@@ -788,7 +777,7 @@ def _select_workflow(arguments: dict[str, Any]) -> dict[str, Any]:
 def _play_workflow(arguments: dict[str, Any]) -> dict[str, Any]:
     provider = _normalize_provider(str(arguments.get("provider") or "current"))
     if provider == "current":
-        provider = MusicConnectionManager().preferred_provider_id or "local"
+        provider = _current_extension_provider() or "local"
     query = str(arguments.get("query") or "").strip()
     ref = str(arguments.get("ref") or "").strip()
     if not query and not ref:
@@ -841,7 +830,7 @@ def _play_workflow(arguments: dict[str, Any]) -> dict[str, Any]:
 def _control_workflow(arguments: dict[str, Any]) -> dict[str, Any]:
     provider = _normalize_provider(str(arguments.get("provider") or "current"))
     if provider == "current":
-        provider = MusicConnectionManager().preferred_provider_id or "local"
+        provider = _current_extension_provider() or "local"
     command = str(arguments.get("command") or "").strip().casefold()
     mapping = {
         ("spotify", "pause"): "spotify_pause",
@@ -946,25 +935,6 @@ def register_agent_surface(tool_registry: ToolRegistry = registry) -> None:
         ),
         fn=Recommend,
         read_only=True,
-        confirm_required=False,
-    )
-    tool_registry.register(
-        name="Connect",
-        kind="agent",
-        domain="connection",
-        description=(
-            "Connect, reauthorize, or health-check one supported music provider "
-            "through Sonex's interactive connection workflow."
-        ),
-        parameters=Params(
-            type="object",
-            properties={
-                "provider": {"type": "string", "enum": list(CONNECT_PROVIDERS)},
-            },
-            required=["provider"],
-        ),
-        fn=Connect,
-        read_only=False,
         confirm_required=False,
     )
     tool_registry.register(

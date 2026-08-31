@@ -32,7 +32,7 @@ from src.tools.spotify_play import (
     spotify_transfer_playback,
 )
 from src.memory.tool import search_context, search_memory
-from src.tools.agent_surface import Call, Connect, Modify, Query, Read, Recommend
+from src.tools.agent_surface import Call, Modify, Query, Read, Recommend
 
 
 __all__ = [
@@ -74,6 +74,5 @@ __all__ = [
     "Query",
     "Recommend",
     "Modify",
-    "Connect",
     "Call",
 ]

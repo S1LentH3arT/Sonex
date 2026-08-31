@@ -185,6 +185,7 @@ export const PanelChoiceList = ({
 export const PanelFrame = ({
     width,
     title,
+    titleSegments = null,
     hint = null,
     hintColor = PANEL_SECONDARY,
     titleDetailSegments = null,
@@ -193,6 +194,7 @@ export const PanelFrame = ({
 }: {
     width: number;
     title: string;
+    titleSegments?: PanelRowSegment[] | null;
     hint?: string | null;
     hintColor?: string;
     titleDetailSegments?: PanelRowSegment[] | null;
@@ -207,7 +209,13 @@ export const PanelFrame = ({
     return (
         <Box width={boundedWidth} flexDirection="column" flexShrink={0}>
             <PanelEmptyRow width={boundedWidth} />
-            {titleRows.map((row, index) => (
+            {titleSegments ? (
+                <PanelRow
+                    width={boundedWidth}
+                    paddingX={paddingX}
+                    segments={titleSegments}
+                />
+            ) : titleRows.map((row, index) => (
                 <PanelRow
                     key={`panel-title-${index}`}
                     width={boundedWidth}

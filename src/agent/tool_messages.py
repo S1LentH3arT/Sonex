@@ -93,7 +93,6 @@ def _format_tool_call(call: ToolAction) -> RichToolMessage:
     formatter = {
         "Bash": _format_bash,
         "Call": _format_call,
-        "Connect": _format_connect,
         "Query": _format_query,
         "Read": _format_read,
     }.get(call.tool, _format_fallback)
@@ -153,10 +152,6 @@ def _format_query(args: dict[str, Any]) -> list[str]:
             if value
         )
     ]
-
-
-def _format_connect(args: dict[str, Any]) -> list[str]:
-    return [_clean_value(args.get("provider"))]
 
 
 def _format_call(args: dict[str, Any]) -> list[str]:

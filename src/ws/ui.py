@@ -269,6 +269,11 @@ class WebSocketUIAdapter:
         """
         await self._send(state.to_event())
 
+    async def send_extension_panel(self, payload: dict[str, Any]) -> None:
+        """Publish one server-owned built-in extension panel snapshot."""
+        event = {"type": "extension_panel", **payload}
+        await self._send(event)
+
     async def send_cover(self, url: str) -> None:
         """Sends cover to the active runtime client.
 

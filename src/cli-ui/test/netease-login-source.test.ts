@@ -9,7 +9,6 @@ assert.match(typesSource, /type: "netease_login"/);
 assert.match(typesSource, /type: "netease_login_input"; value: "__cancel__"/);
 assert.match(appSource, /case "netease_login":/);
 assert.match(appSource, /key\.escape[\s\S]*netease_login_input[\s\S]*__cancel__/);
-assert.match(appSource, /connectionConfirm\?\.tool_name === "music_connection"[\s\S]*decision: "deny"/);
 assert.match(componentSource, /export const NetEaseQrMessage/);
 assert.match(componentSource, /Esc to play online/);
 assert.match(componentSource, /Esc to cancel/);

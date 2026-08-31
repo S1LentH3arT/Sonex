@@ -131,19 +131,19 @@ class BuiltinCommandParserTests(unittest.TestCase):
         commands = {command.name: command for command in command_suggestions()}
         self.assertNotIn("player", commands)
 
-    def test_connect_is_a_visible_interactive_local_command(self) -> None:
+    def test_connect_is_unknown_and_extension_is_the_visible_local_command(self) -> None:
         parsed = parse_builtin_command("/connect spotify")
 
         self.assertIsNotNone(parsed)
         assert parsed is not None
-        self.assertTrue(parsed.known)
+        self.assertFalse(parsed.known)
         self.assertEqual(parsed.args, "spotify")
-        self.assertIsNone(parsed.command_intent())
         commands = {command.name: command for command in command_suggestions()}
-        self.assertEqual(commands["connect"].usage, "/connect")
+        self.assertNotIn("connect", commands)
+        self.assertEqual(commands["extension"].usage, "/extension")
         self.assertEqual(
-            commands["connect"].description,
-            "connect a supported music account",
+            commands["extension"].description,
+            "check and manage built-in music extensions",
         )
 
     def test_playback_control_commands_are_hidden_from_help_and_suggestions(self) -> None:

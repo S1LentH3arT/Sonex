@@ -6,6 +6,7 @@ import { getSelectableConfirmChoices, resolveConfirmDecisionFromInput, resolveCo
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
 import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
+import { ExtensionPanelOverlay } from './extension-panel.js';
 import { useSonexSocket } from './hooks.js';
 import { chatMessagesForTranscript, createInfoBannerItem } from './info-banner.js';
 import { applyLanguageToServerEvent, helpCommandsForLanguage, localizeSlashCommands, OFFICIAL_UI_LANGUAGE, t } from './i18n.js';
@@ -20,7 +21,7 @@ import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
 import { TEXT_STREAM_INTERVAL_MS, nextTextStreamOffset, streamedChatMessage, textStreamUnits } from './text-stream.js';
 import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer, type TranscriptPresentation } from './transcript.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, HelpPanelState, LanguagePanelState, MemoryPanelState, NetEaseLoginState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, ExtensionPanelState, HelpPanelState, LanguagePanelState, MemoryPanelState, NetEaseLoginState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 import { TOKEN_USAGE_ANIMATION_INTERVAL_MS, nextAnimatedTokenUsage } from './usage-animation.js';
 
 type InkInputKey = {
@@ -67,6 +68,9 @@ export const App: React.FC<{
     const [searchItems, setSearchItems] = useState<TrackSummary[]>([]);
     const [trackPanel, setTrackPanel] = useState<TrackPanelState>(null);
     const [memoryPanel, setMemoryPanel] = useState<MemoryPanelState>(null);
+    const [extensionPanel, setExtensionPanel] = useState<ExtensionPanelState>(null);
+    const [extensionPanelIndex, setExtensionPanelIndex] = useState(0);
+    const [extensionInputFocused, setExtensionInputFocused] = useState(false);
     const [memorySearchQuery, setMemorySearchQuery] = useState("");
     const [memoryEditor, setMemoryEditor] = useState<{
         mode: "search" | "add" | "edit" | "setting";
@@ -132,9 +136,10 @@ export const App: React.FC<{
     const nextTextStreamIdRef = React.useRef(0);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
     const isLoginScreenActive = isGenericAuthSetup(authSetup) && !isModelPanelActive;
+    const extensionSetupInput = extensionPanel?.view === "setup" ? extensionPanel.setup?.input : null;
     const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
     const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive;
-    const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active
+    const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active || extensionPanel
         ? []
         : spotifyMode.enabled
             ? spotifyModeSlashCommands(input, language)
@@ -429,6 +434,8 @@ export const App: React.FC<{
             ? authSetup.prompt
             : spotifySetup?.active && spotifySetup.prompt
                 ? spotifySetup.prompt
+                : extensionSetupInput
+                    ? extensionSetupInput.placeholder
                 : recommendInputLocked
                     ? t(language, "input.recommendPending")
                     : "";
@@ -436,6 +443,8 @@ export const App: React.FC<{
         ? "*"
         : spotifySetup?.active && spotifySetup.mask
             ? "*"
+            : extensionSetupInput?.mask
+                ? "*"
             : undefined;
     const onEvent = React.useCallback((rawEvent: ServerEvent) => {
         const evt = applyLanguageToServerEvent(rawEvent, language);
@@ -544,6 +553,44 @@ export const App: React.FC<{
                 switchRegion("memoryPanel");
                 setStatusText(evt.title);
                 break;
+            case "extension_panel": {
+                const selected = evt.selected_extension ?? null;
+                setExtensionPanel({
+                    view: evt.view,
+                    title: evt.title,
+                    hint: evt.hint,
+                    selectedExtension: selected,
+                    extensions: evt.extensions,
+                    detail: evt.detail,
+                    setup: evt.setup,
+                });
+                const nextIndex = evt.view === "detail"
+                    ? (() => {
+                        const detailActions = evt.detail?.armed_action === "reset"
+                            ? ["confirm_reset"]
+                            : evt.detail?.armed_action === "restart"
+                                ? ["confirm_restart"]
+                                : ["quick_check", ...(evt.detail?.action ? [evt.detail.action] : []), ...(evt.detail?.reset_available ? ["prepare_reset"] : [])];
+                        const focused = evt.detail?.selected_action;
+                        const focusedIndex = focused ? detailActions.indexOf(focused) : 0;
+                        return focusedIndex >= 0 ? focusedIndex : 0;
+                    })()
+                    : evt.view === "setup"
+                        ? evt.setup?.dependencies && evt.setup.selected_dependency
+                            ? Math.max(0, evt.setup.dependencies.findIndex((dependency) => dependency.id === evt.setup?.selected_dependency))
+                            : 0
+                    : selected
+                        ? evt.extensions.findIndex((extension) => extension.id === selected)
+                        : 0;
+                setExtensionPanelIndex(Math.max(0, nextIndex));
+                setExtensionInputFocused(false);
+                setTrackPanel(null);
+                setMemoryPanel(null);
+                setHelpPanel(null);
+                setLanguagePanel(null);
+                setStatusText(evt.title);
+                break;
+            }
             case "search_results": {
                 setSearchItems(evt.tracks);
                 const first = evt.tracks[0];
@@ -628,10 +675,6 @@ export const App: React.FC<{
                 setLaunchPreparing(false);
                 setInput("");
                 switchRegion("chat");
-                if (evt.tool_name === "music_connection") {
-                    setSpotifySetup(null);
-                    setAuthSetup(null);
-                }
                 setConfirm({
                     id: evt.id,
                     tool_name: evt.tool_name,
@@ -653,10 +696,6 @@ export const App: React.FC<{
                 const currentConfirm = confirmRef.current;
                 dismissedConfirmIdsRef.current.add(evt.id);
                 if (currentConfirm?.id === evt.id) {
-                    if (currentConfirm.tool_name === "music_connection") {
-                        setSpotifySetup(null);
-                        setAuthSetup(null);
-                    }
                     setConfirm(null);
                 }
                 break;
@@ -973,6 +1012,15 @@ export const App: React.FC<{
             return;
         }
 
+        if (extensionPanel) {
+            if (extensionPanel.view === "setup" && extensionPanel.setup?.input && extensionInputFocused) {
+                setInput("");
+                setExtensionInputFocused(false);
+                send({ type: "extension_panel_input", value: text });
+            }
+            return;
+        }
+
         const command = matchingSlashCommand(text);
         const suggestions = slashSuggestions;
         if (!authSetup?.active && !spotifySetup?.active && (command?.name === "bye" || command?.name === "exit")) {
@@ -1055,7 +1103,86 @@ export const App: React.FC<{
                 showError(API_NOT_RUNNING_MESSAGE, API_NOT_RUNNING_DETAIL);
             }
         }
-    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, finishActiveTextStream, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation]);
+    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, extensionInputFocused, extensionPanel, finishActiveTextStream, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation]);
+
+    useInput((inputKey, key) => {
+        if (!extensionPanel) return;
+        if (key.escape) {
+            setExtensionInputFocused(false);
+            setInput("");
+            if (extensionPanel.view === "list") {
+                setExtensionPanel(null);
+                send({ type: "extension_panel_action", action: "close" });
+            } else {
+                send({
+                    type: "extension_panel_action",
+                    action: "back",
+                    extension_id: extensionPanel.selectedExtension ?? undefined,
+                });
+            }
+            return;
+        }
+        if (extensionPanel.view === "list") {
+            if (key.upArrow) {
+                setExtensionPanelIndex((prev) => (prev - 1 + extensionPanel.extensions.length) % extensionPanel.extensions.length);
+            } else if (key.downArrow) {
+                setExtensionPanelIndex((prev) => (prev + 1) % extensionPanel.extensions.length);
+            } else if (key.return) {
+                const selected = extensionPanel.extensions[extensionPanelIndex];
+                if (selected) send({ type: "extension_panel_action", action: "open_detail", extension_id: selected.id });
+            }
+            return;
+        }
+        if (extensionPanel.view === "setup") {
+            if (extensionPanel.setup?.dependencies && extensionPanel.setup.dependencies.length > 0) {
+                if (key.upArrow) {
+                    setExtensionPanelIndex((prev) => (prev - 1 + extensionPanel.setup!.dependencies!.length) % extensionPanel.setup!.dependencies!.length);
+                } else if (key.downArrow) {
+                    setExtensionPanelIndex((prev) => (prev + 1) % extensionPanel.setup!.dependencies!.length);
+                } else if (key.return) {
+                    const dependency = extensionPanel.setup.dependencies[extensionPanelIndex];
+                    if (dependency && dependency.state !== "installed") {
+                        send({ type: "extension_panel_action", action: "install_dependency", extension_id: extensionPanel.selectedExtension ?? undefined, dependency_id: dependency.id });
+                    }
+                }
+            } else if (key.leftArrow) {
+                send({ type: "extension_panel_action", action: "prev_page", extension_id: extensionPanel.selectedExtension ?? undefined });
+            } else if (key.rightArrow) {
+                send({ type: "extension_panel_action", action: "next_page", extension_id: extensionPanel.selectedExtension ?? undefined });
+            } else if (key.return) {
+                if (extensionPanel.setup?.input && !extensionInputFocused) {
+                    setExtensionInputFocused(true);
+                } else if (!extensionPanel.setup?.input) {
+                    send({ type: "extension_panel_input", value: "" });
+                }
+            }
+            return;
+        }
+        const detail = extensionPanel.detail;
+        const extension = extensionPanel.extensions.find((item) => item.id === extensionPanel.selectedExtension);
+        if (!detail || !extension) return;
+        const actions = detail.status === "waiting" || detail.status === "unsupported"
+            ? []
+            : detail.armed_action === "reset"
+            ? ["confirm_reset"]
+            : detail.armed_action === "restart"
+                ? ["confirm_restart"]
+                : ["quick_check", ...(detail.action ? [detail.action] : []), ...(detail.reset_available ? ["prepare_reset"] : [])];
+        if (actions.length === 0) return;
+        if (key.upArrow) {
+            setExtensionPanelIndex((prev) => (prev - 1 + actions.length) % actions.length);
+        } else if (key.downArrow) {
+            setExtensionPanelIndex((prev) => (prev + 1) % actions.length);
+        } else if (key.return) {
+            const selectedAction = actions[Math.min(extensionPanelIndex, Math.max(0, actions.length - 1))];
+            if (selectedAction) send({
+                type: "extension_panel_action",
+                action: selectedAction,
+                extension_id: extension.id,
+                token: selectedAction === "confirm_reset" || selectedAction === "confirm_restart" ? detail.armed_token : undefined,
+            });
+        }
+    }, { isActive: rawModeAvailable && Boolean(extensionPanel) && !confirm });
 
     useInput((inputKey, key) => {
         if (key.ctrl && inputKey === "c") {
@@ -1066,12 +1193,6 @@ export const App: React.FC<{
     useInput((inputKey, key) => {
         if (!isLoginScreenActive) return;
         if (key.escape) {
-            const connectionConfirm = confirmRef.current;
-            if (connectionConfirm?.tool_name === "music_connection") {
-                dismissedConfirmIdsRef.current.add(connectionConfirm.id);
-                send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
-                setConfirm(null);
-            }
             setAuthSetup(null);
             setLoginSelectionIndex(0);
             setLoginApiKeyInput("");
@@ -1093,24 +1214,12 @@ export const App: React.FC<{
 
     useInput((_inputKey, key) => {
         if (!neteaseLogin?.active || !key.escape) return;
-        const connectionConfirm = confirmRef.current;
-        if (connectionConfirm?.tool_name === "music_connection") {
-            dismissedConfirmIdsRef.current.add(connectionConfirm.id);
-            send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
-            setConfirm(null);
-        }
         send({ type: "netease_login_input", value: "__cancel__" });
         setNetEaseLogin(null);
     }, { isActive: rawModeAvailable && Boolean(neteaseLogin?.active) });
 
     useInput((_inputKey, key) => {
         if (!spotifySetup?.active || !key.escape) return;
-        const connectionConfirm = confirmRef.current;
-        if (connectionConfirm?.tool_name === "music_connection") {
-            dismissedConfirmIdsRef.current.add(connectionConfirm.id);
-            send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
-            setConfirm(null);
-        }
         setSpotifySetup(null);
         setInput("");
         send({ type: "setup_input", value: "__cancel__" });
@@ -1189,36 +1298,16 @@ export const App: React.FC<{
 
     useInput((inputKey, key) => {
         if (spotifySetup && spotifySetup.active === false && key.escape) {
-            const connectionConfirm = confirmRef.current;
-            if (connectionConfirm?.tool_name === "music_connection") {
-                dismissedConfirmIdsRef.current.add(connectionConfirm.id);
-                send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
-                setConfirm(null);
-            }
             setSpotifySetup(null);
-            if (connectionConfirm?.tool_name !== "music_connection") {
-                appendPanelHiddenNotice(t(language, "panel.spotifySetupHidden"));
-            }
+            appendPanelHiddenNotice(t(language, "panel.spotifySetupHidden"));
         } else if (authSetup && authSetup.active === false && key.escape) {
-            const connectionConfirm = confirmRef.current;
-            if (connectionConfirm?.tool_name === "music_connection") {
-                dismissedConfirmIdsRef.current.add(connectionConfirm.id);
-                send({ type: "confirm_result", id: connectionConfirm.id, decision: "deny" });
-                setConfirm(null);
-            }
             setAuthSetup(null);
-            if (connectionConfirm?.tool_name !== "music_connection") {
-                appendPanelHiddenNotice(t(language, "panel.setupHidden"));
-            }
+            appendPanelHiddenNotice(t(language, "panel.setupHidden"));
         }
     }, { isActive: rawModeAvailable && (Boolean(spotifySetup && spotifySetup.active === false) || Boolean(authSetup && authSetup.active === false)) });
 
     useInput((inputKey, key) => {
         if (!confirm) return;
-        const isMusicConnection = confirm.tool_name === "music_connection";
-        const musicConnectionBusy = isMusicConnection
-            && confirm.choices.some((choice) => choice.connection_status === "checking");
-
         if (key.upArrow) {
             setInput("");
             setConfirmIndex((prev) => Math.max(0, prev - 1));
@@ -1228,33 +1317,17 @@ export const App: React.FC<{
         } else if (key.return) {
             if (selectableConfirmChoices.length === 0) return;
             if (selectedConfirmChoice?.input) return;
-            if (musicConnectionBusy) return;
             send({
                 type: "confirm_result",
                 id: confirm.id,
                 decision: selectedConfirmChoice?.value ?? "allow_once",
             });
-            if (isMusicConnection && selectedConfirmChoice) {
-                setConfirm((current) => current && current.id === confirm.id
-                    ? {
-                        ...current,
-                        choices: current.choices.map((choice) => choice.value === selectedConfirmChoice.value
-                            ? {
-                                ...choice,
-                                connection_status: "checking",
-                                description: "Checking connection...",
-                            }
-                            : choice),
-                    }
-                    : current);
-            } else {
-                setConfirm(null);
-            }
+            setConfirm(null);
         } else if (key.escape) {
             dismissedConfirmIdsRef.current.add(confirm.id);
             send({ type: "confirm_result", id: confirm.id, decision: "deny" });
             setConfirm(null);
-            if (!isMusicConnection && confirm.variant !== "tool_call_review") {
+            if (confirm.variant !== "tool_call_review") {
                 appendPanelHiddenNotice(t(language, "panel.confirmHidden"));
             }
         }
@@ -1556,6 +1629,9 @@ export const App: React.FC<{
                         modelPanelIndex={loginSelectionIndex}
                         trackPanel={trackPanel}
                         trackPanelIndex={trackPanelIndex}
+                        extensionPanel={extensionPanel}
+                        extensionPanelIndex={extensionPanelIndex}
+                        extensionInputFocused={extensionInputFocused}
                         memoryPanel={memoryPanel}
                         memoryPanelIndex={memoryPanelIndex}
                         memorySearchQuery={memorySearchQuery}
