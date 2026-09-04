@@ -26,13 +26,13 @@ const warningHelper = appSource.slice(warningStart, warningEnd);
 assert.match(warningHelper, /unknownSlashCommandMessage\(value\)/);
 assert.match(warningHelper, /tone: "warning"/);
 
-const submitUnknownStart = appSource.indexOf('text.startsWith("/") && !command');
-const submitUnknownEnd = appSource.indexOf('command?.needsArgument', submitUnknownStart);
+const submitUnknownStart = appSource.indexOf('case "unknown_slash":');
+const submitUnknownEnd = appSource.indexOf('case "setup_input":', submitUnknownStart);
 assert.ok(submitUnknownStart >= 0);
 assert.ok(submitUnknownEnd > submitUnknownStart);
 const submitUnknown = appSource.slice(submitUnknownStart, submitUnknownEnd);
 assert.match(submitUnknown, /setInput\(""\)/);
-assert.match(submitUnknown, /appendUnknownCommandWarning\(text\)/);
+assert.match(submitUnknown, /appendUnknownCommandWarning\(route\.value\)/);
 
 const tabUnknownStart = appSource.indexOf('if (!isUnknownSlashInput) return;');
 const tabUnknownEnd = appSource.indexOf('if (!languagePanel?.active) return;', tabUnknownStart);

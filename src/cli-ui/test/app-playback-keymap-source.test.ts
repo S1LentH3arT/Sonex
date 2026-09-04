@@ -4,17 +4,15 @@ import { readFileSync } from 'node:fs';
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
 const typesSource = readFileSync(new URL('../src/types.ts', import.meta.url), 'utf8');
 
-assert.match(appSource, /const \[playbackKeymapEnabled, setPlaybackKeymapEnabled\] = useState\(true\)/);
 assert.match(appSource, /process\.stdin\.on\("data", handlePlaybackShortcut\)/);
-assert.match(appSource, /!playbackSessionActiveRef\.current/);
-assert.match(appSource, /!playbackKeymapEnabledRef\.current/);
+assert.match(appSource, /!shellStateRef\.current\.playbackSessionActive/);
 assert.match(appSource, /confirmRef\.current/);
 assert.match(appSource, /spotifySetupActiveRef\.current/);
 assert.match(appSource, /authSetupActiveRef\.current/);
 assert.match(appSource, /slashMenuActiveRef\.current/);
-assert.match(appSource, /const localShortcut = activeRegionRef\.current === "miniPlayer"[\s\S]*isLocalPlaybackShortcutSource\(playerRef\.current\)/);
-assert.match(appSource, /const spotifyShortcut = activeRegionRef\.current === "spotifyImmersive"[\s\S]*spotifyModeRef\.current\.enabled[\s\S]*action === "togglePlayback"[\s\S]*isSpotifyPlaybackShortcutSource\(playerRef\.current\)/);
-assert.match(appSource, /const providerShortcut = activeRegionRef\.current === "providerImmersive"[\s\S]*providerModeRef\.current\.provider === "spotify"[\s\S]*isSpotifyPlaybackShortcutSource\(playerRef\.current\)/);
+assert.match(appSource, /const localShortcut = shellStateRef\.current\.region === "miniPlayer"[\s\S]*isLocalPlaybackShortcutSource\(playerRef\.current\)/);
+assert.match(appSource, /const spotifyShortcut = shellStateRef\.current\.region === "spotifyImmersive"[\s\S]*spotifyModeRef\.current\.enabled[\s\S]*action === "togglePlayback"[\s\S]*isSpotifyPlaybackShortcutSource\(playerRef\.current\)/);
+assert.match(appSource, /const providerShortcut = shellStateRef\.current\.region === "providerImmersive"[\s\S]*providerModeRef\.current\.provider === "spotify"[\s\S]*isSpotifyPlaybackShortcutSource\(playerRef\.current\)/);
 assert.match(appSource, /if \(!localShortcut && !spotifyShortcut && !providerShortcut\) return;/);
 assert.match(appSource, /send\(\{ type: "internal_command", text: command \}\)/);
 assert.match(appSource, /case "track_panel":/);
@@ -40,11 +38,5 @@ assert.match(appSource, /terminalSurface\.transition\(nextSurface/);
 
 assert.match(typesSource, /type: "internal_command"; text: string/);
 
-const appendKeymapStart = appSource.indexOf('const appendKeymapMessage =');
-const handleKeymapStart = appSource.indexOf('const handleKeymapCommand =', appendKeymapStart);
-const loginChoicesStart = appSource.indexOf('const loginChoices =', handleKeymapStart);
-const appendKeymapSource = appSource.slice(appendKeymapStart, handleKeymapStart);
-const handleKeymapSource = appSource.slice(handleKeymapStart, loginChoicesStart);
-
-assert.match(appendKeymapSource, /tone: "system"/);
-assert.match(handleKeymapSource, /content: t\(language, "keymap\.usage"\),[\s\S]*tone: "warning"/);
+assert.doesNotMatch(appSource, /\/keymap/);
+assert.doesNotMatch(typesSource, /\/keymap/);

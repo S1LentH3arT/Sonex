@@ -26,7 +26,7 @@ assert.match(panelSource, /withTrueColorBackground\(value, PANEL_BACKGROUND\)/);
 assert.equal((panelSource.match(/<Transform transform=\{withPanelBackground\}>/g) ?? []).length, 2);
 assert.match(
     panelSource,
-    /color: spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE,[\s\S]*bold: true/,
+    /color: item\.selectedColor \?\? \(spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE\),[\s\S]*bold: true/,
 );
 assert.doesNotMatch(panelSource, /borderStyle=|selectedBackground|backgroundColor=/);
 assert.doesNotMatch(panelSource, /selected \? "> "|showSelectionMarker/);
@@ -171,9 +171,9 @@ assert.match(appSource, /const choices = filterModelChoices\(authSetup\?\.models
 assert.match(appSource, /key\.backspace \|\| key\.delete/);
 assert.match(appSource, /evt\.active === false && evt\.step === "model"/);
 assert.match(appSource, /const selectableConfirmChoices = React\.useMemo\(\(\) => confirm \? getSelectableConfirmChoices\(confirm\.choices, confirm\.tool_name === "provider_mode_exit"\) : \[\], \[confirm\]\)/);
-assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, selectableConfirmChoices\)/);
+assert.match(appSource, /resolveInputRoute\(value, \{[\s\S]*selectableConfirmChoices/);
 assert.match(appSource, /setConfirmIndex\(\(prev\) => selectableConfirmChoices\.length > 0 \? Math\.min\(selectableConfirmChoices\.length - 1, prev \+ 1\) : 0\)/);
 assert.match(appSource, /const isLoginScreenActive = isGenericAuthSetup\(authSetup\) && !isModelPanelActive/);
 assert.match(appSource, /completeSlashCommand\(selectedHelpCommand\)/);
 assert.match(appSource, /case "spotify_mode":/);
-assert.match(appSource, /setSpotifyMode\(\{ enabled: evt\.enabled, device_id: evt\.device_id, device_name: evt\.device_name \}\)/);
+assert.match(appSource, /applyProviderAction\(\{ type: "event", event: evt \}\)/);

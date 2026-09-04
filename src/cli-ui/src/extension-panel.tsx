@@ -30,21 +30,30 @@ export const extensionSignal = (extension: ExtensionView): string => (
 );
 
 const extensionActionColor = (action: string): string => {
-    if (action === "reset") return "#ef4444";
-    if (action === "disable" || action === "repair" || action === "restart") return "#facc15";
+    if (action === "reset" || action === "prepare_reset") return "#ef4444";
+    if (action === "repair" || action === "restart" || action === "prepare_restart") return "#facc15";
     return PANEL_PRIMARY;
 };
 
-const extensionActionBold = (action: string): boolean => action === "reset" || action === "restart";
-
-const detailAction = (detail: ExtensionDetail | null | undefined): string | null => {
-    if (!detail || detail.status === "waiting" || detail.status === "unsupported") return null;
-    if (detail.armed_action === "reset") return "Insist";
-    if (detail.armed_action === "restart") return "Restart";
-    return detail.action || null;
-};
+const extensionActionBold = (action: string): boolean => action === "restart" || action === "prepare_restart" || action === "prepare_reset";
 
 const statusLabel = (status: ExtensionStatus): string => STATUS_LABELS[status];
+
+const extensionActionLabel = (action: string): string => ({
+    setup: "Setup",
+    enable: "Enable",
+    disable: "Disable",
+    repair: "Repair",
+    restart: "Restart",
+    prepare_restart: "Restart",
+    quick_check: "Quick Check",
+    prepare_reset: "Reset",
+    confirm_reset: "Insist",
+    confirm_restart: "Restart",
+}[action] || action);
+
+const DEPENDENCY_MARKER_WIDTH = Math.max(stringWidth("✔️"), stringWidth("❌"), stringWidth("□"));
+const DEPENDENCY_PROGRESS_WIDTH = 18;
 
 const dependencyGlyph = (state: ExtensionDependency["state"], spinnerFrame = 0): string => (
     state === "installed" ? "✔️" : state === "failed" ? "❌" : state === "installing" ? ["⠦", "⠴", "⠧", "⠇", "⠏", "⠋", "⠙", "⠹", "⠸", "⠼"][spinnerFrame % 10] : "□"
@@ -54,14 +63,24 @@ const dependencyColor = (state: ExtensionDependency["state"]): string => (
     state === "installed" ? "#22c55e" : state === "failed" ? "#ef4444" : state === "installing" ? "#808791" : "#808791"
 );
 
-const dependencyLine = (dependency: ExtensionDependency, labelWidth: number, spinnerFrame = 0): PanelRowSegment[] => {
+const dependencyProgressBar = (progress: number | null | undefined, spinnerFrame = 0): string => {
+    if (progress == null) {
+        const position = spinnerFrame % DEPENDENCY_PROGRESS_WIDTH;
+        return `${"░".repeat(position)}█${"░".repeat(DEPENDENCY_PROGRESS_WIDTH - position - 1)}`;
+    }
+    const filled = Math.round(DEPENDENCY_PROGRESS_WIDTH * Math.min(1, Math.max(0, progress) / 100));
+    return `${"█".repeat(Math.max(1, filled))}${"░".repeat(Math.max(0, DEPENDENCY_PROGRESS_WIDTH - Math.max(1, filled)))}`;
+};
+
+export const dependencyLine = (dependency: ExtensionDependency, labelWidth: number, spinnerFrame = 0): PanelRowSegment[] => {
     const glyph = dependencyGlyph(dependency.state, spinnerFrame);
+    const marker = `${" ".repeat(Math.max(0, DEPENDENCY_MARKER_WIDTH - stringWidth(glyph)))}${glyph}`;
     const paddedLabel = dependency.label + " ".repeat(Math.max(0, labelWidth - stringWidth(dependency.label) + 1));
     const suffix = dependency.state === "installing"
-        ? `${"█".repeat(Math.max(1, Math.round(18 * Math.min(1, Math.max(0, dependency.progress ?? 0) / 100))))}${"░".repeat(Math.max(0, 18 - Math.round(18 * Math.min(1, Math.max(0, dependency.progress ?? 0) / 100))))}`
+        ? dependencyProgressBar(dependency.progress, spinnerFrame)
         : dependency.version || dependency.error || "";
     return [
-        { text: `${glyph} ${paddedLabel}`, color: dependencyColor(dependency.state), bold: dependency.state === "failed", preserveColorWhenSelected: true },
+        { text: `${marker} ${paddedLabel}`, color: dependencyColor(dependency.state), bold: dependency.state === "failed", preserveColorWhenSelected: true },
         { text: suffix ? ` ${suffix}` : "", color: dependency.state === "failed" ? "#ef4444" : dependency.state === "installing" ? "#808791" : PANEL_PRIMARY },
     ];
 };
@@ -107,24 +126,30 @@ export const ExtensionPanelOverlay = ({
     const detail = panel.detail;
     const extension = panel.extensions.find((item) => item.id === panel.selectedExtension) || panel.extensions[selectedIndex];
     if (!detail || !extension) return null;
-    const action = detailAction(detail);
-    const actions = detail.status === "waiting" || detail.status === "unsupported"
-        ? []
-        : detail.armed_action === "reset"
-        ? [{ key: "confirm_reset", segments: [
-            { text: "Insist", color: "#ef4444", bold: true, preserveColorWhenSelected: true },
-            { text: "  local credentials will be deleted", color: "#facc15", preserveColorWhenSelected: true },
-        ] }]
-        : detail.armed_action === "restart"
-            ? [{ key: "confirm_restart", segments: [
+    const actions = (detail.actions ?? []).map((action) => {
+        if (action === "confirm_reset") {
+            return { key: action, segments: [
+                { text: "Insist", color: "#ef4444", bold: true, preserveColorWhenSelected: true },
+                { text: "  local credentials will be deleted", color: "#facc15", preserveColorWhenSelected: true },
+            ] };
+        }
+        if (action === "confirm_restart") {
+            return { key: action, segments: [
                 { text: "Restart", color: "#facc15", bold: true, preserveColorWhenSelected: true },
                 { text: "  configuration will be applied", color: PANEL_SECONDARY, preserveColorWhenSelected: true },
-            ] }]
-            : [
-                { key: "quick_check", segments: [{ text: "Quick Check", color: PANEL_PRIMARY }] },
-                ...(action ? [{ key: action, segments: [{ text: action === "setup" ? "Setup" : action === "enable" ? "Enable" : action === "disable" ? "Disable" : action === "repair" ? "Repair" : "Restart", color: extensionActionColor(action), bold: extensionActionBold(action), preserveColorWhenSelected: true }] }] : []),
-                ...(detail.reset_available ? [{ key: "prepare_reset", segments: [{ text: "Reset", color: "#ef4444", bold: true, preserveColorWhenSelected: true }] }] : []),
-            ];
+            ] };
+        }
+        return {
+            key: action,
+            selectedColor: action === "prepare_reset" ? "#ef4444" : undefined,
+            segments: [{
+                text: extensionActionLabel(action),
+                color: extensionActionColor(action),
+                bold: extensionActionBold(action),
+                preserveColorWhenSelected: !["disable", "setup", "prepare_reset"].includes(action),
+            }],
+        };
+    });
     const signalColor = SIGNAL_COLORS[extension.signal];
     return (
         <PanelFrame
@@ -175,6 +200,9 @@ const ExtensionSetupPanel = ({
     }, [setup.dependencies]);
     return (
     <PanelFrame width={width} title={setup.title} hint="←/→ page · Enter submit · Esc back">
+        {setup.body ? setup.body.split("\n").map((line, index) => (
+            <PanelRow key={`${index}-${line}`} width={width} segments={[{ text: line, color: setup.dependencies ? PANEL_SECONDARY : PANEL_PRIMARY }]} />
+        )) : null}
         {setup.dependencies ? (
             <>
                 <PanelChoiceList
@@ -186,9 +214,7 @@ const ExtensionSetupPanel = ({
                     width={width}
                 />
             </>
-        ) : setup.body.split("\n").map((line, index) => (
-            <PanelRow key={`${index}-${line}`} width={width} segments={[{ text: line, color: PANEL_PRIMARY }]} />
-        ))}
+        ) : null}
         {setup.error ? <PanelRow width={width} segments={[{ text: setup.error, color: "#ff6b6b" }]} /> : null}
         {setup.input ? (
             <Box paddingX={1}>

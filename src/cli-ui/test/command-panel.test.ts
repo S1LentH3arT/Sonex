@@ -71,10 +71,6 @@ assert.equal(helpPlayer, undefined);
 assert.equal(slashPlayer, undefined);
 assert.equal(localizedHelpCommands.find((command) => command.name === "help")?.description, "显示命令列表");
 
-const helpKeymap = allHelpCommands.find((command) => command.name === "keymap");
-assert.equal(helpKeymap?.usage, "/keymap [on|off|toggle|status]");
-assert.equal(helpKeymap?.description, "toggle playback shortcuts");
-
 const slashLang = SLASH_COMMANDS.find((command) => command.name === "lang");
 const helpLang = allHelpCommands.find((command) => command.name === "lang");
 assert.equal(slashLang?.usage, "/lang");
@@ -88,6 +84,7 @@ assert.equal(unknownSlashCommandMessage("  /exp extra"), "Unknown command: /exp.
 const helpInfo = allHelpCommands.find((command) => command.name === "info");
 assert.equal(helpInfo?.usage, "/info");
 assert.equal(helpInfo?.description, "show runtime info");
+assert.equal(matchingSlashCommand("/keymap"), undefined);
 
 const helpExit = allHelpCommands.find((command) => command.name === "exit");
 assert.equal(helpExit?.usage, "/exit");

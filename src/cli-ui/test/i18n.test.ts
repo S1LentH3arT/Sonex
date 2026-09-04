@@ -103,13 +103,6 @@ const arbitraryChat = applyLanguageToServerEvent({
 }, "zh-CN");
 assert.equal(arbitraryChat.text, "Snoozing... is a song lyric in this arbitrary AI answer.");
 
-const knownChat = applyLanguageToServerEvent({
-    type: "chat",
-    role: "agent",
-    text: "The /keymap command is handled by the TUI for this session.",
-}, "zh-CN");
-assert.equal(knownChat.text, "/keymap 命令由本次 TUI 会话处理。");
-
 const playerConfirm = applyLanguageToServerEvent({
     type: "confirm",
     id: "confirm_2",

@@ -5,8 +5,9 @@ const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8
 const typesSource = readFileSync(new URL('../src/types.ts', import.meta.url), 'utf8');
 
 assert.match(typesSource, /type:\s*"input_state"[\s\S]*disabled:\s*boolean[\s\S]*reason\?:\s*"recommendation"/);
-assert.match(appSource, /const \[recommendInputLocked,\s*setRecommendInputLocked\]/);
-assert.match(appSource, /case "input_state":[\s\S]*setRecommendInputLocked\(evt\.disabled && evt\.reason === "recommendation"\)/);
+assert.match(appSource, /const \{[\s\S]*recommendInputLocked \} = runtimeState/);
+assert.match(appSource, /applyRuntimeAction\(\{ type: "event", event: evt, rawEvent \}\)/);
+assert.match(appSource, /case "input_state":[\s\S]*evt\.disabled && evt\.reason === "recommendation"/);
 assert.match(appSource, /t\(language,\s*"input\.recommendPending"\)/);
 const inputPlaceholderStart = appSource.indexOf('const inputPlaceholder =');
 const inputMaskStart = appSource.indexOf('const inputMask =', inputPlaceholderStart);

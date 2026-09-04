@@ -19,6 +19,6 @@ assert.doesNotMatch(components, /if \(activeRegion === "memoryPanel" && memoryPa
 assert.match(components, /\{memoryPanel \? \([\s\S]*<MemoryPanelOverlay/);
 assert.match(components, /\{!memoryPanel \? \([\s\S]*<InputDock/);
 assert.match(components, /memoryPanel=\{activeRegion === "memoryPanel" \? memoryPanel : null\}/);
-assert.match(app, /nextRegion === "chat" \|\| nextRegion === "memoryPanel" \? "main" : "alternate"/);
-assert.match(app, /activeRegionRef\.current === "chat" \|\| activeRegionRef\.current === "memoryPanel"/);
+assert.match(app, /planShellSurfaceTransition\(shellStateRef\.current\.region, nextRegion\)/);
+assert.match(app, /surfaceForShellRegion\(shellStateRef\.current\.region\) === "main"/);
 assert.match(app, /activeRegion === "chat" \|\| activeRegion === "memoryPanel" \? undefined : dynamicSurfaceHeight/);

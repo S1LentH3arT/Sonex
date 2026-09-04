@@ -24,7 +24,7 @@ import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import { ExtensionPanelOverlay } from './extension-panel.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, ExtensionPanelState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, NetEaseLoginState, NetEaseQrItem, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, ExtensionPanelState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -202,21 +202,6 @@ const LoginChoiceList = ({ choices, selectedIndex, visibleLimit, showConnectionS
 };
 
 export const MAX_VISIBLE_LOGIN_PROVIDERS = 8;
-
-export const NetEaseQrMessage = ({ item }: { item: NetEaseQrItem }) => {
-    return (
-        <Box flexDirection="row">
-            <Text color={CHAT_SYSTEM_MARKER_COLOR}>• </Text>
-            <Box flexDirection="column">
-                <Text bold color={BORDER_BLUE}>{item.title}</Text>
-                <Text>{item.output}</Text>
-                <Text color="#808791">
-                    {item.fallbackOnline ? "Esc to play online" : "Esc to cancel"}
-                </Text>
-            </Box>
-        </Box>
-    );
-};
 
 export const LoginScreen = ({
     authSetup,
@@ -597,8 +582,6 @@ export const CommittedRecord = ({
                     language={record.presentation.language}
                 />
             </>
-        ) : record.item.type === "netease_qr" ? (
-            <NetEaseQrMessage item={record.item} />
         ) : (
             <ChatBubble
                 role={record.item.role}

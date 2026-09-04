@@ -23,7 +23,6 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "exit", usage: "/exit", description: "save and exit", needsArgument: false },
     { name: "help", usage: "/help", description: "show commands", needsArgument: false },
     { name: "info", usage: "/info", description: "show runtime info", needsArgument: false },
-    { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "toggle playback shortcuts", needsArgument: false },
     { name: "lang", usage: "/lang", description: "choose display language", needsArgument: false, enabled: false },
     { name: "login", usage: "/login", description: "connect or switch LLM provider", needsArgument: false },
     { name: "logout", usage: "/logout", description: "sign out and exit", needsArgument: false },

@@ -21,7 +21,6 @@ export type ServerEvent =
     | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; warning?: string | null; hide_hint?: boolean | null; choices?: ConfirmChoice[] | null; variant?: "tool_call_review" | null; commands?: string[] | null; page_index?: number | null; page_count?: number | null }
     | { type: "confirm_dismiss"; id: string }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
-    | { type: "netease_login"; title: string; output: string; status: "waiting" | "success" | "failed" | "timeout" | "cancelled"; active?: boolean | null; fallback_online?: boolean | null }
     | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; placeholder?: string | null; help_text?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
     | { type: "auth_state"; ready: boolean; provider: string; model: string; model_label?: string | null; auth_type: string; credential_source: string; reason?: string | null }
     | { type: "help_panel"; title: string; hint: string; commands: HelpCommand[] }
@@ -80,6 +79,7 @@ export type ExtensionView = {
 
 export type ExtensionDetail = {
     status: ExtensionStatus;
+    actions?: string[];
     action?: string | null;
     reset_available: boolean;
     armed_action?: "reset" | "restart" | null;
@@ -126,12 +126,11 @@ export type ClientEvent =
     | { type: "internal_command"; text: string }
     | { type: "track_panel_action"; action: "queue_add" | "play"; track: TrackPanelTrack; panel: "queue" | "playlist"; title: string }
     | { type: "memory_panel_action"; action: string; target?: "user" | "memory" | "dump" | "all"; entry_id?: string; content?: string; value?: unknown }
-    | { type: "extension_panel_action"; action: string; extension_id?: string; dependency_id?: string; token?: string | null }
+    | { type: "extension_panel_action"; action: string; extension_id?: string; dependency_id?: string; token?: string | null; revision?: number }
     | { type: "extension_panel_input"; value: string }
     | { type: "confirm_result"; id: string; decision: string }
     | { type: "setup_input"; value: string }
     | { type: "auth_setup_input"; value: string }
-    | { type: "netease_login_input"; value: "__cancel__" }
     | { type: "bye"; messages: ChatTranscriptMessage[]; reason: string };
 
 export type MusicCandidateDisplay = {
@@ -178,14 +177,6 @@ export type SpotifySetupState = {
     prompt?: string | null;
     mask?: boolean | null;
     active: boolean;
-} | null;
-
-export type NetEaseLoginState = {
-    title: string;
-    output: string;
-    status: "waiting" | "success" | "failed" | "timeout" | "cancelled";
-    active: boolean;
-    fallback_online: boolean;
 } | null;
 
 export type SpotifyModeState = {
@@ -351,14 +342,7 @@ export type InfoBannerItem = {
     showLogo: boolean;
 };
 
-export type NetEaseQrItem = {
-    type: "netease_qr";
-    title: string;
-    output: string;
-    fallbackOnline: boolean;
-};
-
-export type ChatItem = ChatMessageItem | InfoBannerItem | NetEaseQrItem;
+export type ChatItem = ChatMessageItem | InfoBannerItem;
 
 export type HelpCommand = {
     name: string;

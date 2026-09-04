@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Box, useApp, useInput, useStdin } from 'ink';
-import { upsertActivity } from './activity.js';
 import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands, unknownSlashCommandMessage } from './commands.js';
-import { getSelectableConfirmChoices, resolveConfirmDecisionFromInput, resolveConfirmInputDecision } from './confirm-choice.js';
+import { getSelectableConfirmChoices } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
 import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
@@ -10,8 +9,8 @@ import { ExtensionPanelOverlay } from './extension-panel.js';
 import { useSonexSocket } from './hooks.js';
 import { chatMessagesForTranscript, createInfoBannerItem } from './info-banner.js';
 import { applyLanguageToServerEvent, helpCommandsForLanguage, localizeSlashCommands, OFFICIAL_UI_LANGUAGE, t } from './i18n.js';
-import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText, shouldStartLaunchPreparing } from './launch-preparing.js';
-import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveRegionAfterPlayerEvent, resolveSpotifyImmersiveLayout, toggleShellRegion, type ShellRegion, type TerminalSize } from './layout.js';
+import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText } from './launch-preparing.js';
+import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveSpotifyImmersiveLayout, type ShellRegion, type TerminalSize } from './layout.js';
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { formatModelStatus } from './model-status.js';
 import { filterModelChoices } from './model-selection.js';
@@ -21,7 +20,12 @@ import type { TerminalSurfaceController } from './terminal-surface.js';
 import { markQueuedTracks } from './track-panel.js';
 import { TEXT_STREAM_INTERVAL_MS, nextTextStreamOffset, streamedChatMessage, textStreamUnits } from './text-stream.js';
 import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer, type TranscriptPresentation } from './transcript.js';
-import type { ActivityItem, AuthRuntimeState, AuthSetupState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, ExtensionPanelState, HelpPanelState, LanguagePanelState, MemoryPanelState, NetEaseLoginState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import { initialShellState, planShellSurfaceTransition, reduceShellState, surfaceForShellRegion, type ShellStateAction } from './shell-state.js';
+import { createInitialRuntimeState, reduceRuntimeState, type RuntimeAction } from './runtime-state.js';
+import { resolveInputRoute } from './input-routing.js';
+import { initialProviderState, reduceProviderState, type ProviderAction } from './provider-state.js';
+import { planPanelLifecycle, type PanelLifecycleTrigger } from './panel-lifecycle.js';
+import type { AuthRuntimeState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, ExtensionPanelState, HelpPanelState, LanguagePanelState, MemoryPanelState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 import { TOKEN_USAGE_ANIMATION_INTERVAL_MS, nextAnimatedTokenUsage } from './usage-animation.js';
 
 type InkInputKey = {
@@ -53,17 +57,19 @@ export const App: React.FC<{
     const [language] = useState<UiLanguage>(OFFICIAL_UI_LANGUAGE);
     const [input, setInput] = useState("");
     const [inputRevision, setInputRevision] = useState(0);
-    const [sessionId, setSessionId] = useState<string | null>(null);
-    const [tokenUsage, setTokenUsage] = useState<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
+    const [runtimeState, dispatchRuntimeState] = React.useReducer(
+        reduceRuntimeState,
+        undefined,
+        () => createInitialRuntimeState(t(OFFICIAL_UI_LANGUAGE, "status.snoozing")),
+    );
+    const { sessionId, tokenUsage, agentWorkingTurnId, activityItems, statusText, launchPreparing, recommendInputLocked } = runtimeState;
     const [displayedTokenUsage, setDisplayedTokenUsage] = useState<SessionTokenUsage>({ inputTokens: 0, outputTokens: 0 });
     const [activeTextStream, setActiveTextStream] = useState<ActiveTextStream | null>(null);
-    const [agentWorkingTurnId, setAgentWorkingTurnId] = useState<string | null>(null);
     const [transcript, dispatchTranscript] = React.useReducer(
         transcriptReducer,
         undefined,
         createTranscriptState,
     );
-    const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
     const [queueItems, setQueueItems] = useState<TrackPanelTrack[]>([]);
     const [searchItems, setSearchItems] = useState<TrackSummary[]>([]);
     const [trackPanel, setTrackPanel] = useState<TrackPanelState>(null);
@@ -78,19 +84,14 @@ export const App: React.FC<{
         settingKey?: string;
     } | null>(null);
     const [player, setPlayer] = useState<PlayerState>({ name: "-", artist: "-", album: "-", duration_ms: 0, progress_ms: 0, is_playing: false });
-    const [statusText, setStatusText] = useState(() => t(OFFICIAL_UI_LANGUAGE, "status.snoozing"));
-    const [launchPreparing, setLaunchPreparing] = useState(false);
     const [launchPreparingFrame, setLaunchPreparingFrame] = useState(0);
     const [coverUrl, setCoverUrl] = useState<string | null>(null);
     const [coverPattern, setCoverPattern] = useState<CoverPatternEvent | null>(null);
     const coverUrlRef = React.useRef<string | null>(null);
     const [confirm, setConfirm] = useState<ConfirmState>(null);
     const [confirmIndex, setConfirmIndex] = useState(0); // 0=Yes, 1=No
-    const [spotifyMode, setSpotifyMode] = useState<SpotifyModeState>({ enabled: false });
-    const [providerMode, setProviderMode] = useState<ProviderModeState>({ provider: "normal", enabled: false });
-    const [spotifySetup, setSpotifySetup] = useState<SpotifySetupState>(null);
-    const [authSetup, setAuthSetup] = useState<AuthSetupState>(null);
-    const [neteaseLogin, setNetEaseLogin] = useState<NetEaseLoginState>(null);
+    const [providerState, dispatchProviderState] = React.useReducer(reduceProviderState, initialProviderState);
+    const { spotifyMode, providerMode, spotifySetup, authSetup } = providerState;
     const [authState, setAuthState] = useState<AuthRuntimeState>({
         ready: false,
         provider: "openai",
@@ -98,9 +99,9 @@ export const App: React.FC<{
         auth_type: "none",
         credential_source: "pending",
     });
-    const [activeRegion, setActiveRegion] = useState<ShellRegion>("chat");
-    const [playbackSessionActive, setPlaybackSessionActive] = useState(false);
-    const [playbackKeymapEnabled, setPlaybackKeymapEnabled] = useState(true);
+    const [shellState, dispatchShellState] = React.useReducer(reduceShellState, initialShellState);
+    const activeRegion = shellState.region;
+    const playbackSessionActive = shellState.playbackSessionActive;
     const [miniSnapshotRevision, setMiniSnapshotRevision] = useState(0);
     const [terminalSize, setTerminalSize] = useState<TerminalSize>({
         columns: stdout.columns ?? null,
@@ -113,14 +114,13 @@ export const App: React.FC<{
     const [helpPanelIndex, setHelpPanelIndex] = useState(0);
     const [languagePanel, setLanguagePanel] = useState<LanguagePanelState>(null);
     const [languagePanelIndex, setLanguagePanelIndex] = useState(0);
-    const [recommendInputLocked, setRecommendInputLocked] = useState(false);
     const [trackPanelIndex, setTrackPanelIndex] = useState(0);
     const [memoryPanelIndex, setMemoryPanelIndex] = useState(0);
     const [loginSelectionIndex, setLoginSelectionIndex] = useState(0);
     const [loginApiKeyInput, setLoginApiKeyInput] = useState("");
-    const activeRegionRef = React.useRef<ShellRegion>("chat");
-    const playbackSessionActiveRef = React.useRef(false);
-    const playbackKeymapEnabledRef = React.useRef(true);
+    const runtimeStateRef = React.useRef(runtimeState);
+    const providerStateRef = React.useRef(providerState);
+    const shellStateRef = React.useRef(shellState);
     const playerRef = React.useRef<PlayerState>(player);
     const confirmRef = React.useRef<ConfirmState>(null);
     const dismissedConfirmIdsRef = React.useRef(new Set<string>());
@@ -131,7 +131,6 @@ export const App: React.FC<{
     const slashMenuActiveRef = React.useRef(false);
     const sessionIdRef = React.useRef<string | null>(null);
     const startupInfoCapturedRef = React.useRef(false);
-    const neteaseQrCommittedRef = React.useRef(false);
     const activeTextStreamRef = React.useRef<ActiveTextStream | null>(null);
     const nextTextStreamIdRef = React.useRef(0);
     const isModelPanelActive = authSetup?.active && authSetup.step === "model";
@@ -195,32 +194,12 @@ export const App: React.FC<{
     );
 
     React.useEffect(() => {
-        playbackKeymapEnabledRef.current = playbackKeymapEnabled;
-    }, [playbackKeymapEnabled]);
-
-    React.useEffect(() => {
         playerRef.current = player;
     }, [player]);
 
     React.useEffect(() => {
         confirmRef.current = confirm;
     }, [confirm]);
-
-    React.useEffect(() => {
-        spotifyModeRef.current = spotifyMode;
-    }, [spotifyMode]);
-
-    React.useEffect(() => {
-        providerModeRef.current = providerMode;
-    }, [providerMode]);
-
-    React.useEffect(() => {
-        spotifySetupActiveRef.current = Boolean(spotifySetup?.active);
-    }, [spotifySetup?.active]);
-
-    React.useEffect(() => {
-        authSetupActiveRef.current = Boolean(authSetup?.active);
-    }, [authSetup?.active]);
 
     React.useEffect(() => {
         slashMenuActiveRef.current = isSlashMenuActive;
@@ -237,11 +216,11 @@ export const App: React.FC<{
                 };
                 const updateSize = () => {
                     setTerminalSize(nextSize);
-                    if (activeRegionRef.current === "miniPlayer" && shouldRefreshMiniSnapshot("resize")) {
+                    if (shellStateRef.current.region === "miniPlayer" && shouldRefreshMiniSnapshot("resize")) {
                         setMiniSnapshotRevision((prev) => prev + 1);
                     }
                 };
-                if (activeRegionRef.current === "chat" || activeRegionRef.current === "memoryPanel") {
+                if (surfaceForShellRegion(shellStateRef.current.region) === "main") {
                     updateSize();
                 } else {
                     terminalSurface.transition("alternate", updateSize);
@@ -322,18 +301,43 @@ export const App: React.FC<{
         return () => clearTimeout(timer);
     }, [activeTextStream, finishActiveTextStream]);
 
+    const applyShellAction = React.useCallback((action: ShellStateAction) => {
+        const nextState = reduceShellState(shellStateRef.current, action);
+        shellStateRef.current = nextState;
+        dispatchShellState({ type: "replace", state: nextState });
+    }, []);
+
+    const applyRuntimeAction = React.useCallback((action: RuntimeAction) => {
+        const nextState = reduceRuntimeState(runtimeStateRef.current, action);
+        runtimeStateRef.current = nextState;
+        if (action.type === "event" && action.event.type === "session_state") {
+            sessionIdRef.current = action.event.session_id;
+        }
+        dispatchRuntimeState({ type: "replace", state: nextState });
+    }, []);
+
+    const applyProviderAction = React.useCallback((action: ProviderAction) => {
+        const nextState = reduceProviderState(providerStateRef.current, action);
+        providerStateRef.current = nextState;
+        spotifyModeRef.current = nextState.spotifyMode;
+        providerModeRef.current = nextState.providerMode;
+        spotifySetupActiveRef.current = Boolean(nextState.spotifySetup?.active);
+        authSetupActiveRef.current = Boolean(nextState.authSetup?.active);
+        dispatchProviderState({ type: "replace", state: nextState });
+    }, []);
+
     const switchRegion = React.useCallback((nextRegion: ShellRegion) => {
-        if (activeRegionRef.current === nextRegion) return;
-        const nextSurface = nextRegion === "chat" || nextRegion === "memoryPanel" ? "main" : "alternate";
+        const transition = planShellSurfaceTransition(shellStateRef.current.region, nextRegion);
+        if (!transition.changed) return;
+        const nextSurface = transition.target;
         terminalSurface.transition(nextSurface, (surface) => {
             dispatchTranscript({ type: "setSurface", surface });
-            activeRegionRef.current = nextRegion;
-            setActiveRegion(nextRegion);
+            applyShellAction({ type: "set_region", region: nextRegion });
             if (nextRegion === "miniPlayer" && shouldRefreshMiniSnapshot("region")) {
                 setMiniSnapshotRevision((prev) => prev + 1);
             }
         });
-    }, [terminalSurface]);
+    }, [applyShellAction, terminalSurface]);
 
     usePlaybackProgressWriter({
         enabled: stdout.isTTY === true && (miniVisible || spotifyImmersiveVisible),
@@ -371,6 +375,21 @@ export const App: React.FC<{
         return () => clearInterval(timer);
     }, [launchPreparing]);
 
+    const applyPanelLifecycle = React.useCallback((trigger: PanelLifecycleTrigger) => {
+        const lifecycle = planPanelLifecycle(trigger);
+        for (const panel of lifecycle.close) {
+            if (panel === 'track') setTrackPanel(null);
+            if (panel === 'memory') setMemoryPanel(null);
+            if (panel === 'extension') setExtensionPanel(null);
+            if (panel === 'help') setHelpPanel(null);
+            if (panel === 'language') setLanguagePanel(null);
+        }
+        for (const panel of lifecycle.resetSelection) {
+            if (panel === 'track') setTrackPanelIndex(0);
+            if (panel === 'help') setHelpPanelIndex(0);
+        }
+    }, []);
+
     React.useEffect(() => {
         if (
             displayedTokenUsage.inputTokens === tokenUsage.inputTokens
@@ -388,15 +407,12 @@ export const App: React.FC<{
         const sanitized = value.replace(/\x1B/g, "");
         setInput(sanitized);
         if (sanitized) {
-            setHelpPanel(null);
-            setTrackPanel(null);
-            setTrackPanelIndex(0);
-            setLanguagePanel(null);
+            applyPanelLifecycle("input");
         }
         if (sanitized !== slashMenuDismissedFor) {
             setSlashMenuDismissedFor(null);
         }
-    }, [recommendInputLocked, slashMenuDismissedFor]);
+    }, [applyPanelLifecycle, recommendInputLocked, slashMenuDismissedFor]);
 
     const showError = React.useCallback((message: string, detail?: string | null) => {
         const content = detail ? `${message}\n${detail}` : message;
@@ -406,16 +422,6 @@ export const App: React.FC<{
             content,
             theme: spotifyModeRef.current.enabled ? "spotify" : undefined,
             tone: "error",
-        }]);
-    }, [commitItems]);
-
-    const appendPanelHiddenNotice = React.useCallback((content: string) => {
-        commitItems([{
-            type: "message",
-            role: "agent",
-            content,
-            theme: "muted",
-            tone: "system",
         }]);
     }, [commitItems]);
 
@@ -480,41 +486,24 @@ export const App: React.FC<{
             return;
         }
 
+        applyRuntimeAction({ type: "event", event: evt, rawEvent });
+        if (evt.type === "spotify_mode" || evt.type === "provider_mode" || evt.type === "spotify_setup" || evt.type === "auth_setup") {
+            applyProviderAction({ type: "event", event: evt });
+        }
+
         switch (evt.type) {
             case "session_state":
-                sessionIdRef.current = evt.session_id;
-                setSessionId(evt.session_id);
                 break;
             case "usage_state":
-                setTokenUsage({
-                    inputTokens: evt.input_tokens,
-                    outputTokens: evt.output_tokens,
-                });
                 break;
             case "agent_working_state":
-                setAgentWorkingTurnId((current) => (
-                    evt.active
-                        ? evt.turn_id
-                        : current === evt.turn_id
-                            ? null
-                            : current
-                ));
                 break;
             case "activity":
-                setActivityItems((prev) => upsertActivity(prev, evt));
-                if (shouldStartLaunchPreparing(evt)) {
-                    setLaunchPreparing(true);
-                    setLaunchPreparingFrame(0);
-                } else if (evt.status === "success" || evt.status === "error") {
-                    setLaunchPreparing(false);
-                }
+                if (runtimeStateRef.current.launchPreparing) setLaunchPreparingFrame(0);
                 break;
             case "status":
-                setLaunchPreparing(rawEvent.type === "status" && rawEvent.active !== false && rawEvent.message === "Preparing playback...");
-                setStatusText(evt.message);
                 break;
             case "input_state":
-                setRecommendInputLocked(evt.disabled && evt.reason === "recommendation");
                 if (evt.disabled && evt.reason === "recommendation") {
                     setInput("");
                     setInputRevision((prev) => prev + 1);
@@ -526,7 +515,6 @@ export const App: React.FC<{
                 setTrackPanel((current) => current ? { ...current, tracks: markQueuedTracks(current.panel === "queue" ? evt.tracks : current.tracks, evt.tracks) } : current);
                 break;
             case "track_panel":
-                setLaunchPreparing(false);
                 setTrackPanel({
                     panel: evt.panel,
                     title: evt.title,
@@ -535,7 +523,6 @@ export const App: React.FC<{
                 });
                 setTrackPanelIndex(0);
                 switchRegion("trackPanel");
-                setStatusText(evt.title);
                 break;
             case "memory_panel":
                 setMemoryPanel({
@@ -551,7 +538,6 @@ export const App: React.FC<{
                 setMemorySearchQuery("");
                 setMemoryEditor(null);
                 switchRegion("memoryPanel");
-                setStatusText(evt.title);
                 break;
             case "extension_panel": {
                 const selected = evt.selected_extension ?? null;
@@ -566,11 +552,7 @@ export const App: React.FC<{
                 });
                 const nextIndex = evt.view === "detail"
                     ? (() => {
-                        const detailActions = evt.detail?.armed_action === "reset"
-                            ? ["confirm_reset"]
-                            : evt.detail?.armed_action === "restart"
-                                ? ["confirm_restart"]
-                                : ["quick_check", ...(evt.detail?.action ? [evt.detail.action] : []), ...(evt.detail?.reset_available ? ["prepare_reset"] : [])];
+                        const detailActions = evt.detail?.actions ?? [];
                         const focused = evt.detail?.selected_action;
                         const focusedIndex = focused ? detailActions.indexOf(focused) : 0;
                         return focusedIndex >= 0 ? focusedIndex : 0;
@@ -584,11 +566,7 @@ export const App: React.FC<{
                         : 0;
                 setExtensionPanelIndex(Math.max(0, nextIndex));
                 setExtensionInputFocused(false);
-                setTrackPanel(null);
-                setMemoryPanel(null);
-                setHelpPanel(null);
-                setLanguagePanel(null);
-                setStatusText(evt.title);
+                applyPanelLifecycle("extension_event");
                 break;
             }
             case "search_results": {
@@ -610,37 +588,27 @@ export const App: React.FC<{
                 break;
             }
             case "player":
-                setLaunchPreparing(false);
                 setPlayer(evt.state);
-                const transition = resolveRegionAfterPlayerEvent({
-                    currentRegion: activeRegionRef.current,
-                    wasSessionActive: playbackSessionActiveRef.current,
+                const nextShellState = reduceShellState(shellStateRef.current, {
+                    type: "player_event",
                     player: evt.state,
                     spotifyModeEnabled: false,
                     providerMode: providerModeRef.current.enabled && providerModeRef.current.provider !== "normal"
                         ? providerModeRef.current.provider
                         : null,
                 });
-                playbackSessionActiveRef.current = transition.sessionActive;
-                setPlaybackSessionActive(transition.sessionActive);
-                switchRegion(transition.region);
+                if (nextShellState.region !== shellStateRef.current.region) {
+                    switchRegion(nextShellState.region);
+                }
+                applyShellAction({ type: "replace", state: nextShellState });
                 break;
             case "spotify_mode":
-                spotifyModeRef.current = { enabled: evt.enabled, device_id: evt.device_id, device_name: evt.device_name };
-                setSpotifyMode({ enabled: evt.enabled, device_id: evt.device_id, device_name: evt.device_name });
-                if (!evt.enabled && activeRegionRef.current === "spotifyImmersive") {
+                if (!evt.enabled && shellStateRef.current.region === "spotifyImmersive") {
                     switchRegion("chat");
                 }
                 break;
             case "provider_mode": {
-                const nextMode: ProviderModeState = {
-                    provider: evt.provider,
-                    enabled: evt.enabled,
-                    connection_status: evt.connection_status,
-                };
-                providerModeRef.current = nextMode;
-                setProviderMode(nextMode);
-                if (!evt.enabled && activeRegionRef.current === "providerImmersive") {
+                if (!evt.enabled && shellStateRef.current.region === "providerImmersive") {
                     switchRegion("chat");
                 }
                 break;
@@ -672,7 +640,6 @@ export const App: React.FC<{
                 if (dismissedConfirmIdsRef.current.has(evt.id)) {
                     break;
                 }
-                setLaunchPreparing(false);
                 setInput("");
                 switchRegion("chat");
                 setConfirm({
@@ -701,75 +668,20 @@ export const App: React.FC<{
                 break;
             }
             case "spotify_setup":
-                setLaunchPreparing(false);
-                setHelpPanel(null);
+                applyPanelLifecycle("setup_event");
                 if (evt.active !== false) {
                     switchRegion("chat");
                 }
-                setSpotifySetup({
-                    step: evt.step,
-                    title: evt.title,
-                    message: evt.message,
-                    prompt: evt.prompt,
-                    mask: evt.mask,
-                    active: evt.active !== false,
-                });
-                setStatusText(evt.title);
-                break;
-            case "netease_login":
-                setLaunchPreparing(false);
-                setHelpPanel(null);
-                if (evt.active !== false) switchRegion("chat");
-                if (evt.status === "waiting" && evt.output === "Starting ncm-cli login...") {
-                    neteaseQrCommittedRef.current = false;
-                }
-                if (
-                    evt.active !== false
-                    && !neteaseQrCommittedRef.current
-                    && evt.output.includes("\u001b[47m")
-                    && evt.output.includes("https://")
-                ) {
-                    neteaseQrCommittedRef.current = true;
-                    commitItems([{
-                        type: "netease_qr",
-                        title: evt.title,
-                        output: evt.output,
-                        fallbackOnline: evt.fallback_online === true,
-                    }]);
-                }
-                setNetEaseLogin({
-                    title: evt.title,
-                    output: evt.output,
-                    status: evt.status,
-                    active: evt.active !== false,
-                    fallback_online: evt.fallback_online === true,
-                });
                 break;
             case "auth_setup":
-                setLaunchPreparing(false);
-                setHelpPanel(null);
+                applyPanelLifecycle("setup_event");
                 if (evt.active === false && evt.step === "model") {
-                    setAuthSetup(null);
                     setInput("");
                     break;
                 }
                 if (evt.active !== false) {
                     switchRegion("chat");
                 }
-                setAuthSetup({
-                    provider: evt.provider,
-                    step: evt.step,
-                    title: evt.title,
-                    message: evt.message,
-                    prompt: evt.prompt,
-                    placeholder: evt.placeholder,
-                    help_text: evt.help_text,
-                    mask: evt.mask,
-                    active: evt.active !== false,
-                    methods: evt.methods,
-                    providers: evt.providers,
-                    models: evt.models,
-                });
                 if (evt.step === "provider") {
                     const providers = evt.providers ?? [];
                     setLoginSelectionIndex(resolveLoginProviderSelectionIndex(providers, evt.provider));
@@ -779,7 +691,6 @@ export const App: React.FC<{
                 if (evt.step === "model") {
                     setInput("");
                 }
-                setStatusText(evt.title);
                 break;
             case "auth_state":
                 const
@@ -804,30 +715,22 @@ export const App: React.FC<{
                 }
                 break;
             case "help_panel":
-                setLaunchPreparing(false);
                 switchRegion("chat");
+                applyPanelLifecycle("help_event");
                 setHelpPanel({
                     title: evt.title,
                     hint: evt.hint,
                     commands: helpCommandsForLanguage(evt.commands, language),
                 });
-                setTrackPanel(null);
-                setLanguagePanel(null);
-                setHelpPanelIndex(0);
-                setStatusText(evt.title);
                 break;
             case "bye":
-                setLaunchPreparing(false);
                 setIsExiting(true);
                 switchRegion("chat");
-                setHelpPanel(null);
-                setTrackPanel(null);
-                setHelpPanelIndex(0);
-                setStatusText(evt.message ?? `Session saved to ${evt.path}. Bye.`);
+                applyPanelLifecycle("bye");
                 setTimeout(() => exit(), 80);
                 break;
         }
-    }, [commitItems, exit, finishActiveTextStream, language, queueItems, showError, startTextStream, switchRegion, transcriptPresentation]);
+    }, [applyPanelLifecycle, applyRuntimeAction, applyShellAction, commitItems, exit, finishActiveTextStream, language, queueItems, showError, startTextStream, switchRegion, transcriptPresentation]);
 
     const { send } = useSonexSocket({
         url: wsUrl,
@@ -846,20 +749,19 @@ export const App: React.FC<{
         const handlePlaybackShortcut = (chunk: Buffer | string) => {
             const action = playbackShortcutFromInput(chunk.toString("utf8"));
             if (!action) return;
-            if (!playbackSessionActiveRef.current) return;
-            if (!playbackKeymapEnabledRef.current) return;
+            if (!shellStateRef.current.playbackSessionActive) return;
             if (confirmRef.current) return;
             if (spotifySetupActiveRef.current) return;
             if (authSetupActiveRef.current) return;
             if (slashMenuActiveRef.current) return;
 
-            const localShortcut = activeRegionRef.current === "miniPlayer"
+            const localShortcut = shellStateRef.current.region === "miniPlayer"
                 && isLocalPlaybackShortcutSource(playerRef.current);
-            const spotifyShortcut = activeRegionRef.current === "spotifyImmersive"
+            const spotifyShortcut = shellStateRef.current.region === "spotifyImmersive"
                 && spotifyModeRef.current.enabled
                 && action === "togglePlayback"
                 && isSpotifyPlaybackShortcutSource(playerRef.current);
-            const providerShortcut = activeRegionRef.current === "providerImmersive"
+            const providerShortcut = shellStateRef.current.region === "providerImmersive"
                 && providerModeRef.current.enabled
                 && action === "togglePlayback"
                 && providerModeRef.current.provider === "spotify"
@@ -882,20 +784,17 @@ export const App: React.FC<{
         setInput("");
         switchRegion("chat");
         setSlashMenuDismissedFor(null);
-        setHelpPanel(null);
-        setTrackPanel(null);
-        setTrackPanelIndex(0);
-        setLanguagePanel(null);
-        setHelpPanelIndex(0);
-        setStatusText(t(language, "status.saving"));
-        setActivityItems((prev) => upsertActivity(prev, {
+        applyPanelLifecycle("safe_exit");
+        applyRuntimeAction({ type: "set_status", text: t(language, "status.saving") });
+        applyRuntimeAction({ type: "event", event: {
+            type: "activity",
             id: "bye_saving",
             kind: "status",
             title: "Saving session",
             detail: "Writing transcript before exit.",
             status: "pending",
             timestamp: Date.now(),
-        }));
+        } });
 
         const transcriptItems = allTranscriptItems(transcript);
         const sent = send({ type: "bye", messages: chatMessagesForTranscript(transcriptItems), reason });
@@ -906,50 +805,7 @@ export const App: React.FC<{
                 "The Sonex API connection is not open.",
             );
         }
-    }, [isExiting, language, send, showError, switchRegion, transcript]);
-
-    const appendKeymapMessage = React.useCallback((enabled: boolean) => {
-        commitItems([{
-            type: "message",
-            role: "agent",
-            content: enabled
-                ? "Mini-player shortcuts enabled."
-                : "Mini-player shortcuts disabled.",
-            tone: "system",
-        }]);
-    }, [commitItems]);
-
-    const handleKeymapCommand = React.useCallback((args: string) => {
-        const value = args.trim().toLowerCase();
-        if (!value || value === "toggle") {
-            setPlaybackKeymapEnabled((prev) => {
-                const next = !prev;
-                appendKeymapMessage(next);
-                return next;
-            });
-            return;
-        }
-        if (value === "on" || value === "enable") {
-            setPlaybackKeymapEnabled(true);
-            appendKeymapMessage(true);
-            return;
-        }
-        if (value === "off" || value === "disable") {
-            setPlaybackKeymapEnabled(false);
-            appendKeymapMessage(false);
-            return;
-        }
-        if (value === "status") {
-            appendKeymapMessage(playbackKeymapEnabledRef.current);
-            return;
-        }
-        commitItems([{
-            type: "message",
-            role: "agent",
-            content: t(language, "keymap.usage"),
-            tone: "warning",
-        }]);
-    }, [appendKeymapMessage, commitItems, language]);
+    }, [applyPanelLifecycle, applyRuntimeAction, isExiting, language, send, showError, switchRegion, transcript]);
 
     const loginChoices = authSetup?.step === "provider"
         ? authSetup.providers ?? []
@@ -988,122 +844,71 @@ export const App: React.FC<{
 
     const submitInput = React.useCallback((value: string) => {
         if (recommendInputLocked) return;
-        const text = value.trim();
-        if (!text) return;
+        const route = resolveInputRoute(value, {
+            confirm,
+            selectedConfirmChoice,
+            selectableConfirmChoices,
+            extensionPanelActive: Boolean(extensionPanel),
+            extensionInputFocused,
+            extensionSetupInput: extensionSetupInput ?? null,
+            authSetupActive: Boolean(authSetup?.active),
+            spotifySetupActive: Boolean(spotifySetup?.active),
+            selectedSlashCommand,
+        });
+        if (route.type === "empty") return;
         finishActiveTextStream();
 
-        if (confirm) {
-            const inputDecision = resolveConfirmInputDecision(text, selectedConfirmChoice);
-            if (inputDecision) {
+        switch (route.type) {
+            case "ignore":
+                return;
+            case "confirm":
                 setInput("");
-                send({
-                    type: "confirm_result",
-                    id: confirm.id,
-                    decision: inputDecision,
-                });
+                send({ type: "confirm_result", id: confirm!.id, decision: route.decision });
                 setConfirm(null);
                 return;
-            }
-            const decision = resolveConfirmDecisionFromInput(text, selectableConfirmChoices);
-            if (!decision) return;
-            setInput("");
-            send({ type: "confirm_result", id: confirm.id, decision });
-            setConfirm(null);
-            return;
-        }
-
-        if (extensionPanel) {
-            if (extensionPanel.view === "setup" && extensionPanel.setup?.input && extensionInputFocused) {
+            case "extension_input":
                 setInput("");
                 setExtensionInputFocused(false);
-                send({ type: "extension_panel_input", value: text });
-            }
-            return;
-        }
-
-        const command = matchingSlashCommand(text);
-        const suggestions = slashSuggestions;
-        if (!authSetup?.active && !spotifySetup?.active && (command?.name === "bye" || command?.name === "exit")) {
-            requestSafeExit(command.name);
-            return;
-        }
-
-        if (!authSetup?.active && !spotifySetup?.active && command?.name === "keymap") {
-            setInput("");
-            setSlashMenuDismissedFor(null);
-            setHelpPanel(null);
-            setTrackPanel(null);
-            setTrackPanelIndex(0);
-            setLanguagePanel(null);
-            setHelpPanelIndex(0);
-            handleKeymapCommand(text.slice(text.trimStart().split(/\s+/, 1)[0]?.length ?? 0));
-            return;
-        }
-
-        if (!authSetup?.active && !spotifySetup?.active && command?.name === "info") {
-            setInput("");
-            setSlashMenuDismissedFor(null);
-            setHelpPanel(null);
-            setTrackPanel(null);
-            setTrackPanelIndex(0);
-            setLanguagePanel(null);
-            setHelpPanelIndex(0);
-            commitItems([createInfoBannerItem(authState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
-            return;
-        }
-
-        if (!authSetup?.active && !spotifySetup?.active && text.startsWith("/") && !command) {
-            const first = selectedSlashCommand ?? suggestions[0];
-            if (first) {
-                applySlashCompletion(first);
-                setSlashIndex(0);
-            } else {
+                send({ type: "extension_panel_input", value: route.value });
+                return;
+            case "safe_exit":
+                requestSafeExit(route.reason);
+                return;
+            case "info":
                 setInput("");
                 setSlashMenuDismissedFor(null);
-                appendUnknownCommandWarning(text);
-            }
-            return;
-        }
-
-        if (
-            !authSetup?.active &&
-            !spotifySetup?.active &&
-            command?.needsArgument &&
-            !hasSlashCommandArguments(text)
-        ) {
-            applySlashCompletion(command);
-            return;
-        }
-
-        setInput("");
-        setSlashMenuDismissedFor(null);
-        if (command?.name !== "help") {
-            setHelpPanel(null);
-            setHelpPanelIndex(0);
-        }
-        setLanguagePanel(null);
-        if (spotifySetup?.active) {
-            send({ type: "setup_input", value: text });
-        } else if (authSetup?.active) {
-            send({ type: "auth_setup_input", value: text });
-        } else {
-            const userItem: ChatMessageItem = {
-                type: "message",
-                role: "user",
-                content: text,
-            };
-            dispatchTranscript({
-                type: "submitUser",
-                item: userItem,
-                presentation: transcriptPresentation,
-            });
-            const sent = send({ type: "user_input", text });
-            if (!sent) {
-                dispatchTranscript({ type: "rejectUserSend", content: text });
-                showError(API_NOT_RUNNING_MESSAGE, API_NOT_RUNNING_DETAIL);
+                applyPanelLifecycle("info");
+                commitItems([createInfoBannerItem(authState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
+                return;
+            case "slash_completion":
+                applySlashCompletion(route.command);
+                setSlashIndex(0);
+                return;
+            case "unknown_slash":
+                setInput("");
+                setSlashMenuDismissedFor(null);
+                appendUnknownCommandWarning(route.value);
+                return;
+            case "setup_input":
+                setInput("");
+                setSlashMenuDismissedFor(null);
+                setLanguagePanel(null);
+                send({ type: route.channel === "spotify" ? "setup_input" : "auth_setup_input", value: route.value });
+                return;
+            case "user_input": {
+                setInput("");
+                setSlashMenuDismissedFor(null);
+                if (route.command?.name !== "help") {
+                    setHelpPanel(null);
+                    setHelpPanelIndex(0);
+                }
+                setLanguagePanel(null);
+                const sent = send({ type: "user_input", text: route.value });
+                if (!sent) showError(API_NOT_RUNNING_MESSAGE, API_NOT_RUNNING_DETAIL);
+                return;
             }
         }
-    }, [applySlashCompletion, appendUnknownCommandWarning, authSetup?.active, authState, commitItems, confirm, extensionInputFocused, extensionPanel, finishActiveTextStream, handleKeymapCommand, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedConfirmInput, selectedSlashCommand, send, showError, slashSuggestions, spotifySetup?.active, transcriptPresentation]);
+    }, [applyPanelLifecycle, applySlashCompletion, appendUnknownCommandWarning, authState, commitItems, confirm, extensionInputFocused, extensionPanel, extensionSetupInput, finishActiveTextStream, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedSlashCommand, send, showError, authSetup?.active, spotifySetup?.active]);
 
     useInput((inputKey, key) => {
         if (!extensionPanel) return;
@@ -1161,13 +966,7 @@ export const App: React.FC<{
         const detail = extensionPanel.detail;
         const extension = extensionPanel.extensions.find((item) => item.id === extensionPanel.selectedExtension);
         if (!detail || !extension) return;
-        const actions = detail.status === "waiting" || detail.status === "unsupported"
-            ? []
-            : detail.armed_action === "reset"
-            ? ["confirm_reset"]
-            : detail.armed_action === "restart"
-                ? ["confirm_restart"]
-                : ["quick_check", ...(detail.action ? [detail.action] : []), ...(detail.reset_available ? ["prepare_reset"] : [])];
+        const actions = detail.actions ?? [];
         if (actions.length === 0) return;
         if (key.upArrow) {
             setExtensionPanelIndex((prev) => (prev - 1 + actions.length) % actions.length);
@@ -1180,6 +979,7 @@ export const App: React.FC<{
                 action: selectedAction,
                 extension_id: extension.id,
                 token: selectedAction === "confirm_reset" || selectedAction === "confirm_restart" ? detail.armed_token : undefined,
+                revision: detail.revision,
             });
         }
     }, { isActive: rawModeAvailable && Boolean(extensionPanel) && !confirm });
@@ -1193,7 +993,7 @@ export const App: React.FC<{
     useInput((inputKey, key) => {
         if (!isLoginScreenActive) return;
         if (key.escape) {
-            setAuthSetup(null);
+            applyProviderAction({ type: "clear_auth_setup" });
             setLoginSelectionIndex(0);
             setLoginApiKeyInput("");
             send({ type: "auth_setup_input", value: "__cancel__" });
@@ -1213,14 +1013,8 @@ export const App: React.FC<{
     }, { isActive: rawModeAvailable && isLoginScreenActive });
 
     useInput((_inputKey, key) => {
-        if (!neteaseLogin?.active || !key.escape) return;
-        send({ type: "netease_login_input", value: "__cancel__" });
-        setNetEaseLogin(null);
-    }, { isActive: rawModeAvailable && Boolean(neteaseLogin?.active) });
-
-    useInput((_inputKey, key) => {
         if (!spotifySetup?.active || !key.escape) return;
-        setSpotifySetup(null);
+        applyProviderAction({ type: "clear_spotify_setup" });
         setInput("");
         send({ type: "setup_input", value: "__cancel__" });
     }, { isActive: rawModeAvailable && Boolean(spotifySetup?.active) });
@@ -1240,10 +1034,9 @@ export const App: React.FC<{
                 setInput("");
             }
         } else if (key.escape) {
-            setAuthSetup(null);
+            applyProviderAction({ type: "clear_auth_setup" });
             setLoginSelectionIndex(0);
             setInput("");
-            appendPanelHiddenNotice(t(language, "panel.modelHidden"));
             send({ type: "auth_setup_input", value: "__cancel__" });
         } else if (key.backspace || key.delete) {
             setInput((previous) => previous.slice(0, -1));
@@ -1292,17 +1085,14 @@ export const App: React.FC<{
 
         if (key.escape) {
             setLanguagePanel(null);
-            appendPanelHiddenNotice(t(language, "panel.languageHidden"));
         }
     }, { isActive: Boolean(languagePanel?.active) && rawModeAvailable });
 
     useInput((inputKey, key) => {
         if (spotifySetup && spotifySetup.active === false && key.escape) {
-            setSpotifySetup(null);
-            appendPanelHiddenNotice(t(language, "panel.spotifySetupHidden"));
+            applyProviderAction({ type: "clear_spotify_setup" });
         } else if (authSetup && authSetup.active === false && key.escape) {
-            setAuthSetup(null);
-            appendPanelHiddenNotice(t(language, "panel.setupHidden"));
+            applyProviderAction({ type: "clear_auth_setup" });
         }
     }, { isActive: rawModeAvailable && (Boolean(spotifySetup && spotifySetup.active === false) || Boolean(authSetup && authSetup.active === false)) });
 
@@ -1327,9 +1117,6 @@ export const App: React.FC<{
             dismissedConfirmIdsRef.current.add(confirm.id);
             send({ type: "confirm_result", id: confirm.id, decision: "deny" });
             setConfirm(null);
-            if (confirm.variant !== "tool_call_review") {
-                appendPanelHiddenNotice(t(language, "panel.confirmHidden"));
-            }
         }
     }, {
         isActive: Boolean(confirm)
@@ -1357,22 +1144,16 @@ export const App: React.FC<{
         } else if (key.escape) {
             setHelpPanel(null);
             setHelpPanelIndex(0);
-            appendPanelHiddenNotice(t(language, "panel.helpHidden"));
         }
     }, { isActive: Boolean(helpPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active });
 
     useInput((inputKey, key) => {
         if (activeRegion !== "trackPanel" || !trackPanel || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
-        const dismissedTrackPanel = trackPanel.panel;
         const selectedTrackPanelTrack = trackPanel.tracks[Math.min(trackPanelIndex, Math.max(0, trackPanel.tracks.length - 1))] ?? null;
         if (key.escape) {
             setTrackPanel(null);
             setTrackPanelIndex(0);
             switchRegion("chat");
-            const hiddenMessage = dismissedTrackPanel === "playlist"
-                ? t(language, "trackPanel.playlistHidden")
-                : t(language, "trackPanel.queueHidden");
-            appendPanelHiddenNotice(hiddenMessage);
         } else if (isTrackPanelQueueShortcut(inputKey, key) && selectedTrackPanelTrack) {
             send({ type: "track_panel_action", action: "queue_add", track: selectedTrackPanelTrack, panel: trackPanel.panel, title: trackPanel.title });
         } else if (key.return && selectedTrackPanelTrack) {
@@ -1541,12 +1322,15 @@ export const App: React.FC<{
     useInput((inputKey, key) => {
         if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
         if (key.tab || inputKey === "\t") {
-            switchRegion(toggleShellRegion(
-                activeRegionRef.current,
-                playbackSessionActiveRef.current,
-                false,
-                providerModeRef.current.enabled,
-            ));
+            const nextShellState = reduceShellState(shellStateRef.current, {
+                type: "toggle_region",
+                spotifyModeEnabled: false,
+                providerModeEnabled: providerModeRef.current.enabled,
+            });
+            if (nextShellState.region !== shellStateRef.current.region) {
+                switchRegion(nextShellState.region);
+            }
+            applyShellAction({ type: "replace", state: nextShellState });
         }
     }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
 
@@ -1557,7 +1341,7 @@ export const App: React.FC<{
             turn_id: agentWorkingTurnId,
         });
         if (sent) {
-            setAgentWorkingTurnId(null);
+            applyRuntimeAction({ type: "clear_agent_working" });
         }
     }, {
         isActive: rawModeAvailable

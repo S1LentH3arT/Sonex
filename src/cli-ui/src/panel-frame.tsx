@@ -26,6 +26,7 @@ export type PanelRowSegment = {
 export type PanelChoiceItem = {
     key: string;
     segments: PanelRowSegment[];
+    selectedColor?: string;
     unselectedBold?: boolean;
     gapBefore?: boolean;
 };
@@ -74,14 +75,14 @@ export const resolvePanelChoiceSegments = (
         const selectedColor = spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE;
         return item.segments.map((segment) => ({
             ...segment,
-            color: segment.preserveColorWhenSelected ? segment.color : selectedColor,
+            color: item.selectedColor ?? (segment.preserveColorWhenSelected ? segment.color : selectedColor),
             bold: true,
         }));
     }
 
     return [{
         text: item.segments.map((segment) => segment.text).join(""),
-        color: spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE,
+        color: item.selectedColor ?? (spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE),
         bold: true,
     }];
 };

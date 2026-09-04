@@ -16,7 +16,6 @@ type MessageKey =
     | "input.label"
     | "input.placeholder"
     | "input.recommendPending"
-    | "keymap.usage"
     | "language.english"
     | "language.hint"
     | "language.saveError"
@@ -59,7 +58,6 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "input.label": "Input",
         "input.placeholder": "Ask Sonex anything.",
         "input.recommendPending": "Waiting for recommendations...",
-        "keymap.usage": "Usage: /keymap [on|off|toggle|status]",
         "language.english": "English",
         "language.hint": "Esc to close without changing.",
         "language.saveError": "Language changed for this session, but the setting was not saved.",
@@ -101,7 +99,6 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "input.label": "输入",
         "input.placeholder": "和 Sonex 说点什么。",
         "input.recommendPending": "等待Sonex推荐中...",
-        "keymap.usage": "用法：/keymap [on|off|toggle|status]",
         "language.english": "English",
         "language.hint": "Esc 关闭且不更改。",
         "language.saveError": "语言已在本会话切换，但设置未保存。",
@@ -135,7 +132,6 @@ const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = 
     bye: { en: "save and exit", "zh-CN": "保存会话并退出" },
     help: { en: "show commands", "zh-CN": "显示可用的 Sonex 命令" },
     info: { en: "show runtime info", "zh-CN": "显示当前运行信息" },
-    keymap: { en: "toggle playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
     lang: { en: "choose display language", "zh-CN": "选择 TUI 显示语言" },
     logout: { en: "sign out and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
     model: { en: "switch active model", "zh-CN": "切换当前模型" },
@@ -155,7 +151,6 @@ const helpCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     exit: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
     help: { en: "show available Sonex commands", "zh-CN": "显示可用的 Sonex 命令" },
     info: { en: "show current runtime information", "zh-CN": "显示当前运行信息" },
-    keymap: { en: "enable or disable mini-player playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
     lang: { en: "choose the TUI display language", "zh-CN": "选择 TUI 显示语言" },
     logout: { en: "sign out from the current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
     model: { en: "switch the active model for this session", "zh-CN": "切换当前模型" },
@@ -197,10 +192,6 @@ const knownText: Record<string, Record<UiLanguage, string>> = {
     "Spotify client ID": {
         en: "Spotify client ID",
         "zh-CN": "Spotify Client ID",
-    },
-    "The /keymap command is handled by the TUI for this session.": {
-        en: "The /keymap command is handled by the TUI for this session.",
-        "zh-CN": "/keymap 命令由本次 TUI 会话处理。",
     },
     "The /lang command is handled by the TUI for this session.": {
         en: "The /lang command is handled by the TUI for this session.",
