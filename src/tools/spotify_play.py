@@ -33,6 +33,12 @@ from src.log import get_logger, sonex_home
 from src.thinking.config import ThinkingConfig
 from src.tools.registry import Params, registry
 from src.tools.result import ToolResult
+from src.tools.spotify_recent_state import (
+    artists_text as _artists_text,
+    compact_track as _compact_track,
+    query_terms as _query_terms,
+    track_key as _track_key,
+)
 
 SPOTIFY_READ_PLAYBACK_SCOPES = {"user-read-playback-state"}
 SPOTIFY_NOW_PLAYING_SCOPES = {"user-read-currently-playing"}
@@ -201,16 +207,6 @@ def _best_image(images: list[dict[str, Any]]) -> str | None:
     return ranked[0].get("url")
 
 
-def _artists_text(artists: list[dict[str, Any]]) -> str:
-    """Prepares artists text for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs artists text without duplicating the local rules.
-
-    Example: _artists_text(artists=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return ", ".join(artist.get("name") for artist in artists if artist.get("name"))
-
-
 def _normalize_track(item: dict[str, Any]) -> dict[str, Any]:
     """Prepares normalize track for an internal Sonex flow.
 
@@ -234,41 +230,6 @@ def _normalize_track(item: dict[str, Any]) -> dict[str, Any]:
         "spotify_url": (item.get("external_urls") or {}).get("spotify"),
         "uri": item.get("uri"),
         "is_playable": item.get("is_playable"),
-    }
-
-
-def _track_key(track: dict[str, Any]) -> str | None:
-    """Prepares track key for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs track key without duplicating the local rules.
-
-    Example: _track_key(track=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    key = track.get("uri") or track.get("id") or track.get("spotify_url")
-    return str(key) if key else None
-
-
-def _compact_track(track: dict[str, Any]) -> dict[str, Any]:
-    """Prepares compact track for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs compact track without duplicating the local rules.
-
-    Example: _compact_track(track=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return {
-        "id": track.get("id"),
-        "name": track.get("name") or track.get("title"),
-        "duration_ms": track.get("duration_ms") or 0,
-        "artist": track.get("artist") or _artists_text(track.get("artists") or []),
-        "artists": track.get("artists") or [],
-        "album": track.get("album"),
-        "album_cover_url": track.get("album_cover_url") or track.get("image_url") or track.get("cover_url"),
-        "album_cover_path": track.get("album_cover_path"),
-        "spotify_url": track.get("spotify_url"),
-        "uri": track.get("uri"),
-        "is_playable": track.get("is_playable"),
-        "cached_at": track.get("cached_at"),
-        "last_played_at": track.get("last_played_at") or track.get("played_at"),
     }
 
 
@@ -428,16 +389,6 @@ def reset_recent_tracks(*, clear_disk: bool = False, reload_from_disk: bool = Fa
             pass
         except OSError:
             pass
-
-
-def _query_terms(text: str) -> list[str]:
-    """Prepares query terms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs query terms without duplicating the local rules.
-
-    Example: _query_terms(text=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return [part for part in re.split(r"\W+", text.lower()) if part]
 
 
 def _cached_track_for_query(query: str) -> dict[str, Any] | None:

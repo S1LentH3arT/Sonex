@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -152,6 +153,17 @@ class YoutubeRuntimeTests(unittest.TestCase):
         self.assertIn("--no-index", pip_command)
         self.assertIn(str(yt_wheel), pip_command)
         self.assertIn(str(provider_wheel), pip_command)
+
+    def test_safe_extract_rejects_links_that_escape_destination(self) -> None:
+        archive = Path(self._home.name) / "unsafe.tar"
+        with tarfile.open(archive, "w") as handle:
+            link = tarfile.TarInfo("link")
+            link.type = tarfile.SYMTYPE
+            link.linkname = "../../outside"
+            handle.addfile(link)
+
+        with self.assertRaises(tarfile.FilterError):
+            runtime._safe_extract_tar(archive, Path(self._home.name) / "extract")
 
     def test_update_uses_manual_bundle_without_online_version_lookup(self) -> None:
         offline = runtime.state_root() / "offline"

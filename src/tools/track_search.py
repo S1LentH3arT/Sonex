@@ -22,6 +22,16 @@ from src.tools.cover_sources import (
     MUSICBRAINZ_SEARCH_URL,
     MUSICBRAINZ_USER_AGENT,
 )
+from src.tools.track_search_state import (
+    candidate as _candidate,
+    dedupe_key as _dedupe_key,
+    int_ms as _int_ms,
+    is_credible as _is_credible,
+    normalize_key_text as _normalize_key_text,
+    release_year as _release_year,
+    seconds_to_ms as _seconds_to_ms,
+    text as _text,
+)
 
 ITUNES_SEARCH_URL = "https://itunes.apple.com/search"
 DEEZER_SEARCH_URL = "https://api.deezer.com/search/track"
@@ -445,49 +455,6 @@ def _normalize_musicbrainz(query: str, item: dict[str, Any]) -> dict[str, Any]:
     )
 
 
-def _candidate(
-    *,
-    query: str,
-    metadata_source: str,
-    provider: str,
-    item_id: str | None,
-    name: str | None,
-    artist: str | None,
-    album: str | None,
-    duration_ms: int,
-    cover_url: str | None,
-    url: str | None,
-    uri: str | None,
-    extra: dict[str, Any],
-) -> dict[str, Any]:
-    """Prepares candidate for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs candidate without duplicating the local rules.
-
-    Example: _candidate(query=..., metadata_source=..., provider=..., item_id=..., name=..., artist=..., album=..., duration_ms=..., cover_url=..., url=..., uri=..., extra=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    artists = [artist] if artist else []
-    candidate: dict[str, Any] = {
-        "metadata_source": metadata_source,
-        "provider": provider,
-        "id": item_id,
-        "name": name,
-        "title": name,
-        "artist": artist,
-        "artists": artists,
-        "album": album,
-        "duration_ms": duration_ms,
-        "album_cover_url": cover_url,
-        "cover_url": cover_url,
-        "url": url,
-        "uri": uri,
-        "original_query": query,
-        "youtube_query": f"{artist or ''} {name or ''}".strip() or query,
-        **extra,
-    }
-    return {key: value for key, value in candidate.items() if value not in (None, [], "")}
-
-
 def _musicbrainz_artist_names(value: Any) -> list[str]:
     """Prepares musicbrainz artist names for an internal Sonex flow.
 
@@ -543,88 +510,6 @@ def _first_text(value: Any) -> str | None:
                 return text
         return None
     return _text(value)
-
-
-def _release_year(value: Any) -> str | None:
-    text = _text(value)
-    if not text:
-        return None
-    match = re.search(r"\d{4}", text)
-    return match.group(0) if match else None
-
-
-def _is_credible(item: dict[str, Any]) -> bool:
-    """Prepares is credible for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs is credible without duplicating the local rules.
-
-    Example: _is_credible(item=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return bool(_text(item.get("name") or item.get("title")) and _text(item.get("artist")))
-
-
-def _dedupe_key(item: dict[str, Any]) -> str | None:
-    """Prepares dedupe key for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs dedupe key without duplicating the local rules.
-
-    Example: _dedupe_key(item=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    name = _normalize_key_text(item.get("name") or item.get("title"))
-    artist = _normalize_key_text(item.get("artist"))
-    album = _normalize_key_text(item.get("album"))
-    if not name or not artist:
-        return None
-    return "|".join((name, artist, album))
-
-
-def _normalize_key_text(value: Any) -> str:
-    """Prepares normalize key text for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalize key text without duplicating the local rules.
-
-    Example: _normalize_key_text(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return " ".join(re.findall(r"[\w\u4e00-\u9fff]+", str(value or "").casefold()))
-
-
-def _text(value: Any) -> str | None:
-    """Prepares text for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs text without duplicating the local rules.
-
-    Example: _text("  song  ") -> "song"; _text("") -> None.
-    """
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _int_ms(value: Any) -> int:
-    """Prepares int ms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs int ms without duplicating the local rules.
-
-    Example: _int_ms(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    try:
-        return max(0, int(float(value or 0)))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _seconds_to_ms(value: Any) -> int:
-    """Prepares seconds to ms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs seconds to ms without duplicating the local rules.
-
-    Example: _seconds_to_ms(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    try:
-        return max(0, int(float(value or 0) * 1000))
-    except (TypeError, ValueError):
-        return 0
 
 
 def _error_attempt(provider: str, exc: Exception) -> dict[str, Any]:

@@ -479,15 +479,12 @@ def Recommend(
             data={"providers": ["current", *RECOMMEND_PROVIDERS]},
         )
 
-    from src.extensions import ExtensionManager, ExtensionStatus
-
-    manager = ExtensionManager()
     recent_tracks = playback_queue_snapshot()
     preferences = _recommendation_preferences()
     skipped: list[dict[str, str]] = []
     connected: list[str] = []
     for provider_id in ordered:
-        if manager.get(provider_id).status is not ExtensionStatus.ENABLED:
+        if not _provider_connected(provider_id):
             skipped.append(
                 {"provider": provider_id, "reason": "not_connected"}
             )

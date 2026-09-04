@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import shlex
 import shutil
@@ -21,12 +20,20 @@ from src.music.player_sink_adapters import (
     ManagedPlayerSinkAdapter,
     discover_mpris_adapters,
 )
+from src.music.player_command_policy import (
+    application_command,
+    audacious_control,
+    clementine_control,
+    helper_command,
+    rhythmbox_control,
+)
 from src.music.player_sinks import (
     PlayerAsset,
     PlayerSinkAdapter,
     PlayerSinkManager,
     PlayerSinkPlayback,
 )
+from src.music.player_preferences import read_player_preferences
 from src.log import sonex_home
 
 _ACTIVE_SINK_STATES: dict[str, dict[str, object]] = {}
@@ -313,92 +320,63 @@ def build_player_sink_manager(
             else frozenset()
         )
 
-    def application_command(target: str, *arguments: str) -> tuple[str, ...]:
-        if target.startswith("flatpak:"):
-            return (
-                flatpak_executable or "flatpak",
-                "run",
-                target.removeprefix("flatpak:"),
-                *arguments,
-            )
-        return target, *arguments
-
-    def helper_command(
-        target: str,
-        helper: str,
-        *arguments: str,
-    ) -> tuple[str, ...] | None:
-        if target.startswith("flatpak:"):
-            return (
-                flatpak_executable or "flatpak",
-                "run",
-                f"--command={helper}",
-                target.removeprefix("flatpak:"),
-                *arguments,
-            )
-        executable = which(helper) or desktop_executables.get(helper)
-        return (executable, *arguments) if executable else None
-
-    def clementine_control(
-        executable: str,
-        action: str,
-        value: int | None,
-    ) -> tuple[str, ...] | None:
-        if action == "volume" and value is not None:
-            return application_command(executable, "--volume", str(value))
-        flag = {"pause": "--pause", "resume": "--play", "stop": "--stop"}.get(action)
-        return application_command(executable, flag) if flag else None
-
-    def rhythmbox_control(
-        executable: str,
-        action: str,
-        value: int | None,
-    ) -> tuple[str, ...] | None:
-        if action == "volume" and value is not None:
-            return application_command(executable, "--set-volume", str(value / 100))
-        flag = {"pause": "--pause", "resume": "--play", "stop": "--stop"}.get(action)
-        return application_command(executable, flag) if flag else None
-
-    def audacious_control(
-        _executable: str,
-        action: str,
-        value: int | None,
-    ) -> tuple[str, ...] | None:
-        if action == "volume" and value is not None:
-            return helper_command(_executable, "audtool", "set-volume", str(value))
-        command = {
-            "pause": "playback-pause",
-            "resume": "playback-play",
-            "stop": "playback-stop",
-        }.get(action)
-        return helper_command(_executable, "audtool", command) if command else None
-
     known = (
         (
             "mpris:clementine",
             "Clementine",
             ("clementine",),
-            lambda executable, uri: application_command(executable, "--load", uri),
+            lambda executable, uri: application_command(
+                executable,
+                "--load",
+                uri,
+                flatpak_executable=flatpak_executable,
+            ),
             "clementine",
-            clementine_control,
+            lambda executable, action, value: clementine_control(
+                executable,
+                action,
+                value,
+                flatpak_executable=flatpak_executable,
+            ),
             "org.clementine_player.Clementine",
         ),
         (
             "mpris:rhythmbox",
             "Rhythmbox",
             ("rhythmbox-client",),
-            lambda executable, uri: application_command(executable, "--play-uri", uri),
+            lambda executable, uri: application_command(
+                executable,
+                "--play-uri",
+                uri,
+                flatpak_executable=flatpak_executable,
+            ),
             "rhythmbox",
-            rhythmbox_control,
+            lambda executable, action, value: rhythmbox_control(
+                executable,
+                action,
+                value,
+                flatpak_executable=flatpak_executable,
+            ),
             "org.gnome.Rhythmbox3",
         ),
         (
             "mpris:audacious",
             "Audacious",
             ("audacious",),
-            lambda executable, uri: application_command(executable, uri),
+            lambda executable, uri: application_command(
+                executable,
+                uri,
+                flatpak_executable=flatpak_executable,
+            ),
             "audacious",
-            audacious_control,
+            lambda executable, action, value: audacious_control(
+                executable,
+                action,
+                value,
+                flatpak_executable=flatpak_executable,
+                which=which,
+                desktop_executables=desktop_executables,
+            ),
             "org.atheme.audacious",
         ),
     )
@@ -540,18 +518,7 @@ def play_through_persisted_sink(
 
 def has_persisted_player_sink(preferences_path: Path | None = None) -> bool:
     path = preferences_path or sonex_home() / "music" / "player-preferences.json"
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
-        return False
-    return bool(
-        isinstance(payload, dict)
-        and payload.get("version") == 1
-        and (
-            isinstance(payload.get("default_sink_id"), str)
-            or isinstance(payload.get("pending_sink_id"), str)
-        )
-    )
+    return read_player_preferences(path).configured
 
 
 def control_persisted_player_sink(

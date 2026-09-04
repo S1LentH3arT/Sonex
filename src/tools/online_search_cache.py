@@ -2,28 +2,21 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import time
-import unicodedata
 from pathlib import Path
 from typing import Any
 
 from src.log import sonex_home
+from src.tools.online_search_cache_state import (
+    make_cache_key,
+    metadata_only,
+)
 
 POSITIVE_TTL_SECONDS = 24 * 60 * 60
 EMPTY_TTL_SECONDS = 10 * 60
 MAX_SEARCH_CACHE_ENTRIES = 500
-_REMOVED_KEYS = {
-    "audio_path",
-    "formats",
-    "playback_source_url",
-    "requested_downloads",
-    "stream_url",
-}
-
-
 def _root(cache_root: Path | None = None) -> Path:
     return cache_root or sonex_home() / "cache" / "songs"
 
@@ -52,11 +45,6 @@ def _connect(cache_root: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
-def _normalized(value: Any) -> str:
-    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
-    return " ".join(text.split())
-
-
 def make_search_cache_key(
     *,
     provider: str,
@@ -65,28 +53,13 @@ def make_search_cache_key(
     album: Any = "",
     variant_intent: Any = "default",
 ) -> str:
-    identity = "\0".join(
-        (
-            _normalized(provider),
-            _normalized(artist),
-            _normalized(title),
-            _normalized(album),
-            _normalized(variant_intent),
-        )
+    return make_cache_key(
+        provider=provider,
+        artist=artist,
+        title=title,
+        album=album,
+        variant_intent=variant_intent,
     )
-    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
-
-
-def _metadata_only(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {
-            str(key): _metadata_only(item)
-            for key, item in value.items()
-            if str(key) not in _REMOVED_KEYS
-        }
-    if isinstance(value, list):
-        return [_metadata_only(item) for item in value]
-    return value
 
 
 def get_search_cache(
@@ -136,7 +109,7 @@ def put_search_cache(
 ) -> None:
     timestamp = time.time() if now is None else float(now)
     ttl = POSITIVE_TTL_SECONDS if candidates else EMPTY_TTL_SECONDS
-    payload = _metadata_only(candidates)
+    payload = metadata_only(candidates)
     conn = _connect(cache_root)
     conn.execute(
         """

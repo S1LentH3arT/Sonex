@@ -10,23 +10,7 @@ from pathlib import Path
 from typing import Any, BinaryIO, Callable
 
 from src.log.config import sonex_home
-
-
-_URL_RE = re.compile(r"https?://[^\s\"']+", re.IGNORECASE)
-_CREDENTIAL_RE = re.compile(
-    r"(?i)(authorization|bearer|token|api[_-]?key|password|secret)([=: ]+)([^\s,;]+)"
-)
-_SAFE_FIELDS = {
-    "progress_ms",
-    "wall_ms",
-    "media_wall_ratio",
-    "is_playing",
-    "paused_for_cache",
-    "current_ao",
-    "ipc_ok",
-    "error",
-    "burst",
-}
+from src.tools.diagnostics_policy import SAFE_MPV_FIELDS, sanitize_diagnostic_text
 
 
 class MpvDiagnosticSession:
@@ -61,9 +45,7 @@ class MpvDiagnosticSession:
             stale_dir.rmdir()
 
     def _sanitize(self, value: str) -> str:
-        sanitized = value.replace(self.media_location, "<media>")
-        sanitized = _URL_RE.sub("<url>", sanitized)
-        return _CREDENTIAL_RE.sub(r"\1\2<redacted>", sanitized)
+        return sanitize_diagnostic_text(value, media_location=self.media_location)
 
     def _append_capped(self, path: Path, text: str, limit: int) -> None:
         encoded = text.encode("utf-8", errors="replace")
@@ -89,7 +71,7 @@ class MpvDiagnosticSession:
             "event": str(event),
         }
         for key, value in fields.items():
-            if key not in _SAFE_FIELDS or value is None:
+            if key not in SAFE_MPV_FIELDS or value is None:
                 continue
             payload[key] = self._sanitize(str(value)) if key == "error" else value
         self._append_capped(

@@ -4,64 +4,23 @@ from __future__ import annotations
 
 import json
 import logging
-import re
-import unicodedata
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol
 
 from src.log import sonex_home
+from src.tools.music_matching_state import (
+    TRADITIONAL_TO_SIMPLIFIED,
+    display_title as _display_title,
+    normalize_music_text,
+    primary_artist as _primary_artist,
+    simplified_traditional_variants,
+    version_tags,
+)
 
 LOGGER = logging.getLogger(__name__)
 
-FEAT_RE = re.compile(r"\b(?:feat\.?|ft\.?|featuring)\b", re.IGNORECASE)
-BRACKET_RE = re.compile(r"[\[\](){}（）【】]+")
-PUNCT_RE = re.compile(r"[^\w\u4e00-\u9fff]+", re.UNICODE)
-VERSION_TAGS = {
-    "live",
-    "remix",
-    "cover",
-    "karaoke",
-    "acoustic",
-    "instrumental",
-    "demo",
-    "现场",
-    "翻唱",
-    "伴奏",
-}
-DISPLAY_SUFFIX_RE = re.compile(
-    r"(?:\s+)?(?:official(?:\s+(?:audio|music\s+video|video|mv))?|lyrics?|lyric\s+video|"
-    r"(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?)$",
-    re.IGNORECASE,
-)
-SIMPLIFIED_TRADITIONAL_PAIRS = {
-    "爱": "愛",
-    "动": "動",
-    "发": "發",
-    "国": "國",
-    "后": "後",
-    "来": "來",
-    "乐": "樂",
-    "丽": "麗",
-    "录": "錄",
-    "梦": "夢",
-    "声": "聲",
-    "态": "態",
-    "听": "聽",
-    "万": "萬",
-    "为": "為",
-    "游": "遊",
-    "园": "園",
-    "与": "與",
-    "云": "雲",
-    "词": "詞",
-}
-SIMPLIFIED_TO_TRADITIONAL = str.maketrans(SIMPLIFIED_TRADITIONAL_PAIRS)
-TRADITIONAL_TO_SIMPLIFIED = str.maketrans({
-    traditional: simplified
-    for simplified, traditional in SIMPLIFIED_TRADITIONAL_PAIRS.items()
-})
 
 
 class MatchDecision(StrEnum):
@@ -162,27 +121,6 @@ class FingerprintUnavailableVerifier:
 
     def verify(self, audio_path: Path, track: CanonicalTrack) -> bool:
         raise NotImplementedError("Audio fingerprint verification is not available in this dependency set.")
-
-
-def normalize_music_text(value: Any) -> str:
-    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
-    text = FEAT_RE.sub(" feat ", text)
-    text = BRACKET_RE.sub(" ", text)
-    text = PUNCT_RE.sub(" ", text)
-    return " ".join(text.split())
-
-
-def simplified_traditional_variants(value: str) -> set[str]:
-    text = str(value or "")
-    return {text, text.translate(SIMPLIFIED_TO_TRADITIONAL), text.translate(TRADITIONAL_TO_SIMPLIFIED)}
-
-
-def version_tags(value: Any) -> set[str]:
-    normalized = normalize_music_text(value)
-    found = {tag for tag in VERSION_TAGS if tag in normalized.split() or tag in normalized}
-    if "official" in normalized or "audio" in normalized or "video" in normalized:
-        found.discard("official")
-    return found
 
 
 def _alias_key(value: Any) -> str:
@@ -486,19 +424,6 @@ def _version_conflict(source_title: str, result_title: str) -> bool:
 
 def _title_matches(resolver: AliasResolver, left: str, right: str) -> bool:
     return resolver.matches("track", left, right) or resolver.matches("track", _display_title(left), _display_title(right))
-
-
-def _display_title(value: str) -> str:
-    text = normalize_music_text(FEAT_RE.split(str(value or ""), maxsplit=1)[0])
-    previous = None
-    while text and text != previous:
-        previous = text
-        text = DISPLAY_SUFFIX_RE.sub("", text).strip()
-    return text
-
-
-def _primary_artist(value: str) -> str:
-    return FEAT_RE.split(str(value or ""), maxsplit=1)[0].strip()
 
 
 def _text(value: Any) -> str:

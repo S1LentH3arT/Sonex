@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 from src.agent.core import agent_loop
 from src.agent.chat_document import guard_agent_answer, normalize_agent_answer
 from src.agent.events import RunnerEvent, UiStatus
+from src.agent.turn_events import runner_event_payload
 from src.agent.interactions import (
     INTERRUPTED_INTERACTION_MESSAGE,
     clear_interrupted_interaction,
@@ -8891,26 +8892,7 @@ class WebSocketRunner:
                             )
                         continue
 
-                    data: dict[str, Any] = {}
-                    if evt.type == "status":
-                        data = {"content": evt.content}
-                    elif evt.type == "tool":
-                        data = {
-                            "tool_name": evt.tool,
-                            "tool_args": evt.args or {},
-                            "tool_result": evt.result,
-                        }
-                    elif evt.type == "tool_batch":
-                        data = {"calls": evt.calls or []}
-                    elif evt.type in {"tool_approved", "tool_rejected", "tool_blocked"}:
-                        data = {
-                            "calls": evt.calls or [],
-                            **(evt.args or {}),
-                        }
-                    elif evt.type in {"error", "complete", "warning"}:
-                        data = {"content": evt.content, "tool_name": evt.tool}
-
-                    emit(RunnerEvent(type=evt.type, data=data))
+                    emit(RunnerEvent(type=evt.type, data=runner_event_payload(evt)))
                     if evt.type == "tool_batch":
                         if interrupt_event.is_set() or not tool_message_gate.get():
                             return

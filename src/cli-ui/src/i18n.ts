@@ -205,6 +205,30 @@ const knownText: Record<string, Record<UiLanguage, string>> = {
         en: "Allow Sonex to open mpv?",
         "zh-CN": "允许 Sonex 打开 mpv 吗？",
     },
+    "YouTube playback is not configured. Open /extension to configure it.": {
+        en: "YouTube playback is not configured. Open /extension to configure it.",
+        "zh-CN": "YouTube 播放尚未配置，请打开 /extension 进行配置。",
+    },
+    "Another YouTube request is still running. Try again shortly.": {
+        en: "Another YouTube request is still running. Try again shortly.",
+        "zh-CN": "另一个 YouTube 请求仍在运行，请稍后再试。",
+    },
+    "Selected YouTube result requires age verification. Choose another candidate or refine the search.": {
+        en: "Selected YouTube result requires age verification. Choose another candidate or refine the search.",
+        "zh-CN": "所选 YouTube 结果需要年龄验证，请选择其他候选或优化搜索。",
+    },
+    "Selected YouTube result is not available. Choose another candidate or refine the search.": {
+        en: "Selected YouTube result is not available. Choose another candidate or refine the search.",
+        "zh-CN": "所选 YouTube 结果不可用，请选择其他候选或优化搜索。",
+    },
+    "YouTube is temporarily unavailable; playback is cooling down.": {
+        en: "YouTube is temporarily unavailable; playback is cooling down.",
+        "zh-CN": "YouTube 暂时不可用，播放正在进入冷却。",
+    },
+    "YouTube is temporarily unavailable; search is cooling down.": {
+        en: "YouTube is temporarily unavailable; search is cooling down.",
+        "zh-CN": "YouTube 暂时不可用，搜索正在进入冷却。",
+    },
 };
 
 const playerConfirmChoices: Record<string, Record<UiLanguage, Partial<ConfirmChoice>>> = {

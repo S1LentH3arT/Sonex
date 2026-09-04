@@ -12,7 +12,6 @@ import math
 import re
 import sqlite3
 import time
-import unicodedata
 import urllib.parse
 import urllib.request
 import uuid
@@ -50,6 +49,7 @@ from src.tools.youtube_runtime import (
     prepare_worker,
     youtube_request_gate,
 )
+from src.tools.youtube_runtime_state import managed_runtime_failure_code, provider_failure_category
 from src.tools.audio_diagnostics import record_audio_event
 from src.tools.online_search_cache import (
     get_search_cache,
@@ -66,53 +66,29 @@ from src.tools.music_matching import (
     score_audio_match,
     simplified_traditional_variants,
 )
+from src.tools.online_identity_state import (
+    COVER_TERMS,
+    FEATURED_ARTIST_RE,
+    FEATURED_TITLE_RE,
+    IGNORABLE_TITLE_SUFFIX_RE,
+    LIVE_TERMS,
+    LOW_RELEVANCE_TERMS,
+    NOISY_MEDIA_TERMS,
+    OFFICIAL_TERMS,
+    QUERY_FILLER_TERMS,
+    contains_any as _contains_any,
+    has_cjk as _has_cjk,
+    identity_artist as _identity_artist,
+    identity_artist_text as _identity_artist_text,
+    identity_text as _identity_text,
+    identity_title as _identity_title,
+    identity_title_text as _identity_title_text,
+    mostly_latin as _mostly_latin,
+    normalized_rank_text as _normalized_rank_text,
+    query_terms as _query_terms,
+    words as _words,
+)
 
-LIVE_TERMS = (
-    "live",
-    "concert",
-    "session",
-    "现场",
-    "現場",
-    "演唱会",
-    "演唱會",
-    "剧场",
-    "劇場",
-)
-LOW_RELEVANCE_TERMS = ("cover", "tutorial", "reaction", "karaoke", "翻唱", "教程", "伴奏")
-OFFICIAL_TERMS = ("official audio", "official music video", "official video", "official mv")
-NOISY_MEDIA_TERMS = (
-    "tv",
-    "television",
-    "show",
-    "variety",
-    "interview",
-    "reaction",
-    "karaoke",
-    "tutorial",
-    "综艺",
-    "綜藝",
-    "电视",
-    "電視",
-    "卫视",
-    "衛視",
-    "节目",
-    "節目",
-    "访谈",
-    "教程",
-    "伴奏",
-)
-COVER_TERMS = ("cover", "翻唱")
-QUERY_FILLER_TERMS = {"the", "a", "an"}
-IGNORABLE_TITLE_SUFFIX_RE = re.compile(
-    r"(?:\s*[\[(\-{]\s*)?(?:official(?:\s+(?:audio|music\s+video|video|mv))?|"
-    r"lyrics?|lyric\s+video|(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?)(?:\s*[])}]\s*)?$",
-    re.IGNORECASE,
-)
-FEATURED_ARTIST_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring)\s+.*$", re.IGNORECASE)
-FEATURED_TITLE_RE = re.compile(
-    r"\s*(?:[\[(（【]\s*)?(?:feat\.?|ft\.?|featuring)\s+.*$",
-    re.IGNORECASE,
-)
 AGE_RESTRICTED_MESSAGE = (
     "Selected YouTube result requires age verification. "
     "Choose another candidate or refine the search."
@@ -674,69 +650,6 @@ def _canonical_metadata(item: dict[str, Any]) -> dict[str, Any]:
     return metadata
 
 
-def _identity_text(value: Any) -> str:
-    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
-    text = "".join(character if character.isalnum() else " " for character in text)
-    return " ".join(text.split())
-
-
-def _has_cjk(value: Any) -> bool:
-    return any("\u4e00" <= character <= "\u9fff" for character in str(value or ""))
-
-
-def _latin_ratio(value: Any) -> float:
-    letters = [character for character in str(value or "") if character.isalpha()]
-    if not letters:
-        return 0.0
-    latin = [
-        character for character in letters
-        if "LATIN" in unicodedata.name(character, "")
-    ]
-    return len(latin) / len(letters)
-
-
-def _mostly_latin(value: Any) -> bool:
-    return _latin_ratio(value) >= 0.7
-
-
-def _identity_title(value: Any) -> str:
-    text = unicodedata.normalize("NFKC", str(value or "")).strip()
-    text = FEATURED_TITLE_RE.sub("", text).strip()
-    previous = None
-    while text and text != previous:
-        previous = text
-        text = IGNORABLE_TITLE_SUFFIX_RE.sub("", text).strip()
-    return _identity_text(text)
-
-
-def _identity_title_text(identity: dict[str, Any]) -> str:
-    title = unicodedata.normalize("NFKC", str(identity.get("title") or "")).strip()
-    artist = unicodedata.normalize("NFKC", str(identity.get("artist") or "")).strip()
-    if artist:
-        title = re.sub(
-            rf"^\s*{re.escape(artist)}\s*[-–—:|]\s*",
-            "",
-            title,
-            count=1,
-            flags=re.IGNORECASE,
-        )
-    return _identity_title(title)
-
-
-def _identity_artist(item: dict[str, Any]) -> str:
-    artists = item.get("artists")
-    if isinstance(artists, list) and artists:
-        primary = _non_placeholder_text(artists[0])
-        if primary:
-            return primary
-    artist = _non_placeholder_text(item.get("artist")) or ""
-    return FEATURED_ARTIST_RE.sub("", artist).strip()
-
-
-def _identity_artist_text(value: Any) -> str:
-    return _identity_text(FEATURED_ARTIST_RE.sub("", str(value or "")).strip())
-
-
 def _track_identity(item: dict[str, Any]) -> dict[str, str]:
     return {
         "title": _non_placeholder_text(item.get("name") or item.get("title") or item.get("track")) or "",
@@ -1192,48 +1105,6 @@ def _count(value: Any) -> int:
         return max(0, int(float(value or 0)))
     except (TypeError, ValueError):
         return 0
-
-
-def _words(value: str) -> list[str]:
-    """Prepares words for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs words without duplicating the local rules.
-
-    Example: _words(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return re.findall(r"[\w\u4e00-\u9fff]+", value.casefold())
-
-
-def _normalized_rank_text(value: str) -> str:
-    """Prepares normalized rank text for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalized rank text without duplicating the local rules.
-
-    Example: _normalized_rank_text(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return " ".join(_words(value))
-
-
-def _query_terms(query: str) -> list[str]:
-    """Prepares query terms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs query terms without duplicating the local rules.
-
-    Example: _query_terms(query=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    terms = _words(query)
-    return [term for term in terms if term not in QUERY_FILLER_TERMS and term not in LIVE_TERMS]
-
-
-def _contains_any(value: str, terms: tuple[str, ...]) -> bool:
-    """Prepares contains any for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs contains any without duplicating the local rules.
-
-    Example: _contains_any(value=..., terms=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    text = value.casefold()
-    return any(term in text for term in terms)
 
 
 def _variant_type(query: str, info: dict[str, Any]) -> str:
@@ -2192,11 +2063,10 @@ def _friendly_youtube_failure_message(message: str) -> str:
 
     Example: _friendly_youtube_failure_message(message=...) -> returns the value used by the surrounding Sonex flow.
     """
-    lowered = str(message).casefold()
-    if "youtube_po_provider_unavailable" in lowered or "po token provider" in lowered:
-        return "YouTube playback is not configured. Open /extension to configure it."
-    if "youtube_queue_busy" in lowered or "request queue is busy" in lowered:
-        return "Another YouTube request is still running. Try again shortly."
+    runtime_code = managed_runtime_failure_code(message)
+    managed_error = _managed_runtime_tool_error(runtime_code) if runtime_code else None
+    if managed_error:
+        return managed_error[0]
     if _is_age_verification_error(message):
         return AGE_RESTRICTED_MESSAGE
     if _is_unavailable_error(message):
@@ -2485,21 +2355,24 @@ def search_audius_audio_candidates(
 
 def _provider_failure_code(error: Exception) -> str:
     message = str(error).casefold()
-    if isinstance(error, YoutubeRuntimeUnavailable) or "po token provider" in message or "youtube_po_provider_unavailable" in message:
-        return "youtube_po_provider_unavailable"
-    if isinstance(error, YoutubeQueueBusy) or "youtube request queue is busy" in message:
-        return "youtube_queue_busy"
-    if isinstance(error, TimeoutError) or "timed out" in message or "timeout" in message:
-        return "provider_timeout"
-    if "429" in message or "too many requests" in message or "rate limit" in message:
-        return "provider_rate_limited"
-    if _is_age_verification_error(message):
-        return "candidate_unplayable"
-    if "not a bot" in message or "sign in to confirm" in message:
-        return "provider_bot_challenge"
-    if _is_unavailable_error(message):
-        return "candidate_unplayable"
-    return "provider_error"
+    runtime_code = managed_runtime_failure_code(error)
+    return provider_failure_category(
+        managed_code=runtime_code,
+        timed_out=isinstance(error, TimeoutError) or "timed out" in message or "timeout" in message,
+        rate_limited="429" in message or "too many requests" in message or "rate limit" in message,
+        age_restricted=_is_age_verification_error(message),
+        bot_challenge="not a bot" in message or "sign in to confirm" in message,
+        unavailable=_is_unavailable_error(message),
+    )
+
+
+def _managed_runtime_tool_error(failure_code: str) -> tuple[str, str] | None:
+    """Map stable managed-runtime failures to ToolResult output fields."""
+    if failure_code == "youtube_po_provider_unavailable":
+        return "YouTube playback is not configured. Open /extension to configure it.", "YOUTUBE_PO_PROVIDER_UNAVAILABLE"
+    if failure_code == "youtube_queue_busy":
+        return "Another YouTube request is still running. Try again shortly.", "YOUTUBE_QUEUE_BUSY"
+    return None
 
 
 def _youtube_search_cooldown_remaining(*, cache_root: Path | None = None) -> float:
@@ -3510,14 +3383,12 @@ def play_youtube_candidate(
         elif _is_unavailable_error(message):
             message = UNAVAILABLE_MESSAGE
             error_code = "YOUTUBE_UNAVAILABLE"
-        elif failure_code == "youtube_po_provider_unavailable":
-            message = "YouTube playback is not configured. Open /extension to configure it."
-            error_code = "YOUTUBE_PO_PROVIDER_UNAVAILABLE"
-        elif failure_code == "youtube_queue_busy":
-            message = "Another YouTube request is still running. Try again shortly."
-            error_code = "YOUTUBE_QUEUE_BUSY"
         else:
-            error_code = "NO_PLAYABLE_AUDIO" if "No playable audio" in message else "YOUTUBE_RESOLVE_FAILED"
+            managed_error = _managed_runtime_tool_error(failure_code)
+            if managed_error:
+                message, error_code = managed_error
+            else:
+                error_code = "NO_PLAYABLE_AUDIO" if "No playable audio" in message else "YOUTUBE_RESOLVE_FAILED"
         _record_audio_event_safe(
             trace_id=str(candidate.get("search_trace_id") or f"audio-{uuid.uuid4().hex[:12]}"),
             provider="youtube",

@@ -9,20 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from src.log import sonex_home
+from src.tools.diagnostics_policy import filter_audio_metadata
 
 RETENTION_SECONDS = 7 * 24 * 60 * 60
 MAX_EVENTS = 2000
-_ALLOWED_METADATA = {
-    "cache_hit",
-    "candidate_count",
-    "confidence_counts",
-    "failure_class",
-    "fallback_provider",
-    "provider_elapsed_ms",
-    "stable_30s",
-    "started",
-    "yt_dlp_version",
-}
 
 
 def _root(cache_root: Path | None = None) -> Path:
@@ -62,11 +52,7 @@ def record_audio_event(
     cache_root: Path | None = None,
     **metadata: Any,
 ) -> None:
-    safe_metadata = {
-        key: value
-        for key, value in metadata.items()
-        if key in _ALLOWED_METADATA
-    }
+    safe_metadata = filter_audio_metadata(metadata)
     now = time.time()
     conn = _connect(cache_root)
     conn.execute(

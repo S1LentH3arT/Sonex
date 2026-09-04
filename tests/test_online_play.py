@@ -108,6 +108,26 @@ class OnlinePlayTests(unittest.TestCase):
         FakeYoutubeDL.responses = []
         FakeYoutubeDL.calls = []
 
+    def test_provider_failure_code_accepts_stable_queue_error_code(self) -> None:
+        self.assertEqual(
+            online._provider_failure_code(RuntimeError("YOUTUBE_QUEUE_BUSY")),
+            "youtube_queue_busy",
+        )
+
+    def test_managed_runtime_tool_error_maps_stable_codes(self) -> None:
+        self.assertEqual(
+            online._managed_runtime_tool_error("youtube_po_provider_unavailable"),
+            ("YouTube playback is not configured. Open /extension to configure it.", "YOUTUBE_PO_PROVIDER_UNAVAILABLE"),
+        )
+        self.assertEqual(
+            online._managed_runtime_tool_error("provider_error"),
+            None,
+        )
+        self.assertEqual(
+            online._friendly_youtube_failure_message("YOUTUBE_QUEUE_BUSY"),
+            "Another YouTube request is still running. Try again shortly.",
+        )
+
     def test_search_spotify_track_candidates_returns_bounded_normalized_tracks(self) -> None:
         """Verifies that search spotify track candidates returns bounded normalized tracks behaves as expected.
 

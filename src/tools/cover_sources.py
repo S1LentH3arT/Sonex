@@ -12,8 +12,16 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+from src.tools.cover_source_state import (
+    caa_front_endpoints as _caa_front_endpoints,
+    provider_cover_url as _provider_cover_url,
+    recording_cover_ids as _recording_cover_ids,
+    score_recording as _score_recording,
+    terms as _terms,
+)
 
 MUSICBRAINZ_USER_AGENT = "Sonex/1.0 (https://github.com/sonex)"
 MUSICBRAINZ_SEARCH_URL = "https://musicbrainz.org/ws/2/recording"
@@ -163,25 +171,6 @@ def resolve_online_cover(metadata: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def _provider_cover_url(metadata: dict[str, Any]) -> str | None:
-    """Prepares provider cover url for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs provider cover url without duplicating the local rules.
-
-    Example: _provider_cover_url(metadata=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    explicit = _text(metadata.get("official_album_cover_url") or metadata.get("provider_album_cover_url"))
-    if explicit:
-        return explicit
-    provider = str(metadata.get("provider") or "").lower()
-    cover_url = _text(metadata.get("album_cover_url") or metadata.get("cover_url") or metadata.get("image_url"))
-    if not cover_url:
-        return None
-    if provider == "youtube" or "ytimg.com/" in cover_url:
-        return None
-    return cover_url
-
-
 def lookup_cover_art_url(*, name: str, artist: str, album: str = "") -> str | None:
     """Coordinates lookup cover art url for the current Sonex flow.
 
@@ -257,84 +246,6 @@ def _musicbrainz_json(url: str) -> dict[str, Any]:
         return json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
 
 
-def _recording_cover_ids(recording: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Prepares recording cover ids for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs recording cover ids without duplicating the local rules.
-
-    Example: _recording_cover_ids(recording=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    releases = recording.get("releases")
-    if not isinstance(releases, list):
-        return None, None
-    for release in releases:
-        if not isinstance(release, dict):
-            continue
-        release_group = release.get("release-group") if isinstance(release.get("release-group"), dict) else {}
-        release_group_id = _text(release_group.get("id"))
-        release_id = _text(release.get("id"))
-        if release_group_id or release_id:
-            return release_group_id, release_id
-    return None, None
-
-
-def _score_recording(
-    recording: dict[str, Any],
-    *,
-    name_terms: set[str],
-    artist_terms: set[str],
-    album_terms: set[str],
-) -> int:
-    """Prepares score recording for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs score recording without duplicating the local rules.
-
-    Example: _score_recording(recording=..., name_terms=..., artist_terms=..., album_terms=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    score = 0
-    title_terms = _terms(str(recording.get("title") or ""))
-    if name_terms and name_terms <= title_terms:
-        score += 3
-    artist_credit = " ".join(
-        str(credit.get("name") or "")
-        for credit in recording.get("artist-credit") or []
-        if isinstance(credit, dict)
-    )
-    if artist_terms and artist_terms <= _terms(artist_credit):
-        score += 3
-    if album_terms:
-        release_titles = {
-            term
-            for release in recording.get("releases") or []
-            if isinstance(release, dict)
-            for term in _terms(str(release.get("title") or ""))
-        }
-        if album_terms <= release_titles:
-            score += 2
-    try:
-        score += min(2, max(0, int(recording.get("score") or 0) // 50))
-    except (TypeError, ValueError):
-        pass
-    return score
-
-
-def _caa_front_endpoints(release_group_mbid: str | None, release_mbid: str | None) -> list[str]:
-    """Prepares caa front endpoints for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs caa front endpoints without duplicating the local rules.
-
-    Example: _caa_front_endpoints(release_group_mbid=..., release_mbid=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    endpoints: list[str] = []
-    if release_group_mbid:
-        base = f"{COVER_ART_ARCHIVE_BASE}/release-group/{quote(release_group_mbid)}"
-        endpoints.extend([f"{base}/front", f"{base}/front-500"])
-    if release_mbid:
-        base = f"{COVER_ART_ARCHIVE_BASE}/release/{quote(release_mbid)}"
-        endpoints.extend([f"{base}/front", f"{base}/front-500"])
-    return endpoints
-
-
 def _cover_art_exists(url: str) -> bool:
     """Prepares cover art exists for an internal Sonex flow.
 
@@ -348,26 +259,3 @@ def _cover_art_exists(url: str) -> bool:
             return True
     except Exception:
         return False
-
-
-def _terms(value: str) -> set[str]:
-    """Prepares terms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs terms without duplicating the local rules.
-
-    Example: _terms(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return {part.casefold() for part in value.replace("-", " ").split() if part.strip() and part != "-"}
-
-
-def _text(value: Any) -> str | None:
-    """Prepares text for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs text without duplicating the local rules.
-
-    Example: _text("  song  ") -> "song"; _text("") -> None.
-    """
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None

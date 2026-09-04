@@ -8,11 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from src.log import sonex_home
-
-COOLDOWN_RESET_WINDOW_SECONDS = 24 * 60 * 60
-RATE_LIMIT_COOLDOWNS = (5 * 60, 30 * 60, 2 * 60 * 60)
-BOT_CHALLENGE_COOLDOWNS = (2 * 60 * 60, 24 * 60 * 60)
-COOLDOWN_FAILURE_CLASSES = {"rate_limited", "bot_challenge"}
+from src.tools.online_provider_health_state import (
+    BOT_CHALLENGE_COOLDOWNS,
+    COOLDOWN_FAILURE_CLASSES,
+    COOLDOWN_RESET_WINDOW_SECONDS,
+    RATE_LIMIT_COOLDOWNS,
+    calculate_cooldown,
+)
 
 
 def _root(cache_root: Path | None = None) -> Path:
@@ -37,12 +39,6 @@ def _connect(cache_root: Path | None = None) -> sqlite3.Connection:
     )
     conn.commit()
     return conn
-
-
-def _schedule(failure_class: str) -> tuple[int, ...]:
-    if failure_class == "bot_challenge":
-        return BOT_CHALLENGE_COOLDOWNS
-    return RATE_LIMIT_COOLDOWNS
 
 
 def provider_cooldown(
@@ -90,16 +86,13 @@ def activate_provider_cooldown(
     existing = conn.execute(
         "SELECT * FROM provider_health WHERE provider = ?", (provider,)
     ).fetchone()
-    same_recent_class = bool(
-        existing
-        and str(existing["failure_class"]) == failure_class
-        and timestamp - float(existing["last_failure_at"]) < COOLDOWN_RESET_WINDOW_SECONDS
+    state = calculate_cooldown(
+        provider,
+        failure_class,
+        existing=dict(existing) if existing is not None else None,
+        retry_after=retry_after,
+        now=timestamp,
     )
-    level = int(existing["level"]) + 1 if same_recent_class else 0
-    schedule = _schedule(failure_class)
-    base_seconds = schedule[min(level, len(schedule) - 1)]
-    requested_seconds = max(0.0, float(retry_after or 0.0))
-    cooldown_seconds = max(float(base_seconds), requested_seconds)
     conn.execute(
         """
         INSERT INTO provider_health(provider, failure_class, level, next_probe_at, last_failure_at)
@@ -110,16 +103,16 @@ def activate_provider_cooldown(
             next_probe_at = excluded.next_probe_at,
             last_failure_at = excluded.last_failure_at
         """,
-        (provider, failure_class, level, timestamp + cooldown_seconds, timestamp),
+        (provider, failure_class, state["level"], state["next_probe_at"], timestamp),
     )
     conn.commit()
     conn.close()
     return {
         "provider": provider,
         "failure_class": failure_class,
-        "level": level,
-        "cooldown_seconds": cooldown_seconds,
-        "next_probe_at": timestamp + cooldown_seconds,
+        "level": state["level"],
+        "cooldown_seconds": state["cooldown_seconds"],
+        "next_probe_at": state["next_probe_at"],
     }
 
 

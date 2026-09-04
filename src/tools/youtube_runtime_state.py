@@ -5,6 +5,56 @@ from __future__ import annotations
 from typing import Any
 
 
+def version_tuple(value: Any) -> tuple[int, ...]:
+    """Parse numeric version segments for deterministic comparisons."""
+    parts: list[int] = []
+    for part in str(value or "").split("."):
+        digits = "".join(character for character in part if character.isdigit())
+        if not digits:
+            break
+        parts.append(int(digits))
+    return tuple(parts)
+
+
+def is_newer_version(candidate: Any, current: Any) -> bool:
+    left = version_tuple(candidate)
+    right = version_tuple(current)
+    return bool(left and right and left > right)
+
+
+def same_major_version(candidate: Any, current: Any) -> bool:
+    left = version_tuple(candidate)
+    right = version_tuple(current)
+    return bool(left and right and left[0] == right[0])
+
+
+def runtime_manifest_is_usable(payload: Any, *, runtime_format: int) -> bool:
+    """Require the identity and executable paths needed by managed runtime."""
+    if not isinstance(payload, dict):
+        return False
+    try:
+        format_value = int(payload.get("format") or 0)
+    except (TypeError, ValueError):
+        return False
+    if format_value != runtime_format:
+        return False
+    return all(
+        str(payload.get(key) or "").strip()
+        for key in ("runtime_id", "bundle_path", "python_executable", "server_entry")
+    )
+
+
+def cache_is_fresh(payload: Any, *, now: float, ttl: float) -> bool:
+    """Treat malformed or expired persisted cache metadata as stale."""
+    if not isinstance(payload, dict):
+        return False
+    try:
+        checked_at = float(payload.get("checked_at") or 0)
+    except (TypeError, ValueError):
+        return False
+    return now - checked_at < ttl
+
+
 def runtime_status_value(
     manifest: dict[str, Any] | None,
     state: dict[str, Any],
@@ -104,6 +154,148 @@ def update_failure_state(
     if component is not None:
         state["component"] = component
     return state
+
+
+def provider_runtime_status(
+    provider: dict[str, Any] | None,
+    *,
+    process_alive: bool,
+    ping_healthy: bool | None,
+    probe: bool,
+) -> str:
+    """Resolve provider liveness without conflating process and HTTP health."""
+    if not provider or not process_alive:
+        return "stopped"
+    if probe and not ping_healthy:
+        return "stopped"
+    return "running"
+
+
+def provider_reuse_allowed(
+    provider: dict[str, Any] | None,
+    *,
+    runtime_id: Any,
+    process_alive: bool,
+    ping_healthy: bool,
+) -> bool:
+    """Allow reuse only for a healthy provider bound to the active runtime."""
+    return bool(
+        provider
+        and provider.get("runtime_id") == runtime_id
+        and process_alive
+        and ping_healthy
+    )
+
+
+def provider_idle_action(
+    state: dict[str, Any],
+    *,
+    now: float,
+    idle_seconds: float,
+) -> str:
+    """Resolve whether the detached provider should remain alive."""
+    raw_last_activity = state.get("last_activity_at")
+    if raw_last_activity in (None, ""):
+        return "keep"
+    try:
+        last_activity = float(raw_last_activity)
+    except (TypeError, ValueError):
+        return "stop"
+    return "stop" if now - last_activity >= idle_seconds else "keep"
+
+
+def provider_startup_action(
+    *,
+    process_alive: bool,
+    ping_healthy: bool,
+    deadline_reached: bool,
+) -> str:
+    """Resolve the detached provider startup probe transition."""
+    if ping_healthy:
+        return "ready"
+    if deadline_reached or not process_alive:
+        return "failed"
+    return "wait"
+
+
+def provider_exit_reason(
+    *,
+    idle_expired: bool,
+    state_present: bool,
+    returncode: int | None,
+) -> str:
+    """Classify why the detached provider monitor stopped."""
+    if idle_expired:
+        return "idle_timeout"
+    if not state_present:
+        return "state_removed"
+    if returncode is None:
+        return "monitor_stopped"
+    return "child_exit" if returncode == 0 else "child_exit_failed"
+
+
+def provider_log_action(*, file_size: int, max_bytes: int) -> str:
+    """Resolve whether the provider log should rotate before opening."""
+    return "rotate" if file_size > max_bytes else "keep"
+
+
+def request_gate_wait_seconds(
+    *,
+    last_started_at: Any,
+    now: float,
+    min_interval: float,
+    timeout: float,
+) -> float:
+    """Bound per-egress pacing without extending the caller's timeout."""
+    try:
+        last_started = float(last_started_at or 0.0)
+    except (TypeError, ValueError):
+        last_started = 0.0
+    wait_for = min_interval - (now - last_started)
+    return min(wait_for, max(0.01, timeout)) if wait_for > 0 else 0.0
+
+
+def lock_busy_message(purpose: str) -> str:
+    """Return the user-facing message for a bounded lock timeout."""
+    if purpose == "provider":
+        return "YouTube provider is busy; try again later."
+    return "YouTube request queue is busy; try again later."
+
+
+def managed_runtime_failure_code(value: Any) -> str | None:
+    """Classify stable managed-runtime failures before generic fallbacks."""
+    code = getattr(value, "code", None)
+    text = str(code or value or "").casefold()
+    if text == "youtube_po_provider_unavailable" or "po token provider" in text:
+        return "youtube_po_provider_unavailable"
+    if text == "youtube_queue_busy" or "request queue is busy" in text or "youtube provider is busy" in text:
+        return "youtube_queue_busy"
+    return None
+
+
+def provider_failure_category(
+    *,
+    managed_code: str | None,
+    timed_out: bool,
+    rate_limited: bool,
+    age_restricted: bool,
+    bot_challenge: bool,
+    unavailable: bool,
+) -> str:
+    """Apply one precedence table to provider failure facts."""
+    if managed_code:
+        return managed_code
+    if timed_out:
+        return "provider_timeout"
+    if rate_limited:
+        return "provider_rate_limited"
+    if age_restricted:
+        return "candidate_unplayable"
+    if bot_challenge:
+        return "provider_bot_challenge"
+    if unavailable:
+        return "candidate_unplayable"
+    return "provider_error"
 
 
 def component_install_state(

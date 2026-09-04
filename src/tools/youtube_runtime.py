@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import platform
 import shutil
@@ -30,18 +31,33 @@ from typing import Any, Iterator
 from src.log import sonex_home
 from src.tools.youtube_runtime_state import (
     activated_state,
+    cache_is_fresh,
     component_install_state,
     health_check_state,
     health_update_action,
+    lock_busy_message,
     probation_failed,
     probation_succeeded,
     restart_notice,
     rollback_state,
+    provider_runtime_status,
+    provider_idle_action,
+    provider_reuse_allowed,
+    provider_startup_action,
+    provider_exit_reason,
+    provider_log_action,
+    request_gate_wait_seconds,
+    version_tuple as _version_tuple,
+    is_newer_version as _is_newer,
+    same_major_version as _same_provider_major,
     runtime_status_value,
+    runtime_manifest_is_usable,
     update_failure_state,
     update_start_action,
     update_completion_state,
 )
+
+logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover - exercised on the supported POSIX targets
     import fcntl
@@ -51,6 +67,7 @@ except ImportError:  # pragma: no cover - Windows fallback
 
 RUNTIME_FORMAT = 1
 PROVIDER_IDLE_SECONDS = 6 * 60 * 60
+PROVIDER_LOG_MAX_BYTES = 2 * 1024 * 1024
 UPDATE_CHECK_TTL_SECONDS = 24 * 60 * 60
 UPDATE_COOLDOWN_SECONDS = 6 * 60 * 60
 UPDATE_TOTAL_TIMEOUT_SECONDS = 20 * 60
@@ -138,7 +155,7 @@ def _pid_alive(pid: int | None) -> bool:
 
 
 @contextlib.contextmanager
-def _exclusive_file_lock(path: Path, *, timeout: float) -> Iterator[None]:
+def _exclusive_file_lock(path: Path, *, timeout: float, purpose: str = "request") -> Iterator[None]:
     """Acquire a user-owned cross-process lock with a bounded wait."""
 
     _mkdir(path.parent)
@@ -157,7 +174,7 @@ def _exclusive_file_lock(path: Path, *, timeout: float) -> Iterator[None]:
             except BlockingIOError:
                 time.sleep(0.1)
         if not acquired:
-            raise YoutubeQueueBusy("YouTube request queue is busy; try again later.")
+            raise YoutubeQueueBusy(lock_busy_message(purpose))
         yield
     finally:
         if acquired and fcntl is not None:
@@ -199,10 +216,14 @@ def youtube_request_gate(
     state_path = state_root() / "requests" / f"{digest}.json"
     with _exclusive_file_lock(lock_path, timeout=timeout):
         state = _read_json(state_path) or {}
-        last_started = float(state.get("last_started_at") or 0.0)
-        wait_for = REQUEST_MIN_INTERVAL_SECONDS - (time.time() - last_started)
+        wait_for = request_gate_wait_seconds(
+            last_started_at=state.get("last_started_at"),
+            now=time.time(),
+            min_interval=REQUEST_MIN_INTERVAL_SECONDS,
+            timeout=timeout,
+        )
         if wait_for > 0:
-            time.sleep(min(wait_for, max(0.01, timeout)))
+            time.sleep(wait_for)
         _write_json(
             state_path,
             {"egress": identity, "last_started_at": time.time()},
@@ -220,13 +241,14 @@ def _pending_manifest_path() -> Path:
 
 def active_manifest() -> dict[str, Any] | None:
     payload = _read_json(_active_manifest_path())
-    if not payload or int(payload.get("format") or 0) != RUNTIME_FORMAT:
+    if not runtime_manifest_is_usable(payload, runtime_format=RUNTIME_FORMAT):
         return None
     return payload
 
 
 def pending_manifest() -> dict[str, Any] | None:
-    return _read_json(_pending_manifest_path())
+    payload = _read_json(_pending_manifest_path())
+    return payload if runtime_manifest_is_usable(payload, runtime_format=RUNTIME_FORMAT) else None
 
 
 def cleanup_old_runtimes() -> None:
@@ -329,7 +351,13 @@ def _provider_state() -> dict[str, Any] | None:
 
 def _provider_log_path() -> Path:
     _mkdir(state_root() / "logs")
-    return state_root() / "logs" / "provider.log"
+    path = state_root() / "logs" / "provider.log"
+    try:
+        if provider_log_action(file_size=path.stat().st_size, max_bytes=PROVIDER_LOG_MAX_BYTES) == "rotate":
+            path.replace(path.with_name("provider.log.1"))
+    except OSError:
+        pass
+    return path
 
 
 def _provider_ping(base_url: str, timeout: float = 0.5) -> bool:
@@ -369,7 +397,13 @@ def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
     provider = _provider_state()
     if provider:
         base_url = str(provider.get("base_url") or "")
-        if _pid_alive(int(provider.get("monitor_pid") or 0)) and _provider_ping(base_url):
+        process_alive = _pid_alive(int(provider.get("monitor_pid") or 0))
+        if provider_reuse_allowed(
+            provider,
+            runtime_id=manifest.get("runtime_id"),
+            process_alive=process_alive,
+            ping_healthy=_provider_ping(base_url) if process_alive else False,
+        ):
             _write_json(
                 _state_path("provider.json"),
                 {**provider, "last_activity_at": time.time()},
@@ -414,9 +448,14 @@ def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
     _write_json(_state_path("provider.json"), provider_payload)
     deadline = time.monotonic() + 10.0
     while time.monotonic() < deadline:
-        if _provider_ping(str(provider_payload["base_url"])):
+        action = provider_startup_action(
+            process_alive=monitor.poll() is None,
+            ping_healthy=_provider_ping(str(provider_payload["base_url"])),
+            deadline_reached=False,
+        )
+        if action == "ready":
             return str(provider_payload["base_url"])
-        if monitor.poll() is not None:
+        if action == "failed":
             break
         time.sleep(0.1)
     _terminate_pid(monitor.pid)
@@ -431,7 +470,7 @@ def ensure_provider_running(manifest: dict[str, Any] | None = None) -> str:
     resolved = manifest or active_manifest()
     if not resolved:
         raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Open /extension to configure YouTube.")
-    with _exclusive_file_lock(state_root() / "provider.lock", timeout=10.0):
+    with _exclusive_file_lock(state_root() / "provider.lock", timeout=10.0, purpose="provider"):
         return _ensure_provider_running_locked(resolved)
 
 
@@ -447,6 +486,7 @@ def _provider_monitor(server_entry: str, node: str, port: int) -> int:
             start_new_session=True,
         )
         monitor_started = time.monotonic()
+        idle_expired = False
         try:
             while child.poll() is None:
                 state = _provider_state()
@@ -458,14 +498,23 @@ def _provider_monitor(server_entry: str, node: str, port: int) -> int:
                         time.sleep(0.1)
                         continue
                     break
-                last_activity = float(state.get("last_activity_at") or time.time())
-                if time.time() - last_activity >= PROVIDER_IDLE_SECONDS:
+                if provider_idle_action(
+                    state,
+                    now=time.time(),
+                    idle_seconds=PROVIDER_IDLE_SECONDS,
+                ) == "stop":
+                    idle_expired = True
                     _terminate_pid(child.pid)
                     break
                 time.sleep(10.0)
         finally:
             _terminate_pid(child.pid)
             state = _provider_state()
+            log.write(
+                "Sonex provider monitor stopped: "
+                f"{provider_exit_reason(idle_expired=idle_expired, state_present=state is not None, returncode=child.poll())}\n"
+            )
+            log.flush()
             if state and int(state.get("monitor_pid") or 0) == os.getpid():
                 with contextlib.suppress(FileNotFoundError):
                     _state_path("provider.json").unlink()
@@ -572,12 +621,21 @@ def runtime_status(*, probe_provider: bool = True) -> dict[str, Any]:
     provider = _provider_state()
     pending = pending_manifest()
     status = runtime_status_value(manifest, state, pending)
-    provider_running = bool(provider and _pid_alive(int(provider.get("monitor_pid") or 0)))
-    if provider_running and probe_provider:
-        provider_running = _provider_ping(str(provider.get("base_url") or ""))
+    provider_alive = bool(provider and _pid_alive(int(provider.get("monitor_pid") or 0)))
+    provider_ping = (
+        _provider_ping(str(provider.get("base_url") or ""))
+        if provider_alive and probe_provider
+        else None
+    )
+    provider_status = provider_runtime_status(
+        provider,
+        process_alive=provider_alive,
+        ping_healthy=provider_ping,
+        probe=probe_provider,
+    )
     return {
         "status": status,
-        "provider_runtime": "running" if provider_running else "stopped",
+        "provider_runtime": provider_status,
         "runtime_id": manifest.get("runtime_id") if manifest else None,
         "yt_dlp_version": manifest.get("yt_dlp_version") if manifest else None,
         "provider_version": manifest.get("provider_version") if manifest else None,
@@ -683,7 +741,7 @@ def _safe_extract_tar(archive: Path, destination: Path) -> None:
             target = (destination / member.name).resolve()
             if target != destination and destination not in target.parents:
                 raise RuntimeError("Downloaded source archive contains an unsafe path.")
-        handle.extractall(destination)
+        handle.extractall(destination, filter="data")
 
 
 def _node_download_urls(version: str, architecture: str) -> tuple[str, str]:
@@ -759,7 +817,7 @@ def _versions_cache() -> Path:
 
 def latest_versions(*, force: bool = False) -> dict[str, Any]:
     cached = _read_json(_versions_cache())
-    if cached and not force and time.time() - float(cached.get("checked_at") or 0) < UPDATE_CHECK_TTL_SECONDS:
+    if not force and cache_is_fresh(cached, now=time.time(), ttl=UPDATE_CHECK_TTL_SECONDS):
         return cached
     result: dict[str, Any] = {"checked_at": time.time()}
     for key, package in (
@@ -772,28 +830,6 @@ def latest_versions(*, force: bool = False) -> dict[str, Any]:
             result[f"{key}_error"] = type(exc).__name__
     _write_json(_versions_cache(), result)
     return result
-
-
-def _version_tuple(value: Any) -> tuple[int, ...]:
-    parts: list[int] = []
-    for part in str(value or "").split("."):
-        digits = "".join(character for character in part if character.isdigit())
-        if not digits:
-            break
-        parts.append(int(digits))
-    return tuple(parts)
-
-
-def _is_newer(candidate: Any, current: Any) -> bool:
-    left = _version_tuple(candidate)
-    right = _version_tuple(current)
-    return bool(left and right and left > right)
-
-
-def _same_provider_major(candidate: Any, current: Any) -> bool:
-    left = _version_tuple(candidate)
-    right = _version_tuple(current)
-    return bool(left and right and left[0] == right[0])
 
 
 def _update_state(**values: Any) -> dict[str, Any]:
