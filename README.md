@@ -121,6 +121,12 @@ sonex youtube status --json
 sonex youtube repair      # manually retry setup/update
 ```
 
+If the PyPI download is too slow, download the binary wheels for `yt-dlp` and
+`bgutil-ytdlp-pot-provider` from PyPI or a trusted mirror and place both files
+in `SONEX_HOME/youtube-runtime/offline`. Return to `/extension`, select
+`yt-dlp`, and press Enter to retry; Sonex will install the local wheels without
+using the package index.
+
 The managed runtime does not read YouTube account/browser cookies or user-level
 yt-dlp configuration, and it does not discover arbitrary external PO Token
 Providers.
@@ -202,8 +208,8 @@ Advanced users can still override per-provider `base_url`, `model`,
 
 ## Music Service Setup
 
-Run `/connect` to open the interactive music-account panel. It lists Spotify,
-NetEase Cloud Music, Jamendo, and Audius. Availability checks stay specific to
+Run `/extension` to open the interactive music-extension panel. It lists
+Spotify, Jamendo, Audius, and YouTube. Availability checks stay specific to
 each service and do not silently change the active playback provider.
 
 > [!NOTE]
@@ -260,7 +266,7 @@ the current chat so you can grant the updated permissions.
 
 ### Local and Provider Playback
 
-Install `mpv` if you want controllable local-file, NetEase, or online playback.
+Install `mpv` if you want controllable local-file or online playback.
 Spotify playback uses Spotify Connect and does not use the local player.
 Persistent Spotify Mode still keeps the whole music surface on Spotify, while
 normal mode can select a ready Spotify connection for one playback request.
@@ -268,14 +274,13 @@ normal mode can select a ready Spotify connection for one playback request.
 ### Playback Source Selection
 
 In normal mode, Sonex checks local files first. If no local result is found or
-you skip it, Sonex offers each ready native source—NetEase and Spotify—alongside
-Online. It searches only the selected catalog, keeps the native NetEase ID or
-Spotify URI, and lets you retry, refine the query, or choose another source when
-the search cannot produce a playable match. iTunes Search remains metadata
-discovery rather than a playback source. Configure at least one online audio
-provider to use the Online route:
+you skip it, Sonex offers Spotify alongside Online when available. It searches
+only the selected catalog, keeps the native Spotify URI, and lets you retry,
+refine the query, or choose another source when the search cannot produce a
+playable match. iTunes Search remains metadata discovery rather than a playback
+source. Configure at least one online audio provider to use the Online route:
 
-Use `/connect` and choose Jamendo or Audius.
+Use `/extension` and choose Jamendo or Audius.
 
 You can also provide credentials through environment variables:
 

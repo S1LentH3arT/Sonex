@@ -113,6 +113,11 @@ sonex youtube status --json
 sonex youtube repair      # 忽略自动重试冷却并人工修复
 ```
 
+如果 PyPI 在线下载速度过慢，可以从 PyPI 或可信镜像手动下载 `yt-dlp` 和
+`bgutil-ytdlp-pot-provider` 的 wheel 文件，并将两个文件放入
+`SONEX_HOME/youtube-runtime/offline`。回到 `/extension`，选中 `yt-dlp` 后按
+Enter 重试；Sonex 会在不访问包索引的情况下安装本地文件。
+
 受管 runtime 不读取 YouTube 账号 Cookie、浏览器 Cookie 或用户级 yt-dlp 配置，
 也不会加载任意外部 PO Token Provider。
 
