@@ -10,7 +10,6 @@ import hashlib
 import json
 import re
 import sqlite3
-import unicodedata
 import uuid
 from contextvars import ContextVar
 from dataclasses import asdict, dataclass, replace
@@ -18,10 +17,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-import fcntl
-
 from src.log import sonex_home
 from src.session_id import create_session_id
+from src.memory.markdown import (
+    normalize_content as normalize_markdown_content,
+    parse_markdown as parse_markdown_file,
+    parse_metadata as parse_markdown_metadata,
+    render_markdown as render_markdown_file,
+)
+from src.memory.persistence import MemoryPersistence
+from src.memory.sqlite_store import MemorySqlite
 
 
 MemoryTarget = Literal["memory", "user"]
@@ -112,6 +117,8 @@ class MemoryStore:
         self._read_only_reason: str | None = None
         self._metadata_rebuild_dump: dict[str, Any] = {"version": 1, "entries": [], "tombstones": []}
         self._lock_handle: Any | None = None
+        self._persistence = MemoryPersistence()
+        self._sqlite = MemorySqlite()
         self._session_store: dict[str, Path] = {}
         self.current_session_id: str | None = None
 
@@ -1108,146 +1115,10 @@ class MemoryStore:
         return warnings
 
     def _init_schema(self, conn: sqlite3.Connection) -> None:
-        """Prepares init schema for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs init schema without duplicating the local rules.
-
-        Example: _init_schema(conn=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS context(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                type TEXT NOT NULL,
-                content TEXT NOT NULL,
-                tags TEXT NOT NULL,
-                access_count INTEGER DEFAULT 0,
-                last_accessed TIMESTAMP,
-                promoted_cache_key TEXT,
-                turn_id TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS cache(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key TEXT UNIQUE,
-                summary TEXT NOT NULL,
-                tags TEXT NOT NULL,
-                importance REAL DEFAULT 0,
-                source TEXT,
-                source_context_id INTEGER,
-                kind TEXT DEFAULT 'turn_summary',
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS memory_entries(
-                entry_id TEXT PRIMARY KEY,
-                target TEXT NOT NULL,
-                content TEXT NOT NULL,
-                source_path TEXT NOT NULL,
-                line_no INTEGER NOT NULL,
-                source TEXT DEFAULT 'legacy',
-                confidence REAL DEFAULT 1.0,
-                memory_updated_at TEXT,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS memory_candidates(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                turn_id TEXT NOT NULL UNIQUE,
-                user_input TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                attempts INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        cursor.execute(
-            """
-            CREATE TABLE IF NOT EXISTS behavior_signals(
-                signal_key TEXT PRIMARY KEY,
-                kind TEXT NOT NULL,
-                payload TEXT NOT NULL,
-                count INTEGER NOT NULL DEFAULT 0,
-                last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-            """
-        )
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_memory_entries_target ON memory_entries(target)")
-        self._ensure_columns(cursor)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_context_access ON context(access_count, last_accessed)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cache_kind ON cache(kind)")
-        self._ensure_fts(cursor)
-
-    def _ensure_columns(self, cursor: sqlite3.Cursor) -> None:
-        """Prepares ensure columns for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs ensure columns without duplicating the local rules.
-
-        Example: _ensure_columns(cursor=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        self._ensure_column(cursor, "context", "access_count", "INTEGER DEFAULT 0")
-        self._ensure_column(cursor, "context", "last_accessed", "TIMESTAMP")
-        self._ensure_column(cursor, "context", "promoted_cache_key", "TEXT")
-        self._ensure_column(cursor, "context", "turn_id", "TEXT")
-        self._ensure_column(cursor, "cache", "source", "TEXT")
-        self._ensure_column(cursor, "cache", "source_context_id", "INTEGER")
-        self._ensure_column(cursor, "cache", "kind", "TEXT DEFAULT 'turn_summary'")
-        self._ensure_column(cursor, "memory_entries", "source", "TEXT DEFAULT 'legacy'")
-        self._ensure_column(cursor, "memory_entries", "confidence", "REAL DEFAULT 1.0")
-        self._ensure_column(cursor, "memory_entries", "memory_updated_at", "TEXT")
-        self._ensure_column(cursor, "memory_candidates", "attempts", "INTEGER NOT NULL DEFAULT 0")
-
-    @staticmethod
-    def _ensure_column(cursor: sqlite3.Cursor, table: str, column: str, ddl: str) -> None:
-        """Prepares ensure column for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs ensure column without duplicating the local rules.
-
-        Example: _ensure_column(cursor=..., table=..., column=..., ddl=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        existing = {row[1] for row in cursor.execute(f"PRAGMA table_info({table})")}
-        if column not in existing:
-            cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
-
-    def _ensure_fts(self, cursor: sqlite3.Cursor) -> None:
-        """Prepares ensure fts for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs ensure fts without duplicating the local rules.
-
-        Example: _ensure_fts(cursor=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        try:
-            cursor.execute(
-                """
-                CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts
-                USING fts5(entry_id UNINDEXED, target UNINDEXED, content)
-                """
-            )
-        except sqlite3.OperationalError:
-            pass
+        self._sqlite.init_schema(conn)
 
     def _has_fts(self, conn: sqlite3.Connection) -> bool:
-        """Prepares has fts for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs has fts without duplicating the local rules.
-
-        Example: _has_fts(conn=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        row = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'memory_fts'"
-        ).fetchone()
-        return row is not None
+        return self._sqlite.has_fts(conn)
 
     def _search_memory_fts(
         self,
@@ -1256,32 +1127,7 @@ class MemoryStore:
         target: SearchTarget,
         limit: int,
     ) -> list[sqlite3.Row]:
-        """Prepares search memory fts for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs search memory fts without duplicating the local rules.
-
-        Example: _search_memory_fts(conn=..., query=..., target=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        fts_query = self._to_fts_query(query)
-        target_clause = "" if target == "all" else "AND e.target = ?"
-        params: list[Any] = [fts_query]
-        if target != "all":
-            params.append(target)
-        params.append(limit)
-        return conn.execute(
-            f"""
-            SELECT e.entry_id, e.target, e.content, e.source_path, e.line_no,
-                   e.source, e.confidence, e.memory_updated_at, e.updated_at
-            FROM memory_fts f
-            JOIN memory_entries e ON e.entry_id = f.entry_id
-            WHERE memory_fts MATCH ? {target_clause}
-            ORDER BY bm25(memory_fts),
-                     CASE WHEN e.source = 'explicit' THEN 0 ELSE 1 END,
-                     e.confidence DESC, e.updated_at DESC
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
+        return self._sqlite.search_fts(conn, target, limit, self._to_fts_query(query))
 
     def _search_memory_like(
         self,
@@ -1290,30 +1136,7 @@ class MemoryStore:
         target: SearchTarget,
         limit: int,
     ) -> list[sqlite3.Row]:
-        """Prepares search memory like for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs search memory like without duplicating the local rules.
-
-        Example: _search_memory_like(conn=..., query=..., target=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-        """
-        pattern = f"%{query}%"
-        target_clause = "" if target == "all" else "AND target = ?"
-        params: list[Any] = [pattern]
-        if target != "all":
-            params.append(target)
-        params.append(limit)
-        return conn.execute(
-            f"""
-            SELECT entry_id, target, content, source_path, line_no,
-                   source, confidence, memory_updated_at, updated_at
-            FROM memory_entries
-            WHERE content LIKE ? {target_clause}
-            ORDER BY CASE WHEN source = 'explicit' THEN 0 ELSE 1 END,
-                     confidence DESC, updated_at DESC
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
+        return self._sqlite.search_like(conn, query, target, limit)
 
     def _recent_context(self, table: ContextTable, limit: int) -> list[dict[str, Any]]:
         """Prepares recent context for an internal Sonex flow.
@@ -1575,36 +1398,7 @@ class MemoryStore:
             self._commit_runtime(extra=extra)
 
     def _parse_markdown(self, target: MemoryTarget, path: Path) -> list[MemoryEntry]:
-        if not path.exists():
-            return []
-        lines = path.read_text(encoding="utf-8").replace("\r\n", "\n").split("\n")
-        entries: list[MemoryEntry] = []
-        current: list[str] | None = None
-        current_line = 0
-        legacy: dict[str, str] = {}
-        now = datetime.now(timezone.utc).isoformat()
-        for line_no, raw in enumerate(lines, 1):
-            stripped = raw.strip()
-            if re.match(r"^\s*[-*+]\s+", raw):
-                if current is not None:
-                    entries.append(self._parsed_entry(target, current, current_line, legacy, now, path))
-                current = [re.sub(r"^\s*[-*+]\s+", "", raw).rstrip()]
-                current_line = line_no
-                legacy = {}
-            elif current is not None and re.fullmatch(r"\s*<!--\s*sonex:.*?-->\s*", raw):
-                legacy = self._parse_metadata(stripped)
-            elif current is not None and (raw.startswith("  ") or raw.startswith("\t")):
-                current.append(raw[2:].rstrip() if raw.startswith("  ") else raw[1:].rstrip())
-            elif not stripped or stripped.startswith("#") or stripped.startswith("<!--"):
-                continue
-            elif current is not None:
-                # Only an indented continuation belongs to a list entry. Ignoring
-                # arbitrary top-level prose keeps the Markdown representation
-                # deterministic and avoids importing accidental instructions.
-                continue
-        if current is not None:
-            entries.append(self._parsed_entry(target, current, current_line, legacy, now, path))
-        return entries
+        return parse_markdown_file(target, path, self._parsed_entry)
 
     def _parsed_entry(
         self,
@@ -1656,56 +1450,25 @@ class MemoryStore:
         }
         for path, value in (extra or {}).items():
             payloads[path] = json.dumps(value, ensure_ascii=False, indent=2) + "\n"
-        transaction_id = str(uuid.uuid4())
-        staged: dict[str, str] = {}
-        for path, text in payloads.items():
-            temporary = path.with_name(f".{path.name}.{transaction_id}.tmp")
-            temporary.write_text(text, encoding="utf-8")
-            staged[str(path)] = str(temporary)
-        self._atomic_write(
-            self.paths.journal,
-            json.dumps({"version": 1, "staged": staged}, ensure_ascii=False, indent=2) + "\n",
-        )
-        for destination, temporary in staged.items():
-            Path(temporary).replace(Path(destination))
-        self.paths.journal.unlink(missing_ok=True)
+        self._persistence.commit(payloads, self.paths.journal)
         if self.current_session_id is not None:
             self.rebuild_memory_index()
 
     def _render_markdown(self, target: MemoryTarget, entries: list[MemoryEntry]) -> str:
-        title = "User memory" if target == "user" else "Agent memory"
-        lines = [f"# {title}", ""]
-        for entry in entries:
-            content_lines = entry.content.split("\n")
-            lines.append(f"- {content_lines[0]}")
-            lines.extend(f"  {line}" for line in content_lines[1:])
-            lines.append("")
-        return "\n".join(lines).rstrip() + "\n"
+        return render_markdown_file(target, entries)
 
     def _recover_journal(self) -> None:
         if self._read_only:
             return
-        journal, valid = self._read_json_checked(self.paths.journal, {})
-        if not valid:
+        if not self._persistence.recover(self.paths.journal):
             self._read_only = True
             self._read_only_reason = "metadata_corrupt"
-            return
-        staged = journal.get("staged") if isinstance(journal, dict) else None
-        if not isinstance(staged, dict):
-            return
-        for destination, temporary in staged.items():
-            path = Path(str(temporary))
-            if path.exists():
-                path.replace(Path(str(destination)))
-        self.paths.journal.unlink(missing_ok=True)
 
     def _acquire_writer_lock(self) -> None:
         if self._lock_handle is not None:
             return
-        self._lock_handle = self.paths.lock.open("a+")
-        try:
-            fcntl.flock(self._lock_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+        self._lock_handle, acquired = self._persistence.acquire_lock(self.paths.lock)
+        if not acquired:
             self._read_only = True
             self._read_only_reason = "writer_lock"
 
@@ -1801,31 +1564,15 @@ class MemoryStore:
         allowed = set(MemoryEntry.__dataclass_fields__)
         return MemoryEntry(**{key: item for key, item in value.items() if key in allowed})
 
-    @staticmethod
-    def _read_json(path: Path, default: Any) -> Any:
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return default
+    def _read_json(self, path: Path, default: Any) -> Any:
+        return self._persistence.read_json(path, default)
 
-    @staticmethod
-    def _read_json_checked(path: Path, default: Any) -> tuple[Any, bool]:
-        """Read JSON while distinguishing a missing file from damaged metadata."""
-        if not path.exists():
-            return default, True
-        try:
-            return json.loads(path.read_text(encoding="utf-8")), True
-        except (OSError, json.JSONDecodeError):
-            return default, False
+    def _read_json_checked(self, path: Path, default: Any) -> tuple[Any, bool]:
+        return self._persistence.read_json_checked(path, default)
 
     @staticmethod
     def _normalize_content(content: str) -> str:
-        lines = unicodedata.normalize("NFC", str(content).replace("\r\n", "\n")).split("\n")
-        while lines and not lines[0].strip():
-            lines.pop(0)
-        while lines and not lines[-1].strip():
-            lines.pop()
-        return "\n".join(line.rstrip() for line in lines)
+        return normalize_markdown_content(content)
 
     @staticmethod
     def _fingerprint(content: str) -> str:
@@ -1845,30 +1592,19 @@ class MemoryStore:
 
     @staticmethod
     def _parse_metadata(line: str) -> dict[str, str]:
-        match = re.fullmatch(r"<!--\s*sonex:(.*?)\s*-->", line)
-        if match is None:
-            return {}
-        return {
-            key: value
-            for key, value in re.findall(r"([a-z_]+)=([^\s]+)", match.group(1))
-        }
+        return parse_markdown_metadata(line)
 
     @staticmethod
     def _atomic_write(path: Path, text: str) -> None:
-        temporary = path.with_name(f".{path.name}.tmp")
-        temporary.write_text(text, encoding="utf-8")
-        temporary.replace(path)
+        MemoryPersistence.atomic_write(path, text)
 
     def _read_state(self) -> dict[str, Any]:
-        try:
-            value = json.loads(self.paths.state.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {"enabled": True}
+        value = self._persistence.read_json(self.paths.state, {"enabled": True})
         return value if isinstance(value, dict) else {"enabled": True}
 
     def _write_state(self, state: dict[str, Any]) -> None:
         self.paths.state.parent.mkdir(parents=True, exist_ok=True)
-        self._atomic_write(
+        self._persistence.atomic_write(
             self.paths.state,
             json.dumps(state, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         )

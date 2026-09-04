@@ -18,6 +18,7 @@ from src.llm.transport import Usage
 from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
 from src.tools.cover_sources import cover_bytes_for_source
 from src.ws.types import AuthRuntimeState
+from src.ws.session_orchestration import session_get
 
 
 class WebSocketUIAdapter:
@@ -121,7 +122,7 @@ class WebSocketUIAdapter:
             payload["document"] = safe_document
         if stream:
             payload["stream"] = True
-        mode = getattr(self, "_spotify_mode", None)
+        mode = session_get(self, "_spotify_mode", None)
         if isinstance(mode, dict) and mode.get("enabled"):
             transcript_item["theme"] = "spotify"
             payload["theme"] = "spotify"

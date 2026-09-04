@@ -79,6 +79,13 @@ from src.auth.providers import (
     provider_display_name,
 )
 from src.auth.secure_store import credential_storage_backend
+from src.auth.setup_lifecycle import CompletionOnce, cancel_setup_resources, parse_setup_input, setup_result
+from src.auth.setup_policy import (
+    api_key_help_text,
+    api_key_prompt,
+    auth_methods_for_provider,
+    resolve_auth_method,
+)
 from src.auth.spotify import (
     load_spotify_token,
     save_spotify_app_credentials,
@@ -189,6 +196,18 @@ from src.ws.playback_feedback import (
     format_player_feedback,
     format_song_candidate_feedback,
     metadata_provider_label as _metadata_provider_label,
+)
+from src.ws.session_orchestration import (
+    ClientMessageRouter,
+    create_session_context,
+    decode_client_message,
+    discard_session_context,
+    live_session_contexts,
+    session_discard,
+    session_get,
+    session_set,
+    session_context_for,
+    register_confirm_owner,
 )
 
 
@@ -895,9 +914,9 @@ def _record_playback_behavior(
     if not name or name == "-":
         return
     behavior_key = (provider.casefold(), name.casefold(), artist.casefold())
-    if not force and getattr(ui, "_last_playback_behavior_key", None) == behavior_key:
+    if not force and session_get(ui, "_last_playback_behavior_key", None) == behavior_key:
         return
-    setattr(ui, "_last_playback_behavior_key", behavior_key)
+    session_set(ui, "_last_playback_behavior_key", behavior_key)
     try:
         memory_store.record_behavior_signal("played", player_state)
     except Exception:
@@ -1298,43 +1317,14 @@ def _auth_methods_for_provider(provider: str) -> list[dict[str, str]]:
 
     Example: _auth_methods_for_provider(provider=...) -> returns the value used by the surrounding Sonex flow.
     """
-    capability = get_provider_capability(provider)
     name = normalize_provider(provider)
     auth = get_provider_auth(load_auth_store(), name)
-    methods: list[dict[str, str]] = []
-    if name == "custom":
-        return [
-            {"value": "none", "label": "No authentication"},
-            {"value": "api_key", "label": "Bearer API key"},
-        ]
-    if name == "openai":
-        available, reason = codex_app_server_status()
-        label = "ChatGPT Subscription (Experimental)"
-        if auth and auth.managed_auth == "codex_app_server":
-            label += " — Connected"
-        if available:
-            methods.append({"value": "oauth", "label": label})
-        else:
-            methods.append({
-                "value": "__unavailable_oauth__",
-                "label": f"{label} — Unavailable",
-                "description": reason or "Codex App Server is unavailable.",
-            })
-    elif capability.supports_oauth and browser_oauth_supported(provider):
-        base_label = "Google OAuth (Preview)" if name == "gemini" else "OAuth"
-        label = f"{base_label} — Connected" if auth and auth.oauth else base_label
-        methods.append({"value": "oauth", "label": label})
-    if capability.supports_api_key:
-        api_key_connected = bool(_env_api_key_for_provider(name) or auth and auth.api_key)
-        label = "API key — Connected" if api_key_connected else "API key"
-        methods.append({"value": "api_key", "label": label})
-    if auth and auth.managed_auth:
-        methods.append({"value": "disconnect_oauth", "label": "Disconnect ChatGPT Subscription"})
-    elif auth and auth.oauth:
-        methods.append({"value": "disconnect_oauth", "label": "Disconnect OAuth"})
-    if auth and auth.api_key:
-        methods.append({"value": "disconnect_api_key", "label": "Disconnect API key"})
-    return methods
+    return auth_methods_for_provider(
+        provider,
+        auth=auth,
+        env_api_key=_env_api_key_for_provider(name),
+        codex_status=codex_app_server_status,
+    )
 
 
 def _provider_choices_with_status() -> list[dict[str, Any]]:
@@ -1359,26 +1349,8 @@ def _provider_choices_with_status() -> list[dict[str, Any]]:
     return choices
 
 
-_API_KEY_SIGNUP_URLS = {
-    "openai": "https://platform.openai.com/api-keys",
-    "gemini": "https://aistudio.google.com/app/apikey",
-    "anthropic": "https://platform.claude.com/settings/keys",
-    "deepseek": "https://platform.deepseek.com/",
-    "openrouter": "https://openrouter.ai/keys",
-    "zai": "https://z.ai/",
-    "kimi_global": "https://platform.kimi.ai/",
-    "kimi_cn": "https://platform.moonshot.cn/",
-    "minimax_global": "https://platform.minimax.io/",
-    "minimax_cn": "https://platform.minimaxi.com/",
-    "xai": "https://console.x.ai/",
-}
-
-
 def _api_key_help_text(provider: str) -> str | None:
-    signup_url = _API_KEY_SIGNUP_URLS.get(normalize_provider(provider))
-    if not signup_url:
-        return None
-    return f"Haven't got an API Key? Get one at {signup_url}."
+    return api_key_help_text(provider)
 
 
 def _model_choices_for_provider(provider: str) -> list[dict[str, str]]:
@@ -1551,7 +1523,7 @@ class SpotifySetupSession:
         self.browser_oauth_pending: BrowserOAuthPending | None = None
         self.codex_server: CodexAppServer | None = None
         self.on_connected = on_connected
-        self.on_completed = on_completed
+        self._completion = CompletionOnce(on_completed)
         self.emit_feedback = emit_feedback
 
     async def start(self) -> None:
@@ -1612,7 +1584,9 @@ class SpotifySetupSession:
             ),
             active=False,
         )
-        self.oauth_task = asyncio.create_task(self._finish_oauth(authorize_url, expected_state))
+        self.oauth_task = session_context_for(self.ui).tasks.create_task(
+            self._finish_oauth(authorize_url, expected_state), name="spotify-oauth"
+        )
 
     async def handle_input(self, value: str) -> None:
         """Coordinates handle input for the current Sonex flow.
@@ -1621,23 +1595,20 @@ class SpotifySetupSession:
 
         Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
         """
-        value = value.strip()
-        if value.casefold() in {"__cancel__", "cancel"}:
-            if self.oauth_task is not None:
-                self.oauth_task.cancel()
+        parsed = parse_setup_input(value)
+        value = parsed.value
+        if parsed.cancelled:
+            await cancel_setup_resources(task=self.oauth_task)
+            self.oauth_task = None
             await self.ui.send_spotify_setup(
                 step="cancelled",
                 title="Spotify connection",
                 message="Spotify connection was cancelled.",
                 active=False,
             )
-            setattr(self.ui, "_spotify_setup", None)
+            session_set(self.ui, "_spotify_setup", None)
             await self._notify_completed(
-                {
-                    "status": "cancelled",
-                    "provider": "spotify",
-                    "reason": "user_cancelled",
-                }
+                setup_result("cancelled", "spotify", reason="user_cancelled")
             )
             return
         if not value:
@@ -1697,7 +1668,9 @@ class SpotifySetupSession:
             ),
             active=False,
         )
-        self.oauth_task = asyncio.create_task(self._finish_oauth(authorize_url, expected_state))
+        self.oauth_task = session_context_for(self.ui).tasks.create_task(
+            self._finish_oauth(authorize_url, expected_state), name="spotify-oauth"
+        )
 
     async def _finish_oauth(self, authorize_url: str, expected_state: str) -> None:
         """Prepares finish oauth for an internal Sonex flow.
@@ -1784,26 +1757,20 @@ class SpotifySetupSession:
             active=False,
         )
         await self._notify_completed(
-            {
-                "status": "connected",
-                "provider": "spotify",
-                "account_label": (
+            setup_result(
+                "connected",
+                "spotify",
+                account_label=(
                     data.get("display_name")
                     or data.get("email")
                     or data.get("id")
                     or "Spotify account"
                 ),
-            }
+            )
         )
 
     async def _notify_completed(self, result: dict[str, Any]) -> None:
-        if self.on_completed is None:
-            return
-        callback = self.on_completed
-        self.on_completed = None
-        callback_result = callback(result)
-        if asyncio.iscoroutine(callback_result):
-            await callback_result
+        await self._completion.notify(result)
 
 
 class OpenAudioSetupSession:
@@ -1828,8 +1795,10 @@ class OpenAudioSetupSession:
         self.ui = ui
         self.provider = provider
         self.display_name = "Jamendo" if provider == "jamendo" else "Audius"
-        self.on_completed = on_completed
+        self._completion = CompletionOnce(on_completed)
         self.emit_feedback = emit_feedback
+        self.oauth_task: asyncio.Task[None] | None = None
+        self.codex_server: CodexAppServer | None = None
 
     def _prompt_label(self) -> str:
         """Prepares prompt label for an internal Sonex flow.
@@ -1889,13 +1858,12 @@ class OpenAudioSetupSession:
 
         Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
         """
-        value = value.strip()
-        if value.casefold() in {"__cancel__", "cancel"}:
-            if self.oauth_task and not self.oauth_task.done():
-                self.oauth_task.cancel()
-            if self.codex_server:
-                await asyncio.to_thread(self.codex_server.close)
-                self.codex_server = None
+        parsed = parse_setup_input(value)
+        value = parsed.value
+        if parsed.cancelled:
+            await cancel_setup_resources(task=self.oauth_task, resource=self.codex_server)
+            self.oauth_task = None
+            self.codex_server = None
             await self.ui.send_auth_setup(
                 provider=self.provider,
                 step="cancelled",
@@ -1903,13 +1871,9 @@ class OpenAudioSetupSession:
                 message=f"{self.display_name} connection was cancelled.",
                 active=False,
             )
-            setattr(self.ui, "_auth_setup", None)
+            session_set(self.ui, "_auth_setup", None)
             await self._notify_completed(
-                {
-                    "status": "cancelled",
-                    "provider": self.provider,
-                    "reason": "user_cancelled",
-                }
+                setup_result("cancelled", self.provider, reason="user_cancelled")
             )
             return
         if not value:
@@ -1948,23 +1912,17 @@ class OpenAudioSetupSession:
             message=f"{self.display_name} is configured for online playback.",
             active=False,
         )
-        setattr(self.ui, "_auth_setup", None)
+        session_set(self.ui, "_auth_setup", None)
         await self._notify_completed(
-            {
-                "status": "connected",
-                "provider": self.provider,
-                "account_label": f"{self.display_name} application",
-            }
+            setup_result(
+                "connected",
+                self.provider,
+                account_label=f"{self.display_name} application",
+            )
         )
 
     async def _notify_completed(self, result: dict[str, Any]) -> None:
-        if self.on_completed is None:
-            return
-        callback = self.on_completed
-        self.on_completed = None
-        callback_result = callback(result)
-        if asyncio.iscoroutine(callback_result):
-            await callback_result
+        await self._completion.notify(result)
 
 
 
@@ -1994,7 +1952,7 @@ class ModelSelectionSession:
         self.provider = _default_provider_name()
         if not _provider_credentials_available(self.provider):
             await self._append_not_connected_caution(self.provider)
-            setattr(self.ui, "_model_setup", None)
+            session_set(self.ui, "_model_setup", None)
             return
         provider_name = normalize_provider(self.provider)
         if provider_name in {
@@ -2022,7 +1980,7 @@ class ModelSelectionSession:
         """
         text = value.strip()
         if text.lower() in {"__cancel__", "cancel"}:
-            setattr(self.ui, "_model_setup", None)
+            session_set(self.ui, "_model_setup", None)
             return
 
         parsed = _parse_model_choice(text, self.model_choices)
@@ -2040,7 +1998,7 @@ class ModelSelectionSession:
         provider, model = parsed
         if provider != normalize_provider(self.provider) or not _provider_credentials_available(provider):
             await self._append_not_connected_caution(provider)
-            setattr(self.ui, "_model_setup", None)
+            session_set(self.ui, "_model_setup", None)
             return
         _set_runtime_default_provider(provider, model)
         ThinkingConfig.reload()
@@ -2064,7 +2022,7 @@ class ModelSelectionSession:
             message="",
             active=False,
         )
-        setattr(self.ui, "_model_setup", None)
+        session_set(self.ui, "_model_setup", None)
 
     async def _append_not_connected_caution(self, provider: str) -> None:
         await self.ui.append_caution_message(
@@ -2090,6 +2048,7 @@ class AuthSetupSession:
         self.step = "method"
         self.method: str | None = None
         self.oauth_task: asyncio.Task[None] | None = None
+        self.codex_server: CodexAppServer | None = None
         self.custom_name: str | None = None
         self.custom_base_url: str | None = None
         self.custom_api_key: str | None = None
@@ -2210,12 +2169,16 @@ class AuthSetupSession:
 
         Example: await handle_input(value=...) -> returns the value used by the surrounding Sonex flow.
         """
-        value = value.strip()
+        parsed = parse_setup_input(value)
+        value = parsed.value
         if not value:
             await self._repeat("Input cannot be empty.")
             return
-        if value.casefold() in {"__cancel__", "cancel"}:
-            setattr(self.ui, "_auth_setup", None)
+        if parsed.cancelled:
+            await cancel_setup_resources(task=self.oauth_task, resource=self.codex_server)
+            self.oauth_task = None
+            self.codex_server = None
+            session_set(self.ui, "_auth_setup", None)
             return
 
         if self.step == "provider":
@@ -2400,8 +2363,8 @@ class AuthSetupSession:
             return
 
         if self.step == "method":
-            normalized = value.lower().replace("-", "_")
-            if normalized == "__unavailable_oauth__":
+            normalized, policy_error = resolve_auth_method(self.provider, value)
+            if policy_error == "unavailable_oauth":
                 _available, reason = codex_app_server_status()
                 await self._repeat(reason or "OpenAI ChatGPT Subscription is unavailable.")
                 return
@@ -2423,14 +2386,13 @@ class AuthSetupSession:
                     else "That authentication method was not connected."
                 )
                 return
-            if normalized not in {"oauth", "api_key"}:
+            if policy_error == "invalid":
                 await self._repeat("Type oauth or api_key.")
                 return
-            capability = get_provider_capability(self.provider)
-            if normalized == "oauth" and not capability.supports_oauth:
+            if policy_error == "unsupported_oauth":
                 await self._repeat(browser_oauth_requirements(self.provider))
                 return
-            if normalized == "api_key" and not capability.supports_api_key:
+            if policy_error == "unsupported_api_key":
                 await self._repeat(f"{self.provider} does not support API key sign-in.")
                 return
             self.method = normalized
@@ -2676,16 +2638,13 @@ class AuthSetupSession:
         Example: await _prompt_api_key() -> returns the value used by the surrounding Sonex flow.
         """
         self.step = "api_key"
+        prompt = api_key_prompt(
+            self.provider,
+            f"Paste your {provider_display_name(self.provider)} API key. It will be saved to auth.json.",
+        )
+        prompt["methods"] = _auth_methods_for_provider(self.provider)
         await self.ui.send_auth_setup(
-            provider=self.provider,
-            step="api_key",
-            title=f"{provider_display_name(self.provider)} API key",
-            message=f"Paste your {provider_display_name(self.provider)} API key. It will be saved to auth.json.",
-            prompt="API Key",
-            placeholder="paste your key here",
-            help_text=_api_key_help_text(self.provider),
-            mask=True,
-            methods=_auth_methods_for_provider(self.provider),
+            **prompt,
         )
 
     async def _prompt_zai_service(self, message: str | None = None) -> None:
@@ -2761,8 +2720,9 @@ class AuthSetupSession:
             active=True,
             methods=_auth_methods_for_provider("openai"),
         )
-        self.oauth_task = asyncio.create_task(
-            self._finish_openai_oauth(server, login["loginId"])
+        self.oauth_task = session_context_for(self.ui).tasks.create_task(
+            self._finish_openai_oauth(server, login["loginId"]),
+            name="openai-oauth",
         )
 
     async def _finish_openai_oauth(
@@ -2882,16 +2842,10 @@ class AuthSetupSession:
             )
             return
         if self.method == "api_key" or self.step == "api_key":
+            prompt = api_key_prompt(self.provider, message)
+            prompt["methods"] = _auth_methods_for_provider(self.provider)
             await self.ui.send_auth_setup(
-                provider=self.provider,
-                step="api_key",
-                title=f"{provider_display_name(self.provider)} API key",
-                message=message,
-                prompt="API Key",
-                placeholder="paste your key here",
-                help_text=_api_key_help_text(self.provider),
-                mask=True,
-                methods=_auth_methods_for_provider(self.provider),
+                **prompt,
             )
             return
         await self.ui.send_auth_setup(
@@ -2948,9 +2902,9 @@ class AuthSetupSession:
             message="Sign-in complete. Continuing your message." if self.pending_input else "Sign-in complete.",
             active=False,
         )
-        setattr(self.ui, "_auth_setup", None)
+        session_set(self.ui, "_auth_setup", None)
         if self.pending_input:
-            self.runner._running_task = None
+            session_context_for(self.ui).running_task = None
             await self.runner._handle_user_input(self.ui, self.pending_input)
 
 
@@ -2979,6 +2933,7 @@ class MusicIntentConfirmationSession:
 
         Example: await start() -> returns the value used by the surrounding Sonex flow.
         """
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -3008,17 +2963,17 @@ class MusicIntentConfirmationSession:
 
         Example: await handle_choice(decision=...) -> returns the value used by the surrounding Sonex flow.
         """
-        setattr(self.ui, "_music_intent_confirmation", None)
+        session_set(self.ui, "_music_intent_confirmation", None)
         if str(decision) == "play_track":
             session = PlaySelectionSession(self.ui, self.runner, self.query)
-            setattr(self.ui, "_play_selection", session)
+            session_set(self.ui, "_play_selection", session)
             await session.start()
             return
 
         ready, provider, reason = _llm_auth_ready()
         if not ready:
             setup = AuthSetupSession(self.ui, provider, self.original_input, self.runner)
-            setattr(self.ui, "_auth_setup", setup)
+            session_set(self.ui, "_auth_setup", setup)
             await setup.start(reason)
             return
         intent = CommandIntent(
@@ -3028,9 +2983,12 @@ class MusicIntentConfirmationSession:
             intent_prompt="Discuss the user's message in text only. Do not call tools or start playback.",
             allowed_tools=(),
         )
-        self.runner._running_task = asyncio.create_task(
+        context = session_context_for(self.ui)
+        task = context.tasks.create_task(
             self.runner._run_agent_turn(self.ui, self.original_input, command_intent=intent)
         )
+        context.running_task = task
+        session_set(self.ui, "_agent_turn_task", task)
 
 
 class PlaySelectionSession:
@@ -3200,7 +3158,7 @@ class PlaySelectionSession:
             )
             return
         if choice == "defer_youtube_runtime":
-            setattr(self.ui, "_youtube_setup_declined", True)
+            session_set(self.ui, "_youtube_setup_declined", True)
             await self._finish("YouTube setup deferred.", status="error")
             return
         if choice == "refine_query":
@@ -3269,7 +3227,7 @@ class PlaySelectionSession:
                 return
             if isinstance(result, dict) and result.get("status") == "success":
                 await self.runner._handoff_previous_provider(self.ui, "local")
-                setattr(self.ui, "_active_playback_provider", "local")
+                session_set(self.ui, "_active_playback_provider", "local")
             await self._finish("Local playback selected.")
             return
         if choice == "skip_local":
@@ -3431,7 +3389,7 @@ class PlaySelectionSession:
             readiness=readiness,
         )
         if result.get("status") == "playback_completed":
-            setattr(self.ui, "_preferred_playback_provider", provider)
+            session_set(self.ui, "_preferred_playback_provider", provider)
         return result
 
     async def _show_online_audio_setup_required(self) -> None:
@@ -3453,12 +3411,12 @@ class PlaySelectionSession:
 
     async def _ask_youtube_runtime_setup(self, query: str) -> None:
         """Suspend YouTube playback at the built-in extension setup action."""
-        setattr(self.ui, "_youtube_setup_query", query)
-        setattr(self.ui, "_youtube_setup_session", self)
-        setattr(self.ui, "_youtube_setup_retry_claimed", False)
-        setattr(self.ui, "_extension_panel_view", "detail")
-        setattr(self.ui, "_extension_selected_id", "youtube")
-        setattr(self.ui, "_extension_focus_action", "setup")
+        session_set(self.ui, "_youtube_setup_query", query)
+        session_set(self.ui, "_youtube_setup_session", self)
+        session_set(self.ui, "_youtube_setup_retry_claimed", False)
+        session_set(self.ui, "_extension_panel_view", "detail")
+        session_set(self.ui, "_extension_selected_id", "youtube")
+        session_set(self.ui, "_extension_focus_action", "setup")
         await self.runner._send_extension_panel(self.ui, view="detail", selected_id="youtube")
 
     async def _ask_local_choice(self, local_file: str) -> None:
@@ -3667,10 +3625,11 @@ class PlaySelectionSession:
         )
         metadata = dict(playback_metadata)
         metadata["youtube_query"] = query
-        cover_task = asyncio.create_task(
+        scope = session_context_for(self.ui).tasks
+        cover_task = scope.create_task(
             asyncio.to_thread(resolve_online_playback_metadata, query, metadata)
         )
-        audio_task = asyncio.create_task(
+        audio_task = scope.create_task(
             asyncio.to_thread(
                 _search_online_audio_for_runner,
                 query,
@@ -3924,6 +3883,7 @@ class PlaySelectionSession:
         """
         confirm_id = _new_event_id("confirm")
         self.active_confirm_id = confirm_id
+        register_confirm_owner(self.ui, confirm_id, self)
         await self.ui.append_activity(
             kind="confirm",
             title="Playback choice",
@@ -4027,7 +3987,7 @@ class PlaySelectionSession:
             await self.ui.send_error(message)
         if isinstance(result, dict) and result.get("status") == "success":
             await self.runner._handoff_previous_provider(self.ui, "online")
-            setattr(self.ui, "_active_playback_provider", "online")
+            session_set(self.ui, "_active_playback_provider", "online")
             try:
                 await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
             except Exception:
@@ -4080,7 +4040,7 @@ class PlaySelectionSession:
             provider = "online" if tool_name == "play_online_audio" else "local" if tool_name == "play_local_song" else None
             if provider is not None:
                 await self.runner._handoff_previous_provider(self.ui, provider)
-                setattr(self.ui, "_active_playback_provider", provider)
+                session_set(self.ui, "_active_playback_provider", provider)
             try:
                 await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
             except Exception:
@@ -4116,9 +4076,9 @@ class PlaySelectionSession:
 
         Example: await _finish(detail=..., status=...) -> returns the value used by the surrounding Sonex flow.
         """
-        setattr(self.ui, "_play_selection", None)
+        session_set(self.ui, "_play_selection", None)
         if status == "success" and self.playback_source:
-            setattr(self.ui, "_preferred_playback_provider", self.playback_source)
+            session_set(self.ui, "_preferred_playback_provider", self.playback_source)
         await self.ui.append_activity(kind="status", title="Playback selection", detail=detail, status=status)
         if self._finished:
             return
@@ -4166,6 +4126,7 @@ class AgentPlaybackRouteConfirmationSession:
             status="pending",
             activity_id=self.confirm_id,
         )
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -4188,8 +4149,8 @@ class AgentPlaybackRouteConfirmationSession:
 
     async def handle_choice(self, decision: Any) -> None:
         allowed = str(decision or "deny") not in {"deny", "cancel", "false"}
-        if getattr(self.ui, "_agent_playback_route_confirmation", None) is self:
-            setattr(self.ui, "_agent_playback_route_confirmation", None)
+        if session_get(self.ui, "_agent_playback_route_confirmation", None) is self:
+            session_set(self.ui, "_agent_playback_route_confirmation", None)
         await self.ui.append_activity(
             kind="confirm",
             title="Playback route",
@@ -4241,6 +4202,7 @@ class PlaybackSourceSelectionSession:
             status="pending",
             activity_id=self.confirm_id,
         )
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -4262,8 +4224,8 @@ class PlaybackSourceSelectionSession:
         source = value.removeprefix("playback_source:").strip().casefold()
         if value in {"cancel", "deny", "false"} or source not in self.sources:
             source = None
-        if getattr(self.ui, "_playback_source_selection", None) is self:
-            setattr(self.ui, "_playback_source_selection", None)
+        if session_get(self.ui, "_playback_source_selection", None) is self:
+            session_set(self.ui, "_playback_source_selection", None)
         await self.ui.append_activity(
             kind="status",
             title="Playback source",
@@ -4447,6 +4409,7 @@ class AgentCandidateSelectionSession:
     ) -> None:
         if self._timeout_task is not None:
             self._timeout_task.cancel()
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.append_activity(
             kind="confirm",
             title="Playback selection",
@@ -4464,7 +4427,7 @@ class AgentCandidateSelectionSession:
                 "choices": choices,
             }
         )
-        self._timeout_task = asyncio.create_task(self._timeout())
+        self._timeout_task = session_context_for(self.ui).tasks.create_task(self._timeout(), name="candidate-timeout")
 
     def owns_confirm(self, confirm_id: str) -> bool:
         return confirm_id == self.confirm_id
@@ -4553,8 +4516,8 @@ class AgentCandidateSelectionSession:
         self._done = True
         if self._timeout_task is not None:
             self._timeout_task.cancel()
-        if getattr(self.ui, "_agent_candidate_selection", None) is self:
-            setattr(self.ui, "_agent_candidate_selection", None)
+        if session_get(self.ui, "_agent_candidate_selection", None) is self:
+            session_set(self.ui, "_agent_candidate_selection", None)
         await self.ui.append_activity(
             kind="status",
             title="Playback selection",
@@ -4578,7 +4541,9 @@ class AgentCandidateSelectionSession:
 
         async def commit_selection() -> None:
             current_task = asyncio.current_task()
-            setattr(self.ui, "_active_agent_provider_task", current_task)
+            context = session_context_for(self.ui)
+            context.active_agent_provider_task = current_task
+            session_set(self.ui, "_active_agent_provider_task", current_task)
             try:
                 result = await self.runner._commit_agent_playback_selection(
                     self.ui,
@@ -4597,12 +4562,14 @@ class AgentCandidateSelectionSession:
                     "error_code": None,
                 }
             finally:
-                if getattr(self.ui, "_active_agent_provider_task", None) is current_task:
-                    setattr(self.ui, "_active_agent_provider_task", None)
+                if context.active_agent_provider_task is current_task:
+                    context.active_agent_provider_task = None
+                    session_discard(self.ui, "_active_agent_provider_task")
             self.complete(result)
 
-        task = asyncio.create_task(commit_selection())
-        setattr(self.ui, "_active_agent_provider_task", task)
+        task = session_context_for(self.ui).tasks.create_task(commit_selection(), name="agent-playback-commit")
+        session_context_for(self.ui).active_agent_provider_task = task
+        session_set(self.ui, "_active_agent_provider_task", task)
 
     async def _timeout(self) -> None:
         await asyncio.sleep(self.timeout_seconds)
@@ -4626,8 +4593,8 @@ class AgentCandidateSelectionSession:
         self._done = True
         if self._timeout_task is not None and self._timeout_task is not asyncio.current_task():
             self._timeout_task.cancel()
-        if getattr(self.ui, "_agent_candidate_selection", None) is self:
-            setattr(self.ui, "_agent_candidate_selection", None)
+        if session_get(self.ui, "_agent_candidate_selection", None) is self:
+            session_set(self.ui, "_agent_candidate_selection", None)
         cancelled = result.get("status") == "cancelled"
         status = "error" if cancelled else "success"
         await self.ui.append_activity(
@@ -4664,6 +4631,7 @@ class PlaylistSaveSession:
             choices = []
         if not choices:
             choices = [{"value": f"playlist:{LIKES_PLAYLIST}", "label": LIKES_PLAYLIST, "description": "0 saved tracks"}]
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -4680,7 +4648,7 @@ class PlaylistSaveSession:
     async def handle_choice(self, decision: Any) -> None:
         value = str(decision or "")
         if value in {"deny", "cancel", "false"}:
-            setattr(self.ui, "_playlist_save", None)
+            session_set(self.ui, "_playlist_save", None)
             await self.ui.append_activity(kind="status", title="Playlist save", detail="Canceled.", status="success")
             return
         playlist_name = value.removeprefix("playlist:").strip() or LIKES_PLAYLIST
@@ -4693,18 +4661,18 @@ class PlaylistSaveSession:
             message = sanitize_error_message(exc)
             await self.ui.append_activity(kind="error", title="Playlist save failed", detail=message, status="error")
             await self.ui.append_system_message(message)
-            setattr(self.ui, "_playlist_save", None)
+            session_set(self.ui, "_playlist_save", None)
             return
         name = str(result.get("playlist", {}).get("name") or playlist_name or LIKES_PLAYLIST)
         added = bool(result.get("added"))
         message = f"Saved to {name}." if added else f"Already saved in {name}."
         player_state = _decorate_player_state(self.track)
-        setattr(self.ui, "_last_player_state", player_state)
+        session_set(self.ui, "_last_player_state", player_state)
         await self.ui._send({"type": "player", "state": player_state})
         await self.ui.append_system_message(message)
         await self.ui.append_activity(kind="status", title="Playlist save", detail=message, status="success")
         await self.ui._send(_track_panel_payload("playlist", f"Playlist: {name}", playlist_panel_tracks(name)))
-        setattr(self.ui, "_playlist_save", None)
+        session_set(self.ui, "_playlist_save", None)
 
 
 class PlaylistBrowseSession:
@@ -4723,6 +4691,7 @@ class PlaylistBrowseSession:
             status="pending",
             activity_id=self.confirm_id,
         )
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -4737,7 +4706,7 @@ class PlaylistBrowseSession:
         return confirm_id == self.confirm_id
 
     async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_playlist_browse", None)
+        session_set(self.ui, "_playlist_browse", None)
         value = str(decision or "cancel")
         if value in {"cancel", "deny", "false"}:
             await self.ui.append_activity(kind="status", title="Playlists", detail="Playlist browsing canceled.", status="success")
@@ -4817,6 +4786,7 @@ class SpotifySessionRequestCoordinator:
     playlist_sync_succeeded: bool = False
     playlist_sync_message: str = "Spotify playlists have not been synchronized in this session."
     playlist_sync_task: asyncio.Task[tuple[bool, str]] | None = None
+    task_scope: Any = None
 
     async def get_or_fetch(
         self,
@@ -4842,7 +4812,7 @@ class SpotifySessionRequestCoordinator:
         task = self.inflight.get(key)
         source = "single_flight"
         if task is None:
-            task = asyncio.create_task(fetch())
+            task = self.task_scope.create_task(fetch(), name=f"spotify-fetch:{key}") if self.task_scope else asyncio.create_task(fetch())
             self.inflight[key] = task
             source = "network"
         try:
@@ -4872,18 +4842,18 @@ class SpotifySessionRequestCoordinator:
 
 
 def _spotify_session_requests(ui: WebSocketUIAdapter) -> SpotifySessionRequestCoordinator:
-    coordinator = getattr(ui, "_spotify_session_requests", None)
+    coordinator = session_get(ui, "_spotify_session_requests", None)
     if not isinstance(coordinator, SpotifySessionRequestCoordinator):
-        coordinator = SpotifySessionRequestCoordinator()
-        setattr(ui, "_spotify_session_requests", coordinator)
+        coordinator = SpotifySessionRequestCoordinator(task_scope=session_context_for(ui).tasks)
+        session_set(ui, "_spotify_session_requests", coordinator)
     return coordinator
 
 
 def _spotify_sync_event(ui: WebSocketUIAdapter) -> asyncio.Event:
-    event = getattr(ui, "_spotify_sync_event", None)
+    event = session_get(ui, "_spotify_sync_event", None)
     if not isinstance(event, asyncio.Event):
         event = asyncio.Event()
-        setattr(ui, "_spotify_sync_event", event)
+        session_set(ui, "_spotify_sync_event", event)
     return event
 
 
@@ -5260,6 +5230,7 @@ class SpotifyDeviceSelectionSession:
             status="pending",
             activity_id=self.confirm_id,
         )
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -5274,7 +5245,7 @@ class SpotifyDeviceSelectionSession:
         return confirm_id == self.confirm_id
 
     async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_spotify_device_selection", None)
+        session_set(self.ui, "_spotify_device_selection", None)
         value = str(decision or "cancel")
         if value in {"cancel", "deny", "false"}:
             await self.ui.append_activity(kind="status", title="Spotify mode", detail="Spotify mode canceled.", status="success")
@@ -5294,7 +5265,7 @@ class SpotifyDeviceSelectionSession:
             await self.on_selected(device)
             return
         mode = _spotify_mode_state(device)
-        setattr(self.ui, "_spotify_mode", mode)
+        session_set(self.ui, "_spotify_mode", mode)
         _persist_spotify_mode(mode)
         await _send_spotify_mode(self.ui, mode)
         message = f"Spotify mode on: {device.get('name') or 'selected device'}."
@@ -5322,6 +5293,7 @@ class SpotifyPlaySelectionSession:
             status="pending",
             activity_id=self.confirm_id,
         )
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -5349,7 +5321,7 @@ class SpotifyPlaySelectionSession:
     async def handle_choice(self, decision: Any) -> None:
         value = str(decision or "cancel")
         if value in {"cancel", "deny", "false"}:
-            setattr(self.ui, "_spotify_play_selection", None)
+            session_set(self.ui, "_spotify_play_selection", None)
             await self.ui.append_activity(kind="status", title="Spotify playback", detail="Playback canceled.", status="success")
             return
         try:
@@ -5362,7 +5334,7 @@ class SpotifyPlaySelectionSession:
             await self.ui.append_activity(kind="error", title="Spotify playback", detail=message, status="error")
             await self.ui.append_agent_message(message)
             return
-        mode = getattr(self.ui, "_spotify_mode", {}) or {}
+        mode = session_get(self.ui, "_spotify_mode", {}) or {}
         args = {"uri": track["uri"]}
         if mode.get("device_id"):
             args["device_id"] = mode["device_id"]
@@ -5374,10 +5346,10 @@ class SpotifyPlaySelectionSession:
             await self.ui.send_error(message)
         else:
             await self.runner._handoff_previous_provider(self.ui, "spotify")
-            setattr(self.ui, "_active_playback_provider", "spotify")
-            setattr(self.ui, "_preferred_playback_provider", "spotify")
+            session_set(self.ui, "_active_playback_provider", "spotify")
+            session_set(self.ui, "_preferred_playback_provider", "spotify")
             await self.ui.append_activity(kind="status", title="Spotify playback", detail="Spotify playback selected.", status="success")
-        setattr(self.ui, "_spotify_play_selection", None)
+        session_set(self.ui, "_spotify_play_selection", None)
 
 
 class SpotifyPlaylistSelectionSession:
@@ -5398,6 +5370,7 @@ class SpotifyPlaylistSelectionSession:
             status="pending",
             activity_id=self.confirm_id,
         )
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -5412,7 +5385,7 @@ class SpotifyPlaylistSelectionSession:
         return confirm_id == self.confirm_id
 
     async def handle_choice(self, decision: Any) -> None:
-        setattr(self.ui, "_spotify_playlist_selection", None)
+        session_set(self.ui, "_spotify_playlist_selection", None)
         value = str(decision or "cancel")
         if value in {"cancel", "deny", "false"}:
             await self.ui.append_activity(kind="status", title="Spotify playlists", detail="Playlist browsing canceled.", status="success")
@@ -5462,6 +5435,7 @@ class ProviderModeExitSession:
             status="pending",
             activity_id=self.confirm_id,
         )
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "type": "confirm",
@@ -5482,8 +5456,8 @@ class ProviderModeExitSession:
         return confirm_id == self.confirm_id
 
     async def handle_choice(self, decision: Any) -> None:
-        if getattr(self.ui, "_provider_mode_exit", None) is self:
-            setattr(self.ui, "_provider_mode_exit", None)
+        if session_get(self.ui, "_provider_mode_exit", None) is self:
+            session_set(self.ui, "_provider_mode_exit", None)
         if str(decision or "deny") != "confirm_exit":
             await self.ui.append_activity(
                 kind="status",
@@ -5667,6 +5641,7 @@ class MemorySettingsSession:
         self.format_target = target
         self.confirm_id = _new_event_id("memory_format")
         label = {"user": "USER.md", "memory": "MEMORY.md", "all": "all memory"}.get(target, "all memory")
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -5688,7 +5663,7 @@ class MemorySettingsSession:
     async def handle_choice(self, decision: Any) -> None:
         value = str(decision or "deny")
         if self.stage == "reset":
-            setattr(self.ui, "_memory_settings", None)
+            session_set(self.ui, "_memory_settings", None)
             if value != "confirm_reset":
                 return
             result = self.store.format_memory(self.format_target)
@@ -5701,11 +5676,12 @@ class MemorySettingsSession:
             return
 
         if value != "reset":
-            setattr(self.ui, "_memory_settings", None)
+            session_set(self.ui, "_memory_settings", None)
             return
 
         self.stage = "reset"
         self.confirm_id = _new_event_id("memory_reset")
+        register_confirm_owner(self.ui, self.confirm_id, self)
         await self.ui.ask_confirm(
             {
                 "id": self.confirm_id,
@@ -5734,11 +5710,19 @@ class WebSocketRunner:
         """
         self.tools = registry
         self.memory_store = memory_store
-        self._running_task: asyncio.Task[None] | None = None
-        self._confirm_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
         self.provider_modes = ProviderModeCoordinator()
         self._playback_coordinator = MusicPlaybackCoordinator(SelectionStore())
         self._extension_manager = ExtensionManager()
+
+    @property
+    def _running_task(self) -> asyncio.Task[Any] | None:
+        """Compatibility read for older callers; state is session-owned."""
+        # ponytail: compatibility scan across live sessions; replace callers
+        # with session_context_for(ui) as they migrate.
+        for context in live_session_contexts():
+            if context.running_task is not None:
+                return context.running_task
+        return None
 
     async def handle_ws(self, ws: WebSocket) -> None:
         """Coordinates handle ws for the current Sonex flow.
@@ -5749,6 +5733,7 @@ class WebSocketRunner:
         """
         await ws.accept()
         ui = WebSocketUIAdapter(ws, session_id=create_session_id())
+        context = create_session_context(ui)
         start_background_health_check()
         bind_memory_scope(ui.session_id)
         await ui.send_session_state()
@@ -5775,21 +5760,85 @@ class WebSocketRunner:
                 await ui.append_system_message(warning)
         ready, _provider, _reason = _llm_auth_ready()
         if ready and self.memory_store.long_term_enabled():
-            asyncio.create_task(self._resume_pending_memory(ui))
+            context.tasks.create_task(self._resume_pending_memory(ui), name="resume-memory")
         await self._restore_persistent_spotify_mode(ui)
         await self._restore_provider_mode(ui)
-        playback_sync_task = asyncio.create_task(self._sync_spotify_playback(ui))
-        local_playback_sync_task = asyncio.create_task(self._sync_local_playback(ui))
-        youtube_update_watch_task = asyncio.create_task(self._watch_youtube_updates(ui))
+        context.tasks.create_task(self._sync_spotify_playback(ui), name="spotify-sync")
+        context.tasks.create_task(self._sync_local_playback(ui), name="local-playback-sync")
+        context.tasks.create_task(self._watch_youtube_updates(ui), name="youtube-update-watch")
 
         unexpected_disconnect = False
         usage_observer_token = set_token_usage_observer(ui.record_token_usage)
+
+        async def route_user_input(data: dict[str, Any]) -> None:
+            user_input = data.get("text") or data.get("content") or data.get("user_input") or ""
+            await self._handle_user_input(ui, str(user_input))
+
+        async def route_internal_command(data: dict[str, Any]) -> None:
+            command_text = data.get("text") or data.get("content") or ""
+            await self._handle_internal_command(ui, str(command_text))
+
+        async def route_setup_input(data: dict[str, Any]) -> None:
+            setup = session_get(ui, "_spotify_setup")
+            if setup:
+                await setup.handle_input(str(data.get("value") or ""))
+
+        async def route_auth_setup_input(data: dict[str, Any]) -> None:
+            value = str(data.get("value") or "")
+            model_setup = session_get(ui, "_model_setup")
+            if model_setup:
+                await model_setup.handle_input(value)
+                return
+            auth_setup = session_get(ui, "_auth_setup")
+            if auth_setup:
+                await auth_setup.handle_input(value)
+
+        async def route_confirm(data: dict[str, Any]) -> None:
+            decision = data.get("decision")
+            if decision is None:
+                confirmed = data.get("confirmed")
+                if confirmed is None:
+                    confirmed = data.get("ok")
+                decision = "allow_once" if confirmed else "deny"
+            confirm_id = str(data.get("id") or "")
+            if await self._handle_confirm_result(ui, confirm_id, decision):
+                return
+            # These providers predate the registry and are migrated at their
+            # construction sites below; retain the fallback during the slice.
+            for key in ("_spotify_device_selection", "_spotify_play_selection", "_spotify_playlist_selection", "_player_backend_selection"):
+                owner = session_get(ui, key)
+                if owner and owner.owns_confirm(confirm_id):
+                    await owner.handle_choice(decision)
+                    return
+            context.confirm_queue.put((confirm_id, decision))
+
+        async def route_bye(data: dict[str, Any]) -> bool:
+            messages = _coerce_transcript_messages(data.get("messages"))
+            reason = str(data.get("reason") or "bye")
+            await self._handle_bye(ui, messages=messages, reason=reason)
+            return True
+
+        router = ClientMessageRouter(
+            {
+                "user_input": route_user_input,
+                "internal_command": route_internal_command,
+                "track_panel_action": lambda data: self._handle_track_panel_action(ui, data),
+                "memory_panel_action": lambda data: self._handle_memory_panel_action(ui, data),
+                "extension_panel_action": lambda data: self._handle_extension_panel_action(ui, data),
+                "extension_panel_input": lambda data: self._handle_extension_panel_input(ui, str(data.get("value") or "")),
+                "agent_turn_interrupt": lambda data: self._handle_agent_turn_interrupt(ui, str(data.get("turn_id") or "")),
+                "setup_input": route_setup_input,
+                "auth_setup_input": route_auth_setup_input,
+                "confirm_result": route_confirm,
+                "bye": route_bye,
+            }
+        )
         try:
             while True:
                 raw = await ws.receive_text()
                 try:
-                    data = json.loads(raw)
-                except json.JSONDecodeError as exc:
+                    data = decode_client_message(raw)
+                except (json.JSONDecodeError, ValueError) as exc:
                     message = f"Invalid client message: {sanitize_error_message(exc)}"
                     await ui.append_activity(
                         kind="error",
@@ -5799,116 +5848,37 @@ class WebSocketRunner:
                     )
                     await ui.send_error(message)
                     continue
-
-                if data.get("type") == "user_input":
-                    user_input = data.get("text") or data.get("content") or data.get("user_input") or ""
-                    await self._handle_user_input(ui, user_input)
-
-                elif data.get("type") == "internal_command":
-                    command_text = data.get("text") or data.get("content") or ""
-                    await self._handle_internal_command(ui, str(command_text))
-
-                elif data.get("type") == "track_panel_action":
-                    await self._handle_track_panel_action(ui, data)
-
-                elif data.get("type") == "memory_panel_action":
-                    await self._handle_memory_panel_action(ui, data)
-
-                elif data.get("type") == "extension_panel_action":
-                    await self._handle_extension_panel_action(ui, data)
-
-                elif data.get("type") == "extension_panel_input":
-                    await self._handle_extension_panel_input(ui, str(data.get("value") or ""))
-
-                elif data.get("type") == "agent_turn_interrupt":
-                    await self._handle_agent_turn_interrupt(
-                        ui,
-                        str(data.get("turn_id") or ""),
-                    )
-
-                elif data.get("type") == "setup_input":
-                    spotify_setup = getattr(ui, "_spotify_setup", None)
-                    if spotify_setup:
-                        await spotify_setup.handle_input(str(data.get("value") or ""))
-
-                elif data.get("type") == "auth_setup_input":
-                    model_setup = getattr(ui, "_model_setup", None)
-                    if model_setup:
-                        await model_setup.handle_input(str(data.get("value") or ""))
-                        continue
-                    auth_setup = getattr(ui, "_auth_setup", None)
-                    if auth_setup:
-                        await auth_setup.handle_input(str(data.get("value") or ""))
-
-                elif data.get("type") == "confirm_result":
-                    decision = data.get("decision")
-                    if decision is None:
-                        confirmed = data.get("confirmed")
-                        if confirmed is None:
-                            confirmed = data.get("ok")
-                        decision = "allow_once" if confirmed else "deny"
-                    confirm_id = str(data.get("id") or "")
-                    if await self._handle_confirm_result(ui, confirm_id, decision):
-                        continue
-                    spotify_device = getattr(ui, "_spotify_device_selection", None)
-                    if spotify_device and spotify_device.owns_confirm(confirm_id):
-                        await spotify_device.handle_choice(decision)
-                        continue
-                    spotify_play = getattr(ui, "_spotify_play_selection", None)
-                    if spotify_play and spotify_play.owns_confirm(confirm_id):
-                        await spotify_play.handle_choice(decision)
-                        continue
-                    spotify_playlist = getattr(ui, "_spotify_playlist_selection", None)
-                    if spotify_playlist and spotify_playlist.owns_confirm(confirm_id):
-                        await spotify_playlist.handle_choice(decision)
-                        continue
-                    player_backend = getattr(ui, "_player_backend_selection", None)
-                    if player_backend and player_backend.owns_confirm(confirm_id):
-                        await player_backend.handle_choice(decision)
-                        continue
-                    self._confirm_queue.put((confirm_id, decision))
-
-                elif data.get("type") == "bye":
-                    messages = _coerce_transcript_messages(data.get("messages"))
-                    reason = str(data.get("reason") or "bye")
-                    await self._handle_bye(ui, messages=messages, reason=reason)
+                if await router.dispatch(data):
                     break
 
         except WebSocketDisconnect:
             unexpected_disconnect = True
         finally:
             agent_interaction_active = bool(
-                getattr(ui, "_agent_candidate_selection", None)
-                or getattr(ui, "_agent_connection_active", False)
+                context.agent_interaction_active
+                or session_get(ui, "_agent_candidate_selection")
+                or session_get(ui, "_agent_connection_active", False)
             )
             if unexpected_disconnect and agent_interaction_active:
                 with suppress(OSError):
                     mark_interrupted_interaction()
-            setup_id = getattr(ui, "_extension_selected_id", None)
-            if setup_id and getattr(ui, "_extension_panel_view", "") == "setup":
+            setup_id = session_get(ui, "_extension_selected_id", None)
+            if setup_id and session_get(ui, "_extension_panel_view", "") == "setup":
                 self._extension_manager.discard_setup(ui.session_id, str(setup_id))
-            spotify_setup = getattr(ui, "_spotify_setup", None)
+            spotify_setup = session_get(ui, "_spotify_setup", None)
             if spotify_setup and spotify_setup.oauth_task:
                 spotify_setup.oauth_task.cancel()
-            auth_setup = getattr(ui, "_auth_setup", None)
+            auth_setup = session_get(ui, "_auth_setup", None)
             if auth_setup and auth_setup.oauth_task:
                 auth_setup.oauth_task.cancel()
-            playback_sync_task.cancel()
-            local_playback_sync_task.cancel()
-            youtube_update_watch_task.cancel()
             with suppress(asyncio.CancelledError):
                 if spotify_setup and spotify_setup.oauth_task:
                     await spotify_setup.oauth_task
             with suppress(asyncio.CancelledError):
                 if auth_setup and auth_setup.oauth_task:
                     await auth_setup.oauth_task
-            with suppress(asyncio.CancelledError):
-                await playback_sync_task
-            with suppress(asyncio.CancelledError):
-                await local_playback_sync_task
-            with suppress(asyncio.CancelledError):
-                await youtube_update_watch_task
-            self._confirm_queue.put(
+            await context.close()
+            context.confirm_queue.put(
                 (
                     "",
                     {
@@ -5920,6 +5890,7 @@ class WebSocketRunner:
                 )
             )
             reset_token_usage_observer(usage_observer_token)
+            discard_session_context(ui)
 
     async def _watch_youtube_updates(self, ui: WebSocketUIAdapter) -> None:
         """Surface one background updater completion notice without a modal."""
@@ -5931,39 +5902,41 @@ class WebSocketRunner:
                 return
 
     async def _handle_confirm_result(self, ui: WebSocketUIAdapter, confirm_id: str, decision: Any) -> bool:
-        memory_settings = getattr(ui, "_memory_settings", None)
+        if await session_context_for(ui).confirm_registry.dispatch(confirm_id, decision):
+            return True
+        memory_settings = session_get(ui, "_memory_settings", None)
         if memory_settings and memory_settings.owns_confirm(confirm_id):
             await memory_settings.handle_choice(decision)
             return True
-        provider_mode_exit = getattr(ui, "_provider_mode_exit", None)
+        provider_mode_exit = session_get(ui, "_provider_mode_exit", None)
         if provider_mode_exit and provider_mode_exit.owns_confirm(confirm_id):
             await provider_mode_exit.handle_choice(decision)
             return True
-        playback_route = getattr(ui, "_agent_playback_route_confirmation", None)
+        playback_route = session_get(ui, "_agent_playback_route_confirmation", None)
         if playback_route and playback_route.owns_confirm(confirm_id):
             await playback_route.handle_choice(decision)
             return True
-        playback_source = getattr(ui, "_playback_source_selection", None)
+        playback_source = session_get(ui, "_playback_source_selection", None)
         if playback_source and playback_source.owns_confirm(confirm_id):
             await playback_source.handle_choice(decision)
             return True
-        agent_candidate = getattr(ui, "_agent_candidate_selection", None)
+        agent_candidate = session_get(ui, "_agent_candidate_selection", None)
         if agent_candidate and agent_candidate.owns_confirm(confirm_id):
             await agent_candidate.handle_choice(decision)
             return True
-        music_confirmation = getattr(ui, "_music_intent_confirmation", None)
+        music_confirmation = session_get(ui, "_music_intent_confirmation", None)
         if music_confirmation and music_confirmation.owns_confirm(confirm_id):
             await music_confirmation.handle_choice(decision)
             return True
-        play_selection = getattr(ui, "_play_selection", None)
+        play_selection = session_get(ui, "_play_selection", None)
         if play_selection and play_selection.owns_confirm(confirm_id):
             await play_selection.handle_choice(decision)
             return True
-        playlist_save = getattr(ui, "_playlist_save", None)
+        playlist_save = session_get(ui, "_playlist_save", None)
         if playlist_save and playlist_save.owns_confirm(confirm_id):
             await playlist_save.handle_choice(decision)
             return True
-        playlist_browse = getattr(ui, "_playlist_browse", None)
+        playlist_browse = session_get(ui, "_playlist_browse", None)
         if playlist_browse and playlist_browse.owns_confirm(confirm_id):
             await playlist_browse.handle_choice(decision)
             return True
@@ -5975,15 +5948,16 @@ class WebSocketRunner:
         turn_id: str,
     ) -> bool:
         """Logically interrupt the matching foreground Agent turn."""
-        if not turn_id or getattr(ui, "_active_agent_turn_id", None) != turn_id:
+        context = session_context_for(ui)
+        if not turn_id or session_get(ui, "_active_agent_turn_id") != turn_id:
             return False
-        interrupt_event = getattr(ui, "_agent_turn_interrupt_event", None)
+        interrupt_event = context.agent_turn_interrupt_event or session_get(ui, "_agent_turn_interrupt_event")
         if isinstance(interrupt_event, threading.Event):
             interrupt_event.set()
-        provider_task = getattr(ui, "_active_agent_provider_task", None)
+        provider_task = context.active_agent_provider_task or session_get(ui, "_active_agent_provider_task")
         if isinstance(provider_task, asyncio.Task) and not provider_task.done():
             provider_task.cancel()
-        self._confirm_queue.put(
+        context.confirm_queue.put(
             (
                 "",
                 {
@@ -5994,7 +5968,8 @@ class WebSocketRunner:
                 },
             )
         )
-        setattr(ui, "_active_agent_turn_id", None)
+        context.active_agent_turn_id = None
+        session_discard(ui, "_active_agent_turn_id")
         await ui.send_agent_working_state(turn_id, active=False)
         await ui.append_system_message("Agent turn interrupted.")
         return True
@@ -6011,7 +5986,7 @@ class WebSocketRunner:
         if state.ready:
             return
         setup = AuthSetupSession(ui, state.provider, None, self)
-        setattr(ui, "_auth_setup", setup)
+        session_set(ui, "_auth_setup", setup)
         await setup.start(state.reason)
 
     async def _sync_spotify_playback(self, ui: WebSocketUIAdapter) -> None:
@@ -6041,7 +6016,7 @@ class WebSocketRunner:
                         _record_playback_behavior(ui, player_state)
                         signature = _player_sync_signature(player_state)
                         if signature != last_signature:
-                            setattr(ui, "_last_player_state", player_state)
+                            session_set(ui, "_last_player_state", player_state)
                             await ui._send({"type": "player", "state": player_state})
                             await ui._send({"type": "queue", "tracks": _queue_payload()})
                             last_signature = signature
@@ -6087,7 +6062,7 @@ class WebSocketRunner:
                         _record_playback_behavior(ui, player_state)
                         last_player_state = player_state
                         sync_lost = False
-                        setattr(ui, "_last_player_state", player_state)
+                        session_set(ui, "_last_player_state", player_state)
                         await ui._send({"type": "player", "state": player_state})
                 elif (
                     isinstance(result, dict)
@@ -6100,13 +6075,13 @@ class WebSocketRunner:
                         "playback_status": "syncing",
                         "progress_sync_lost": True,
                     }
-                    setattr(ui, "_last_player_state", frozen_state)
+                    session_set(ui, "_last_player_state", frozen_state)
                     await ui._send({"type": "player", "state": frozen_state})
                     sync_lost = True
                 elif isinstance(result, dict) and result.get("error_code") == "NO_ACTIVE_PLAYBACK":
                     last_player_state = None
                     sync_lost = False
-                    setattr(ui, "_last_playback_behavior_key", None)
+                    session_set(ui, "_last_playback_behavior_key", None)
             except Exception:
                 pass
             await _wait_for_local_playback_sync(ui, LOCAL_PLAYBACK_POLL_SECONDS)
@@ -6129,12 +6104,12 @@ class WebSocketRunner:
         parsed_command = parse_builtin_command(user_input)
         submitted_to_agent = parsed_command is None or parsed_command.command_intent() is not None
 
-        active_agent_task = getattr(ui, "_agent_turn_task", None)
+        active_agent_task = session_get(ui, "_agent_turn_task")
         if active_agent_task is not None and not active_agent_task.done():
-            pending: deque[str] = getattr(ui, "_agent_input_queue", None)
+            pending: deque[str] = session_get(ui, "_agent_input_queue")
             if pending is None:
                 pending = deque()
-                setattr(ui, "_agent_input_queue", pending)
+                session_set(ui, "_agent_input_queue", pending)
             if len(pending) >= 10:
                 await ui.append_warning_message(
                     "The Agent message queue is full. Please resend this message after the current turn."
@@ -6153,7 +6128,7 @@ class WebSocketRunner:
             )
             return
 
-        play_selection = getattr(ui, "_play_selection", None)
+        play_selection = session_get(ui, "_play_selection", None)
         if play_selection and await play_selection.handle_refinement(user_input):
             return
 
@@ -6187,12 +6162,12 @@ class WebSocketRunner:
             ready, provider, reason = _llm_auth_ready()
             if not ready:
                 setup = AuthSetupSession(ui, provider, user_input, self)
-                setattr(ui, "_auth_setup", setup)
+                session_set(ui, "_auth_setup", setup)
                 await setup.start(reason)
                 return
 
             if command_intent.command == "recommend":
-                setattr(ui, "_recommendation_turn_active", True)
+                session_set(ui, "_recommendation_turn_active", True)
             await ui.append_user_message(user_input)
             self._start_agent_turn(ui, user_input, command_intent)
             return
@@ -6208,7 +6183,7 @@ class WebSocketRunner:
         ready, provider, reason = _llm_auth_ready()
         if not ready:
             setup = AuthSetupSession(ui, provider, user_input, self)
-            setattr(ui, "_auth_setup", setup)
+            session_set(ui, "_auth_setup", setup)
             await setup.start(reason)
             return
 
@@ -6219,7 +6194,7 @@ class WebSocketRunner:
             provider_mode=provider_mode,
         )
         if command_intent.command == "recommend":
-            setattr(ui, "_recommendation_turn_active", True)
+            session_set(ui, "_recommendation_turn_active", True)
         await ui.append_user_message(user_input)
         self._start_agent_turn(ui, user_input, command_intent)
 
@@ -6230,11 +6205,13 @@ class WebSocketRunner:
         command_intent: CommandIntent | None,
     ) -> asyncio.Task[None]:
         """Start one session-scoped Agent turn."""
-        task = asyncio.create_task(
+        context = session_context_for(ui)
+        task = context.tasks.create_task(
             self._run_agent_turn(ui, user_input, command_intent=command_intent)
         )
-        setattr(ui, "_agent_turn_task", task)
-        self._running_task = task
+        context.agent_input_queue = context.agent_input_queue or deque()
+        context.running_task = task
+        session_set(ui, "_agent_turn_task", task)
         return task
 
     async def _collect_turn_memory(
@@ -6280,7 +6257,7 @@ class WebSocketRunner:
             )
 
     def _spotify_mode_enabled(self, ui: WebSocketUIAdapter) -> bool:
-        mode = getattr(ui, "_spotify_mode", None)
+        mode = session_get(ui, "_spotify_mode", None)
         return isinstance(mode, dict) and bool(mode.get("enabled"))
 
     async def _restore_provider_mode(self, ui: WebSocketUIAdapter) -> None:
@@ -6299,21 +6276,21 @@ class WebSocketRunner:
     async def _restore_persistent_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
         mode = _load_persistent_spotify_mode()
         if not mode:
-            setattr(ui, "_spotify_mode", None)
+            session_set(ui, "_spotify_mode", None)
             return
-        setattr(ui, "_spotify_mode", mode)
-        setattr(ui, "_spotify_library_synced", False)
+        session_set(ui, "_spotify_mode", mode)
+        session_set(ui, "_spotify_library_synced", False)
         await _send_spotify_mode(ui, mode)
 
     async def _clear_provider_modes_for_logout(self, ui: WebSocketUIAdapter) -> None:
         """Reset provider-mode state before ending an authenticated session."""
-        setattr(ui, "_spotify_mode", None)
-        setattr(ui, "_spotify_library_synced", False)
-        setattr(ui, "_spotify_device_selection", None)
-        setattr(ui, "_spotify_play_selection", None)
-        setattr(ui, "_provider_mode_exit", None)
-        setattr(ui, "_preferred_playback_provider", None)
-        setattr(ui, "_active_playback_provider", None)
+        session_set(ui, "_spotify_mode", None)
+        session_set(ui, "_spotify_library_synced", False)
+        session_set(ui, "_spotify_device_selection", None)
+        session_set(ui, "_spotify_play_selection", None)
+        session_set(ui, "_provider_mode_exit", None)
+        session_set(ui, "_preferred_playback_provider", None)
+        session_set(ui, "_active_playback_provider", None)
         _clear_persistent_spotify_mode()
         clear_provider_mode_intent()
         await self.provider_modes.restore(ProviderModeState())
@@ -6380,7 +6357,7 @@ class WebSocketRunner:
 
             selected_track = random.choice(playable_tracks)
             uri = str(selected_track.get("uri") or "")
-            mode = getattr(ui, "_spotify_mode", {}) or {}
+            mode = session_get(ui, "_spotify_mode", {}) or {}
             args: dict[str, Any] = {"uri": uri}
             if mode.get("device_id"):
                 args["device_id"] = mode["device_id"]
@@ -6402,8 +6379,9 @@ class WebSocketRunner:
                 await ui.append_agent_message(message)
                 await ui.send_error(message)
         finally:
-            if self._running_task is asyncio.current_task():
-                self._running_task = None
+            context = session_context_for(ui)
+            if context.running_task is asyncio.current_task():
+                context.running_task = None
                 await ui.send_status(UiStatus(phase="Idle", message="Idle..."), active=False)
 
     def _looks_like_spotify_playlist_request(self, user_input: str) -> bool:
@@ -6459,7 +6437,7 @@ class WebSocketRunner:
             await ui.append_agent_message(message)
             return
         session = SpotifyPlaySelectionSession(ui, self, search_query, tracks)
-        setattr(ui, "_spotify_play_selection", session)
+        session_set(ui, "_spotify_play_selection", session)
         await session.start()
 
     async def _reject_internal_chat_command(self, ui: WebSocketUIAdapter, command_name: str) -> None:
@@ -6496,7 +6474,7 @@ class WebSocketRunner:
         """
         if decision.recommendation_index is None:
             return decision.query
-        tracks = list(getattr(ui, "_last_recommendation_tracks", []) or [])
+        tracks = list(session_get(ui, "_last_recommendation_tracks", []) or [])
         index = decision.recommendation_index
         if not tracks:
             await ui.append_agent_message("No recommendation list is available in this session. Request recommendations first.")
@@ -6660,7 +6638,7 @@ class WebSocketRunner:
                 await ui.append_system_message("Usage: /memory")
                 return
             session = MemorySettingsSession(ui, self.memory_store)
-            setattr(ui, "_memory_settings", session)
+            session_set(ui, "_memory_settings", session)
             await session.start()
             return
 
@@ -6669,7 +6647,7 @@ class WebSocketRunner:
                 await ui.append_system_message("Usage: /settings")
                 return
             session = MemorySettingsSession(ui, self.memory_store)
-            setattr(ui, "_memory_settings", session)
+            session_set(ui, "_memory_settings", session)
             await session.show_settings()
             return
 
@@ -6678,7 +6656,7 @@ class WebSocketRunner:
                 await ui.append_system_message("Usage: /login")
                 return
             setup = AuthSetupSession(ui, _default_provider_name(), None, self)
-            setattr(ui, "_auth_setup", setup)
+            session_set(ui, "_auth_setup", setup)
             await setup.start("Choose a model provider to connect or switch.")
             return
 
@@ -6710,7 +6688,7 @@ class WebSocketRunner:
 
         if command_name == "model":
             setup = ModelSelectionSession(ui)
-            setattr(ui, "_model_setup", setup)
+            session_set(ui, "_model_setup", setup)
             await setup.start()
             return
 
@@ -6757,16 +6735,16 @@ class WebSocketRunner:
         )
 
     async def _handle_memory_panel_action(self, ui: WebSocketUIAdapter, payload: dict[str, Any]) -> None:
-        session = getattr(ui, "_memory_settings", None)
+        session = session_get(ui, "_memory_settings", None)
         if session is None:
             session = MemorySettingsSession(ui, self.memory_store)
-            setattr(ui, "_memory_settings", session)
+            session_set(ui, "_memory_settings", session)
         action = str(payload.get("action") or "").strip()
         target = str(payload.get("target") or "").strip()
         entry_id = str(payload.get("entry_id") or "").strip()
         content = str(payload.get("content") or "")
         if action == "close":
-            setattr(ui, "_memory_settings", None)
+            session_set(ui, "_memory_settings", None)
             return
         if action == "sources":
             await session.show_sources()
@@ -6912,9 +6890,11 @@ class WebSocketRunner:
                     ui,
                     self,
                     query,
-                    on_finish=lambda result: asyncio.create_task(settle_legacy(result)),
+                    on_finish=lambda result: session_context_for(ui).tasks.create_task(
+                        settle_legacy(result), name="legacy-playback-settle"
+                    ),
                 )
-                setattr(ui, "_play_selection", session)
+                session_set(ui, "_play_selection", session)
                 await session.start()
                 return
             started, reason = await self._play_track_panel_track(
@@ -6958,13 +6938,13 @@ class WebSocketRunner:
                 if part and part != "-"
             )
             session = PlaySelectionSession(ui, self, query)
-            setattr(ui, "_play_selection", session)
+            session_set(ui, "_play_selection", session)
             await session.start()
             return True, ""
 
         uri = str(track.get("uri") or "")
         if uri.startswith("spotify:track:"):
-            mode = getattr(ui, "_spotify_mode", {}) or {}
+            mode = session_get(ui, "_spotify_mode", {}) or {}
             args: dict[str, Any] = {"uri": uri}
             if mode.get("device_id"):
                 args["device_id"] = mode["device_id"]
@@ -7024,7 +7004,7 @@ class WebSocketRunner:
             return
         if self._spotify_mode_enabled(ui):
             session = ProviderModeExitSession(ui, self, "spotify")
-            setattr(ui, "_provider_mode_exit", session)
+            session_set(ui, "_provider_mode_exit", session)
             await session.start()
             return
         await self._enter_spotify_mode(ui)
@@ -7037,7 +7017,7 @@ class WebSocketRunner:
         if not choices:
             choices = [{"value": f"playlist:{LIKES_PLAYLIST}", "label": LIKES_PLAYLIST, "description": "0 saved tracks"}]
         session = PlaylistBrowseSession(ui, choices)
-        setattr(ui, "_playlist_browse", session)
+        session_set(ui, "_playlist_browse", session)
         await session.start()
 
     async def _enter_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
@@ -7110,7 +7090,7 @@ class WebSocketRunner:
             usable_devices,
             on_selected=lambda device: self._commit_spotify_mode(ui, device, scopes),
         )
-        setattr(ui, "_spotify_device_selection", session)
+        session_set(ui, "_spotify_device_selection", session)
         await session.start()
 
     async def _commit_spotify_mode(
@@ -7129,8 +7109,8 @@ class WebSocketRunner:
             return None
 
         async def commit_spotify(_provider: ProviderMode) -> None:
-            setattr(ui, "_spotify_mode", mode)
-            setattr(ui, "_spotify_library_synced", False)
+            session_set(ui, "_spotify_mode", mode)
+            session_set(ui, "_spotify_library_synced", False)
             _persist_spotify_mode(mode)
             save_provider_mode_intent(ProviderModeState(provider=ProviderMode.SPOTIFY))
             await _send_spotify_mode(ui, mode)
@@ -7156,7 +7136,7 @@ class WebSocketRunner:
     async def _exit_spotify_mode(self, ui: WebSocketUIAdapter) -> None:
         if self._spotify_mode_enabled(ui) and self.provider_modes.state.provider is not ProviderMode.SPOTIFY:
             await self.provider_modes.restore(ProviderModeState(provider=ProviderMode.SPOTIFY))
-        mode = getattr(ui, "_spotify_mode", {}) or {}
+        mode = session_get(ui, "_spotify_mode", {}) or {}
         device_id = str(mode.get("device_id") or "")
 
         async def pause_current(_provider: ProviderMode) -> None:
@@ -7171,10 +7151,10 @@ class WebSocketRunner:
                 raise RuntimeError("Spotify did not confirm pause.")
 
         async def commit_normal(_provider: ProviderMode) -> None:
-            setattr(ui, "_spotify_mode", None)
-            setattr(ui, "_spotify_library_synced", False)
-            setattr(ui, "_spotify_device_selection", None)
-            setattr(ui, "_spotify_play_selection", None)
+            session_set(ui, "_spotify_mode", None)
+            session_set(ui, "_spotify_library_synced", False)
+            session_set(ui, "_spotify_device_selection", None)
+            session_set(ui, "_spotify_play_selection", None)
             _clear_persistent_spotify_mode()
             clear_provider_mode_intent()
             await _send_spotify_mode(ui, None)
@@ -7197,21 +7177,21 @@ class WebSocketRunner:
     async def _start_spotify_reauthorization(self, ui: WebSocketUIAdapter, missing_scopes: list[str]) -> None:
         """Open the extension-owned Spotify authorization flow."""
         scopes = ", ".join(missing_scopes)
-        setattr(ui, "_extension_panel_view", "setup")
-        setattr(ui, "_extension_selected_id", "spotify")
+        session_set(ui, "_extension_panel_view", "setup")
+        session_set(ui, "_extension_selected_id", "spotify")
         self._extension_manager.begin_setup(ui.session_id, "spotify")
         setup = self._extension_setup_page("spotify", 7)
         setup["body"] = (
             "Spotify needs authorization again for: "
             f"{scopes}.\nPress Enter to open the authorization page."
         )
-        setattr(ui, "_extension_setup", setup)
+        session_set(ui, "_extension_setup", setup)
         await self._send_extension_panel(ui, view="setup", selected_id="spotify")
 
     async def _show_spotify_playlists(self, ui: WebSocketUIAdapter) -> None:
         coordinator = _spotify_session_requests(ui)
         await self._show_playlist_browse(ui)
-        browse_session = getattr(ui, "_playlist_browse", None)
+        browse_session = session_get(ui, "_playlist_browse", None)
 
         if coordinator.playlist_sync_attempted:
             return
@@ -7222,7 +7202,7 @@ class WebSocketRunner:
             coordinator.playlist_sync_attempted = True
             coordinator.playlist_sync_succeeded = True
             coordinator.playlist_sync_message = "Using recently synchronized Spotify playlists."
-            setattr(ui, "_spotify_library_synced", True)
+            session_set(ui, "_spotify_library_synced", True)
             return
 
         cooldown = spotify_api_cooldown_remaining()
@@ -7252,7 +7232,7 @@ class WebSocketRunner:
             detail="Showing local playlists while Spotify mirrors refresh in the background.",
             status="pending",
         )
-        coordinator.playlist_sync_task = asyncio.create_task(
+        coordinator.playlist_sync_task = session_context_for(ui).tasks.create_task(
             self._run_spotify_playlist_sync(ui, browse_session)
         )
         # Start the task before returning so fast local/test implementations
@@ -7276,10 +7256,10 @@ class WebSocketRunner:
 
         coordinator.playlist_sync_succeeded = synced
         coordinator.playlist_sync_message = message
-        setattr(ui, "_spotify_library_synced", synced)
+        session_set(ui, "_spotify_library_synced", synced)
         if synced:
             await ui.append_activity(kind="status", title="Spotify playlists", detail=message, status="success")
-            if getattr(ui, "_playlist_browse", None) is browse_session:
+            if session_get(ui, "_playlist_browse", None) is browse_session:
                 await self._show_playlist_browse(ui)
         else:
             await ui.append_activity(
@@ -7447,14 +7427,14 @@ class WebSocketRunner:
         await ui.append_activity(kind="status", title="Spotify queue", detail=detail, status="success")
 
     async def _start_playlist_save(self, ui: WebSocketUIAdapter, requested_playlist: str) -> None:
-        track = getattr(ui, "_last_player_state", None)
+        track = session_get(ui, "_last_player_state", None)
         if not isinstance(track, dict) or not str(track.get("name") or track.get("title") or "").strip() or str(track.get("name") or track.get("title")).strip() == "-":
             message = "No current song is available to save."
             await ui.append_activity(kind="error", title="Playlist save", detail=message, status="error")
             await ui.append_system_message(message)
             return
         session = PlaylistSaveSession(ui, track)
-        setattr(ui, "_playlist_save", session)
+        session_set(ui, "_playlist_save", session)
         await session.start(requested_playlist)
 
     async def _handle_playback_control(self, ui: WebSocketUIAdapter, command_name: str) -> None:
@@ -7465,7 +7445,7 @@ class WebSocketRunner:
         """
         if self._spotify_mode_enabled(ui) and command_name in SPOTIFY_PLAYBACK_CONTROL_TOOLS:
             tool_name = SPOTIFY_PLAYBACK_CONTROL_TOOLS[command_name]
-            mode = getattr(ui, "_spotify_mode", None)
+            mode = session_get(ui, "_spotify_mode", None)
             device_id = str(mode.get("device_id") or "").strip() if isinstance(mode, dict) else ""
             args = {"device_id": device_id} if device_id else {}
             try:
@@ -7538,7 +7518,7 @@ class WebSocketRunner:
         armed_action: str | None = None,
     ) -> dict[str, Any]:
         extensions = [item.to_dict() for item in self._extension_manager.snapshot()]
-        selected = selected_id or getattr(ui, "_extension_selected_id", None)
+        selected = selected_id or session_get(ui, "_extension_selected_id", None)
         detail: dict[str, Any] | None = None
         if view == "detail" and selected:
             extension = next((item for item in self._extension_manager.snapshot() if item.extension_id == selected), None)
@@ -7554,11 +7534,11 @@ class WebSocketRunner:
                         else "configuration will be applied" if armed_action == "restart"
                         else None
                     ),
-                    "selected_action": getattr(ui, "_extension_focus_action", None),
+                    "selected_action": session_get(ui, "_extension_focus_action", None),
                     "armed_token": (
-                        getattr(ui, "_extension_armed_token", None)[3]
-                        if getattr(ui, "_extension_armed_token", None)
-                        and len(getattr(ui, "_extension_armed_token", None)) > 3
+                        session_get(ui, "_extension_armed_token", None)[3]
+                        if session_get(ui, "_extension_armed_token", None)
+                        and len(session_get(ui, "_extension_armed_token", None)) > 3
                         else None
                     ),
                 }
@@ -7581,36 +7561,36 @@ class WebSocketRunner:
         setup: dict[str, Any] | None = None,
         armed_action: str | None = None,
     ) -> None:
-        resolved_view = view or getattr(ui, "_extension_panel_view", "list")
-        resolved_id = selected_id or getattr(ui, "_extension_selected_id", None)
+        resolved_view = view or session_get(ui, "_extension_panel_view", "list")
+        resolved_id = selected_id or session_get(ui, "_extension_selected_id", None)
         await ui.send_extension_panel(
             self._extension_panel_payload(
                 ui,
                 view=resolved_view,
                 selected_id=resolved_id,
-                setup=setup if setup is not None else getattr(ui, "_extension_setup", None),
-                armed_action=armed_action if armed_action is not None else getattr(ui, "_extension_armed_action", None),
+                setup=setup if setup is not None else session_get(ui, "_extension_setup", None),
+                armed_action=armed_action if armed_action is not None else session_get(ui, "_extension_armed_action", None),
             )
         )
 
     async def _open_extension_panel(self, ui: WebSocketUIAdapter, selected_id: str | None = None) -> None:
-        setattr(ui, "_extension_panel_view", "list")
-        setattr(ui, "_extension_selected_id", selected_id)
-        setattr(ui, "_extension_setup", None)
-        setattr(ui, "_extension_armed_action", None)
-        setattr(ui, "_extension_armed_token", None)
-        setattr(ui, "_extension_focus_action", None)
+        session_set(ui, "_extension_panel_view", "list")
+        session_set(ui, "_extension_selected_id", selected_id)
+        session_set(ui, "_extension_setup", None)
+        session_set(ui, "_extension_armed_action", None)
+        session_set(ui, "_extension_armed_token", None)
+        session_set(ui, "_extension_focus_action", None)
         await self._send_extension_panel(ui, view="list", selected_id=selected_id)
         await ui.append_activity(kind="status", title="Extensions", detail="Showing built-in music extensions.", status="success")
 
     async def _open_extension_setup(self, ui: WebSocketUIAdapter, extension_id: str, *, page: int = 1) -> None:
         """Open the extension-owned setup flow from a runtime recovery path."""
         self._extension_manager.get(extension_id)
-        setattr(ui, "_extension_panel_view", "setup")
-        setattr(ui, "_extension_selected_id", extension_id)
+        session_set(ui, "_extension_panel_view", "setup")
+        session_set(ui, "_extension_selected_id", extension_id)
         self._extension_manager.begin_setup(ui.session_id, extension_id)
-        setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page))
-        setattr(ui, "_extension_focus_action", "setup")
+        session_set(ui, "_extension_setup", self._extension_setup_page(extension_id, page))
+        session_set(ui, "_extension_focus_action", "setup")
         await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
 
     def _extension_setup_page(self, extension_id: str, page: int, *, error: str | None = None) -> dict[str, Any]:
@@ -7662,25 +7642,25 @@ class WebSocketRunner:
 
     async def _handle_extension_panel_action(self, ui: WebSocketUIAdapter, payload: dict[str, Any]) -> None:
         action = str(payload.get("action") or "")
-        extension_id = str(payload.get("extension_id") or getattr(ui, "_extension_selected_id", "") or "")
-        current_view = getattr(ui, "_extension_panel_view", "list")
+        extension_id = str(payload.get("extension_id") or session_get(ui, "_extension_selected_id", "") or "")
+        current_view = session_get(ui, "_extension_panel_view", "list")
         if action == "open_detail":
             self._extension_manager.get(extension_id)
-            setattr(ui, "_extension_panel_view", "detail")
-            setattr(ui, "_extension_selected_id", extension_id)
-            setattr(ui, "_extension_armed_action", None)
-            setattr(ui, "_extension_armed_token", None)
+            session_set(ui, "_extension_panel_view", "detail")
+            session_set(ui, "_extension_selected_id", extension_id)
+            session_set(ui, "_extension_armed_action", None)
+            session_set(ui, "_extension_armed_token", None)
             await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
             return
         if action == "back":
             if current_view == "setup":
-                setattr(ui, "_extension_panel_view", "detail")
-                setattr(ui, "_extension_setup", None)
+                session_set(ui, "_extension_panel_view", "detail")
+                session_set(ui, "_extension_setup", None)
                 self._extension_manager.discard_setup(ui.session_id, extension_id)
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
-            elif getattr(ui, "_extension_armed_action", None):
-                setattr(ui, "_extension_armed_action", None)
-                setattr(ui, "_extension_armed_token", None)
+            elif session_get(ui, "_extension_armed_action", None):
+                session_set(ui, "_extension_armed_action", None)
+                session_set(ui, "_extension_armed_token", None)
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
             else:
                 await self._open_extension_panel(ui, extension_id)
@@ -7695,9 +7675,9 @@ class WebSocketRunner:
                 await self._open_extension_setup(ui, extension_id)
                 return
             if action in {"next_page", "prev_page"}:
-                setup = getattr(ui, "_extension_setup", None) or {}
+                setup = session_get(ui, "_extension_setup", None) or {}
                 page = int(setup.get("page") or 1) + (1 if action == "next_page" else -1)
-                setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page))
+                session_set(ui, "_extension_setup", self._extension_setup_page(extension_id, page))
                 await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
                 return
             if action in {"quick_check", "repair", "enable", "disable"}:
@@ -7722,25 +7702,25 @@ class WebSocketRunner:
                 view = self._extension_manager.require_revision(extension_id, expected_revision)
                 if not view.reset_available:
                     raise ExtensionActionError("This extension has no locally stored credentials to reset.")
-                setattr(ui, "_extension_armed_action", "reset")
+                session_set(ui, "_extension_armed_action", "reset")
                 view = self._extension_manager.get(extension_id)
-                setattr(ui, "_extension_armed_token", (time.time() + 60, extension_id, "reset", uuid.uuid4().hex, view.revision))
+                session_set(ui, "_extension_armed_token", (time.time() + 60, extension_id, "reset", uuid.uuid4().hex, view.revision))
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id, armed_action="reset")
                 return
             if action == "cancel_armed":
-                setattr(ui, "_extension_armed_action", None)
-                setattr(ui, "_extension_armed_token", None)
+                session_set(ui, "_extension_armed_action", None)
+                session_set(ui, "_extension_armed_token", None)
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
                 return
             if action == "confirm_reset":
-                armed = getattr(ui, "_extension_armed_token", None)
+                armed = session_get(ui, "_extension_armed_token", None)
                 if not armed or armed[0] < time.time() or armed[1:3] != (extension_id, "reset") or str(payload.get("token") or "") != armed[3] or self._extension_manager.get(extension_id).revision != armed[4]:
                     raise ExtensionActionError("Reset confirmation expired.")
                 self._extension_manager.reset_credentials(extension_id, expected_revision=armed[4])
                 if extension_id == "spotify" and self._spotify_mode_enabled(ui):
                     await self._reset_spotify_mode_locally(ui)
-                setattr(ui, "_extension_armed_action", None)
-                setattr(ui, "_extension_armed_token", None)
+                session_set(ui, "_extension_armed_action", None)
+                session_set(ui, "_extension_armed_token", None)
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
                 return
             if action == "prepare_restart":
@@ -7750,30 +7730,30 @@ class WebSocketRunner:
                 view = self._extension_manager.require_revision(extension_id, expected_revision)
                 if self._extension_manager.get(extension_id).status is not ExtensionStatus.UNAPPLIED:
                     raise ExtensionActionError("Restart is only available when configuration is unapplied.")
-                setattr(ui, "_extension_armed_action", "restart")
+                session_set(ui, "_extension_armed_action", "restart")
                 view = self._extension_manager.get(extension_id)
-                setattr(ui, "_extension_armed_token", (time.time() + 60, extension_id, "restart", uuid.uuid4().hex, view.revision))
+                session_set(ui, "_extension_armed_token", (time.time() + 60, extension_id, "restart", uuid.uuid4().hex, view.revision))
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id, armed_action="restart")
                 return
             if action == "confirm_restart":
                 if self._extension_manager.get(extension_id).status is not ExtensionStatus.UNAPPLIED:
                     raise ExtensionActionError("Restart is only available when configuration is unapplied.")
-                armed = getattr(ui, "_extension_armed_token", None)
+                armed = session_get(ui, "_extension_armed_token", None)
                 if not armed or armed[0] < time.time() or armed[1:3] != (extension_id, "restart") or str(payload.get("token") or "") != armed[3] or self._extension_manager.get(extension_id).revision != armed[4]:
                     raise ExtensionActionError("Restart confirmation expired.")
                 from src.tools.youtube_runtime import activate_pending_runtime
 
                 activate_pending_runtime()
-                setattr(ui, "_extension_armed_action", None)
-                setattr(ui, "_extension_armed_token", None)
+                session_set(ui, "_extension_armed_action", None)
+                session_set(ui, "_extension_armed_token", None)
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
                 if extension_id == "youtube":
-                    playback = getattr(ui, "_youtube_setup_session", None)
-                    query = str(getattr(ui, "_youtube_setup_query", "") or "").strip()
-                    if playback is not None and query and not getattr(ui, "_youtube_setup_retry_claimed", False):
-                        setattr(ui, "_youtube_setup_retry_claimed", True)
-                        setattr(ui, "_youtube_setup_session", None)
-                        setattr(ui, "_youtube_setup_query", None)
+                    playback = session_get(ui, "_youtube_setup_session", None)
+                    query = str(session_get(ui, "_youtube_setup_query", "") or "").strip()
+                    if playback is not None and query and not session_get(ui, "_youtube_setup_retry_claimed", False):
+                        session_set(ui, "_youtube_setup_retry_claimed", True)
+                        session_set(ui, "_youtube_setup_session", None)
+                        session_set(ui, "_youtube_setup_query", None)
                         await playback.start()
                 return
         except (ExtensionActionError, ValueError) as exc:
@@ -7782,15 +7762,15 @@ class WebSocketRunner:
             await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
 
     async def _handle_extension_panel_input(self, ui: WebSocketUIAdapter, value: str) -> None:
-        setup = getattr(ui, "_extension_setup", None)
-        if not setup or getattr(ui, "_extension_panel_view", "") != "setup":
+        setup = session_get(ui, "_extension_setup", None)
+        if not setup or session_get(ui, "_extension_panel_view", "") != "setup":
             return
         extension_id = str(setup.get("extension_id") or "")
         page = int(setup.get("page") or 1)
         value = value.strip()
         if value in {"__cancel__", "cancel"}:
-            setattr(ui, "_extension_panel_view", "detail")
-            setattr(ui, "_extension_setup", None)
+            session_set(ui, "_extension_panel_view", "detail")
+            session_set(ui, "_extension_setup", None)
             self._extension_manager.discard_setup(ui.session_id, extension_id)
             await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
             return
@@ -7802,15 +7782,15 @@ class WebSocketRunner:
             return
         if input_page:
             if not value:
-                setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page, error="Input cannot be empty."))
+                session_set(ui, "_extension_setup", self._extension_setup_page(extension_id, page, error="Input cannot be empty."))
             else:
                 self._extension_manager.update_setup_draft(ui.session_id, extension_id, input_page, value)
                 next_page = page + 1
-                setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, next_page))
+                session_set(ui, "_extension_setup", self._extension_setup_page(extension_id, next_page))
             await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
             return
         if page < int(setup.get("page_count") or 1):
-            setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page + 1))
+            session_set(ui, "_extension_setup", self._extension_setup_page(extension_id, page + 1))
             await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
             return
         draft = self._extension_manager.setup_draft(ui.session_id, extension_id)
@@ -7827,8 +7807,8 @@ class WebSocketRunner:
                 self._extension_manager.clear_health(extension_id, expected_revision=setup_revision)
                 await ui.append_system_message(f"{self._extension_manager.get(extension_id).name} credentials saved.")
             self._extension_manager.discard_setup(ui.session_id, extension_id)
-            setattr(ui, "_extension_panel_view", "detail")
-            setattr(ui, "_extension_setup", None)
+            session_set(ui, "_extension_panel_view", "detail")
+            session_set(ui, "_extension_setup", None)
             await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
             if extension_id in {"jamendo", "audius"}:
                 async def update(view: Any) -> None:
@@ -7841,17 +7821,17 @@ class WebSocketRunner:
                     on_update=update,
                 )
         except Exception as exc:
-            setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page, error="Configuration could not be saved."))
+            session_set(ui, "_extension_setup", self._extension_setup_page(extension_id, page, error="Configuration could not be saved."))
             logger.info("extension setup failed: %s (%s)", extension_id, type(exc).__name__)
             await ui.append_activity(kind="error", title="Extension setup failed", status="error")
             await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
 
     async def _reset_spotify_mode_locally(self, ui: WebSocketUIAdapter) -> None:
         """Leave Spotify mode without sending a remote pause command."""
-        setattr(ui, "_spotify_mode", None)
-        setattr(ui, "_spotify_library_synced", False)
-        setattr(ui, "_spotify_device_selection", None)
-        setattr(ui, "_spotify_play_selection", None)
+        session_set(ui, "_spotify_mode", None)
+        session_set(ui, "_spotify_library_synced", False)
+        session_set(ui, "_spotify_device_selection", None)
+        session_set(ui, "_spotify_play_selection", None)
         _clear_persistent_spotify_mode()
         clear_provider_mode_intent()
         await _send_spotify_mode(ui, None)
@@ -7862,12 +7842,12 @@ class WebSocketRunner:
             authorize_url, expected_state = spotify_authorize_url()
         except Exception:
             setup = self._extension_setup_page("spotify", 7, error="Spotify authorization could not start.")
-            setattr(ui, "_extension_setup", setup)
+            session_set(ui, "_extension_setup", setup)
             await self._send_extension_panel(ui, view="setup", selected_id="spotify")
             return
         setup = self._extension_setup_page("spotify", 7)
         setup["body"] = f"Approve access in your browser, then return here.\nAuthorization URL: {authorize_url}"
-        setattr(ui, "_extension_setup", setup)
+        session_set(ui, "_extension_setup", setup)
         await self._send_extension_panel(ui, view="setup", selected_id="spotify")
 
         async def finish() -> None:
@@ -7878,15 +7858,19 @@ class WebSocketRunner:
                 self._extension_manager.clear_health("spotify", expected_revision=self._extension_manager.get("spotify").revision)
                 self._extension_manager.discard_setup(ui.session_id, "spotify")
                 await ui.append_system_message("Spotify connection verified.")
-                setattr(ui, "_extension_panel_view", "detail")
-                setattr(ui, "_extension_setup", None)
+                session_set(ui, "_extension_panel_view", "detail")
+                session_set(ui, "_extension_setup", None)
                 await self._send_extension_panel(ui, view="detail", selected_id="spotify")
             except Exception as exc:
                 setup = self._extension_setup_page("spotify", 7, error="Spotify authorization or verification failed.")
-                setattr(ui, "_extension_setup", setup)
+                session_set(ui, "_extension_setup", setup)
                 await self._send_extension_panel(ui, view="setup", selected_id="spotify")
 
-        setattr(ui, "_extension_spotify_oauth_task", asyncio.create_task(finish()))
+        session_set(
+            ui,
+            "_extension_spotify_oauth_task",
+            session_context_for(ui).tasks.create_task(finish(), name="extension-spotify-oauth"),
+        )
 
     async def _install_youtube_dependency(self, ui: WebSocketUIAdapter, dependency_id: str) -> None:
         if dependency_id == "python":
@@ -7899,10 +7883,10 @@ class WebSocketRunner:
             if missing:
                 setup = self._extension_setup_page("youtube", 1)
                 setup["selected_dependency"] = missing
-                setattr(ui, "_extension_setup", setup)
+                session_set(ui, "_extension_setup", setup)
                 await self._send_extension_panel(ui, view="setup", selected_id="youtube")
                 return
-        current = getattr(ui, "_extension_youtube_install_task", None)
+        current = session_get(ui, "_extension_youtube_install_task", None)
         if isinstance(current, asyncio.Task) and not current.done():
             return
         try:
@@ -7919,14 +7903,14 @@ class WebSocketRunner:
                 setup = self._extension_setup_page("youtube", 1)
                 setup["selected_dependency"] = dependency_id
                 setup["dependencies"] = youtube_dependency_snapshot()
-                setattr(ui, "_extension_setup", setup)
+                session_set(ui, "_extension_setup", setup)
                 await self._send_extension_panel(ui, view="setup", selected_id="youtube")
                 if state.get("status") in {"ready", "failed"}:
                     return
                 await asyncio.sleep(0.1)
 
-        task = asyncio.create_task(watch())
-        setattr(ui, "_extension_youtube_install_task", task)
+        task = session_context_for(ui).tasks.create_task(watch(), name="youtube-install-watch")
+        session_set(ui, "_extension_youtube_install_task", task)
 
     async def _handle_logout(self, ui: WebSocketUIAdapter, args: str = "") -> None:
         """Prepares handle logout for an internal Sonex flow.
@@ -8081,9 +8065,9 @@ class WebSocketRunner:
 
         search_tracks = _search_results_payload(tool_result) if tool_name in SEARCH_RESULT_TOOLS else []
         if search_tracks:
-            setattr(ui, "_last_search_tracks", search_tracks)
-            if tool_name in RECOMMENDATION_TOOLS or getattr(ui, "_recommendation_turn_active", False):
-                setattr(ui, "_last_recommendation_tracks", search_tracks)
+            session_set(ui, "_last_search_tracks", search_tracks)
+            if tool_name in RECOMMENDATION_TOOLS or session_get(ui, "_recommendation_turn_active", False):
+                session_set(ui, "_last_recommendation_tracks", search_tracks)
             await ui._send({"type": "search_results", "tracks": search_tracks})
 
         result_status = str(tool_result.get("status") or "").lower() if isinstance(tool_result, dict) else ""
@@ -8097,7 +8081,7 @@ class WebSocketRunner:
         )
         if should_sync_player and player_state:
             player_state = _decorate_player_state(player_state)
-            setattr(ui, "_last_player_state", player_state)
+            session_set(ui, "_last_player_state", player_state)
             await ui._send({"type": "player", "state": player_state})
             if tool_name not in SEARCH_RESULT_TOOLS and player_state.get("playback_status") != "starting":
                 _remember_actual_playback(player_state)
@@ -8148,7 +8132,7 @@ class WebSocketRunner:
                     on_finish=finish,
                 )
                 playback.selected_playback_metadata = dict(local_candidate)
-                setattr(ui, "_play_selection", playback)
+                session_set(ui, "_play_selection", playback)
                 local_result = await playback._invoke_playback(
                     "play_local_song",
                     {"query": str(local_path), "player": "auto"},
@@ -8188,7 +8172,7 @@ class WebSocketRunner:
                     readiness=readiness,
                 )
                 if native_result.get("status") == "playback_completed":
-                    setattr(ui, "_preferred_playback_provider", selected_source)
+                    session_set(ui, "_preferred_playback_provider", selected_source)
                 return native_result
             if selected_source == "online":
                 authoritative_result = {
@@ -8245,7 +8229,7 @@ class WebSocketRunner:
             playback.playback_source = "online"
             playback.selected_playback_metadata = dict(candidate)
             playback.selected_playback_metadata.setdefault("original_query", query)
-            setattr(ui, "_play_selection", playback)
+            session_set(ui, "_play_selection", playback)
             resolved_query = str(
                 candidate.get("youtube_query")
                 or f"{identity.artist} {identity.title}"
@@ -8308,7 +8292,7 @@ class WebSocketRunner:
             stage=stage,
             provider=provider,
         )
-        setattr(ui, "_agent_playback_route_confirmation", session)
+        session_set(ui, "_agent_playback_route_confirmation", session)
         return await session.start()
 
     async def _probe_authoritative_providers(
@@ -8361,14 +8345,14 @@ class WebSocketRunner:
                     transport_ready=transport_ready,
                     active_mode=self._spotify_mode_enabled(ui),
                     verified_success_rate=float(
-                        (getattr(ui, "_provider_route_success", {}) or {}).get(
+                        (session_get(ui, "_provider_route_success", {}) or {}).get(
                             "spotify",
                             0.0,
                         )
                     ),
                     startup_latency_ms=int((time.monotonic() - started) * 1000),
                     capability_score=sum(bool(value) for value in capabilities.values()),
-                    preferred=getattr(ui, "_preferred_playback_provider", None) == "spotify",
+                    preferred=session_get(ui, "_preferred_playback_provider", None) == "spotify",
                     reason=(
                         None
                         if transport_ready
@@ -8421,7 +8405,7 @@ class WebSocketRunner:
 
         async def choose(sources: list[str], excluded: str | None) -> str | None:
             session = PlaybackSourceSelectionSession(ui, sources, exclude=excluded)
-            setattr(ui, "_playback_source_selection", session)
+            session_set(ui, "_playback_source_selection", session)
             await session.start()
             return await session.result
 
@@ -8433,7 +8417,7 @@ class WebSocketRunner:
             recover=recover,
             choose=choose,
             active_provider="spotify" if self._spotify_mode_enabled(ui) else None,
-            preferred_provider=getattr(ui, "_preferred_playback_provider", None),
+            preferred_provider=session_get(ui, "_preferred_playback_provider", None),
         )
 
     async def _search_authoritative_candidates(
@@ -8501,13 +8485,13 @@ class WebSocketRunner:
     async def _handoff_previous_provider(self, ui: WebSocketUIAdapter, new_provider: str) -> None:
         """Stop the previous Sonex-owned source after a new source starts."""
         previous = str(
-            getattr(ui, "_active_playback_provider", None)
-            or getattr(ui, "_preferred_playback_provider", None)
+            session_get(ui, "_active_playback_provider", None)
+            or session_get(ui, "_preferred_playback_provider", None)
             or ""
         ).casefold()
         async def stop_previous(provider: str) -> None:
             if provider == "spotify":
-                mode = getattr(ui, "_spotify_mode", {}) or {}
+                mode = session_get(ui, "_spotify_mode", {}) or {}
                 args = {"device_id": mode.get("device_id")} if mode.get("device_id") else {}
                 await asyncio.to_thread(registry.invoke_system, "spotify_pause", args)
             elif provider in {"online", "local"}:
@@ -8587,10 +8571,10 @@ class WebSocketRunner:
         )
         if result.get("status") == "playback_completed" and played_provider:
             provider = played_provider[-1]
-            successes = dict(getattr(ui, "_provider_route_success", {}) or {})
+            successes = dict(session_get(ui, "_provider_route_success", {}) or {})
             successes[provider] = 1.0
-            setattr(ui, "_provider_route_success", successes)
-            setattr(ui, "_preferred_playback_provider", provider)
+            session_set(ui, "_provider_route_success", successes)
+            session_set(ui, "_preferred_playback_provider", provider)
         return result
 
     async def _recover_explicit_provider(
@@ -8652,7 +8636,7 @@ class WebSocketRunner:
             on_selected=commit,
             on_cancel=cancel,
         )
-        setattr(ui, "_spotify_device_selection", session)
+        session_set(ui, "_spotify_device_selection", session)
         await session.start()
         device = await selected
         if not isinstance(device, dict) or not self._spotify_mode_enabled(ui):
@@ -8746,7 +8730,7 @@ class WebSocketRunner:
                 "data": {"provider": provider},
             }
         await self._handoff_previous_provider(ui, "spotify")
-        setattr(ui, "_active_playback_provider", "spotify")
+        session_set(ui, "_active_playback_provider", "spotify")
         await self._sync_tool_result_ui(ui, play_tool, play_result)
         await ui.append_system_message(
             format_agent_playing_feedback(play_result, selected_candidate)
@@ -8774,10 +8758,14 @@ class WebSocketRunner:
         turn_id = _new_event_id("agent_turn")
         bind_memory_scope(ui.session_id, turn_id)
         interrupt_event = threading.Event()
-        setattr(ui, "_active_agent_turn_id", turn_id)
-        setattr(ui, "_agent_turn_interrupt_event", interrupt_event)
+        context = session_context_for(ui)
+        context.active_agent_turn_id = turn_id
+        context.agent_turn_interrupt_event = interrupt_event
+        context.agent_interaction_active = True
+        session_set(ui, "_active_agent_turn_id", turn_id)
+        session_set(ui, "_agent_turn_interrupt_event", interrupt_event)
         await ui.send_agent_working_state(turn_id, active=True)
-        self._confirm_queue = queue.Queue()
+        context.confirm_queue = queue.Queue()
         tool_message_gate: queue.Queue[bool] = queue.Queue(maxsize=1)
         loop = asyncio.get_running_loop()
         tick_interval = 0.25
@@ -8808,7 +8796,7 @@ class WebSocketRunner:
             """
             while not interrupt_event.is_set():
                 try:
-                    incoming_id, decision = self._confirm_queue.get(timeout=0.1)
+                    incoming_id, decision = context.confirm_queue.get(timeout=0.1)
                 except queue.Empty:
                     continue
                 if not incoming_id or incoming_id == confirm_id:
@@ -9103,7 +9091,7 @@ class WebSocketRunner:
                 status = request.get("status") if isinstance(request, dict) else None
 
                 def complete_interaction(result: dict[str, Any]) -> None:
-                    self._confirm_queue.put((interaction_id, result))
+                    context.confirm_queue.put((interaction_id, result))
 
                 if status == "requires_play_selection":
                     data = request.get("data") if isinstance(request.get("data"), dict) else {}
@@ -9122,7 +9110,7 @@ class WebSocketRunner:
                         complete=complete_interaction,
                         timeout_seconds=60,
                     )
-                    setattr(ui, "_agent_candidate_selection", session)
+                    session_set(ui, "_agent_candidate_selection", session)
                     await session.start()
                     continue
                 if status == "requires_modify_confirmation":
@@ -9193,7 +9181,7 @@ class WebSocketRunner:
                     query = _play_selection_query_from_result(tool_result)
                     if query:
                         session = PlaySelectionSession(ui, self, query)
-                        setattr(ui, "_play_selection", session)
+                        session_set(ui, "_play_selection", session)
                         await session.start()
 
                 active_tool_activity_id = None
@@ -9248,23 +9236,27 @@ class WebSocketRunner:
                     else:
                         await ui.append_warning_message("Long-term memory is disabled.")
                 else:
-                    asyncio.create_task(
-                        self._collect_turn_memory(ui, user_input, explicit=False)
+                    context.tasks.create_task(
+                        self._collect_turn_memory(ui, user_input, explicit=False),
+                        name="collect-turn-memory",
                     )
 
         if producer_thread.is_alive() and not interrupt_event.is_set():
             await asyncio.to_thread(producer_thread.join)
-        if getattr(ui, "_agent_turn_interrupt_event", None) is interrupt_event:
-            setattr(ui, "_agent_turn_interrupt_event", None)
-        setattr(ui, "_recommendation_turn_active", False)
+        if context.agent_turn_interrupt_event is interrupt_event:
+            context.agent_turn_interrupt_event = None
+            session_discard(ui, "_agent_turn_interrupt_event")
+        session_set(ui, "_recommendation_turn_active", False)
         await ui.send_status(UiStatus(phase="Idle", message="Idle..."), active=False)
-        queued: deque[str] = getattr(ui, "_agent_input_queue", deque())
+        queued: deque[str] = session_get(ui, "_agent_input_queue", deque())
         next_input = queued.popleft() if queued else None
-        if getattr(ui, "_active_agent_turn_id", None) == turn_id:
+        if context.active_agent_turn_id == turn_id:
             await ui.send_agent_working_state(turn_id, active=False)
-            setattr(ui, "_active_agent_turn_id", None)
-        setattr(ui, "_agent_turn_task", None)
-        self._running_task = None
+            context.active_agent_turn_id = None
+            session_discard(ui, "_active_agent_turn_id")
+        context.agent_interaction_active = False
+        context.running_task = None
+        session_discard(ui, "_agent_turn_task")
         if next_input is not None and not ui.closed:
             for item in ui.transcript:
                 if (

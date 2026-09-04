@@ -28,6 +28,20 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from src.log import sonex_home
+from src.tools.youtube_runtime_state import (
+    activated_state,
+    component_install_state,
+    health_check_state,
+    health_update_action,
+    probation_failed,
+    probation_succeeded,
+    restart_notice,
+    rollback_state,
+    runtime_status_value,
+    update_failure_state,
+    update_start_action,
+    update_completion_state,
+)
 
 try:  # pragma: no cover - exercised on the supported POSIX targets
     import fcntl
@@ -252,12 +266,7 @@ def activate_pending_runtime() -> bool:
             _pending_manifest_path().unlink()
         _write_json(
             _state_path("state.json"),
-            {
-                "status": "ready" if previous else "setup_required",
-                "runtime_id": (previous or {}).get("runtime_id"),
-                "rollback_applied_at": time.time(),
-                "probation": False,
-            },
+            rollback_state(previous, time.time()),
         )
         _write_json(_state_path("update.json"), {"status": "idle", "phase": "rollback_applied"})
         cleanup_old_runtimes()
@@ -284,14 +293,7 @@ def activate_pending_runtime() -> bool:
         _pending_manifest_path().unlink()
     _write_json(
         _state_path("state.json"),
-        {
-            "status": "ready",
-            "runtime_id": candidate.get("runtime_id"),
-            "yt_dlp_version": candidate.get("yt_dlp_version"),
-            "provider_version": candidate.get("provider_version"),
-            "activated_at": time.time(),
-            "probation": True,
-        },
+        activated_state(candidate, time.time()),
     )
     _write_json(
         _state_path("update.json"),
@@ -307,13 +309,7 @@ def mark_runtime_success() -> None:
         return
     _write_json(
         _state_path("state.json"),
-        {
-            **state,
-            "status": "ready",
-            "probation": False,
-            "known_good_runtime_id": (active_manifest() or {}).get("runtime_id"),
-            "last_success_at": time.time(),
-        },
+        probation_succeeded(state, (active_manifest() or {}).get("runtime_id"), time.time()),
     )
 
 
@@ -323,13 +319,7 @@ def mark_runtime_failure(reason: str) -> None:
         return
     _write_json(
         _state_path("state.json"),
-        {
-            **state,
-            "status": "degraded",
-            "rollback_pending": True,
-            "rollback_reason": str(reason)[:160],
-            "probation": False,
-        },
+        probation_failed(state, reason),
     )
 
 
@@ -580,14 +570,8 @@ def runtime_status(*, probe_provider: bool = True) -> dict[str, Any]:
     manifest = active_manifest()
     state = _read_json(_state_path("state.json")) or {}
     provider = _provider_state()
-    if not manifest:
-        status = "setup_required"
-    elif state.get("status") == "degraded":
-        status = "degraded"
-    elif pending_manifest():
-        status = "restart_required"
-    else:
-        status = str(state.get("status") or "ready")
+    pending = pending_manifest()
+    status = runtime_status_value(manifest, state, pending)
     provider_running = bool(provider and _pid_alive(int(provider.get("monitor_pid") or 0)))
     if provider_running and probe_provider:
         provider_running = _provider_ping(str(provider.get("base_url") or ""))
@@ -597,7 +581,7 @@ def runtime_status(*, probe_provider: bool = True) -> dict[str, Any]:
         "runtime_id": manifest.get("runtime_id") if manifest else None,
         "yt_dlp_version": manifest.get("yt_dlp_version") if manifest else None,
         "provider_version": manifest.get("provider_version") if manifest else None,
-        "pending_runtime_id": (pending_manifest() or {}).get("runtime_id"),
+        "pending_runtime_id": (pending or {}).get("runtime_id"),
         "local_check": state.get("local_check") or {"healthy": bool(manifest)},
         "platform": f"{platform.system().lower()}-{platform.machine().lower()}",
         "state_path": str(_state_path("state.json")),
@@ -726,15 +710,9 @@ def youtube_dependency_snapshot() -> list[dict[str, Any]]:
     provider_installed = server_path.is_file() and bool(provider_component.get("provider_version") or manifest.get("provider_version"))
     provider_error = None if node_installed and npm_installed else "requires Node.js and npm"
     update = update_state()
-    installing = str(update.get("component") or "") if update.get("status") == "running" else ""
-    failed_component = str(update.get("component") or "") if update.get("status") == "failed" else ""
-    progress = update.get("progress")
+
     def state_for(component: str, installed: bool, *, error: str | None = None) -> tuple[str, Any, str | None]:
-        if installing == component:
-            return "installing", progress, None
-        if failed_component == component:
-            return "failed", None, None
-        return ("installed" if installed else "failed" if error else "missing"), None, error
+        return component_install_state(component, installed=installed, error=error, update=update)
     return [
         {"id": "python", "label": "Python runtime", "state": "installed", "version": python_version},
         {"id": "yt-dlp", "label": "yt-dlp", "state": state_for("yt-dlp", yt_installed)[0], "progress": state_for("yt-dlp", yt_installed)[1], "version": yt_component.get("version") or manifest.get("yt_dlp_version") if yt_installed else None},
@@ -831,15 +809,15 @@ def update_state() -> dict[str, Any]:
 
 def start_update_job(*, reason: str = "setup", force: bool = False, component: str | None = None) -> dict[str, Any]:
     current = update_state()
-    if current.get("status") == "running" and _pid_alive(int(current.get("pid") or 0)):
-        return current
-    if not force and float(current.get("retry_after") or 0) > time.time():
+    now = time.time()
+    worker_alive = current.get("status") == "running" and _pid_alive(int(current.get("pid") or 0))
+    if update_start_action(current, now=now, force=force, worker_alive=worker_alive) != "start":
         return current
     _mkdir(state_root())
     payload = _update_state(
         status="running",
         reason=reason,
-        started_at=time.time(),
+        started_at=now,
         pid=0,
         phase="queued",
         component=component,
@@ -857,7 +835,13 @@ def start_update_job(*, reason: str = "setup", force: bool = False, component: s
             close_fds=True,
         )
     except OSError as exc:
-        _update_state(status="failed", phase="spawn_failed", error=type(exc).__name__, retry_after=time.time() + UPDATE_COOLDOWN_SECONDS)
+        _update_state(
+            **update_failure_state(
+                phase="spawn_failed",
+                error=type(exc).__name__,
+                retry_after=time.time() + UPDATE_COOLDOWN_SECONDS,
+            )
+        )
         raise
     payload["pid"] = process.pid
     return _update_state(**payload)
@@ -1102,12 +1086,21 @@ def _perform_update() -> None:
         provider = _component_manifest("po-token-provider")
         if node and yt and provider:
             manifest = _compose_pending_runtime(yt, node, provider)
-            _update_state(status="ready", phase="restart_required", completed_at=time.time(), candidate_runtime_id=manifest["runtime_id"], restart_required=True)
+            _update_state(**update_completion_state(manifest), completed_at=time.time())
         else:
-            _update_state(status="ready", phase="component_complete", completed_at=time.time(), restart_required=False)
+            _update_state(**update_completion_state(None), completed_at=time.time())
     except Exception as exc:
         logger.info("YouTube component install failed: %s (%s)", component, type(exc).__name__)
-        _update_state(status="failed", phase="failed", error=type(exc).__name__, completed_at=time.time(), retry_after=time.time() + UPDATE_COOLDOWN_SECONDS, elapsed_seconds=round(time.time() - started, 2), component=component)
+        _update_state(
+            **update_failure_state(
+                phase="failed",
+                error=type(exc).__name__,
+                retry_after=time.time() + UPDATE_COOLDOWN_SECONDS,
+                completed_at=time.time(),
+                elapsed_seconds=round(time.time() - started, 2),
+                component=component,
+            )
+        )
     finally:
         shutil.rmtree(staging, ignore_errors=True)
 
@@ -1130,20 +1123,29 @@ def start_background_health_check() -> None:
             manifest = active_manifest()
             latest = latest_versions()
             update_job = update_state()
-            if manifest and not pending_manifest() and not (
-                update_job.get("status") == "running"
-                or (update_job.get("status") == "ready" and update_job.get("phase") == "restart_required")
-            ):
+            pending = pending_manifest()
+            if manifest:
                 current_provider = manifest.get("provider_version")
                 provider_update = _is_newer(latest.get("provider_version"), current_provider)
                 yt_update = _is_newer(latest.get("yt_dlp_version"), manifest.get("yt_dlp_version"))
-                if provider_update and not _same_provider_major(latest.get("provider_version"), current_provider):
+                action = health_update_action(
+                    manifest_present=True,
+                    pending_present=pending is not None,
+                    update_status=str(update_job.get("status") or ""),
+                    update_phase=str(update_job.get("phase") or ""),
+                    provider_update=provider_update,
+                    yt_update=yt_update,
+                    provider_major_compatible=_same_provider_major(
+                        latest.get("provider_version"), current_provider
+                    ),
+                )
+                if action == "major_update_requires_consent":
                     _update_state(
                         status="ready",
-                        phase="major_update_requires_consent",
+                        phase=action,
                         major_update_available=latest.get("provider_version"),
                     )
-                elif provider_update or yt_update:
+                elif action == "update":
                     start_update_job(reason="update")
         except Exception as exc:
             # Health reporting is best-effort. A read-only or unavailable
@@ -1162,22 +1164,25 @@ def refresh_local_health_check() -> dict[str, Any]:
     manifest = active_manifest()
     if manifest:
         local_check = local_runtime_check(manifest)
-        status = "ready" if local_check.get("healthy") else "degraded"
     else:
         local_check = {"healthy": False, "reason": "setup_required"}
-        status = "setup_required"
-    if previous_state.get("rollback_pending"):
-        status = "degraded"
-    return _update_state(last_health_check_at=time.time(), status=status, local_check=local_check)
+    return _update_state(
+        last_health_check_at=time.time(),
+        **health_check_state(
+            manifest,
+            local_check,
+            rollback_pending=bool(previous_state.get("rollback_pending")),
+        ),
+    )
 
 
 def consume_restart_notice() -> str | None:
     """Consume a single update-ready notice for the current process/session."""
 
     state = update_state()
-    if state.get("phase") != "restart_required" or not state.get("restart_required"):
+    notice = restart_notice(state)
+    if notice is None:
         return None
-    notice = f"YouTube runtime update ready · {state.get('previous_yt_dlp_version') or 'setup'} → {state.get('candidate_yt_dlp_version') or 'new'}\nRestart Sonex to apply."
     # Keep the persisted state useful for status while deduplicating notices per
     # process.  A process-local marker is enough because each TUI/API launch is
     # one application session.
