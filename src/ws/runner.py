@@ -118,6 +118,7 @@ from src.llm.usage import reset_token_usage_observer, set_token_usage_observer
 from src.log import sonex_home
 from src.tools.youtube_runtime import (
     consume_restart_notice,
+    offline_package_dir,
     start_background_health_check,
     start_update_job,
     youtube_dependency_snapshot,
@@ -131,13 +132,11 @@ from src.memory.curator import (
     safe_memory_content,
 )
 from src.extensions import ExtensionActionError, ExtensionManager, ExtensionStatus
-from src.music.netease_worker import NetEaseProviderWorker
 from src.music.playback_coordinator import (
     MusicPlaybackCoordinator,
     ProviderReadiness,
     RecordingIdentity,
     SelectionStore,
-    rank_authoritative_providers,
     recording_identity_matches,
 )
 from src.sandbox.tool import sandbox_manager
@@ -2952,7 +2951,7 @@ class AuthSetupSession:
         setattr(self.ui, "_auth_setup", None)
         if self.pending_input:
             self.runner._running_task = None
-            await self.runner._handle_user_input(self.ui, self.pending_input, append_user_message=False)
+            await self.runner._handle_user_input(self.ui, self.pending_input)
 
 
 class MusicIntentConfirmationSession:
@@ -3117,7 +3116,7 @@ class PlaySelectionSession:
             return
         if choice.startswith("playback_source:"):
             source = choice.partition(":")[2].strip().casefold()
-            if source not in {"netease", "spotify", "online"}:
+            if source not in {"spotify", "online"}:
                 await self._finish("Playback canceled.", status="error")
                 return
             self.playback_source = source
@@ -3412,7 +3411,7 @@ class PlaySelectionSession:
 
     async def _play_native_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
         provider = str(candidate.get("provider") or self.playback_source or "").casefold()
-        if provider not in {"netease", "spotify"}:
+        if provider != "spotify":
             return {"status": "fail", "message": "Unsupported native playback source."}
         readiness = await self.runner._activate_authoritative_source(self.ui, provider)
         if readiness is None:
@@ -4206,7 +4205,6 @@ class PlaybackSourceSelectionSession:
     """Choose the catalog that owns the next single-song search."""
 
     SOURCE_LABELS = {
-        "netease": ("NetEase", "ncm-cli / mpv"),
         "spotify": ("Spotify", "Spotify Connect"),
         "online": ("Online", "Jamendo / Audius / YouTube"),
     }
@@ -4281,169 +4279,6 @@ class PlaybackSourceSelectionSession:
             self.result.set_result(source)
 
 
-class NetEaseLoginOfferSession:
-    """Ask whether an unlogged ncm-cli route should scan or yield."""
-
-    def __init__(self, ui: WebSocketUIAdapter, *, fallback_online: bool) -> None:
-        self.ui = ui
-        self.fallback_online = fallback_online
-        self.confirm_id = _new_event_id("netease_login_offer")
-        self.result: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-
-    async def start(self) -> str:
-        await self.ui.ask_confirm(
-            {
-                "id": self.confirm_id,
-                "tool_name": "netease_login",
-                "tool_args": {
-                    "stage": "netease_login_offer",
-                    "fallback_online": self.fallback_online,
-                },
-                "message": "NetEase is configured but not signed in.",
-                "choices": [
-                    {"value": "scan", "label": "Scan to connect NetEase"},
-                    {
-                        "value": "online" if self.fallback_online else "deny",
-                        "label": "Play online" if self.fallback_online else "Cancel",
-                    },
-                ],
-            }
-        )
-        return await self.result
-
-    def owns_confirm(self, confirm_id: str) -> bool:
-        return confirm_id == self.confirm_id
-
-    async def handle_choice(self, decision: Any) -> None:
-        value = str(decision or "deny").casefold()
-        outcome = "scan" if value == "scan" else "online" if self.fallback_online else "cancel"
-        if getattr(self.ui, "_netease_login_offer", None) is self:
-            setattr(self.ui, "_netease_login_offer", None)
-        if not self.result.done():
-            self.result.set_result(outcome)
-
-
-class NetEaseLoginSession:
-    """Own one cancellable ncm-cli QR login subprocess and UI surface."""
-
-    def __init__(
-        self,
-        ui: WebSocketUIAdapter,
-        worker: NetEaseProviderWorker,
-        *,
-        on_completed: Callable[[dict[str, Any]], None] | None,
-        fallback_online: bool,
-        emit_feedback: bool,
-    ) -> None:
-        self.ui = ui
-        self.worker = worker
-        self.on_completed = on_completed
-        self.fallback_online = fallback_online
-        self.emit_feedback = emit_feedback
-        self.cancel_event = threading.Event()
-        self.task: asyncio.Task[None] | None = None
-        self.result: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self._output = ""
-        self._done = False
-
-    async def start(self) -> None:
-        await self.ui.send_netease_login(
-            title="Connect NetEase",
-            output="Starting ncm-cli login...",
-            status="waiting",
-            active=True,
-            fallback_online=self.fallback_online,
-        )
-        self.task = asyncio.create_task(self._run())
-
-    async def cancel(self) -> None:
-        if self._done:
-            return
-        self.cancel_event.set()
-        self.worker.terminate_active()
-
-    def _receive_output(self, output: str) -> None:
-        loop = self.result.get_loop()
-        loop.call_soon_threadsafe(
-            lambda: asyncio.create_task(self._publish_output(output))
-        )
-
-    async def _publish_output(self, output: str) -> None:
-        if self._done:
-            return
-        self._output = output
-        await self.ui.send_netease_login(
-            title="Connect NetEase",
-            output=output,
-            status="waiting",
-            active=True,
-            fallback_online=self.fallback_online,
-        )
-
-    async def _run(self) -> None:
-        try:
-            login = await asyncio.to_thread(
-                self.worker.login,
-                on_output=self._receive_output,
-                cancel_event=self.cancel_event,
-            )
-        except Exception as exc:
-            status = "failed"
-            reason = sanitize_error_message(exc)
-            output = self._output
-        else:
-            status = login.status
-            reason = login.reason
-            output = login.output or self._output
-        if status == "success":
-            try:
-                health = await asyncio.to_thread(self.worker.health)
-            except Exception as exc:
-                health = None
-                reason = sanitize_error_message(exc)
-            if health is None or not health.ready:
-                status = "failed"
-                reason = reason or (health.reason if health is not None else None) or "NetEase login could not be verified."
-        result = {
-            "status": "connected" if status == "success" else status,
-            "tool": "Connect",
-            "message": (
-                "NetEase connected · Ready, unverified playback."
-                if status == "success"
-                else reason or "NetEase login was cancelled."
-            ),
-            "data": {
-                "provider": "netease",
-                "reason": reason or status,
-                "account_label": "ncm-cli" if status == "success" else None,
-                "verification": "unverified_playback" if status == "success" else None,
-            },
-            "error_code": None if status in {"success", "cancelled"} else "CONNECTION_NOT_READY",
-        }
-        self._done = True
-        if getattr(self.ui, "_netease_login_session", None) is self:
-            setattr(self.ui, "_netease_login_session", None)
-        await self.ui.send_netease_login(
-            title="Connect NetEase",
-            output=output,
-            status=status,
-            active=False,
-            fallback_online=self.fallback_online,
-        )
-        if self.emit_feedback and status == "success":
-            await self.ui.append_activity(
-                kind="status",
-                title="NetEase connection",
-                detail=str(result["message"]),
-                status="success",
-            )
-            await self.ui.append_system_message(str(result["message"]))
-        if not self.result.done():
-            self.result.set_result(result)
-        if self.on_completed is not None:
-            self.on_completed(result)
-
-
 class AgentCandidateSelectionSession:
     """Suspend an Agent turn while the user chooses one safe track reference."""
 
@@ -4510,7 +4345,7 @@ class AgentCandidateSelectionSession:
         """Search the selected source without ending the Agent on failure."""
         search_error: str | None = None
         try:
-            if self.playback_source in {"netease", "spotify"}:
+            if self.playback_source == "spotify":
                 raw_candidates = await self.runner._search_authoritative_candidates(
                     self.ui,
                     self.playback_source,
@@ -6005,11 +5840,6 @@ class WebSocketRunner:
                     if auth_setup:
                         await auth_setup.handle_input(str(data.get("value") or ""))
 
-                elif data.get("type") == "netease_login_input":
-                    netease_login = getattr(ui, "_netease_login_session", None)
-                    if netease_login:
-                        await netease_login.cancel()
-
                 elif data.get("type") == "confirm_result":
                     decision = data.get("decision")
                     if decision is None:
@@ -6054,15 +5884,15 @@ class WebSocketRunner:
             if unexpected_disconnect and agent_interaction_active:
                 with suppress(OSError):
                     mark_interrupted_interaction()
+            setup_id = getattr(ui, "_extension_selected_id", None)
+            if setup_id and getattr(ui, "_extension_panel_view", "") == "setup":
+                self._extension_manager.discard_setup(ui.session_id, str(setup_id))
             spotify_setup = getattr(ui, "_spotify_setup", None)
             if spotify_setup and spotify_setup.oauth_task:
                 spotify_setup.oauth_task.cancel()
             auth_setup = getattr(ui, "_auth_setup", None)
             if auth_setup and auth_setup.oauth_task:
                 auth_setup.oauth_task.cancel()
-            netease_login = getattr(ui, "_netease_login_session", None)
-            if netease_login:
-                await netease_login.cancel()
             playback_sync_task.cancel()
             local_playback_sync_task.cancel()
             youtube_update_watch_task.cancel()
@@ -6072,9 +5902,6 @@ class WebSocketRunner:
             with suppress(asyncio.CancelledError):
                 if auth_setup and auth_setup.oauth_task:
                     await auth_setup.oauth_task
-            with suppress(asyncio.CancelledError):
-                if netease_login and netease_login.task:
-                    await netease_login.task
             with suppress(asyncio.CancelledError):
                 await playback_sync_task
             with suppress(asyncio.CancelledError):
@@ -6120,10 +5947,6 @@ class WebSocketRunner:
         if playback_source and playback_source.owns_confirm(confirm_id):
             await playback_source.handle_choice(decision)
             return True
-        netease_offer = getattr(ui, "_netease_login_offer", None)
-        if netease_offer and netease_offer.owns_confirm(confirm_id):
-            await netease_offer.handle_choice(decision)
-            return True
         agent_candidate = getattr(ui, "_agent_candidate_selection", None)
         if agent_candidate and agent_candidate.owns_confirm(confirm_id):
             await agent_candidate.handle_choice(decision)
@@ -6160,10 +5983,6 @@ class WebSocketRunner:
         provider_task = getattr(ui, "_active_agent_provider_task", None)
         if isinstance(provider_task, asyncio.Task) and not provider_task.done():
             provider_task.cancel()
-        worker = getattr(ui, "_active_netease_worker", None)
-        if isinstance(worker, NetEaseProviderWorker):
-            with suppress(Exception):
-                worker.terminate_active()
         self._confirm_queue.put(
             (
                 "",
@@ -6296,21 +6115,19 @@ class WebSocketRunner:
         self,
         ui: WebSocketUIAdapter,
         user_input: str,
-        *,
-        append_user_message: bool = True,
     ) -> None:
         """Prepares handle user input for an internal Sonex flow.
 
         Typical use: Use this helper when nearby code needs handle user input without duplicating the local rules.
 
-        Example: await _handle_user_input(ui=..., user_input=..., append_user_message=...) -> returns the value used by the surrounding Sonex flow.
+        Example: await _handle_user_input(ui=..., user_input=...) -> returns the value used by the surrounding Sonex flow.
         """
         user_input = user_input.strip()
         if not user_input:
             return
 
-        if append_user_message:
-            await ui.append_user_message(user_input)
+        parsed_command = parse_builtin_command(user_input)
+        submitted_to_agent = parsed_command is None or parsed_command.command_intent() is not None
 
         active_agent_task = getattr(ui, "_agent_turn_task", None)
         if active_agent_task is not None and not active_agent_task.done():
@@ -6323,6 +6140,8 @@ class WebSocketRunner:
                     "The Agent message queue is full. Please resend this message after the current turn."
                 )
                 return
+            if submitted_to_agent:
+                await ui.append_user_message(user_input)
             pending.append(user_input)
             if ui.transcript and ui.transcript[-1].get("role") == "user":
                 ui.transcript[-1]["execution"] = "queued"
@@ -6338,7 +6157,6 @@ class WebSocketRunner:
         if play_selection and await play_selection.handle_refinement(user_input):
             return
 
-        parsed_command = parse_builtin_command(user_input)
         if parsed_command is not None:
             if parsed_command.known and parsed_command.command and not parsed_command.command.visible:
                 await self._reject_internal_chat_command(ui, parsed_command.command.name)
@@ -6375,6 +6193,7 @@ class WebSocketRunner:
 
             if command_intent.command == "recommend":
                 setattr(ui, "_recommendation_turn_active", True)
+            await ui.append_user_message(user_input)
             self._start_agent_turn(ui, user_input, command_intent)
             return
 
@@ -6401,6 +6220,7 @@ class WebSocketRunner:
         )
         if command_intent.command == "recommend":
             setattr(ui, "_recommendation_turn_active", True)
+        await ui.append_user_message(user_input)
         self._start_agent_turn(ui, user_input, command_intent)
 
     def _start_agent_turn(
@@ -6825,12 +6645,6 @@ class WebSocketRunner:
             )
             return
 
-        if command_name == "keymap":
-            message = "The /keymap command is handled by the TUI for this session."
-            await ui.append_system_message(message)
-            await ui.append_activity(kind="status", title="TUI keymap", detail=message, status="success")
-            return
-
         if command_name == "lang":
             message = "The /lang command is handled by the TUI for this session."
             await ui.append_system_message(message)
@@ -7165,30 +6979,6 @@ class WebSocketRunner:
                 await ui.append_activity(kind="status", title="Spotify playback", detail="Playing selected playlist track.", status="success")
             return True, ""
 
-        if str(track.get("provider") or "") == "netease":
-            encrypted_id, separator, original_id = str(track.get("id") or "").partition("|")
-            if separator and encrypted_id and original_id:
-                result = await asyncio.to_thread(
-                    registry.invoke_system,
-                    "netease_play",
-                    {
-                        "encrypted_id": encrypted_id,
-                        "original_id": original_id,
-                    },
-                )
-                await self._sync_tool_result_ui(ui, "netease_play", result)
-                if not _is_failed_tool_result(result):
-                    return True, ""
-                message = _friendly_runtime_error_message(
-                    result,
-                    fallback="NetEase playback failed.",
-                )
-            else:
-                message = "NetEase track reference is incomplete."
-            if report_failure:
-                await ui.send_error(message)
-            return False, message
-
         source_url = str(
             track.get("audio_path")
             or track.get("file_path")
@@ -7409,7 +7199,7 @@ class WebSocketRunner:
         scopes = ", ".join(missing_scopes)
         setattr(ui, "_extension_panel_view", "setup")
         setattr(ui, "_extension_selected_id", "spotify")
-        setattr(ui, "_extension_setup_draft", {})
+        self._extension_manager.begin_setup(ui.session_id, "spotify")
         setup = self._extension_setup_page("spotify", 7)
         setup["body"] = (
             "Spotify needs authorization again for: "
@@ -7738,15 +7528,6 @@ class WebSocketRunner:
             }
         await self._sync_tool_result_ui(ui, tool_name, result)
 
-    def _extension_action_for_status(self, status: ExtensionStatus) -> str | None:
-        return {
-            ExtensionStatus.ENABLED: "disable",
-            ExtensionStatus.NOT_CONFIGURED: "setup",
-            ExtensionStatus.DISABLED: "enable",
-            ExtensionStatus.UNAVAILABLE: "repair",
-            ExtensionStatus.UNAPPLIED: "restart",
-        }.get(status)
-
     def _extension_panel_payload(
         self,
         ui: WebSocketUIAdapter,
@@ -7764,7 +7545,7 @@ class WebSocketRunner:
             if extension:
                 detail = {
                     "status": extension.status.value,
-                    "action": self._extension_action_for_status(extension.status),
+                    "actions": list(self._extension_manager.actions(selected, armed_action=armed_action)),
                     "reset_available": extension.reset_available,
                     "revision": extension.revision,
                     "armed_action": armed_action,
@@ -7827,12 +7608,20 @@ class WebSocketRunner:
         self._extension_manager.get(extension_id)
         setattr(ui, "_extension_panel_view", "setup")
         setattr(ui, "_extension_selected_id", extension_id)
-        setattr(ui, "_extension_setup_draft", {})
+        self._extension_manager.begin_setup(ui.session_id, extension_id)
         setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page))
         setattr(ui, "_extension_focus_action", "setup")
         await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
 
     def _extension_setup_page(self, extension_id: str, page: int, *, error: str | None = None) -> dict[str, Any]:
+        youtube_setup_body = (
+            "Select a missing item and press Enter to install it privately under SONEX_HOME.\n"
+            "If the network is slow, download both wheels from PyPI or a trusted mirror:\n"
+            f"  {offline_package_dir()}\n"
+            "  yt_dlp-*.whl\n"
+            "  bgutil_ytdlp_pot_provider-*.whl\n"
+            "Then select yt-dlp and press Enter to retry."
+        )
         pages: dict[str, list[dict[str, Any]]] = {
             "spotify": [
                 {"title": "Spotify setup · Before you start", "body": "You need Spotify Premium, a Spotify developer account, and a browser.\nOpen https://developer.spotify.com/dashboard to begin."},
@@ -7860,7 +7649,7 @@ class WebSocketRunner:
                 {"title": "Audius setup · Verify connection", "body": "Sonex checks the node and performs one minimum read-only request.\nA valid response saves the key atomically and enables Audius."},
             ],
             "youtube": [
-                {"title": "YouTube setup", "body": "Select a missing item and press Enter to install it privately under SONEX_HOME.\nInstalled items are kept across retries; failures can be retried.", "dependencies": youtube_dependency_snapshot()},
+                {"title": "YouTube setup", "body": youtube_setup_body, "dependencies": youtube_dependency_snapshot()},
             ],
         }
         selected = pages.get(extension_id, pages["youtube"])
@@ -7887,6 +7676,7 @@ class WebSocketRunner:
             if current_view == "setup":
                 setattr(ui, "_extension_panel_view", "detail")
                 setattr(ui, "_extension_setup", None)
+                self._extension_manager.discard_setup(ui.session_id, extension_id)
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
             elif getattr(ui, "_extension_armed_action", None):
                 setattr(ui, "_extension_armed_action", None)
@@ -7911,14 +7701,25 @@ class WebSocketRunner:
                 await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
                 return
             if action in {"quick_check", "repair", "enable", "disable"}:
+                expected_revision = payload.get("revision")
+                if not isinstance(expected_revision, int):
+                    raise ExtensionActionError("Extension action requires a revision.")
                 async def update(view: Any) -> None:
                     await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
 
-                await self._extension_manager.run_action(extension_id, action, on_update=update)
+                await self._extension_manager.run_action(
+                    extension_id,
+                    action,
+                    expected_revision=expected_revision,
+                    on_update=update,
+                )
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
                 return
             if action == "prepare_reset":
-                view = self._extension_manager.get(extension_id)
+                expected_revision = payload.get("revision")
+                if not isinstance(expected_revision, int):
+                    raise ExtensionActionError("Reset preparation requires a revision.")
+                view = self._extension_manager.require_revision(extension_id, expected_revision)
                 if not view.reset_available:
                     raise ExtensionActionError("This extension has no locally stored credentials to reset.")
                 setattr(ui, "_extension_armed_action", "reset")
@@ -7935,7 +7736,7 @@ class WebSocketRunner:
                 armed = getattr(ui, "_extension_armed_token", None)
                 if not armed or armed[0] < time.time() or armed[1:3] != (extension_id, "reset") or str(payload.get("token") or "") != armed[3] or self._extension_manager.get(extension_id).revision != armed[4]:
                     raise ExtensionActionError("Reset confirmation expired.")
-                self._extension_manager.reset_credentials(extension_id)
+                self._extension_manager.reset_credentials(extension_id, expected_revision=armed[4])
                 if extension_id == "spotify" and self._spotify_mode_enabled(ui):
                     await self._reset_spotify_mode_locally(ui)
                 setattr(ui, "_extension_armed_action", None)
@@ -7943,6 +7744,10 @@ class WebSocketRunner:
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
                 return
             if action == "prepare_restart":
+                expected_revision = payload.get("revision")
+                if not isinstance(expected_revision, int):
+                    raise ExtensionActionError("Restart preparation requires a revision.")
+                view = self._extension_manager.require_revision(extension_id, expected_revision)
                 if self._extension_manager.get(extension_id).status is not ExtensionStatus.UNAPPLIED:
                     raise ExtensionActionError("Restart is only available when configuration is unapplied.")
                 setattr(ui, "_extension_armed_action", "restart")
@@ -7986,6 +7791,7 @@ class WebSocketRunner:
         if value in {"__cancel__", "cancel"}:
             setattr(ui, "_extension_panel_view", "detail")
             setattr(ui, "_extension_setup", None)
+            self._extension_manager.discard_setup(ui.session_id, extension_id)
             await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
             return
         input_page = {"spotify": {4: "client_id", 5: "client_secret"}, "jamendo": {5: "api_key"}, "audius": {5: "api_key"}}.get(extension_id, {}).get(page)
@@ -7998,9 +7804,7 @@ class WebSocketRunner:
             if not value:
                 setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page, error="Input cannot be empty."))
             else:
-                draft = getattr(ui, "_extension_setup_draft", {})
-                draft[input_page] = value
-                setattr(ui, "_extension_setup_draft", draft)
+                self._extension_manager.update_setup_draft(ui.session_id, extension_id, input_page, value)
                 next_page = page + 1
                 setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, next_page))
             await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
@@ -8009,19 +7813,20 @@ class WebSocketRunner:
             setattr(ui, "_extension_setup", self._extension_setup_page(extension_id, page + 1))
             await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
             return
-        draft = getattr(ui, "_extension_setup_draft", {})
+        draft = self._extension_manager.setup_draft(ui.session_id, extension_id)
+        setup_revision = self._extension_manager.setup_revision(ui.session_id, extension_id)
         try:
             if extension_id == "spotify" and draft.get("client_id") and draft.get("client_secret"):
                 save_spotify_app_credentials(draft["client_id"], draft["client_secret"])
-                self._extension_manager.clear_health(extension_id)
-                setattr(ui, "_extension_setup_draft", {})
+                self._extension_manager.clear_health(extension_id, expected_revision=setup_revision)
+                self._extension_manager.discard_setup(ui.session_id, extension_id)
                 await self._start_extension_spotify_oauth(ui)
                 return
             elif extension_id in {"jamendo", "audius"} and draft.get("api_key"):
                 set_api_key(extension_id, draft["api_key"])
-                self._extension_manager.clear_health(extension_id)
+                self._extension_manager.clear_health(extension_id, expected_revision=setup_revision)
                 await ui.append_system_message(f"{self._extension_manager.get(extension_id).name} credentials saved.")
-            setattr(ui, "_extension_setup_draft", {})
+            self._extension_manager.discard_setup(ui.session_id, extension_id)
             setattr(ui, "_extension_panel_view", "detail")
             setattr(ui, "_extension_setup", None)
             await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
@@ -8032,6 +7837,7 @@ class WebSocketRunner:
                 await self._extension_manager.run_action(
                     extension_id,
                     "quick_check",
+                    expected_revision=self._extension_manager.get(extension_id).revision,
                     on_update=update,
                 )
         except Exception as exc:
@@ -8069,7 +7875,8 @@ class WebSocketRunner:
                 account = await asyncio.to_thread(_spotify_loopback_login_for_tui, authorize_url, expected_state)
                 if _is_failed_tool_result(account):
                     raise RuntimeError("Spotify account verification failed.")
-                self._extension_manager.clear_health("spotify")
+                self._extension_manager.clear_health("spotify", expected_revision=self._extension_manager.get("spotify").revision)
+                self._extension_manager.discard_setup(ui.session_id, "spotify")
                 await ui.append_system_message("Spotify connection verified.")
                 setattr(ui, "_extension_panel_view", "detail")
                 setattr(ui, "_extension_setup", None)
@@ -8133,14 +7940,8 @@ class WebSocketRunner:
             await ui.append_system_message("Usage: /logout")
             return
 
-        netease_logged_out = await self._logout_netease(ui)
         state = _llm_auth_state()
         if not state.ready:
-            if netease_logged_out:
-                await self._clear_provider_modes_for_logout(ui)
-                await ui.append_system_message("Signed out of NetEase.")
-                await self._handle_bye(ui, messages=ui.transcript, reason="logout")
-                return
             await ui.append_system_message("You are not logged in.")
             return
 
@@ -8189,30 +7990,6 @@ class WebSocketRunner:
             "Signed out of the active LLM connection. Other saved provider credentials were preserved."
         )
         await self._handle_bye(ui, messages=ui.transcript, reason="logout")
-
-    async def _logout_netease(self, ui: WebSocketUIAdapter) -> bool:
-        """Cancel QR login and clear NetEase session state and ncm-cli auth."""
-        login_session = getattr(ui, "_netease_login_session", None)
-        if login_session is not None:
-            await login_session.cancel()
-            task = getattr(login_session, "task", None)
-            if isinstance(task, asyncio.Task):
-                with suppress(asyncio.CancelledError):
-                    await task
-        setattr(ui, "_netease_login_session", None)
-        setattr(ui, "_netease_login_offer", None)
-        setattr(ui, "_netease_login_declined", False)
-        setattr(ui, "_netease_verified_signature", None)
-        if getattr(ui, "_preferred_playback_provider", None) == "netease":
-            setattr(ui, "_preferred_playback_provider", None)
-        worker = NetEaseProviderWorker()
-        logged_out = False
-        try:
-            if await asyncio.to_thread(worker.is_logged_in):
-                logged_out = await asyncio.to_thread(worker.logout)
-        except Exception as exc:
-            logger.warning("NetEase logout check failed: %s", sanitize_error_message(exc))
-        return logged_out
 
     async def _handle_bye(
         self,
@@ -8392,10 +8169,7 @@ class WebSocketRunner:
                 or requested_provider
                 or ""
             ).casefold()
-            if selected_source in {"netease", "spotify"} and (
-                candidate.get("encrypted_id")
-                or candidate.get("uri")
-            ):
+            if selected_source == "spotify" and candidate.get("uri"):
                 readiness = await self._activate_authoritative_source(ui, selected_source)
                 if readiness is None:
                     message = f"{self._provider_label(selected_source)} is no longer ready."
@@ -8617,54 +8391,7 @@ class WebSocketRunner:
                     reason=sanitize_error_message(exc),
                 )
 
-        async def netease_probe() -> ProviderReadiness:
-            started = time.monotonic()
-            worker = NetEaseProviderWorker()
-            try:
-                health = await asyncio.wait_for(
-                    asyncio.to_thread(worker.health),
-                    timeout=4,
-                )
-                signature = self._netease_health_signature(worker, health.version)
-                verified = getattr(ui, "_netease_verified_signature", None) == signature
-                if getattr(ui, "_netease_verified_signature", None) not in {None, signature}:
-                    setattr(ui, "_netease_verified_signature", None)
-                return ProviderReadiness(
-                    "netease",
-                    configured=health.login_available or health.login_ready,
-                    logged_in=health.login_ready,
-                    subscription_ready=True,
-                    transport_ready=health.mpv_ready and health.ready,
-                    session_verified=verified,
-                    verified_success_rate=1.0 if verified else 0.0,
-                    startup_latency_ms=int((time.monotonic() - started) * 1000),
-                    capability_score=2 if health.ready else 0,
-                    preferred=getattr(ui, "_preferred_playback_provider", None) == "netease",
-                    reason=health.reason,
-                    details={
-                        "worker": worker,
-                        "signature": signature,
-                        "version": health.version,
-                        "health": health,
-                    },
-                )
-            except Exception as exc:
-                return ProviderReadiness(
-                    "netease",
-                    False,
-                    False,
-                    True,
-                    False,
-                    reason=sanitize_error_message(exc),
-                    details={"worker": worker},
-                )
-
-        snapshots = list(
-            await asyncio.gather(
-                spotify_probe(),
-                netease_probe(),
-            )
-        )
+        snapshots = [await spotify_probe()]
         for snapshot in snapshots:
             await ui.append_activity(
                 kind="tool",
@@ -8683,51 +8410,31 @@ class WebSocketRunner:
         exclude: str | None = None,
     ) -> str | None:
         """Resolve the source that owns a single-song search before searching."""
-        requested = str(requested_provider or "").strip().casefold()
-        excluded = str(exclude or "").strip().casefold()
-        if requested in {"online", "metadata", "online_audio"}:
-            return None if excluded == "online" else "online"
+        async def probe() -> list[ProviderReadiness]:
+            return await self._probe_authoritative_providers(ui)
 
-        snapshots = await self._probe_authoritative_providers(ui)
-        by_provider = {snapshot.provider: snapshot for snapshot in snapshots}
-        if requested in {"netease", "spotify"}:
-            snapshot = by_provider.get(requested)
-            if snapshot is not None and snapshot.ready:
-                return None if excluded == requested else requested
-            recovered = await self._recover_explicit_provider(ui, requested, snapshot)
-            if recovered is not None and recovered.ready and excluded != requested:
-                return requested
-            return None
+        async def recover(
+            provider: str,
+            readiness: ProviderReadiness | None,
+        ) -> ProviderReadiness | None:
+            return await self._recover_explicit_provider(ui, provider, readiness)
 
-        if self._spotify_mode_enabled(ui) and excluded != "spotify":
-            snapshot = by_provider.get("spotify")
-            if snapshot is not None and snapshot.ready:
-                return "spotify"
+        async def choose(sources: list[str], excluded: str | None) -> str | None:
+            session = PlaybackSourceSelectionSession(ui, sources, exclude=excluded)
+            setattr(ui, "_playback_source_selection", session)
+            await session.start()
+            return await session.result
 
-        preferred = str(getattr(ui, "_preferred_playback_provider", None) or "").casefold()
-        if preferred in {"netease", "spotify"} and preferred != excluded:
-            snapshot = by_provider.get(preferred)
-            if snapshot is not None and snapshot.ready:
-                return preferred
-
-        sources = [
-            provider
-            for provider in ("netease", "spotify")
-            if provider != excluded
-            and by_provider.get(provider) is not None
-            and by_provider[provider].ready
-        ]
-        if excluded != "online":
-            sources.append("online")
-        if not sources:
-            return None
-        if not any(provider in {"netease", "spotify"} for provider in sources):
-            return "online"
-
-        session = PlaybackSourceSelectionSession(ui, sources, exclude=excluded or None)
-        setattr(ui, "_playback_source_selection", session)
-        await session.start()
-        return await session.result
+        return await self._playback_coordinator.select_source(
+            requested_provider=requested_provider,
+            hard_provider=hard_provider,
+            exclude=exclude,
+            probe=probe,
+            recover=recover,
+            choose=choose,
+            active_provider="spotify" if self._spotify_mode_enabled(ui) else None,
+            preferred_provider=getattr(ui, "_preferred_playback_provider", None),
+        )
 
     async def _search_authoritative_candidates(
         self,
@@ -8747,37 +8454,6 @@ class WebSocketRunner:
             detail=f"Finding {label} tracks for {query}.",
             status="pending",
         )
-        if normalized_provider == "netease":
-            worker = NetEaseProviderWorker()
-            tracks = await asyncio.wait_for(
-                asyncio.to_thread(worker.search, query, limit=5),
-                timeout=4,
-            )
-            candidates: list[dict[str, Any]] = []
-            seen: set[str] = set()
-            for track in tracks:
-                if not isinstance(track, dict) or track.get("playable") is False:
-                    continue
-                encrypted_id = str(track.get("encrypted_id") or "").strip()
-                original_id = str(track.get("original_id") or "").strip()
-                if not encrypted_id or not original_id:
-                    continue
-                key = f"{encrypted_id}|{original_id}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                title = track.get("title") or track.get("name")
-                candidates.append(
-                    {
-                        **track,
-                        "provider": "netease",
-                        "metadata_source": "netease",
-                        "name": title,
-                        "title": title,
-                        "native_source": "netease",
-                    }
-                )
-            return candidates[:5]
         if normalized_provider == "spotify":
             query_plan = build_music_search_query_plan(query)
             tracks = await asyncio.to_thread(
@@ -8803,21 +8479,24 @@ class WebSocketRunner:
         ui: WebSocketUIAdapter,
         provider: str,
     ) -> ProviderReadiness | None:
-        snapshots = await self._probe_authoritative_providers(ui)
-        readiness = next(
-            (snapshot for snapshot in snapshots if snapshot.provider == provider),
-            None,
+        async def probe() -> list[ProviderReadiness]:
+            return await self._probe_authoritative_providers(ui)
+
+        async def recover(
+            requested: str,
+            readiness: ProviderReadiness | None,
+        ) -> ProviderReadiness | None:
+            return await self._recover_explicit_provider(ui, requested, readiness)
+
+        async def ensure(readiness: ProviderReadiness) -> bool:
+            return await self._ensure_authoritative_mode(ui, readiness)
+
+        return await self._playback_coordinator.activate_source(
+            provider,
+            probe=probe,
+            recover=recover,
+            ensure=ensure,
         )
-        if readiness is None or not readiness.ready:
-            return None
-        if provider == "spotify" and not readiness.details.get("active_device"):
-            recovered = await self._recover_explicit_provider(ui, provider, readiness)
-            if recovered is None:
-                return None
-            readiness = recovered
-        if not await self._ensure_authoritative_mode(ui, readiness):
-            return None
-        return readiness
 
     async def _handoff_previous_provider(self, ui: WebSocketUIAdapter, new_provider: str) -> None:
         """Stop the previous Sonex-owned source after a new source starts."""
@@ -8826,45 +8505,32 @@ class WebSocketRunner:
             or getattr(ui, "_preferred_playback_provider", None)
             or ""
         ).casefold()
-        if not previous or previous == new_provider:
-            return
-        try:
-            if previous == "spotify":
+        async def stop_previous(provider: str) -> None:
+            if provider == "spotify":
                 mode = getattr(ui, "_spotify_mode", {}) or {}
                 args = {"device_id": mode.get("device_id")} if mode.get("device_id") else {}
                 await asyncio.to_thread(registry.invoke_system, "spotify_pause", args)
-            elif previous == "netease":
-                worker = getattr(ui, "_active_netease_worker", None)
-                if not isinstance(worker, NetEaseProviderWorker):
-                    worker = NetEaseProviderWorker()
-                await asyncio.to_thread(worker.control, "stop")
-            elif previous in {"online", "local"}:
+            elif provider in {"online", "local"}:
                 await asyncio.to_thread(registry.invoke_system, "local_playback_stop", {})
-        except Exception as exc:
+
+        async def report_failure(provider: str, error: Exception) -> None:
             await ui.append_activity(
                 kind="warning",
                 title="Playback handoff",
-                detail=f"Previous {previous} playback could not be stopped: {sanitize_error_message(exc)}",
+                detail=f"Previous {provider} playback could not be stopped: {sanitize_error_message(error)}",
                 status="warning",
             )
 
-    @staticmethod
-    def _netease_health_signature(
-        worker: NetEaseProviderWorker,
-        version: str | None,
-    ) -> tuple[str, str | None, int | None]:
-        try:
-            config_mtime = worker.config_dir.stat().st_mtime_ns
-        except OSError:
-            config_mtime = None
-        return (str(worker.executable or ""), version, config_mtime)
+        await self._playback_coordinator.handoff(
+            previous,
+            new_provider,
+            stop_previous=stop_previous,
+            report_failure=report_failure,
+        )
 
     @staticmethod
     def _provider_label(provider: str) -> str:
-        return {
-            "spotify": "Spotify",
-            "netease": "NetEase",
-        }.get(provider, provider)
+        return {"spotify": "Spotify"}.get(provider, provider)
 
     async def _route_authoritative_provider(
         self,
@@ -8877,60 +8543,27 @@ class WebSocketRunner:
     ) -> dict[str, Any]:
         requested = str(requested_provider or "").strip().casefold()
         snapshots = await self._probe_authoritative_providers(ui)
-        ranked = rank_authoritative_providers(
-            snapshots,
-            requested_provider=requested if hard_provider else None,
-        )
-        if hard_provider and requested and not ranked:
-            requested_snapshot = next(
-                (
-                    snapshot
-                    for snapshot in snapshots
-                    if snapshot.provider == requested
-                ),
-                None,
-            )
-            recovered = await self._recover_explicit_provider(
+        played_provider: list[str] = []
+
+        async def confirm_route(snapshot: ProviderReadiness) -> bool:
+            label = self._provider_label(snapshot.provider)
+            return await self._confirm_agent_playback_route(
                 ui,
-                requested,
-                requested_snapshot,
+                message=f"Use {label} Mode and play {identity.artist} — {identity.title}?",
+                stage="authoritative_provider",
+                provider=snapshot.provider,
             )
-            if recovered is not None:
-                ranked = [recovered]
-        failures: list[str] = []
-        for snapshot in ranked:
-            if not snapshot.active_mode and not snapshot.session_verified:
-                label = self._provider_label(snapshot.provider)
-                if snapshot.provider == "netease":
-                    message = (
-                        f"Use NetEase for this session and play "
-                        f"{identity.artist} — {identity.title} via ncm-cli/mpv?"
-                    )
-                else:
-                    message = (
-                        f"Use {label} Mode and play "
-                        f"{identity.artist} — {identity.title}?"
-                    )
-                allowed = await self._confirm_agent_playback_route(
-                    ui,
-                    message=message,
-                    stage="authoritative_provider",
-                    provider=snapshot.provider,
-                )
-                if not allowed:
-                    failures.append(f"{label} was rejected.")
-                    if hard_provider:
-                        break
-                    continue
-            mode_ready = await self._ensure_authoritative_mode(ui, snapshot)
-            if not mode_ready:
-                failures.append(
-                    snapshot.reason
-                    or f"{self._provider_label(snapshot.provider)} Mode is unavailable."
-                )
-                if hard_provider:
-                    break
-                continue
+
+        async def activate_route(snapshot: ProviderReadiness) -> bool:
+            return await self._ensure_authoritative_mode(ui, snapshot)
+
+        async def recover_route(
+            provider: str,
+            readiness: ProviderReadiness | None,
+        ) -> ProviderReadiness | None:
+            return await self._recover_explicit_provider(ui, provider, readiness)
+
+        async def play_route(snapshot: ProviderReadiness) -> dict[str, Any]:
             result = await self._try_selected_native_provider(
                 ui,
                 identity=identity,
@@ -8939,81 +8572,26 @@ class WebSocketRunner:
                 readiness=snapshot,
             )
             if result.get("status") == "playback_completed":
-                successes = dict(getattr(ui, "_provider_route_success", {}) or {})
-                successes[snapshot.provider] = 1.0
-                setattr(ui, "_provider_route_success", successes)
-                if snapshot.provider == "netease":
-                    setattr(
-                        ui,
-                        "_netease_verified_signature",
-                        snapshot.details.get("signature"),
-                    )
-                setattr(ui, "_preferred_playback_provider", snapshot.provider)
-                return result
-            failures.append(str(result.get("message") or "Playback failed."))
-            if snapshot.provider == "netease":
-                setattr(ui, "_netease_verified_signature", None)
-            if hard_provider:
-                break
-        if not hard_provider:
-            netease_snapshot = next(
-                (snapshot for snapshot in snapshots if snapshot.provider == "netease"),
-                None,
-            )
-            health = (
-                netease_snapshot.details.get("health")
-                if netease_snapshot is not None
-                else None
-            )
-            if (
-                health is not None
-                and health.login_available
-                and not health.login_ready
-                and not getattr(ui, "_netease_login_declined", False)
-            ):
-                recovered, outcome = await self._offer_netease_login(
-                    ui,
-                    fallback_online=True,
-                    readiness=netease_snapshot,
-                )
-                if recovered is not None:
-                    result = await self._try_selected_native_provider(
-                        ui,
-                        identity=identity,
-                        provider="netease",
-                        selected_candidate=selected_candidate,
-                        readiness=recovered,
-                    )
-                    if result.get("status") == "playback_completed":
-                        setattr(ui, "_preferred_playback_provider", "netease")
-                        setattr(ui, "_netease_verified_signature", recovered.details.get("signature"))
-                        return result
-                    failures.append(str(result.get("message") or "NetEase playback failed."))
-                if outcome in {"online", "cancelled", "failed", "timeout"}:
-                    return {
-                        "status": "playback_failed",
-                        "message": "Continue with online playback.",
-                        "error_code": "AUTHORITATIVE_PROVIDER_UNAVAILABLE",
-                        "data": {"provider": None, "attempted": [item.provider for item in ranked], "online_allowed": True},
-                    }
-        message = (
-            " ".join(dict.fromkeys(failures))
-            if failures
-            else (
-                f"{self._provider_label(requested)} is not ready."
-                if hard_provider and requested
-                else "No authoritative provider is ready."
-            )
+                played_provider.append(snapshot.provider)
+            return result
+
+        result = await self._playback_coordinator.route_authoritative(
+            snapshots,
+            requested_provider=requested,
+            hard_provider=hard_provider,
+            confirm_route=confirm_route,
+            activate_route=activate_route,
+            play_route=play_route,
+            recover_route=recover_route,
+            provider_label=self._provider_label,
         )
-        return {
-            "status": "playback_failed",
-            "message": message,
-            "error_code": "AUTHORITATIVE_PROVIDER_UNAVAILABLE",
-            "data": {
-                "provider": requested or None,
-                "attempted": [snapshot.provider for snapshot in ranked],
-            },
-        }
+        if result.get("status") == "playback_completed" and played_provider:
+            provider = played_provider[-1]
+            successes = dict(getattr(ui, "_provider_route_success", {}) or {})
+            successes[provider] = 1.0
+            setattr(ui, "_provider_route_success", successes)
+            setattr(ui, "_preferred_playback_provider", provider)
+        return result
 
     async def _recover_explicit_provider(
         self,
@@ -9024,18 +8602,6 @@ class WebSocketRunner:
         allow_setup: bool = True,
     ) -> ProviderReadiness | None:
         """Enter setup or Mode for an explicitly constrained provider."""
-        if provider == "netease":
-            health = readiness.details.get("health") if readiness is not None else None
-            if health is None or not health.login_available or health.login_ready:
-                return None
-            recovered, outcome = await self._offer_netease_login(
-                ui,
-                fallback_online=False,
-                readiness=readiness,
-            )
-            if outcome != "connected":
-                setattr(ui, "_netease_login_declined", True)
-            return recovered
         if provider != "spotify":
             return None
         if readiness is None or not readiness.configured or not readiness.logged_in:
@@ -9101,44 +8667,6 @@ class WebSocketRunner:
             },
         )
 
-    async def _offer_netease_login(
-        self,
-        ui: WebSocketUIAdapter,
-        *,
-        fallback_online: bool,
-        readiness: ProviderReadiness,
-    ) -> tuple[ProviderReadiness | None, str]:
-        offer = NetEaseLoginOfferSession(ui, fallback_online=fallback_online)
-        setattr(ui, "_netease_login_offer", offer)
-        choice = await offer.start()
-        if choice != "scan":
-            setattr(ui, "_netease_login_declined", True)
-            return None, choice
-        worker = readiness.details.get("worker")
-        if not isinstance(worker, NetEaseProviderWorker):
-            worker = NetEaseProviderWorker()
-        session = NetEaseLoginSession(
-            ui,
-            worker,
-            on_completed=None,
-            fallback_online=fallback_online,
-            emit_feedback=False,
-        )
-        setattr(ui, "_netease_login_session", session)
-        await session.start()
-        connection = await session.result
-        if connection.get("status") != "connected":
-            setattr(ui, "_netease_login_declined", True)
-            return None, str(connection.get("status") or "failed")
-        refreshed = await self._probe_authoritative_providers(ui)
-        recovered = next(
-            (snapshot for snapshot in refreshed if snapshot.provider == "netease" and snapshot.ready),
-            None,
-        )
-        if recovered is None:
-            return None, "failed"
-        return replace(recovered, session_verified=True), "connected"
-
     async def _ensure_authoritative_mode(
         self,
         ui: WebSocketUIAdapter,
@@ -9157,7 +8685,7 @@ class WebSocketRunner:
                 announce=False,
             )
             return self._spotify_mode_enabled(ui)
-        return readiness.provider == "netease"
+        return False
 
     async def _try_selected_native_provider(
         self,
@@ -9169,110 +8697,32 @@ class WebSocketRunner:
         readiness: ProviderReadiness | None = None,
     ) -> dict[str, Any]:
         """Try one native provider only after verifying the selected identity."""
-        query = f"{identity.artist} {identity.title}".strip()
-        if provider == "netease":
-            worker = (
-                readiness.details.get("worker")
-                if readiness is not None
-                else None
-            )
-            if not isinstance(worker, NetEaseProviderWorker):
-                worker = NetEaseProviderWorker()
-            setattr(ui, "_active_netease_worker", worker)
-            try:
-                if readiness is None:
-                    health = await asyncio.to_thread(worker.health)
-                    if not health.ready:
-                        raise RuntimeError(health.reason or "NetEase is not ready.")
-                exact = selected_candidate if selected_candidate.get("encrypted_id") and selected_candidate.get("original_id") else None
-                if exact is None:
-                    # Compatibility for legacy queue entries that predate native
-                    # candidate references. New interactive searches never use
-                    # this branch.
-                    tracks = await asyncio.wait_for(
-                        asyncio.to_thread(worker.search, query, limit=5),
-                        timeout=4,
-                    )
-                    exact = next(
-                        (
-                            track
-                            for track in tracks
-                            if track.get("playable") is not False
-                            and recording_identity_matches(identity, track)
-                        ),
-                        None,
-                    )
-                if exact is None or exact.get("playable") is False:
-                    raise RuntimeError("NetEase selected track is not playable.")
-                data = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        worker.play,
-                        encrypted_id=str(exact.get("encrypted_id") or ""),
-                        original_id=str(exact.get("original_id") or ""),
-                    ),
-                    timeout=6,
-                )
-            except Exception as exc:
-                return {
-                    "status": "playback_failed",
-                    "message": sanitize_error_message(exc),
-                    "error_code": "NETEASE_PLAYBACK_FAILED",
-                    "data": {"provider": "netease"},
-                }
-            finally:
-                if getattr(ui, "_active_netease_worker", None) is worker:
-                    setattr(ui, "_active_netease_worker", None)
-            result = {
-                "status": "success",
-                "tool": "netease_play",
-                "message": "NetEase playback started.",
-                "error_code": None,
-                "data": {
-                    **data,
-                    "name": identity.title,
-                    "artist": identity.artist,
-                },
-            }
-            await self._handoff_previous_provider(ui, "netease")
-            setattr(ui, "_active_playback_provider", "netease")
-            await self._sync_tool_result_ui(ui, "netease_play", result)
-            await ui.append_system_message(
-                format_agent_playing_feedback(result, selected_candidate)
-            )
-            return {
-                "status": "playback_completed",
-                "message": "NetEase playback started.",
-                "error_code": None,
-                "data": result["data"],
-            }
-
         search_tool = "spotify_search"
         play_tool = "spotify_play"
+
+        async def search_candidates(query: str) -> list[dict[str, Any]]:
+            search_result = await asyncio.wait_for(
+                asyncio.to_thread(
+                    registry.invoke_system,
+                    search_tool,
+                    {"query": query, "limit": 5},
+                ),
+                timeout=4,
+            )
+            return [
+                dict(track)
+                for track in _search_results_payload(search_result)
+                if isinstance(track, dict)
+            ]
+
         try:
-            uri = selected_candidate.get("uri") or selected_candidate.get("spotify_uri")
-            if not isinstance(uri, str) or not uri.startswith("spotify:track:"):
-                # Compatibility for legacy queue entries. New interactive
-                # Spotify candidates always carry their native URI.
-                search_result = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        registry.invoke_system,
-                        search_tool,
-                        {"query": query, "limit": 5},
-                    ),
-                    timeout=4,
-                )
-                tracks = _search_results_payload(search_result)
-                exact = next(
-                    (track for track in tracks if recording_identity_matches(identity, track)),
-                    None,
-                )
-                if exact is None:
-                    raise RuntimeError(
-                        f"{provider} has no exact playable match for the selected recording."
-                    )
-                uri = exact.get("uri") or exact.get("ref")
-            if not isinstance(uri, str) or not uri.startswith("spotify:track:"):
-                raise RuntimeError("Spotify selected track has no playable URI.")
+            exact = await self._playback_coordinator.resolve_native_candidate(
+                identity,
+                selected_candidate,
+                search_candidates=search_candidates,
+                native_uri_prefix="spotify:track:",
+            )
+            uri = exact.get("uri") or exact.get("ref")
             play_result = await asyncio.wait_for(
                 asyncio.to_thread(
                     registry.invoke_system,
@@ -9827,5 +9277,4 @@ class WebSocketRunner:
             await self._handle_user_input(
                 ui,
                 next_input,
-                append_user_message=False,
             )

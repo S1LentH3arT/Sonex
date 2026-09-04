@@ -1,5 +1,4 @@
 from src.tools.local_play import play_local_song
-from src.tools.netease import netease_account, netease_play, netease_search
 from src.tools.online_play import play_youtube_song
 from src.tools.playback_controller import (
     local_playback_pause,
@@ -41,9 +40,6 @@ __all__ = [
     "registry",
     "request_playback_selection",
     "play_local_song",
-    "netease_account",
-    "netease_search",
-    "netease_play",
     "play_youtube_song",
     "local_playback_pause",
     "local_playback_resume",

@@ -187,7 +187,7 @@ def test_committed_playback_selection_ends_without_second_llm_plan() -> None:
         tool_result = gen.send(
             {
                 "status": "playback_completed",
-                "data": {"provider": "NetEase"},
+                "data": {"provider": "Spotify"},
             }
         )
         assert tool_result.type == "tool"

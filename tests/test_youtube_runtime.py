@@ -112,6 +112,63 @@ class YoutubeRuntimeTests(unittest.TestCase):
         self.assertEqual(second["pid"], 1234)
         popen.assert_called_once()
 
+    def test_offline_package_bundle_detects_both_manual_wheels(self) -> None:
+        offline = runtime.state_root() / "offline"
+        offline.mkdir(parents=True)
+        (offline / "yt_dlp-2026.08.19-py3-none-any.whl").write_bytes(b"yt-dlp")
+        (offline / "bgutil_ytdlp_pot_provider-1.3.2-py3-none-any.whl").write_bytes(b"provider")
+
+        bundle = runtime.offline_package_bundle()
+
+        self.assertIsNotNone(bundle)
+        assert bundle is not None
+        self.assertEqual(bundle["yt-dlp"]["version"], "2026.08.19")
+        self.assertEqual(bundle["bgutil-ytdlp-pot-provider"]["version"], "1.3.2")
+
+    def test_yt_dlp_install_uses_manual_wheels_without_index(self) -> None:
+        offline = runtime.state_root() / "offline"
+        offline.mkdir(parents=True)
+        yt_wheel = offline / "yt_dlp-2026.08.19-py3-none-any.whl"
+        provider_wheel = offline / "bgutil_ytdlp_pot_provider-1.3.2-py3-none-any.whl"
+        yt_wheel.write_bytes(b"yt-dlp")
+        provider_wheel.write_bytes(b"provider")
+        bundle = runtime.offline_package_bundle()
+        assert bundle is not None
+
+        components = Path(self._home.name) / "components"
+        with patch.object(runtime, "_components_root", return_value=components), patch.object(
+            runtime, "_component_manifest", return_value={}
+        ), patch.object(runtime, "_run_checked") as run_checked:
+            runtime._install_yt_dlp_component(
+                Path(self._home.name) / "staging",
+                "2026.08.19",
+                "ignored",
+                "1.3.2",
+                "ignored",
+                offline_bundle=bundle,
+            )
+
+        pip_command = run_checked.call_args_list[-1].args[0]
+        self.assertIn("--no-index", pip_command)
+        self.assertIn(str(yt_wheel), pip_command)
+        self.assertIn(str(provider_wheel), pip_command)
+
+    def test_update_uses_manual_bundle_without_online_version_lookup(self) -> None:
+        offline = runtime.state_root() / "offline"
+        offline.mkdir(parents=True)
+        (offline / "yt_dlp-2026.08.19-py3-none-any.whl").write_bytes(b"yt-dlp")
+        (offline / "bgutil_ytdlp_pot_provider-1.3.2-py3-none-any.whl").write_bytes(b"provider")
+        runtime._update_state(status="running", component="yt-dlp", started_at=runtime.time.time())
+
+        with patch.object(runtime, "latest_versions") as latest_versions, patch.object(
+            runtime, "_pypi_wheel_hash"
+        ) as wheel_hash, patch.object(runtime, "_install_yt_dlp_component") as install:
+            runtime._perform_update()
+
+        latest_versions.assert_not_called()
+        wheel_hash.assert_not_called()
+        self.assertEqual(install.call_args.kwargs["offline_bundle"]["yt-dlp"]["version"], "2026.08.19")
+
 
 if __name__ == "__main__":
     unittest.main()

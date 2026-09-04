@@ -340,27 +340,6 @@ class WebSocketUIAdapter:
             }
         )
 
-    async def send_netease_login(
-        self,
-        *,
-        title: str,
-        output: str,
-        status: str,
-        active: bool = True,
-        fallback_online: bool = False,
-    ) -> None:
-        """Publish one bounded NetEase QR-login surface update."""
-        await self._send(
-            {
-                "type": "netease_login",
-                "title": title,
-                "output": output,
-                "status": status,
-                "active": active,
-                "fallback_online": fallback_online,
-            }
-        )
-
     async def send_auth_setup(
         self,
         *,

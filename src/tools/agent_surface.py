@@ -26,7 +26,6 @@ from src.tools.up_next import up_next_snapshot
 QUERY_PROVIDERS = (
     "current",
     "spotify",
-    "netease",
     "jamendo",
     "audius",
     "local",
@@ -42,7 +41,7 @@ QUERY_RESOURCES = (
     "devices",
     "playback",
 )
-RECOMMEND_PROVIDERS = ("spotify", "netease")
+RECOMMEND_PROVIDERS = ("spotify",)
 RECOMMEND_TIMEOUT_SECONDS = 8.0
 _MAX_LOCAL_REFS = 512
 _LOCAL_REFS: OrderedDict[str, str] = OrderedDict()
@@ -180,7 +179,7 @@ def _normalize_item(provider: str, item: dict[str, Any]) -> dict[str, Any]:
     ref = remember_track_reference(
         provider,
         normalized,
-        playable=provider in {"spotify", "netease", "local"},
+        playable=provider in {"spotify", "local"},
     )
     normalized["ref"] = ref
     return normalized
@@ -357,12 +356,6 @@ def _query_tool_and_args(
             "playback": ("spotify_current_playback", {}),
         }
         return mapping.get(resource, (None, {}))
-    if provider == "netease":
-        mapping = {
-            "catalog": ("netease_search", {"query": query, "limit": limit}),
-            "account": ("netease_account", {}),
-        }
-        return mapping.get(resource, (None, {}))
     if provider == "local":
         return None, {}
     return None, {}
@@ -380,8 +373,6 @@ def _decode_ref(provider: str, ref: str | None) -> str | None:
 def _provider_connected(provider: str) -> bool:
     if provider == "local":
         return True
-    if provider == "netease":
-        return False
     try:
         from src.extensions import ExtensionManager, ExtensionStatus
 
@@ -617,14 +608,6 @@ def Recommend(
     skipped: list[dict[str, str]] = []
     connected: list[str] = []
     for provider_id in ordered:
-        if provider_id == "netease":
-            skipped.append(
-                {
-                    "provider": provider_id,
-                    "reason": "recommendation_capability_unavailable",
-                }
-            )
-            continue
         if manager.get(provider_id).status is not ExtensionStatus.ENABLED:
             skipped.append(
                 {"provider": provider_id, "reason": "not_connected"}
@@ -807,19 +790,6 @@ def _play_workflow(arguments: dict[str, Any]) -> dict[str, Any]:
         )
     if provider in {"jamendo", "audius"}:
         return registry.invoke_system("play_youtube_song", {"query": query or ref})
-    if provider == "netease":
-        netease_ref = _decode_ref("netease", ref) or ""
-        encrypted_id, separator, original_id = netease_ref.partition("|")
-        if not separator or not encrypted_id or not original_id:
-            return _failure(
-                "Call",
-                "NetEase playback requires a selected encrypted and original track ID.",
-                "INVALID_REF",
-            )
-        return registry.invoke_system(
-            "netease_play",
-            {"encrypted_id": encrypted_id, "original_id": original_id},
-        )
     return _failure(
         "Call",
         f"Playback is not supported for {provider}.",

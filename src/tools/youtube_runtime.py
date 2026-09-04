@@ -616,6 +616,37 @@ def _component_manifest(component: str) -> dict[str, Any]:
     return _read_json(_component_manifest_path(component)) or {}
 
 
+def offline_package_dir() -> Path:
+    """Return the user-owned directory for manually downloaded wheels."""
+    return state_root() / "offline"
+
+
+def _offline_wheel(project: str) -> dict[str, str] | None:
+    normalized = project.replace("-", "_")
+    candidates = [
+        path for path in offline_package_dir().glob("*.whl")
+        if path.is_file() and path.stem.lower().startswith(f"{normalized.lower()}-")
+    ]
+    if not candidates:
+        return None
+    selected = max(candidates, key=lambda path: _version_tuple(path.stem[len(normalized) + 1 :].split("-", 1)[0]))
+    version = selected.stem[len(normalized) + 1 :].split("-", 1)[0]
+    digest = hashlib.sha256()
+    with selected.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {"path": str(selected), "version": version, "sha256": digest.hexdigest()}
+
+
+def offline_package_bundle() -> dict[str, dict[str, str]] | None:
+    """Return a complete manually downloaded yt-dlp/provider wheel pair."""
+    yt_dlp = _offline_wheel("yt-dlp")
+    provider = _offline_wheel("bgutil-ytdlp-pot-provider")
+    if not yt_dlp or not provider:
+        return None
+    return {"yt-dlp": yt_dlp, "bgutil-ytdlp-pot-provider": provider}
+
+
 def _node_architecture() -> str:
     machine = platform.machine().lower()
     if machine in {"x86_64", "amd64"}:
@@ -922,6 +953,8 @@ def _install_yt_dlp_component(
     digest: str,
     provider_version: str,
     provider_digest: str,
+    *,
+    offline_bundle: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     component = _components_root() / f"yt-dlp-{version}"
     python_path = component / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
@@ -939,8 +972,22 @@ def _install_yt_dlp_component(
         _mkdir(component.parent)
         _run_checked([sys.executable, "-m", "venv", str(component)], cwd=staging, timeout=120, phase="create_yt_dlp_runtime")
     if needs_install:
-        _run_checked(
-            [
+        if offline_bundle:
+            install_command = [
+                str(python_path),
+                "-m",
+                "pip",
+                "install",
+                "--no-deps",
+                "--only-binary=:all:",
+                "--no-index",
+                "--find-links",
+                str(offline_package_dir()),
+                offline_bundle["yt-dlp"]["path"],
+                offline_bundle["bgutil-ytdlp-pot-provider"]["path"],
+            ]
+        else:
+            install_command = [
                 str(python_path),
                 "-m",
                 "pip",
@@ -951,7 +998,9 @@ def _install_yt_dlp_component(
                 f"--hash=sha256:{digest}",
                 f"bgutil-ytdlp-pot-provider=={provider_version}",
                 f"--hash=sha256:{provider_digest}",
-            ],
+            ]
+        _run_checked(
+            install_command,
             cwd=staging,
             timeout=120,
             phase="install_yt_dlp",
@@ -1025,9 +1074,10 @@ def _perform_update() -> None:
     staging = Path(tempfile.mkdtemp(prefix="component-", dir=str(runtime_root() / "staging")))
     try:
         _mkdir(_components_root())
-        versions = latest_versions(force=True) if component not in {"node", "npm"} else {}
-        yt_version = str(versions.get("yt_dlp_version") or "")
-        provider_version = str(versions.get("provider_version") or "")
+        offline_bundle = offline_package_bundle() if component in {"all", "yt-dlp"} else None
+        versions = latest_versions(force=True) if not offline_bundle and component not in {"node", "npm"} else {}
+        yt_version = offline_bundle["yt-dlp"]["version"] if offline_bundle else str(versions.get("yt_dlp_version") or "")
+        provider_version = offline_bundle["bgutil-ytdlp-pot-provider"]["version"] if offline_bundle else str(versions.get("provider_version") or "")
         if component in {"all", "yt-dlp"} and not yt_version:
             raise RuntimeError("Stable yt-dlp version could not be resolved.")
         if component in {"all", "yt-dlp"} and not provider_version:
@@ -1040,9 +1090,10 @@ def _perform_update() -> None:
             _install_yt_dlp_component(
                 staging,
                 yt_version,
-                _pypi_wheel_hash("yt-dlp", yt_version),
+                offline_bundle["yt-dlp"]["sha256"] if offline_bundle else _pypi_wheel_hash("yt-dlp", yt_version),
                 provider_version,
-                _pypi_wheel_hash("bgutil-ytdlp-pot-provider", provider_version),
+                offline_bundle["bgutil-ytdlp-pot-provider"]["sha256"] if offline_bundle else _pypi_wheel_hash("bgutil-ytdlp-pot-provider", provider_version),
+                offline_bundle=offline_bundle,
             )
         if component in {"all", "po-token-provider"}:
             _install_provider_component(staging, provider_version)

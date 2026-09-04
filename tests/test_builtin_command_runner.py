@@ -15,7 +15,7 @@ import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import WebSocketDisconnect
 
@@ -132,9 +132,6 @@ class FakeUI:
         Example: send_auth_setup() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "auth_setup", **kwargs})
-
-    async def send_netease_login(self, **kwargs: object) -> None:
-        self.events.append({"type": "netease_login", **kwargs})
 
     async def send_auth_state(self, state: object) -> None:
         """Verifies that send auth state behaves as expected.
@@ -519,67 +516,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    async def test_authoritative_route_rejection_tries_next_ready_provider(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        spotify = ProviderReadiness(
-            "spotify",
-            True,
-            True,
-            True,
-            True,
-            startup_latency_ms=10,
-        )
-        netease = ProviderReadiness(
-            "netease",
-            True,
-            True,
-            True,
-            True,
-            startup_latency_ms=20,
-        )
-        runner._probe_authoritative_providers = AsyncMock(
-            return_value=[netease, spotify]
-        )
-        runner._confirm_agent_playback_route = AsyncMock(
-            side_effect=[False, True]
-        )
-        runner._ensure_authoritative_mode = AsyncMock(return_value=True)
-        runner._try_selected_native_provider = AsyncMock(
-            return_value={
-                "status": "playback_completed",
-                "message": "NetEase playback started.",
-                "data": {"provider": "netease"},
-            }
-        )
-
-        result = await runner._route_authoritative_provider(
-            ui,
-            identity=RecordingIdentity("BB88", "方大同"),
-            selected_candidate={"title": "BB88", "artist": "方大同"},
-            requested_provider=None,
-            hard_provider=False,
-        )
-
-        self.assertEqual(result["status"], "playback_completed")
-        self.assertEqual(
-            [
-                call.kwargs["provider"]
-                for call in runner._confirm_agent_playback_route.await_args_list
-            ],
-            ["spotify", "netease"],
-        )
-        self.assertEqual(
-            runner._try_selected_native_provider.await_args.kwargs["provider"],
-            "netease",
-        )
-
     async def test_explicit_provider_rejection_does_not_cross_provider_boundary(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
         providers = [
             ProviderReadiness("spotify", True, True, True, True),
-            ProviderReadiness("netease", True, True, True, True),
         ]
         runner._probe_authoritative_providers = AsyncMock(return_value=providers)
         runner._confirm_agent_playback_route = AsyncMock(return_value=False)
@@ -597,209 +538,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "playback_failed")
         runner._try_selected_native_provider.assert_not_awaited()
         self.assertEqual(result["data"]["attempted"], ["spotify"])
-
-    async def test_unlogged_netease_online_choice_authorizes_direct_fallback_once(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        health = type(
-            "Health",
-            (),
-            {"login_available": True, "login_ready": False},
-        )()
-        netease = ProviderReadiness(
-            "netease",
-            True,
-            False,
-            True,
-            False,
-            details={"health": health, "worker": object()},
-        )
-        runner._probe_authoritative_providers = AsyncMock(return_value=[netease])
-        runner._offer_netease_login = AsyncMock(return_value=(None, "online"))
-
-        result = await runner._route_authoritative_provider(
-            ui,
-            identity=RecordingIdentity("BB88", "方大同"),
-            selected_candidate={"title": "BB88", "artist": "方大同"},
-            requested_provider=None,
-            hard_provider=False,
-        )
-
-        self.assertTrue(result["data"]["online_allowed"])
-
-    async def test_scan_success_tries_netease_before_any_online_fallback(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        health = type("Health", (), {"login_available": True, "login_ready": False})()
-        before_login = ProviderReadiness(
-            "netease", True, False, True, False,
-            details={"health": health, "worker": object()},
-        )
-        after_login = ProviderReadiness(
-            "netease", True, True, True, True, session_verified=True,
-            details={"worker": object(), "signature": ("ncm-cli", "0.1.6", 1)},
-        )
-        runner._probe_authoritative_providers = AsyncMock(return_value=[before_login])
-        runner._offer_netease_login = AsyncMock(return_value=(after_login, "connected"))
-        runner._try_selected_native_provider = AsyncMock(return_value={
-            "status": "playback_completed",
-            "message": "NetEase playback started.",
-            "data": {"provider": "netease"},
-        })
-
-        result = await runner._route_authoritative_provider(
-            ui,
-            identity=RecordingIdentity("BB88", "方大同"),
-            selected_candidate={"title": "BB88", "artist": "方大同"},
-            requested_provider=None,
-            hard_provider=False,
-        )
-
-        self.assertEqual(result["status"], "playback_completed")
-        self.assertEqual(runner._try_selected_native_provider.await_args.kwargs["provider"], "netease")
-
-    async def test_connected_netease_matches_featured_track_without_community_fallback(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        worker = ws_runner.NetEaseProviderWorker(executable="/usr/bin/ncm-cli")
-        ready = ProviderReadiness(
-            "netease",
-            True,
-            True,
-            True,
-            True,
-            session_verified=True,
-            details={"worker": worker, "signature": ("ncm-cli", "0.1.6", 1)},
-        )
-        runner._probe_authoritative_providers = AsyncMock(return_value=[ready])
-        runner._confirm_agent_playback_route = AsyncMock(return_value=False)
-        identity = RecordingIdentity(
-            "爱不来",
-            "方大同",
-            album="危险世界",
-            duration_ms=280_195,
-        )
-        selection_ref = runner._playback_coordinator.selections.issue(
-            session_id=ui.session_id,
-            turn_id="turn-featured-track",
-            identity=identity,
-        )
-        search_result = [{
-            "provider": "netease",
-            "title": "爱不来 (feat. Miss Ko葛仲珊)",
-            "artist": "方大同, 葛仲珊",
-            "album": "危险世界",
-            "duration_ms": 280_195,
-            "encrypted_id": "08CF323E6573092008F526C262097CB3",
-            "original_id": "28406197",
-        }]
-
-        with patch.object(runner, "_verified_cached_recording", return_value=None), patch.object(
-            worker,
-            "search",
-            return_value=search_result,
-        ), patch.object(
-            worker,
-            "play",
-            return_value={"status": "success", "provider": "NetEase", "player": "ncm-cli/mpv"},
-        ) as play:
-            result = await runner._commit_agent_playback_selection(
-                ui,
-                selection_ref=selection_ref,
-                turn_id="turn-featured-track",
-                query="方大同 爱不来",
-                candidate={
-                    "title": "爱不来",
-                    "artist": "方大同",
-                    "album": "危险世界",
-                    "duration_ms": 280_195,
-                },
-                requested_provider=None,
-                hard_provider=False,
-            )
-
-        self.assertEqual(result["status"], "playback_completed")
-        play.assert_called_once_with(
-            encrypted_id="08CF323E6573092008F526C262097CB3",
-            original_id="28406197",
-        )
-        self.assertNotIn(
-            "No authoritative provider is available. Try community audio sources?",
-            [call.kwargs.get("message") for call in runner._confirm_agent_playback_route.await_args_list],
-        )
-
-    async def test_connected_netease_does_not_play_unplayable_exact_match(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        worker = ws_runner.NetEaseProviderWorker(executable="/usr/bin/ncm-cli")
-        ready = ProviderReadiness(
-            "netease",
-            True,
-            True,
-            True,
-            True,
-            session_verified=True,
-            details={"worker": worker, "signature": ("ncm-cli", "0.1.6", 1)},
-        )
-        identity = RecordingIdentity("回留", "方大同")
-
-        with patch.object(
-            worker,
-            "search",
-            return_value=[{
-                "provider": "netease",
-                "title": "回留",
-                "artist": "方大同",
-                "encrypted_id": "enc",
-                "original_id": "2635125903",
-                "playable": False,
-            }],
-        ), patch.object(worker, "play") as play:
-            result = await runner._try_selected_native_provider(
-                ui,
-                identity=identity,
-                provider="netease",
-                selected_candidate={"title": "回留", "artist": "方大同"},
-                readiness=ready,
-            )
-
-        self.assertEqual(result["status"], "playback_failed")
-        play.assert_not_called()
-        self.assertFalse(any(
-            event.get("type") == "chat"
-            and str(event.get("text", "")).startswith("on playing:")
-            for event in ui.events
-        ))
-
-    async def test_explicit_unlogged_netease_rejection_never_authorizes_online(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        health = type(
-            "Health",
-            (),
-            {"login_available": True, "login_ready": False},
-        )()
-        netease = ProviderReadiness(
-            "netease",
-            True,
-            False,
-            True,
-            False,
-            details={"health": health, "worker": object()},
-        )
-        runner._probe_authoritative_providers = AsyncMock(return_value=[netease])
-        runner._offer_netease_login = AsyncMock(return_value=(None, "cancel"))
-
-        result = await runner._route_authoritative_provider(
-            ui,
-            identity=RecordingIdentity("BB88", "方大同"),
-            selected_candidate={"title": "BB88", "artist": "方大同"},
-            requested_provider="netease",
-            hard_provider=True,
-        )
-
-        self.assertFalse(result["data"].get("online_allowed", False))
-        self.assertEqual(result["data"]["provider"], "netease")
 
     async def test_agent_community_fallback_offers_only_one_explicit_alternative(self) -> None:
         runner = WebSocketRunner()
@@ -1014,7 +752,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         runner._handle_user_input.assert_awaited_once_with(
             ui,
             "给我推荐几首歌",
-            append_user_message=False,
         )
 
     async def test_websocket_starts_local_playback_sync_task(self) -> None:
@@ -1141,10 +878,23 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(runner._run_agent_turn.called)
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
+        self.assertFalse(any(event.get("type") == "chat" and event.get("role") == "user" for event in ui.events))
+        self.assertFalse(any(item.get("role") == "user" for item in ui.transcript))
         help_events = [event for event in ui.events if event.get("type") == "help_panel"]
         self.assertTrue(help_events)
         self.assertTrue(any(command.usage == "/recommend [taste]" for command in help_events[0]["commands"]))
         self.assertFalse(any("Available commands" in str(event.get("text")) for event in ui.events))
+
+    async def test_agent_command_appends_user_message_before_agent_turn(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner._llm_auth_ready", return_value=(True, "openai", None)), \
+             patch.object(runner, "_start_agent_turn", new=Mock()) as start_agent_turn:
+            await runner._handle_user_input(ui, "/recommend")
+
+        self.assertEqual(ui.transcript, [{"role": "user", "content": "/recommend"}])
+        start_agent_turn.assert_called_once()
 
     async def test_login_opens_provider_picker_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
@@ -1664,16 +1414,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(getattr(ui, "_spotify_mode")["enabled"])
         self.assertTrue(any("not available in Spotify mode" in str(event.get("text")) for event in ui.events))
 
-    async def test_keymap_command_is_reported_as_tui_handled(self) -> None:
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-
-        await runner._handle_user_input(ui, "/keymap status")
-
-        self.assertFalse(runner._run_agent_turn.called)
-        self.assertTrue(any("handled by the TUI" in str(event.get("text")) for event in ui.events))
-
     async def test_unknown_command_does_not_trigger_agent(self) -> None:
         """Verifies that unknown command does not trigger agent behaves as expected.
 
@@ -1716,7 +1456,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner._run_agent_turn.called)
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
         self.assertTrue(all(item["reason"] == "bye" for item in payload))
-        self.assertTrue(payload)
+        self.assertEqual(payload, [])
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any("Session saved" in str(event.get("text")) for event in ui.events))
 
@@ -1741,7 +1481,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner._run_agent_turn.called)
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
         self.assertTrue(all(item["reason"] == "exit" for item in payload))
-        self.assertTrue(payload)
+        self.assertEqual(payload, [])
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any("Session saved" in str(event.get("text")) for event in ui.events))
 
@@ -1905,25 +1645,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transcripts, [])
         self.assertFalse(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any(event.get("text") == "You are not logged in." for event in ui.events))
-
-    async def test_logout_netease_clears_external_and_session_state(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        setattr(ui, "_netease_login_declined", True)
-        setattr(ui, "_netease_verified_signature", ("ncm-cli", "0.1.6", 1))
-        setattr(ui, "_preferred_playback_provider", "netease")
-        with patch("src.api.ws_runner.NetEaseProviderWorker.is_logged_in", return_value=True), patch(
-            "src.api.ws_runner.NetEaseProviderWorker.logout",
-            return_value=True,
-        ) as logout:
-            changed = await runner._logout_netease(ui)
-
-        self.assertTrue(changed)
-        logout.assert_called_once_with()
-        self.assertFalse(getattr(ui, "_netease_login_declined"))
-        self.assertIsNone(getattr(ui, "_netease_verified_signature"))
-        self.assertIsNone(getattr(ui, "_preferred_playback_provider"))
-
 
 
 
@@ -5820,6 +5541,16 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(any(event.get("type") == "confirm" for event in ui.events))
         self.assertTrue(any("Unknown command: /connect" in str(event.get("text")) for event in ui.events))
+
+    def test_youtube_setup_includes_manual_wheel_instructions(self) -> None:
+        runner = WebSocketRunner()
+
+        with patch.object(ws_runner, "youtube_dependency_snapshot", return_value=[]):
+            setup = runner._extension_setup_page("youtube", 1)
+
+        self.assertIn("trusted mirror", str(setup["body"]))
+        self.assertIn("yt_dlp-*.whl", str(setup["body"]))
+        self.assertIn("bgutil_ytdlp_pot_provider-*.whl", str(setup["body"]))
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:

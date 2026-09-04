@@ -12,7 +12,7 @@ from typing import Any
 _MAX_TRACK_REFS = 2048
 _TRACK_REFS: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _TRACK_REFS_LOCK = threading.Lock()
-_PLAYABLE_PROVIDERS = {"local", "spotify", "netease"}
+_PLAYABLE_PROVIDERS = {"local", "spotify"}
 
 
 def _text(value: Any) -> str:

@@ -88,7 +88,6 @@ class ParsedCommand:
 BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("help", "/help", "show available Sonex commands", aliases=("?",)),
     BuiltinCommand("info", "/info", "show current runtime information"),
-    BuiltinCommand("keymap", "/keymap [on|off|toggle|status]", "enable or disable mini-player playback shortcuts"),
     BuiltinCommand("lang", "/lang", "choose the TUI display language", enabled=False),
     BuiltinCommand("login", "/login", "connect or switch the active LLM provider"),
     BuiltinCommand("memory", "/memory", "configure long-term Agent memory"),

@@ -117,6 +117,10 @@ class ExtensionActionError(RuntimeError):
     """Raised when a lifecycle action is invalid for the current snapshot."""
 
 
+class ExtensionRevisionConflict(ExtensionActionError):
+    """Raised when a state-changing action was based on an old snapshot."""
+
+
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
@@ -160,11 +164,16 @@ def _supported_platform() -> bool:
 class ExtensionManager:
     """Own non-secret extension lifecycle state and serialized actions."""
 
+    SETUP_TIMEOUT_SECONDS = 600.0
+
     def __init__(self, *, path: Path | None = None) -> None:
         self.path = path or sonex_home() / "extensions" / "state.json"
         self._state = self._load_state()
         self._operations: dict[str, asyncio.Task[None]] = {}
         self._operations_lock = asyncio.Lock()
+        self._setup_drafts: dict[tuple[str, str], dict[str, str]] = {}
+        self._setup_revisions: dict[tuple[str, str], int] = {}
+        self._setup_deadlines: dict[tuple[str, str], float] = {}
         self._retire_legacy_connections()
 
     @property
@@ -285,14 +294,49 @@ class ExtensionManager:
     def snapshot(self) -> list[ExtensionView]:
         return [self._view(extension) for extension in builtin_extensions()]
 
+    def actions(self, extension_id: str, *, armed_action: str | None = None) -> tuple[str, ...]:
+        """Return the ordered actions legal for the current extension snapshot."""
+        view = self.get(extension_id)
+        if view.status in {ExtensionStatus.WAITING, ExtensionStatus.UNSUPPORTED}:
+            return ()
+        if armed_action == "reset":
+            return ("confirm_reset",)
+        if armed_action == "restart":
+            return ("confirm_restart",)
+        action = {
+            ExtensionStatus.ENABLED: "disable",
+            ExtensionStatus.NOT_CONFIGURED: "setup",
+            ExtensionStatus.DISABLED: "enable",
+            ExtensionStatus.UNAVAILABLE: "repair",
+            ExtensionStatus.UNAPPLIED: "prepare_restart",
+        }.get(view.status)
+        actions = ["quick_check"]
+        if action:
+            actions.append(action)
+        if view.reset_available:
+            actions.append("prepare_reset")
+        return tuple(actions)
+
     def get(self, extension_id: str) -> ExtensionView:
         for view in self.snapshot():
             if view.extension_id == extension_id:
                 return view
         raise ExtensionActionError(f"Unknown extension: {extension_id}")
 
-    def set_enabled(self, extension_id: str, enabled: bool) -> ExtensionView:
+    def _check_revision(self, view: ExtensionView, expected_revision: int) -> None:
+        if view.revision != expected_revision:
+            raise ExtensionRevisionConflict(
+                f"Extension '{view.extension_id}' revision is {view.revision}, not {expected_revision}."
+            )
+
+    def require_revision(self, extension_id: str, expected_revision: int) -> ExtensionView:
         view = self.get(extension_id)
+        self._check_revision(view, expected_revision)
+        return view
+
+    def set_enabled(self, extension_id: str, enabled: bool, *, expected_revision: int) -> ExtensionView:
+        view = self.get(extension_id)
+        self._check_revision(view, expected_revision)
         if view.status is ExtensionStatus.UNSUPPORTED:
             raise ExtensionActionError("Extension is unsupported on this platform.")
         entry = self._entry(extension_id)
@@ -302,8 +346,9 @@ class ExtensionManager:
         self._save_state()
         return self.get(extension_id)
 
-    def reset_credentials(self, extension_id: str) -> ExtensionView:
+    def reset_credentials(self, extension_id: str, *, expected_revision: int) -> ExtensionView:
         view = self.get(extension_id)
+        self._check_revision(view, expected_revision)
         if not view.reset_available:
             raise ExtensionActionError("This extension has no locally stored credentials to reset.")
         if extension_id == "spotify":
@@ -326,10 +371,15 @@ class ExtensionManager:
         self._save_state()
         return self.get(extension_id)
 
-    def clear_health(self, extension_id: str) -> None:
+    def clear_health(self, extension_id: str, *, expected_revision: int | None = None) -> None:
+        view = self.get(extension_id)
+        if expected_revision is not None:
+            self._check_revision(view, expected_revision)
         entry = self._entry(extension_id)
         entry.pop("health", None)
         entry.pop("reason_code", None)
+        entry["revision"] = int(entry.get("revision") or 0) + 1
+        entry["updated_at"] = time.time()
         self._save_state()
 
     async def run_action(
@@ -337,28 +387,82 @@ class ExtensionManager:
         extension_id: str,
         action: str,
         *,
+        expected_revision: int,
         on_update: Callable[[ExtensionView], Awaitable[None]] | None = None,
     ) -> ExtensionView:
         """Run a lightweight lifecycle action with per-extension serialization."""
         view = self.get(extension_id)
+        self._check_revision(view, expected_revision)
+        legal_actions = self.actions(extension_id)
+        if action not in legal_actions and not (action == "reset" and view.reset_available):
+            raise ExtensionActionError(f"Action '{action}' is not available for '{extension_id}'.")
         if action == "disable":
-            return self.set_enabled(extension_id, False)
+            return self.set_enabled(extension_id, False, expected_revision=expected_revision)
         if action == "enable":
-            self.set_enabled(extension_id, True)
-            return await self._run_check(extension_id, on_update=on_update)
+            view = self.set_enabled(extension_id, True, expected_revision=expected_revision)
+            return await self._run_check(extension_id, expected_revision=view.revision, on_update=on_update)
         if action in {"quick_check", "repair"}:
-            return await self._run_check(extension_id, on_update=on_update)
+            return await self._run_check(extension_id, expected_revision=expected_revision, on_update=on_update)
         if action == "reset":
-            return self.reset_credentials(extension_id)
+            return self.reset_credentials(extension_id, expected_revision=expected_revision)
         raise ExtensionActionError(f"Unsupported extension action: {action}")
+
+    def begin_setup(self, session_id: str, extension_id: str) -> None:
+        key = (session_id, extension_id)
+        self._setup_revisions[key] = self.get(extension_id).revision
+        self._setup_drafts[key] = {}
+        self._setup_deadlines[key] = time.monotonic() + self.SETUP_TIMEOUT_SECONDS
+
+    def _setup_active(self, key: tuple[str, str]) -> bool:
+        deadline = self._setup_deadlines.get(key)
+        if deadline is None:
+            return False
+        if time.monotonic() >= deadline:
+            self.discard_setup(*key)
+            return False
+        return key in self._setup_drafts
+
+    def update_setup_draft(self, session_id: str, extension_id: str, key: str, value: str) -> None:
+        setup_key = (session_id, extension_id)
+        draft = self._setup_drafts.get(setup_key)
+        if draft is None or not self._setup_active(setup_key):
+            raise ExtensionActionError("Extension setup is not active for this session.")
+        normalized_key = str(key).strip()
+        if not normalized_key or not str(value).strip():
+            raise ExtensionActionError("Extension setup input cannot be empty.")
+        draft[normalized_key] = str(value).strip()
+
+    def setup_draft(self, session_id: str, extension_id: str) -> dict[str, str]:
+        key = (session_id, extension_id)
+        if not self._setup_active(key):
+            return {}
+        return dict(self._setup_drafts[key])
+
+    def setup_revision(self, session_id: str, extension_id: str) -> int:
+        key = (session_id, extension_id)
+        if not self._setup_active(key):
+            raise ExtensionActionError("Extension setup is not active for this session.")
+        try:
+            return self._setup_revisions[key]
+        except KeyError as exc:
+            raise ExtensionActionError("Extension setup is not active for this session.") from exc
+
+    def discard_setup(self, session_id: str, extension_id: str) -> None:
+        key = (session_id, extension_id)
+        self._setup_drafts.pop(key, None)
+        self._setup_revisions.pop(key, None)
+        self._setup_deadlines.pop(key, None)
 
     async def _run_check(
         self,
         extension_id: str,
         *,
+        expected_revision: int | None = None,
         on_update: Callable[[ExtensionView], Awaitable[None]] | None,
     ) -> ExtensionView:
         async with self._operations_lock:
+            if expected_revision is not None:
+                self.require_revision(extension_id, expected_revision)
             existing = self._operations.get(extension_id)
             if existing and not existing.done():
                 with contextlib.suppress(asyncio.CancelledError):

@@ -95,17 +95,17 @@ class MemoryHarnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as home:
             store = self._store(home)
             bind_memory_scope("session", "turn")
-            result = store.add("memory", "Uses local playback.\nPrefer ncm-cli when available.")
+            result = store.add("memory", "Uses local playback.\nPrefer Spotify when available.")
 
             self.assertTrue(result["success"])
             markdown = Path(home, "MEMORY.md").read_text(encoding="utf-8")
-            self.assertIn("- Uses local playback.\n  Prefer ncm-cli when available.", markdown)
+            self.assertIn("- Uses local playback.\n  Prefer Spotify when available.", markdown)
             reloaded = self._store(home)
             bind_memory_scope("session-reload", "turn")
             reloaded.init_session("session-reload")
             self.assertEqual(
                 reloaded.entries("memory")[0].content,
-                "Uses local playback.\nPrefer ncm-cli when available.",
+                "Uses local playback.\nPrefer Spotify when available.",
             )
 
     def test_forget_hides_entry_and_recall_restores_stable_identity(self) -> None:

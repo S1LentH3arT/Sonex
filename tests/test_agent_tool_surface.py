@@ -127,20 +127,6 @@ def test_call_selection_is_structured_and_does_not_play() -> None:
     assert result["data"]["timeout_seconds"] == 60
 
 
-def test_call_selection_preserves_explicit_provider_constraint() -> None:
-    result = Call(
-        "playback.select",
-        {
-            "query": "方大同 BB88",
-            "provider": "netease",
-            "provider_constraint": "hard",
-        },
-    )
-
-    assert result["data"]["provider"] == "netease"
-    assert result["data"]["provider_constraint"] == "hard"
-
-
 def test_local_track_reference_is_opaque_and_resolvable_by_call() -> None:
     local_path = "/home/example/Music/private/song.mp3"
     ref = remember_local_track(local_path)
@@ -274,9 +260,7 @@ def test_recommend_reads_recent_once_and_aggregates_connected_authoritative_prov
         recent_tracks=[{"name": "Recent"}],
         preferences="R&B",
     )
-    assert result["data"]["skipped"] == [
-        {"provider": "netease", "reason": "recommendation_capability_unavailable"},
-    ]
+    assert result["data"]["skipped"] == []
 
 
 def test_recommend_returns_text_only_context_without_connected_provider() -> None:
@@ -297,10 +281,7 @@ def test_recommend_returns_text_only_context_without_connected_provider() -> Non
     assert result["status"] == "success"
     assert result["data"]["tracks"] == []
     assert result["data"]["text_only"] is True
-    assert {item["provider"] for item in result["data"]["skipped"]} >= {
-        "spotify",
-        "netease",
-    }
+    assert {item["provider"] for item in result["data"]["skipped"]} == {"spotify"}
     spotify.assert_not_called()
 
 
