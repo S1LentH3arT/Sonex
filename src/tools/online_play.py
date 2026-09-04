@@ -10,8 +10,8 @@ import hashlib
 import json
 import math
 import re
+import sqlite3
 import time
-import unicodedata
 import urllib.parse
 import urllib.request
 import uuid
@@ -19,7 +19,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
-from threading import Lock
+from threading import Condition, Lock
 from typing import Any, Callable
 
 import yt_dlp
@@ -37,6 +37,26 @@ from src.tools.playback_controller import resolve_local_playback_backend, start_
 from src.tools.registry import registry, Params
 from src.tools.result import ToolResult
 from src.tools.song_cache import resolve_cached_song, upsert_cached_song
+from src.tools.online_provider_health import (
+    activate_provider_cooldown,
+    provider_cooldown,
+)
+from src.tools.youtube_runtime import (
+    YoutubeQueueBusy,
+    YoutubeRuntimeUnavailable,
+    mark_runtime_failure,
+    mark_runtime_success,
+    prepare_worker,
+    youtube_request_gate,
+)
+from src.tools.youtube_runtime_state import managed_runtime_failure_code, provider_failure_category
+from src.tools.audio_diagnostics import record_audio_event
+from src.tools.online_search_cache import (
+    get_search_cache,
+    make_search_cache_key,
+    put_search_cache,
+)
+from src.tools.yt_dlp_runner import YtDlpError, YtDlpTimeoutError, run_ytdlp
 from src.tools.music_matching import (
     AliasResolver,
     MatchDecision,
@@ -46,53 +66,29 @@ from src.tools.music_matching import (
     score_audio_match,
     simplified_traditional_variants,
 )
+from src.tools.online_identity_state import (
+    COVER_TERMS,
+    FEATURED_ARTIST_RE,
+    FEATURED_TITLE_RE,
+    IGNORABLE_TITLE_SUFFIX_RE,
+    LIVE_TERMS,
+    LOW_RELEVANCE_TERMS,
+    NOISY_MEDIA_TERMS,
+    OFFICIAL_TERMS,
+    QUERY_FILLER_TERMS,
+    contains_any as _contains_any,
+    has_cjk as _has_cjk,
+    identity_artist as _identity_artist,
+    identity_artist_text as _identity_artist_text,
+    identity_text as _identity_text,
+    identity_title as _identity_title,
+    identity_title_text as _identity_title_text,
+    mostly_latin as _mostly_latin,
+    normalized_rank_text as _normalized_rank_text,
+    query_terms as _query_terms,
+    words as _words,
+)
 
-LIVE_TERMS = (
-    "live",
-    "concert",
-    "session",
-    "现场",
-    "現場",
-    "演唱会",
-    "演唱會",
-    "剧场",
-    "劇場",
-)
-LOW_RELEVANCE_TERMS = ("cover", "tutorial", "reaction", "karaoke", "翻唱", "教程", "伴奏")
-OFFICIAL_TERMS = ("official audio", "official music video", "official video", "official mv")
-NOISY_MEDIA_TERMS = (
-    "tv",
-    "television",
-    "show",
-    "variety",
-    "interview",
-    "reaction",
-    "karaoke",
-    "tutorial",
-    "综艺",
-    "綜藝",
-    "电视",
-    "電視",
-    "卫视",
-    "衛視",
-    "节目",
-    "節目",
-    "访谈",
-    "教程",
-    "伴奏",
-)
-COVER_TERMS = ("cover", "翻唱")
-QUERY_FILLER_TERMS = {"the", "a", "an"}
-IGNORABLE_TITLE_SUFFIX_RE = re.compile(
-    r"(?:\s*[\[(\-{]\s*)?(?:official(?:\s+(?:audio|music\s+video|video|mv))?|"
-    r"lyrics?|lyric\s+video|(?:\d{4}\s+)?remaster(?:ed)?(?:\s+\d{4})?)(?:\s*[])}]\s*)?$",
-    re.IGNORECASE,
-)
-FEATURED_ARTIST_RE = re.compile(r"\s+(?:feat\.?|ft\.?|featuring)\s+.*$", re.IGNORECASE)
-FEATURED_TITLE_RE = re.compile(
-    r"\s*(?:[\[(（【]\s*)?(?:feat\.?|ft\.?|featuring)\s+.*$",
-    re.IGNORECASE,
-)
 AGE_RESTRICTED_MESSAGE = (
     "Selected YouTube result requires age verification. "
     "Choose another candidate or refine the search."
@@ -103,7 +99,7 @@ UNAVAILABLE_MESSAGE = (
 )
 ONLINE_AUDIO_SETUP_MESSAGE = (
     "Online playback requires Jamendo or Audius setup. "
-    "Run /connect first."
+    "Open /extension to configure a music source first."
 )
 ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS = 12.0
 OPEN_AUDIO_SEARCH_TIMEOUT_SECONDS = 4.0
@@ -114,9 +110,163 @@ AUDIUS_REQUEST_HEADERS = {
     "Accept": "application/json",
     "User-Agent": "Sonex/1.0",
 }
-YOUTUBE_SEARCH_COOLDOWN_SECONDS = 60.0
+YOUTUBE_SEARCH_COOLDOWN_SECONDS = 5 * 60.0
+YOUTUBE_SEARCH_OPERATION_TIMEOUT_SECONDS = 8.0
+YOUTUBE_RESOLVE_OPERATION_TIMEOUT_SECONDS = 12.0
+YOUTUBE_DOWNLOAD_OPERATION_TIMEOUT_SECONDS = 60.0
 _youtube_search_cooldown_until = 0.0
 _youtube_search_cooldown_lock = Lock()
+YOUTUBE_MIN_SEARCH_INTERVAL_SECONDS = 3.0
+_youtube_search_gate = Condition(Lock())
+_youtube_search_active = False
+_youtube_last_search_started = 0.0
+_youtube_search_inflight: dict[str, Future[list[dict[str, Any]]]] = {}
+_ORIGINAL_YOUTUBE_DL = yt_dlp.YoutubeDL
+
+
+def _extract_ytdlp_info(
+    *,
+    operation: str,
+    target: str,
+    options: dict[str, Any],
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """Extract info through the bounded worker, preserving test seams."""
+    if yt_dlp.YoutubeDL is not _ORIGINAL_YOUTUBE_DL:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            result = ydl.extract_info(target, download=operation == "download")
+        if not isinstance(result, dict):
+            raise YtDlpError("Invalid response returned.")
+        return result
+    safe_options, _provider_url = prepare_worker(options, operation=operation)
+    try:
+        with youtube_request_gate(options=safe_options):
+            result = run_ytdlp(
+                operation=operation,
+                target=target,
+                options=safe_options,
+                timeout_seconds=timeout_seconds,
+            )
+            return result
+    except YoutubeQueueBusy:
+        raise
+    except YoutubeRuntimeUnavailable:
+        raise
+    except YtDlpError as exc:
+        lowered = str(exc).casefold()
+        if any(marker in lowered for marker in ("bgutil", "pot provider", "plugin", "extractor")):
+            mark_runtime_failure(type(exc).__name__)
+        raise
+
+
+def _record_audio_event_safe(
+    *,
+    trace_id: str,
+    provider: str,
+    phase: str,
+    status: str,
+    cache_root: Path | None = None,
+    elapsed_ms: int | None = None,
+    **metadata: Any,
+) -> None:
+    try:
+        record_audio_event(
+            trace_id=trace_id,
+            provider=provider,
+            phase=phase,
+            status=status,
+            cache_root=cache_root,
+            elapsed_ms=elapsed_ms,
+            **metadata,
+        )
+    except (OSError, sqlite3.Error):
+        pass
+
+
+def _youtube_search_cache_key(
+    query: str,
+    playback_metadata: dict[str, Any],
+    query_variants: list[tuple[str, str]],
+) -> str:
+    artist = playback_metadata.get("artist")
+    title = playback_metadata.get("name") or playback_metadata.get("title")
+    album = playback_metadata.get("album")
+    if not artist and not title:
+        title = query
+    variant_intent = "|".join(str(variant) for _, variant in query_variants)
+    return make_search_cache_key(
+        provider="youtube",
+        artist=artist,
+        title=title,
+        album=album,
+        variant_intent=variant_intent,
+    )
+
+
+def _run_gated_youtube_search(
+    *,
+    target: str,
+    options: dict[str, Any],
+    timeout_seconds: float = YOUTUBE_SEARCH_OPERATION_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Serialize real cold searches and enforce the inter-search interval."""
+    global _youtube_search_active, _youtube_last_search_started
+    if yt_dlp.YoutubeDL is not _ORIGINAL_YOUTUBE_DL:
+        return _extract_ytdlp_info(
+            operation="search",
+            target=target,
+            options=options,
+            timeout_seconds=timeout_seconds,
+        )
+    with _youtube_search_gate:
+        while _youtube_search_active:
+            _youtube_search_gate.wait()
+        wait_seconds = (
+            _youtube_last_search_started
+            + YOUTUBE_MIN_SEARCH_INTERVAL_SECONDS
+            - time.monotonic()
+        )
+        if wait_seconds > 0:
+            _youtube_search_gate.wait(timeout=wait_seconds)
+        _youtube_search_active = True
+        _youtube_last_search_started = time.monotonic()
+    try:
+        return _extract_ytdlp_info(
+            operation="search",
+            target=target,
+            options=options,
+            timeout_seconds=timeout_seconds,
+        )
+    finally:
+        with _youtube_search_gate:
+            _youtube_search_active = False
+            _youtube_search_gate.notify_all()
+
+
+def _coalesced_youtube_search(
+    cache_key: str,
+    search: Callable[[], list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Share one in-flight cold search among concurrent callers."""
+    owner = False
+    with _youtube_search_gate:
+        future = _youtube_search_inflight.get(cache_key)
+        if future is None:
+            future = Future()
+            _youtube_search_inflight[cache_key] = future
+            owner = True
+    if not owner:
+        return future.result()
+    try:
+        result = search()
+        future.set_result(result)
+        return result
+    except Exception as exc:
+        future.set_exception(exc)
+        raise
+    finally:
+        with _youtube_search_gate:
+            _youtube_search_inflight.pop(cache_key, None)
 
 
 class OnlineAudioSetupRequired(RuntimeError):
@@ -327,6 +477,7 @@ def _spotify_track_metadata(query: str, track: dict[str, Any]) -> dict[str, Any]
         "spotify_url": _non_placeholder_text(track.get("spotify_url")),
         "uri": _non_placeholder_text(track.get("uri")),
         "spotify_track_id": _non_placeholder_text(track.get("id")),
+        "is_playable": track.get("is_playable"),
     }
 
 
@@ -365,6 +516,8 @@ def search_spotify_track_candidates(
         if result.get("status") != "success":
             break
         for track in _spotify_tracks_from_result(result):
+            if isinstance(track, dict) and track.get("is_playable") is False:
+                continue
             metadata = _spotify_track_metadata(clean_query, track)
             if not metadata:
                 continue
@@ -495,69 +648,6 @@ def _canonical_metadata(item: dict[str, Any]) -> dict[str, Any]:
         if key in item and item.get(key) is not None:
             metadata[key] = item[key]
     return metadata
-
-
-def _identity_text(value: Any) -> str:
-    text = unicodedata.normalize("NFKC", str(value or "")).casefold()
-    text = "".join(character if character.isalnum() else " " for character in text)
-    return " ".join(text.split())
-
-
-def _has_cjk(value: Any) -> bool:
-    return any("\u4e00" <= character <= "\u9fff" for character in str(value or ""))
-
-
-def _latin_ratio(value: Any) -> float:
-    letters = [character for character in str(value or "") if character.isalpha()]
-    if not letters:
-        return 0.0
-    latin = [
-        character for character in letters
-        if "LATIN" in unicodedata.name(character, "")
-    ]
-    return len(latin) / len(letters)
-
-
-def _mostly_latin(value: Any) -> bool:
-    return _latin_ratio(value) >= 0.7
-
-
-def _identity_title(value: Any) -> str:
-    text = unicodedata.normalize("NFKC", str(value or "")).strip()
-    text = FEATURED_TITLE_RE.sub("", text).strip()
-    previous = None
-    while text and text != previous:
-        previous = text
-        text = IGNORABLE_TITLE_SUFFIX_RE.sub("", text).strip()
-    return _identity_text(text)
-
-
-def _identity_title_text(identity: dict[str, Any]) -> str:
-    title = unicodedata.normalize("NFKC", str(identity.get("title") or "")).strip()
-    artist = unicodedata.normalize("NFKC", str(identity.get("artist") or "")).strip()
-    if artist:
-        title = re.sub(
-            rf"^\s*{re.escape(artist)}\s*[-–—:|]\s*",
-            "",
-            title,
-            count=1,
-            flags=re.IGNORECASE,
-        )
-    return _identity_title(title)
-
-
-def _identity_artist(item: dict[str, Any]) -> str:
-    artists = item.get("artists")
-    if isinstance(artists, list) and artists:
-        primary = _non_placeholder_text(artists[0])
-        if primary:
-            return primary
-    artist = _non_placeholder_text(item.get("artist")) or ""
-    return FEATURED_ARTIST_RE.sub("", artist).strip()
-
-
-def _identity_artist_text(value: Any) -> str:
-    return _identity_text(FEATURED_ARTIST_RE.sub("", str(value or "")).strip())
 
 
 def _track_identity(item: dict[str, Any]) -> dict[str, str]:
@@ -1015,48 +1105,6 @@ def _count(value: Any) -> int:
         return max(0, int(float(value or 0)))
     except (TypeError, ValueError):
         return 0
-
-
-def _words(value: str) -> list[str]:
-    """Prepares words for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs words without duplicating the local rules.
-
-    Example: _words(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return re.findall(r"[\w\u4e00-\u9fff]+", value.casefold())
-
-
-def _normalized_rank_text(value: str) -> str:
-    """Prepares normalized rank text for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalized rank text without duplicating the local rules.
-
-    Example: _normalized_rank_text(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return " ".join(_words(value))
-
-
-def _query_terms(query: str) -> list[str]:
-    """Prepares query terms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs query terms without duplicating the local rules.
-
-    Example: _query_terms(query=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    terms = _words(query)
-    return [term for term in terms if term not in QUERY_FILLER_TERMS and term not in LIVE_TERMS]
-
-
-def _contains_any(value: str, terms: tuple[str, ...]) -> bool:
-    """Prepares contains any for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs contains any without duplicating the local rules.
-
-    Example: _contains_any(value=..., terms=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    text = value.casefold()
-    return any(term in text for term in terms)
 
 
 def _variant_type(query: str, info: dict[str, Any]) -> str:
@@ -2015,6 +2063,10 @@ def _friendly_youtube_failure_message(message: str) -> str:
 
     Example: _friendly_youtube_failure_message(message=...) -> returns the value used by the surrounding Sonex flow.
     """
+    runtime_code = managed_runtime_failure_code(message)
+    managed_error = _managed_runtime_tool_error(runtime_code) if runtime_code else None
+    if managed_error:
+        return managed_error[0]
     if _is_age_verification_error(message):
         return AGE_RESTRICTED_MESSAGE
     if _is_unavailable_error(message):
@@ -2303,32 +2355,63 @@ def search_audius_audio_candidates(
 
 def _provider_failure_code(error: Exception) -> str:
     message = str(error).casefold()
-    if isinstance(error, TimeoutError) or "timed out" in message or "timeout" in message:
-        return "provider_timeout"
-    if "429" in message or "too many requests" in message or "rate limit" in message:
-        return "provider_rate_limited"
-    if _is_age_verification_error(message):
-        return "candidate_unplayable"
-    if "not a bot" in message or "sign in to confirm" in message:
-        return "provider_temporarily_unavailable"
-    if _is_unavailable_error(message):
-        return "candidate_unplayable"
-    return "provider_error"
+    runtime_code = managed_runtime_failure_code(error)
+    return provider_failure_category(
+        managed_code=runtime_code,
+        timed_out=isinstance(error, TimeoutError) or "timed out" in message or "timeout" in message,
+        rate_limited="429" in message or "too many requests" in message or "rate limit" in message,
+        age_restricted=_is_age_verification_error(message),
+        bot_challenge="not a bot" in message or "sign in to confirm" in message,
+        unavailable=_is_unavailable_error(message),
+    )
 
 
-def _youtube_search_cooldown_remaining() -> float:
+def _managed_runtime_tool_error(failure_code: str) -> tuple[str, str] | None:
+    """Map stable managed-runtime failures to ToolResult output fields."""
+    if failure_code == "youtube_po_provider_unavailable":
+        return "YouTube playback is not configured. Open /extension to configure it.", "YOUTUBE_PO_PROVIDER_UNAVAILABLE"
+    if failure_code == "youtube_queue_busy":
+        return "Another YouTube request is still running. Try again shortly.", "YOUTUBE_QUEUE_BUSY"
+    return None
+
+
+def _youtube_search_cooldown_remaining(*, cache_root: Path | None = None) -> float:
     with _youtube_search_cooldown_lock:
-        return max(0.0, _youtube_search_cooldown_until - time.monotonic())
+        memory_remaining = max(0.0, _youtube_search_cooldown_until - time.monotonic())
+    try:
+        persistent = provider_cooldown("youtube", cache_root=cache_root)
+    except (OSError, sqlite3.Error):
+        persistent = None
+    persistent_remaining = float(persistent.get("remaining_seconds", 0.0)) if persistent else 0.0
+    return max(memory_remaining, persistent_remaining)
 
 
 def _activate_youtube_search_cooldown(
     seconds: float = YOUTUBE_SEARCH_COOLDOWN_SECONDS,
+    *,
+    failure_class: str = "rate_limited",
+    retry_after: float | None = None,
+    cache_root: Path | None = None,
 ) -> None:
     global _youtube_search_cooldown_until
+    duration = max(1.0, float(seconds))
+    should_persist = cache_root is not None or yt_dlp.YoutubeDL is _ORIGINAL_YOUTUBE_DL
+    if should_persist:
+        try:
+            state = activate_provider_cooldown(
+                "youtube",
+                failure_class,
+                retry_after=retry_after,
+                cache_root=cache_root,
+            )
+            duration = max(duration, float(state["cooldown_seconds"]))
+        except (OSError, sqlite3.Error):
+            # A read-only runtime still needs the in-process circuit breaker.
+            pass
     with _youtube_search_cooldown_lock:
         _youtube_search_cooldown_until = max(
             _youtube_search_cooldown_until,
-            time.monotonic() + max(1.0, float(seconds)),
+            time.monotonic() + duration,
         )
 
 
@@ -2425,6 +2508,81 @@ def _build_online_search_trace(
     }
 
 
+def _search_open_audio_fallback(
+    *,
+    search_query: str,
+    limit: int,
+    playback_metadata: dict[str, Any],
+    config: OnlineAudioConfig,
+    provider_elapsed_ms: dict[str, int],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Search Jamendo and Audius together after the YouTube primary attempt."""
+    jobs: dict[str, Callable[[], list[dict[str, Any]]]] = {}
+    if config.jamendo_client_id:
+        jobs["jamendo"] = lambda: search_jamendo_audio_candidates(
+            search_query,
+            client_id=str(config.jamendo_client_id),
+            limit=limit,
+            playback_metadata=playback_metadata,
+        )
+    if config.audius_api_key:
+        jobs["audius"] = lambda: search_audius_audio_candidates(
+            search_query,
+            api_key=str(config.audius_api_key),
+            limit=limit,
+            playback_metadata=playback_metadata,
+        )
+    if not jobs:
+        return [], [
+            _source_attempt("jamendo", status="missing_config"),
+            _source_attempt("audius", status="missing_config"),
+        ]
+
+    provider_results, provider_errors = _run_online_provider_searches(
+        _timed_provider_search_jobs(jobs, provider_elapsed_ms),
+        timeout=OPEN_AUDIO_SEARCH_TIMEOUT_SECONDS,
+    )
+    candidates: list[dict[str, Any]] = []
+    attempts: list[dict[str, Any]] = []
+    for provider, configured in (
+        ("jamendo", bool(config.jamendo_client_id)),
+        ("audius", bool(config.audius_api_key)),
+    ):
+        if not configured:
+            attempts.append(_source_attempt(provider, status="missing_config"))
+            continue
+        error = provider_errors.get(provider)
+        if error is not None:
+            attempts.append(
+                _source_attempt(
+                    provider,
+                    status=_provider_failure_code(error),
+                    message=f"{_provider_label(provider)} failed: {_sanitize_provider_error(error)}",
+                )
+            )
+            continue
+        provider_candidates = provider_results.get(provider, [])
+        credible = _credible_online_audio_candidates(provider_candidates)
+        review_candidates = [
+            candidate
+            for candidate in provider_candidates
+            if _candidate_confidence(candidate) == "medium"
+        ]
+        rejected_count = int(getattr(provider_candidates, "rejected_count", 0) or 0)
+        attempts.append(
+            _source_attempt(
+                provider,
+                status="success" if credible or review_candidates else ("identity_mismatch" if rejected_count else "no_credible_matches"),
+                candidate_count=len(provider_candidates) + rejected_count,
+                credible_count=len(credible),
+                rejected_count=rejected_count,
+            )
+        )
+        candidates.extend(credible)
+        candidates.extend(review_candidates)
+    return candidates, attempts
+
+
 def resolve_online_audio_candidates(
     query: str,
     limit: int = 5,
@@ -2446,166 +2604,113 @@ def resolve_online_audio_candidates(
     started_at = time.monotonic()
     provider_elapsed_ms: dict[str, int] = {}
 
-    open_jobs: dict[str, Callable[[], list[dict[str, Any]]]] = {}
-    if resolved_config.jamendo_client_id:
-        open_jobs["jamendo"] = lambda: search_jamendo_audio_candidates(
-            search_query,
-            client_id=str(resolved_config.jamendo_client_id),
-            limit=limit,
-            playback_metadata=resolved_metadata,
-        )
-    if resolved_config.audius_api_key:
-        open_jobs["audius"] = lambda: search_audius_audio_candidates(
-            search_query,
-            api_key=str(resolved_config.audius_api_key),
-            limit=limit,
-            playback_metadata=resolved_metadata,
-        )
-
-    provider_results: dict[str, list[dict[str, Any]]] = {}
-    provider_errors: dict[str, Exception] = {}
-    if open_jobs:
-        open_results, open_errors = _run_online_provider_searches(
-            _timed_provider_search_jobs(open_jobs, provider_elapsed_ms),
-            timeout=OPEN_AUDIO_SEARCH_TIMEOUT_SECONDS,
-        )
-        provider_results.update(open_results)
-        provider_errors.update(open_errors)
-        open_elapsed_ms = round((time.monotonic() - started_at) * 1000)
-        for provider in open_jobs:
-            provider_elapsed_ms.setdefault(provider, open_elapsed_ms)
-
-    candidates: list[dict[str, Any]] = []
+    youtube_error: Exception | None = None
     source_attempts: list[dict[str, Any]] = []
-    for provider, configured in (
-        ("jamendo", bool(resolved_config.jamendo_client_id)),
-        ("audius", bool(resolved_config.audius_api_key)),
-    ):
-        if not configured:
-            source_attempts.append(_source_attempt(provider, status="missing_config"))
-            continue
-        error = provider_errors.get(provider)
-        if error is not None:
+    youtube_candidates: list[dict[str, Any]] = []
+    youtube_cooldown = _youtube_search_cooldown_remaining(cache_root=cache_root)
+    if youtube_cooldown > 0:
+        youtube_error = RuntimeError(
+            f"YouTube is cooling down for {math.ceil(youtube_cooldown)} seconds."
+        )
+    else:
+        total_elapsed = time.monotonic() - started_at
+        youtube_timeout = min(
+            YOUTUBE_FALLBACK_SEARCH_TIMEOUT_SECONDS,
+            max(0.0, ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS - total_elapsed),
+        )
+        if youtube_timeout <= 0:
+            youtube_error = TimeoutError(
+                f"YouTube search exceeded the {ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS:g}-second total budget."
+            )
+        else:
+            youtube_jobs = {
+                "youtube": lambda: search_youtube_songs(
+                    search_query,
+                    limit=limit,
+                    cache_root=cache_root,
+                    playback_metadata=resolved_metadata,
+                )
+            }
+            youtube_results, youtube_errors = _run_online_provider_searches(
+                _timed_provider_search_jobs(youtube_jobs, provider_elapsed_ms),
+                timeout=youtube_timeout,
+            )
+            youtube_candidates = youtube_results.get("youtube", [])
+            youtube_error = youtube_errors.get("youtube")
+            provider_elapsed_ms.setdefault(
+                "youtube",
+                round((time.monotonic() - started_at) * 1000),
+            )
+
+    if youtube_error is not None:
+        if isinstance(youtube_error, AudioIdentityMismatch):
             source_attempts.append(
                 _source_attempt(
-                    provider,
-                    status=_provider_failure_code(error),
-                    message=f"{_provider_label(provider)} failed: {_sanitize_provider_error(error)}",
+                    "youtube",
+                    status="identity_mismatch",
+                    candidate_count=youtube_error.rejected_count,
+                    rejected_count=youtube_error.rejected_count,
                 )
             )
-            continue
-        provider_candidates = provider_results.get(provider, [])
-        credible = _credible_online_audio_candidates(provider_candidates)
-        review_candidates = [
-            candidate
-            for candidate in provider_candidates
-            if _candidate_confidence(candidate) == "medium"
-        ]
-        rejected_count = int(getattr(provider_candidates, "rejected_count", 0) or 0)
+        else:
+            failure_code = _provider_failure_code(youtube_error)
+            if failure_code in {"provider_rate_limited", "provider_bot_challenge"}:
+                _activate_youtube_search_cooldown(
+                    failure_class=(
+                        "bot_challenge"
+                        if failure_code == "provider_bot_challenge"
+                        else "rate_limited"
+                    ),
+                    cache_root=cache_root,
+                )
+                failure_message = "YouTube is temporarily unavailable; search is cooling down."
+            elif "cooling down" in str(youtube_error).casefold():
+                failure_code = "provider_temporarily_unavailable"
+                failure_message = str(youtube_error)
+            else:
+                failure_message = _friendly_youtube_failure_message(str(youtube_error))
+            source_attempts.append(
+                _source_attempt(
+                    "youtube",
+                    status=failure_code,
+                    message=f"YouTube failed: {failure_message}",
+                )
+            )
+    else:
+        youtube_rejected = int(getattr(youtube_candidates, "rejected_count", 0) or 0)
         source_attempts.append(
             _source_attempt(
-                provider,
-                status="success" if credible or review_candidates else ("identity_mismatch" if rejected_count else "no_credible_matches"),
-                candidate_count=len(provider_candidates) + rejected_count,
-                credible_count=len(credible),
-                rejected_count=rejected_count,
+                "youtube",
+                status="success" if youtube_candidates else ("identity_mismatch" if youtube_rejected else "no_credible_matches"),
+                candidate_count=len(youtube_candidates) + youtube_rejected,
+                credible_count=sum(
+                    _candidate_confidence(candidate) == "high"
+                    for candidate in youtube_candidates
+                ),
+                rejected_count=youtube_rejected,
             )
         )
-        candidates.extend(credible)
-        candidates.extend(review_candidates)
 
-    open_high_candidates = [
-        candidate
-        for candidate in candidates
+    youtube_high_candidates = [
+        candidate for candidate in youtube_candidates
         if _candidate_confidence(candidate) == "high"
     ]
-    youtube_error: Exception | None = None
-    youtube_searched = False
-    if open_high_candidates:
-        candidates = open_high_candidates
-        source_attempts.append(_source_attempt("youtube", status="skipped_high_confidence"))
-        provider_elapsed_ms["youtube"] = 0
+    if youtube_high_candidates:
+        candidates = youtube_high_candidates
     else:
-        youtube_cooldown = _youtube_search_cooldown_remaining()
-        if youtube_cooldown > 0:
-            youtube_error = RuntimeError(
-                f"YouTube is cooling down for {math.ceil(youtube_cooldown)} seconds."
-            )
-        else:
-            total_elapsed = time.monotonic() - started_at
-            youtube_timeout = min(
-                YOUTUBE_FALLBACK_SEARCH_TIMEOUT_SECONDS,
-                max(0.0, ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS - total_elapsed),
-            )
-            if youtube_timeout <= 0:
-                youtube_error = TimeoutError(
-                    f"YouTube search exceeded the {ONLINE_AUDIO_SEARCH_TIMEOUT_SECONDS:g}-second total budget."
-                )
-            else:
-                youtube_searched = True
-                youtube_jobs = {
-                    "youtube": lambda: search_youtube_songs(
-                        search_query,
-                        limit=limit,
-                        cache_root=cache_root,
-                        playback_metadata=resolved_metadata,
-                    )
-                }
-                youtube_results, youtube_errors = _run_online_provider_searches(
-                    _timed_provider_search_jobs(youtube_jobs, provider_elapsed_ms),
-                    timeout=youtube_timeout,
-                )
-                provider_results.update(youtube_results)
-                provider_errors.update(youtube_errors)
-                youtube_error = youtube_errors.get("youtube")
-                provider_elapsed_ms.setdefault(
-                    "youtube",
-                    round((time.monotonic() - started_at) * 1000),
-                )
-
-        if youtube_error is not None:
-            if isinstance(youtube_error, AudioIdentityMismatch):
-                source_attempts.append(
-                    _source_attempt(
-                        "youtube",
-                        status="identity_mismatch",
-                        candidate_count=youtube_error.rejected_count,
-                        rejected_count=youtube_error.rejected_count,
-                    )
-                )
-            else:
-                failure_code = _provider_failure_code(youtube_error)
-                if failure_code in {"provider_rate_limited", "provider_temporarily_unavailable"}:
-                    _activate_youtube_search_cooldown()
-                    failure_message = "YouTube is temporarily unavailable; search is cooling down."
-                elif "cooling down" in str(youtube_error).casefold():
-                    failure_code = "provider_temporarily_unavailable"
-                    failure_message = str(youtube_error)
-                else:
-                    failure_message = _friendly_youtube_failure_message(str(youtube_error))
-                source_attempts.append(
-                    _source_attempt(
-                        "youtube",
-                        status=failure_code,
-                        message=f"YouTube failed: {failure_message}",
-                    )
-                )
-        else:
-            youtube_candidates = provider_results.get("youtube", [])
-            youtube_rejected = int(getattr(youtube_candidates, "rejected_count", 0) or 0)
-            source_attempts.append(
-                _source_attempt(
-                    "youtube",
-                    status="success" if youtube_candidates else ("identity_mismatch" if youtube_rejected else "no_credible_matches"),
-                    candidate_count=len(youtube_candidates) + youtube_rejected,
-                    credible_count=sum(
-                        _candidate_confidence(candidate) == "high"
-                        for candidate in youtube_candidates
-                    ),
-                    rejected_count=youtube_rejected,
-                )
-            )
-            candidates.extend(youtube_candidates)
+        open_candidates, open_attempts = _search_open_audio_fallback(
+            search_query=search_query,
+            limit=limit,
+            playback_metadata=resolved_metadata,
+            config=resolved_config,
+            provider_elapsed_ms=provider_elapsed_ms,
+        )
+        source_attempts.extend(open_attempts)
+        open_high_candidates = [
+            candidate for candidate in open_candidates
+            if _candidate_confidence(candidate) == "high"
+        ]
+        candidates = open_high_candidates or [*youtube_candidates, *open_candidates]
 
     if not candidates:
         message = _fallback_reason(source_attempts)
@@ -2613,12 +2718,16 @@ def resolve_online_audio_candidates(
         if (
             youtube_error is not None
             and not isinstance(youtube_error, AudioIdentityMismatch)
-            and youtube_failure_code not in {"provider_rate_limited", "provider_temporarily_unavailable"}
+            and youtube_failure_code not in {
+                "provider_rate_limited",
+                "provider_bot_challenge",
+                "provider_temporarily_unavailable",
+            }
             and "cooling down" not in str(youtube_error).casefold()
         ):
-            message = _format_youtube_fallback_failure(
-                {"source_attempts": source_attempts, "fallback_reason": message},
-                _friendly_youtube_failure_message(str(youtube_error)),
+            message = (
+                f"{message} YouTube failed: "
+                f"{_friendly_youtube_failure_message(str(youtube_error))}"
             )
         search_trace = _build_online_search_trace(
             trace_id=trace_id,
@@ -2650,9 +2759,6 @@ def resolve_online_audio_candidates(
         candidate["search_trace_id"] = trace_id
         candidate["search_elapsed_ms"] = elapsed_ms
         candidate["search_trace"] = dict(search_trace)
-        if candidate.get("provider") == "youtube" and youtube_searched:
-            candidate["fallback_provider"] = "youtube"
-            candidate["fallback_reason"] = _fallback_reason(source_attempts[:-1])
     ranked = rank_online_audio_candidates(search_query, candidates)
     bounded_limit = max(1, min(10, int(limit or 5)))
     return ranked[:bounded_limit]
@@ -2679,12 +2785,13 @@ def search_online_audio_candidates(
     )
 
 
-def search_youtube_songs(
+def _search_youtube_songs_uncached(
     query: str,
     limit: int = 5,
     *,
     cache_root: Path | None = None,
     playback_metadata: dict[str, Any] | None = None,
+    deadline: float | None = None,
 ) -> list[dict[str, Any]]:
     """Coordinates search youtube songs for the current Sonex flow.
 
@@ -2709,9 +2816,19 @@ def search_youtube_songs(
     candidates: list[dict[str, Any]] = []
     seen_cache_ids: set[str] = set()
     rejected_count = 0
-    with yt_dlp.YoutubeDL(options) as ydl:
-        for _, variant_query in query_variants:
-            payload = ydl.extract_info(f"ytsearch{search_limit}:{variant_query}", download=False)
+    for _, variant_query in query_variants:
+            remaining = (
+                YOUTUBE_SEARCH_OPERATION_TIMEOUT_SECONDS
+                if deadline is None
+                else deadline - time.monotonic()
+            )
+            if remaining <= 0:
+                raise YtDlpTimeoutError("YouTube search exceeded its total time budget.")
+            payload = _run_gated_youtube_search(
+                target=f"ytsearch{search_limit}:{variant_query}",
+                options=options,
+                timeout_seconds=min(YOUTUBE_SEARCH_OPERATION_TIMEOUT_SECONDS, remaining),
+            )
 
             if not isinstance(payload, dict):
                 raise RuntimeError("Invalid response returned.")
@@ -2769,6 +2886,144 @@ def search_youtube_songs(
     return IdentityCandidateList(ranked, rejected_count=rejected_count)
 
 
+def search_youtube_songs(
+    query: str,
+    limit: int = 5,
+    *,
+    cache_root: Path | None = None,
+    playback_metadata: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Search YouTube with persistent metadata caching and single-flight protection."""
+    resolved_metadata = resolve_online_playback_metadata(query, playback_metadata)
+    query_variants = _progressive_audio_query_variants(query, resolved_metadata)
+    trace_id = f"audio-{uuid.uuid4().hex[:12]}"
+    cache_enabled = yt_dlp.YoutubeDL is _ORIGINAL_YOUTUBE_DL
+    cache_key = _youtube_search_cache_key(query, resolved_metadata, query_variants)
+    if cache_enabled:
+        try:
+            cached = get_search_cache(
+                cache_key,
+                provider="youtube",
+                cache_root=cache_root,
+            )
+        except (OSError, sqlite3.Error):
+            cached = None
+        if cached is not None:
+            hydrated: list[dict[str, Any]] = []
+            for candidate in cached:
+                if not isinstance(candidate, dict):
+                    continue
+                item = dict(candidate)
+                cached_audio = _cached_audio_item(
+                    str(item.get("cache_id") or ""),
+                    cache_root=cache_root,
+                    target_identity=item.get("target_identity"),
+                    query=str(item.get("query") or query),
+                    playback_metadata=resolved_metadata,
+                )
+                item["cached"] = cached_audio is not None
+                if cached_audio:
+                    item["audio_path"] = cached_audio.get("audio_path")
+                    item["audio_ext"] = cached_audio.get("audio_ext")
+                hydrated.append(item)
+            _record_audio_event_safe(
+                trace_id=trace_id,
+                provider="youtube",
+                phase="search",
+                status="cache_hit",
+                cache_root=cache_root,
+                cache_hit=True,
+                candidate_count=len(hydrated),
+            )
+            return IdentityCandidateList(hydrated)
+
+    def uncached_search() -> list[dict[str, Any]]:
+        search_started = time.monotonic()
+        deadline = search_started + YOUTUBE_SEARCH_OPERATION_TIMEOUT_SECONDS
+        _record_audio_event_safe(
+            trace_id=trace_id,
+            provider="youtube",
+            phase="search",
+            status="started",
+            cache_root=cache_root,
+            cache_hit=False,
+        )
+        try:
+            result = _search_youtube_songs_uncached(
+                query,
+                limit=limit,
+                cache_root=cache_root,
+                playback_metadata=resolved_metadata,
+                deadline=deadline,
+            )
+        except AudioIdentityMismatch:
+            _record_audio_event_safe(
+                trace_id=trace_id,
+                provider="youtube",
+                phase="search",
+                status="identity_mismatch",
+                cache_root=cache_root,
+                elapsed_ms=round((time.monotonic() - search_started) * 1000),
+            )
+            if cache_enabled:
+                try:
+                    put_search_cache(
+                        cache_key,
+                        [],
+                        provider="youtube",
+                        cache_root=cache_root,
+                    )
+                except (OSError, sqlite3.Error):
+                    pass
+            raise
+        except RuntimeError as exc:
+            _record_audio_event_safe(
+                trace_id=trace_id,
+                provider="youtube",
+                phase="search",
+                status="empty" if str(exc) == "No valid matches found." else "error",
+                cache_root=cache_root,
+                elapsed_ms=round((time.monotonic() - search_started) * 1000),
+            )
+            if cache_enabled and str(exc) == "No valid matches found.":
+                try:
+                    put_search_cache(
+                        cache_key,
+                        [],
+                        provider="youtube",
+                        cache_root=cache_root,
+                    )
+                except (OSError, sqlite3.Error):
+                    pass
+            raise
+        if cache_enabled:
+            try:
+                put_search_cache(
+                    cache_key,
+                    [dict(candidate) for candidate in result],
+                    provider="youtube",
+                    cache_root=cache_root,
+                )
+            except (OSError, sqlite3.Error):
+                pass
+        _record_audio_event_safe(
+            trace_id=trace_id,
+            provider="youtube",
+            phase="search",
+            status="success",
+            cache_root=cache_root,
+            elapsed_ms=round((time.monotonic() - search_started) * 1000),
+            candidate_count=len(result),
+        )
+        return result
+
+    if not cache_enabled:
+        return uncached_search()
+    return IdentityCandidateList(
+        _coalesced_youtube_search(cache_key, uncached_search)
+    )
+
+
 def _downloaded_filepath(info: dict[str, Any], fallback: Path) -> Path:
     """Prepares downloaded filepath for an internal Sonex flow.
 
@@ -2794,6 +3049,7 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
 
     Example: download_youtube_candidate(candidate=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
     """
+    trace_id = str(candidate.get("search_trace_id") or f"audio-{uuid.uuid4().hex[:12]}")
     cache_id = _text(candidate.get("cache_id")) or _youtube_cache_id(candidate)
     cached = _cached_audio_item(
         cache_id,
@@ -2803,6 +3059,14 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
         playback_metadata=candidate,
     )
     if cached:
+        _record_audio_event_safe(
+            trace_id=trace_id,
+            provider="youtube",
+            phase="download",
+            status="cache_hit",
+            cache_root=cache_root,
+            cache_hit=True,
+        )
         return cached
 
     webpage_url = _text(candidate.get("webpage_url") or candidate.get("url"))
@@ -2819,8 +3083,20 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
         "format": "bestaudio/best",
         "outtmpl": outtmpl,
     }
-    with yt_dlp.YoutubeDL(options) as ydl:
-        info = ydl.extract_info(webpage_url, download=True)
+    _record_audio_event_safe(
+        trace_id=trace_id,
+        provider="youtube",
+        phase="download",
+        status="started",
+        cache_root=cache_root,
+        cache_hit=False,
+    )
+    info = _extract_ytdlp_info(
+        operation="download",
+        target=webpage_url,
+        options=options,
+        timeout_seconds=YOUTUBE_DOWNLOAD_OPERATION_TIMEOUT_SECONDS,
+    )
     if not isinstance(info, dict):
         raise RuntimeError("Invalid response returned.")
     if "formats" in info:
@@ -2905,6 +3181,15 @@ def download_youtube_candidate(candidate: dict[str, Any], *, cache_root: Path | 
         item["cover_source"] = cover["cover_source"]
         item["cover_source_type"] = cover["source_type"]
     upsert_cached_song(item, cache_root=cache_root)
+    _record_audio_event_safe(
+        trace_id=trace_id,
+        provider="youtube",
+        phase="download",
+        status="success",
+        cache_root=cache_root,
+        candidate_count=1,
+    )
+    mark_runtime_success()
     return item
 
 
@@ -3079,8 +3364,15 @@ def play_youtube_candidate(
     except Exception as exc:
         message = str(exc)
         failure_code = _provider_failure_code(exc)
-        if failure_code in {"provider_rate_limited", "provider_temporarily_unavailable"}:
-            _activate_youtube_search_cooldown()
+        if failure_code in {"provider_rate_limited", "provider_bot_challenge"}:
+            _activate_youtube_search_cooldown(
+                failure_class=(
+                    "bot_challenge"
+                    if failure_code == "provider_bot_challenge"
+                    else "rate_limited"
+                ),
+                cache_root=cache_root,
+            )
             message = "YouTube is temporarily unavailable; playback is cooling down."
             error_code = "YOUTUBE_TEMPORARILY_UNAVAILABLE"
         elif "identity does not match" in message.casefold():
@@ -3092,7 +3384,19 @@ def play_youtube_candidate(
             message = UNAVAILABLE_MESSAGE
             error_code = "YOUTUBE_UNAVAILABLE"
         else:
-            error_code = "NO_PLAYABLE_AUDIO" if "No playable audio" in message else "YOUTUBE_RESOLVE_FAILED"
+            managed_error = _managed_runtime_tool_error(failure_code)
+            if managed_error:
+                message, error_code = managed_error
+            else:
+                error_code = "NO_PLAYABLE_AUDIO" if "No playable audio" in message else "YOUTUBE_RESOLVE_FAILED"
+        _record_audio_event_safe(
+            trace_id=str(candidate.get("search_trace_id") or f"audio-{uuid.uuid4().hex[:12]}"),
+            provider="youtube",
+            phase="resolve",
+            status="error",
+            cache_root=cache_root,
+            failure_class=failure_code,
+        )
         display_message = _format_youtube_fallback_failure(candidate, message) if is_youtube_fallback else message
         return ToolResult.fail(
             tool="play_online_audio" if is_youtube_fallback else "play_youtube_song",
@@ -3146,7 +3450,7 @@ def play_youtube_candidate(
             },
         )
 
-    return start_local_playback(
+    playback_result = start_local_playback(
         tool="play_youtube_song",
         source_url=audio_path,
         source="youtube",
@@ -3154,6 +3458,15 @@ def play_youtube_candidate(
         player=player,
         success_message=success_message,
     )
+    _record_audio_event_safe(
+        trace_id=str(candidate.get("search_trace_id") or f"audio-{uuid.uuid4().hex[:12]}"),
+        provider="youtube",
+        phase="player_start",
+        status=str(playback_result.get("status") or "unknown"),
+        cache_root=cache_root,
+        started=playback_result.get("status") == "success",
+    )
+    return playback_result
 
 
 def resolve_youtube_song(query: str) -> dict[str, Any]:
@@ -3169,8 +3482,12 @@ def resolve_youtube_song(query: str) -> dict[str, Any]:
         "noplaylist": True,
     }
 
-    with yt_dlp.YoutubeDL(options) as ydl:
-        payload = ydl.extract_info(f"ytsearch1:{query}", download=False)
+    payload = _extract_ytdlp_info(
+        operation="search",
+        target=f"ytsearch1:{query}",
+        options=options,
+        timeout_seconds=YOUTUBE_SEARCH_OPERATION_TIMEOUT_SECONDS,
+    )
 
     if not isinstance(payload, dict):
         raise RuntimeError("Invalid response returned.")
@@ -3197,8 +3514,12 @@ def resolve_youtube_song(query: str) -> dict[str, Any]:
         "skip_download": True,
     }
 
-    with yt_dlp.YoutubeDL(stream_opts) as ydl:
-        info = ydl.extract_info(webpage_url, download=False)
+    info = _extract_ytdlp_info(
+        operation="resolve",
+        target=webpage_url,
+        options=stream_opts,
+        timeout_seconds=YOUTUBE_RESOLVE_OPERATION_TIMEOUT_SECONDS,
+    )
     if not isinstance(info, dict):
         raise RuntimeError("Invalid response returned.")
 
@@ -3253,10 +3574,16 @@ def _play_automatic_candidates(
         provider = str(candidate.get("provider") or "")
         if (
             error_code == "YOUTUBE_TEMPORARILY_UNAVAILABLE"
-            or provider_failure in {"provider_rate_limited", "provider_temporarily_unavailable"}
+            or provider_failure in {"provider_rate_limited", "provider_bot_challenge"}
         ):
             if provider == "youtube":
-                _activate_youtube_search_cooldown()
+                _activate_youtube_search_cooldown(
+                    failure_class=(
+                        "bot_challenge"
+                        if provider_failure == "provider_bot_challenge"
+                        else "rate_limited"
+                    ),
+                )
             return result
         if error_code not in retryable_error_codes:
             return result

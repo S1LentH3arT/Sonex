@@ -6,7 +6,6 @@ Key public entry points include upsert_cached_song, find_best_cached_song, resol
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import sqlite3
@@ -15,6 +14,13 @@ from pathlib import Path
 from typing import Any
 
 from src.log import sonex_home
+from src.tools.song_cache_state import (
+    artists_text as _artists_text,
+    cache_id_for as _cache_id_for,
+    merge_provider_details as _merge_provider_details,
+    provider_summary as _provider_summary,
+    text as _text,
+)
 
 MAX_CACHED_SONGS = 100
 SESSION_QUEUE_LIMIT = 10
@@ -71,43 +77,6 @@ def _connect(cache_root: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
-def _text(value: Any) -> str:
-    """Prepares text for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs text without duplicating the local rules.
-
-    Example: _text("  song  ") -> "song"; _text("") -> None.
-    """
-    return str(value or "").strip()
-
-
-def _artists_text(item: dict[str, Any]) -> str:
-    """Prepares artists text for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs artists text without duplicating the local rules.
-
-    Example: _artists_text(item=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    artist = _text(item.get("artist"))
-    if artist:
-        return artist
-    artists = item.get("artists")
-    if isinstance(artists, list):
-        return ", ".join(_text(value) for value in artists if _text(value))
-    return ""
-
-
-def _cache_id_for(name: str, artist: str) -> str:
-    """Prepares cache id for for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs cache id for without duplicating the local rules.
-
-    Example: _cache_id_for(name=..., artist=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    digest = hashlib.sha1(f"{name.casefold()}|{artist.casefold()}".encode("utf-8")).hexdigest()
-    return digest[:16]
-
-
 def _compact(row: sqlite3.Row) -> dict[str, Any]:
     """Prepares compact for an internal Sonex flow.
 
@@ -125,38 +94,6 @@ def _compact(row: sqlite3.Row) -> dict[str, Any]:
         "updated_at": row["updated_at"],
         "last_played_at": row["last_played_at"],
     }
-
-
-def _provider_summary(item: dict[str, Any]) -> list[dict[str, Any]]:
-    """Prepares provider summary for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs provider summary without duplicating the local rules.
-
-    Example: _provider_summary(item=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    provider = _text(item.get("provider") or item.get("source"))
-    summary: dict[str, Any] = {"provider": provider or "unknown"}
-    for key in ("uri", "url", "stream_url", "cover_url", "album_cover_url"):
-        if item.get(key):
-            summary[f"has_{key}"] = True
-    return [summary]
-
-
-def _merge_provider_details(existing: dict[str, Any], incoming: dict[str, Any]) -> dict[str, Any]:
-    """Prepares merge provider details for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs merge provider details without duplicating the local rules.
-
-    Example: _merge_provider_details(existing=..., incoming=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    merged = dict(existing)
-    provider = _text(incoming.get("provider") or incoming.get("source") or "unknown")
-    providers = dict(merged.get("providers") or {})
-    provider_payload = dict(incoming)
-    providers[provider] = provider_payload
-    merged.update(incoming)
-    merged["providers"] = providers
-    return merged
 
 
 def _delete_cached_audio(item: dict[str, Any], root: Path) -> None:

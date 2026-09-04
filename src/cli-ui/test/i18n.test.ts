@@ -72,6 +72,19 @@ const statusEvent = applyLanguageToServerEvent({
 }, "zh-CN");
 assert.equal(statusEvent.message, "休眠中...");
 
+const youtubeErrorEvent = applyLanguageToServerEvent({
+    type: "error",
+    message: "Another YouTube request is still running. Try again shortly.",
+    detail: "YOUTUBE_QUEUE_BUSY",
+}, "zh-CN");
+assert.equal(youtubeErrorEvent.message, "另一个 YouTube 请求仍在运行，请稍后再试。");
+
+const youtubeAgeErrorEvent = applyLanguageToServerEvent({
+    type: "error",
+    message: "Selected YouTube result requires age verification. Choose another candidate or refine the search.",
+}, "zh-CN");
+assert.equal(youtubeAgeErrorEvent.message, "所选 YouTube 结果需要年龄验证，请选择其他候选或优化搜索。");
+
 const setupEvent = applyLanguageToServerEvent({
     type: "spotify_setup",
     step: "client_id",
@@ -102,13 +115,6 @@ const arbitraryChat = applyLanguageToServerEvent({
     text: "Snoozing... is a song lyric in this arbitrary AI answer.",
 }, "zh-CN");
 assert.equal(arbitraryChat.text, "Snoozing... is a song lyric in this arbitrary AI answer.");
-
-const knownChat = applyLanguageToServerEvent({
-    type: "chat",
-    role: "agent",
-    text: "The /keymap command is handled by the TUI for this session.",
-}, "zh-CN");
-assert.equal(knownChat.text, "/keymap 命令由本次 TUI 会话处理。");
 
 const playerConfirm = applyLanguageToServerEvent({
     type: "confirm",

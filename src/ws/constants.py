@@ -38,16 +38,6 @@ LOCAL_PLAYBACK_CHOICES = [
     {"value": "cancel", "label": "Cancel"},
 ]
 
-SPOTIFY_SETUP_TRIGGERS = {
-    "spotify setup",
-    "setup spotify",
-    "connect spotify",
-    "spotify connect",
-    "接入 spotify",
-    "连接 spotify",
-    "配置 spotify",
-}
-
 LLM_AUTH_PROVIDER_CHOICES = [
     {"value": "openai", "label": "OpenAI"},
     {"value": "gemini", "label": "Google Gemini"},

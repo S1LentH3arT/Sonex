@@ -24,9 +24,6 @@ assert.match(
     componentsSource,
     /useToolSegmentStyles && segment\.style === "tool_name"\s*\? TOOL_NAVY[\s\S]*bold=\{[\s\S]*useToolSegmentStyles && segment\.style === "tool_name"/,
 );
-assert.match(
-    appSource,
-    /if \(!isMusicConnection && confirm\.variant !== "tool_call_review"\) \{\s*appendPanelHiddenNotice/,
-);
+assert.doesNotMatch(appSource, /appendPanelHiddenNotice/);
 assert.match(typesSource, /variant\?: "tool_call_review"/);
 assert.match(typesSource, /segments\?: ChatSegment\[\]/);

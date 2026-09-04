@@ -99,6 +99,28 @@ sonex tui
 `doctor.sh` 会检查 Python 依赖、Node 依赖、TUI 构建产物、`sonex` 命令、
 `~/.sonex`、可选本地播放器，以及 Spotify 配置状态。
 
+### YouTube PO Token 运行时
+
+YouTube 的 yt-dlp 与 PO Token Provider 运行在 `SONEX_HOME` 下的独立 runtime
+中。启动 Sonex 时会在后台检查本地 runtime，并最多每 24 小时检查一次稳定版；
+不会在启动检查中请求 YouTube。首次未缓存的 YouTube 播放会提示是否安装，安装和
+更新在后台进行，完成后提示重启应用。
+
+```bash
+sonex youtube setup       # 交互确认后后台安装
+sonex youtube status      # 查看状态，不启动播放
+sonex youtube status --json
+sonex youtube repair      # 忽略自动重试冷却并人工修复
+```
+
+如果 PyPI 在线下载速度过慢，可以从 PyPI 或可信镜像手动下载 `yt-dlp` 和
+`bgutil-ytdlp-pot-provider` 的 wheel 文件，并将两个文件放入
+`SONEX_HOME/youtube-runtime/offline`。回到 `/extension`，选中 `yt-dlp` 后按
+Enter 重试；Sonex 会在不访问包索引的情况下安装本地文件。
+
+受管 runtime 不读取 YouTube 账号 Cookie、浏览器 Cookie 或用户级 yt-dlp 配置，
+也不会加载任意外部 PO Token Provider。
+
 ## LLM Provider 设置
 
 Sonex 默认把本地凭据保存到 `~/.sonex`。如果想使用其他状态目录，可以设置
@@ -221,15 +243,18 @@ Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你�
 如果已保存 token 缺少新增的 Spotify scopes，Sonex 会在当前聊天区启动 Spotify 授权引导，
 帮助你授予更新后的权限。
 
-### 本地和在线播放
+### 本地和 Provider 播放
 
-如果需要可控制的本地文件或在线播放，请安装 `mpv`。Sonex 会直接使用 mpv
-处理这些播放链路。Spotify Connect 仍使用独立的 provider mode，不使用本地播放器。
+如果需要可控制的本地文件、网易云音乐或在线播放，请安装 `mpv`。Spotify 播放使用
+Spotify Connect，不经过本地播放器。持久化 Spotify Mode 仍会让整个音乐界面固定使用
+Spotify；普通模式则可以为单次播放请求选择已就绪的 Spotify 连接。
 
-### 在线音频回退
+### 播放源选择
 
-普通模式会优先使用本地文件，随后通过在线音频源解析选中的歌曲。Spotify 播放归属
-Spotify Mode。iTunes Search 仍属于普通搜索链路中的元数据发现能力，不是播放模式。
+普通模式会优先检查本地文件。没有本地结果或跳过本地后，Sonex 会同时提供已就绪的
+网易云音乐、Spotify 原生播放源和 Online 选项。Sonex 只搜索选中的 catalog，并保留
+网易云音乐原生 ID 或 Spotify URI；搜索失败或没有可播放结果时，可以重试、补充关键词
+或切换播放源。iTunes Search 仍只用于元数据发现，不是播放源。要使用 Online 路径，
 至少配置一个在线音频 provider：
 
 执行 `/connect` 并选择 Jamendo 或 Audius。
@@ -254,8 +279,8 @@ play Mitski Nobody
 播放 方大同 忘了美丽
 ```
 
-Sonex 会先检查匹配的本地文件；没有本地结果或跳过本地后，普通模式会直接展示最多
-五个元数据候选并进入 Sonex 在线音频流程，不再询问播放 provider。`/recommend [taste]` 会先返回编号
+Sonex 会先检查匹配的本地文件；没有本地结果或跳过本地后，普通模式会先选择网易云音乐、
+Spotify 或 Online 播放源，再展示该来源最多五个候选。`/recommend [taste]` 会先返回编号
 文本列表，默认 5 首；有 taste 时优先按用户输入推荐，再参考最近播放和 `USER.md`
 偏好，并把推荐曲目加入 Sonex 播放队列但不直接播放。之后可以继续要求播放某一项，
 例如 `play number 2` 或 `播放第2首`。

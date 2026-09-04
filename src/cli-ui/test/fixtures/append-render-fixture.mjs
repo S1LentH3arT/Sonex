@@ -19,7 +19,7 @@ let ink;
 const signalMode = process.env.SONEX_APPEND_FIXTURE_SIGNAL === '1';
 const presentation = {
     contentWidth: 76,
-    headerVariant: 'full',
+    headerVariant: 'mascot',
     language: 'en',
 };
 

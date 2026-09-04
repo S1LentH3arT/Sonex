@@ -11,14 +11,7 @@ const sliceBetween = (startMarker: string, endMarker: string): string => {
     return source.slice(start, end);
 };
 
-const noticeHelper = sliceBetween(
-    'const appendPanelHiddenNotice = React.useCallback',
-    'const inputPlaceholder =',
-);
-assert.match(
-    noticeHelper,
-    /commitItems\(\[\{[\s\S]*type: "message",[\s\S]*role: "agent",[\s\S]*content,[\s\S]*theme: "muted",[\s\S]*tone: "system"/,
-);
+assert.doesNotMatch(source, /appendPanelHiddenNotice/);
 
 const loginEscape = sliceBetween(
     'if (!isLoginScreenActive) return;',
@@ -30,7 +23,6 @@ const modelEscape = sliceBetween(
     'if (!isModelPanelActive) return;',
     'if (!isSlashMenuActive || !selectedSlashCommand) return;',
 );
-assert.match(modelEscape, /key\.escape[\s\S]*appendPanelHiddenNotice\(t\(language, "panel\.modelHidden"\)\)/);
 assert.match(modelEscape, /key\.escape[\s\S]*send\(\{ type: "auth_setup_input", value: "__cancel__" \}\)/);
 
 const slashEscape = sliceBetween(
@@ -44,30 +36,32 @@ const languageEscape = sliceBetween(
     'if (!languagePanel?.active) return;',
     'if (spotifySetup && spotifySetup.active === false && key.escape)',
 );
-assert.match(languageEscape, /key\.escape[\s\S]*appendPanelHiddenNotice\(t\(language, "panel\.languageHidden"\)\)/);
+assert.doesNotMatch(languageEscape, /panel\.languageHidden/);
 
 const completedSetupEscape = sliceBetween(
     'if (spotifySetup && spotifySetup.active === false && key.escape)',
     'if (!confirm) return;',
 );
-assert.match(completedSetupEscape, /setSpotifySetup\(null\)[\s\S]*panel\.spotifySetupHidden/);
-assert.match(completedSetupEscape, /setAuthSetup\(null\)[\s\S]*panel\.setupHidden/);
+assert.match(completedSetupEscape, /type: "clear_spotify_setup"/);
+assert.match(completedSetupEscape, /type: "clear_auth_setup"/);
+assert.doesNotMatch(completedSetupEscape, /panel\.(spotifySetupHidden|setupHidden)/);
 
 const confirmEscape = sliceBetween(
     'if (!confirm) return;',
     'if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active) return;',
 );
-assert.match(confirmEscape, /key\.escape[\s\S]*decision: "deny"[\s\S]*setConfirm\(null\)[\s\S]*panel\.confirmHidden/);
+assert.match(confirmEscape, /key\.escape[\s\S]*decision: "deny"[\s\S]*setConfirm\(null\)/);
+assert.doesNotMatch(confirmEscape, /panel\.confirmHidden/);
 
 const helpEscape = sliceBetween(
     'if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active) return;',
     'if (activeRegion !== "trackPanel"',
 );
-assert.match(helpEscape, /key\.escape[\s\S]*setHelpPanel\(null\)[\s\S]*panel\.helpHidden/);
+assert.match(helpEscape, /key\.escape[\s\S]*setHelpPanel\(null\)/);
+assert.doesNotMatch(helpEscape, /panel\.helpHidden/);
 
 const trackPanelEscape = sliceBetween(
     'if (activeRegion !== "trackPanel"',
     'isActive: activeRegion === "trackPanel"',
 );
-assert.match(trackPanelEscape, /key\.escape[\s\S]*trackPanel\.playlistHidden[\s\S]*trackPanel\.queueHidden/);
-assert.match(trackPanelEscape, /appendPanelHiddenNotice\(hiddenMessage\)/);
+assert.doesNotMatch(trackPanelEscape, /Hidden|appendPanelHiddenNotice/);

@@ -9,11 +9,18 @@ from pathlib import Path
 from typing import Any
 
 from src.log import sonex_home
-from src.music.legacy_tracks import downgrade_retired_provider_track, is_retired_provider_track
+from src.music.legacy_tracks import is_retired_provider_track
+from src.tools.up_next_state import (
+    MAX_FAILED_UP_NEXT,
+    MAX_UP_NEXT,
+    append_up_next_state,
+    coerce_up_next_state,
+    consume_up_next_head_state,
+    empty_up_next_state,
+    fail_up_next_head_state,
+)
 
 
-MAX_UP_NEXT = 100
-MAX_FAILED_UP_NEXT = 100
 _UP_NEXT_LOCK = threading.RLock()
 
 
@@ -32,31 +39,11 @@ def _path(queue_path: Path | None = None) -> Path:
 
 
 def _empty_state() -> dict[str, Any]:
-    return {"revision": 0, "items": [], "failed": []}
+    return empty_up_next_state()
 
 
 def _coerce_state(value: Any) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        return _empty_state()
-    items = [
-        downgrade_retired_provider_track(item)[0]
-        for item in value.get("items", [])
-        if isinstance(item, dict)
-    ]
-    failed = [
-        downgrade_retired_provider_track(item)[0]
-        for item in value.get("failed", [])
-        if isinstance(item, dict)
-    ]
-    try:
-        revision = max(0, int(value.get("revision") or 0))
-    except (TypeError, ValueError):
-        revision = 0
-    return {
-        "revision": revision,
-        "items": items[:MAX_UP_NEXT],
-        "failed": failed[:MAX_FAILED_UP_NEXT],
-    }
+    return coerce_up_next_state(value)
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -139,9 +126,10 @@ def consume_up_next_head(*, queue_path: Path | None = None) -> dict[str, Any]:
     """Remove the head only after the caller has confirmed playback started."""
     with _UP_NEXT_LOCK:
         current = up_next_snapshot(queue_path=queue_path)
-        if not current["items"]:
+        next_state = consume_up_next_head_state(current)
+        if next_state is current:
             return current
-        current["items"] = current["items"][1:]
+        current = next_state
         return commit_up_next_state(
             current,
             expected_revision=current["revision"],
@@ -157,14 +145,10 @@ def append_up_next_track(
     """Idempotently append one already-resolved playable track."""
     with _UP_NEXT_LOCK:
         current = up_next_snapshot(queue_path=queue_path)
-        ref = str(track.get("ref") or "").strip()
-        if not ref:
-            raise ValueError("Up-next tracks require a structured ref.")
-        if not track.get("playable") and not track.get("requires_resolution"):
-            raise ValueError("Up-next tracks require an available playback route.")
-        if any(str(item.get("ref") or "") == ref for item in current["items"]):
+        next_state = append_up_next_state(current, track)
+        if next_state is current:
             return current
-        current["items"].append(dict(track))
+        current = next_state
         return commit_up_next_state(
             current,
             expected_revision=current["revision"],
@@ -180,15 +164,10 @@ def fail_up_next_head(
     """Move one failed head to bounded failure history and advance the queue."""
     with _UP_NEXT_LOCK:
         current = up_next_snapshot(queue_path=queue_path)
-        if not current["items"]:
+        next_state = fail_up_next_head_state(current, reason, failed_at=time.time())
+        if next_state is current:
             return current
-        failed = {
-            **current["items"][0],
-            "failure_reason": str(reason or "Playback failed."),
-            "failed_at": time.time(),
-        }
-        current["items"] = current["items"][1:]
-        current["failed"] = [failed, *current["failed"]][:MAX_FAILED_UP_NEXT]
+        current = next_state
         return commit_up_next_state(
             current,
             expected_revision=current["revision"],

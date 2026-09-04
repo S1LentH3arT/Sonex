@@ -26,6 +26,7 @@ export type PanelRowSegment = {
 export type PanelChoiceItem = {
     key: string;
     segments: PanelRowSegment[];
+    selectedColor?: string;
     unselectedBold?: boolean;
     gapBefore?: boolean;
 };
@@ -74,14 +75,14 @@ export const resolvePanelChoiceSegments = (
         const selectedColor = spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE;
         return item.segments.map((segment) => ({
             ...segment,
-            color: segment.preserveColorWhenSelected ? segment.color : selectedColor,
+            color: item.selectedColor ?? (segment.preserveColorWhenSelected ? segment.color : selectedColor),
             bold: true,
         }));
     }
 
     return [{
         text: item.segments.map((segment) => segment.text).join(""),
-        color: spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE,
+        color: item.selectedColor ?? (spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE),
         bold: true,
     }];
 };
@@ -185,6 +186,7 @@ export const PanelChoiceList = ({
 export const PanelFrame = ({
     width,
     title,
+    titleSegments = null,
     hint = null,
     hintColor = PANEL_SECONDARY,
     titleDetailSegments = null,
@@ -193,6 +195,7 @@ export const PanelFrame = ({
 }: {
     width: number;
     title: string;
+    titleSegments?: PanelRowSegment[] | null;
     hint?: string | null;
     hintColor?: string;
     titleDetailSegments?: PanelRowSegment[] | null;
@@ -207,7 +210,13 @@ export const PanelFrame = ({
     return (
         <Box width={boundedWidth} flexDirection="column" flexShrink={0}>
             <PanelEmptyRow width={boundedWidth} />
-            {titleRows.map((row, index) => (
+            {titleSegments ? (
+                <PanelRow
+                    width={boundedWidth}
+                    paddingX={paddingX}
+                    segments={titleSegments}
+                />
+            ) : titleRows.map((row, index) => (
                 <PanelRow
                     key={`panel-title-${index}`}
                     width={boundedWidth}

@@ -29,8 +29,8 @@ assert.match(appSource, /position: spotifyImmersiveVisible \? spotifyImmersiveLa
 assert.equal(appSource.includes('useMiniProgressWriter'), false);
 assert.match(appSource, /providerMode: providerModeRef\.current\.enabled/);
 assert.match(appSource, /providerModeRef\.current\.enabled/);
-assert.match(appSource, /if \(key\.tab \|\| inputKey === "\\t"\) \{[\s\S]*toggleShellRegion/);
-assert.equal(appSource.includes('if (activeRegionRef.current === "spotifyImmersive")'), false);
+assert.match(appSource, /if \(key\.tab \|\| inputKey === "\\t"\) \{[\s\S]*type: "toggle_region"/);
+assert.equal(appSource.includes('if (shellStateRef.current.region === "spotifyImmersive")'), false);
 assert.doesNotMatch(appSource, /activeRegion === "chat" \? <HeaderFrame/);
 assert.match(appSource, /const showFixedHeader = activeRegion === "chat" && authInterfaceActive/);
 assert.match(appSource, /\{showFixedHeader \? \([\s\S]*<HeaderFrame[\s\S]*authState=\{authState\}/);

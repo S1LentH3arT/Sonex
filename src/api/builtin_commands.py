@@ -88,15 +88,15 @@ class ParsedCommand:
 BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("help", "/help", "show available Sonex commands", aliases=("?",)),
     BuiltinCommand("info", "/info", "show current runtime information"),
-    BuiltinCommand("keymap", "/keymap [on|off|toggle|status]", "enable or disable mini-player playback shortcuts"),
     BuiltinCommand("lang", "/lang", "choose the TUI display language", enabled=False),
     BuiltinCommand("login", "/login", "connect or switch the active LLM provider"),
     BuiltinCommand("memory", "/memory", "configure long-term Agent memory"),
+    BuiltinCommand("settings", "/settings", "configure Sonex settings", aliases=("setting",)),
     BuiltinCommand("model", "/model", "switch the active model for this session"),
     BuiltinCommand("logout", "/logout", "sign out from the current LLM provider and exit"),
     BuiltinCommand("playlist", "/playlist [name]|save [name]", "browse playlists or save the current song"),
     BuiltinCommand("queue", "/queue", "show the playback queue"),
-    BuiltinCommand("connect", "/connect", "connect a supported music account"),
+    BuiltinCommand("extension", "/extension", "check and manage built-in music extensions"),
     BuiltinCommand("spotify", "/spotify", "enter or exit persistent Spotify mode"),
     BuiltinCommand("pause", "/pause", "pause current local playback", visible=False),
     BuiltinCommand("resume", "/resume", "resume current local playback"),
@@ -113,8 +113,10 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         mode="agent",
         intent_prompt=(
             "The user invoked /recommend. Treat the args as a music taste hint. "
-            "Call Recommend exactly once. Use only tracks returned by Recommend, return "
-            "a concise numbered text list, and end with a normal question about what the "
+            "Call Recommend exactly once. If it returns tracks, use only those tracks. "
+            "If it returns text_only=true, recommend from general music knowledge without "
+            "claiming catalog availability or playability. Return a concise numbered text "
+            "list, and end with a normal question about what the "
             "user wants to hear. Do not start playback or modify a playlist or queue."
         ),
         allowed_tools=("Recommend",),

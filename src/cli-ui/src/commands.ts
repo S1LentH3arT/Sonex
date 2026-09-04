@@ -2,7 +2,7 @@ import { SLASH_COMMANDS } from './constants.js';
 import { localizeSlashCommands } from './i18n.js';
 import type { SlashCommandSuggestion, UiLanguage } from './types.js';
 
-export const SPOTIFY_MODE_COMMAND_NAMES = ["bye", "connect", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "spotify"] as const;
+export const SPOTIFY_MODE_COMMAND_NAMES = ["bye", "extension", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "settings", "spotify"] as const;
 
 const SPOTIFY_MODE_COMMANDS = SPOTIFY_MODE_COMMAND_NAMES.map((name) => (
     SLASH_COMMANDS.find((command) => command.name === name)

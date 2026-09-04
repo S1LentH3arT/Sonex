@@ -4,9 +4,8 @@ Implements the core module responsibilities used by Sonex runtime flows.
 Key public entry points include AgentState, agent_loop.
 """
 
-import json
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any, Generator
 
 from src.api.builtin_commands import CommandIntent
@@ -15,6 +14,18 @@ from src.llm.planner import llm_plan
 from src.llm.transport import sanitize_error_message
 from src.memory.hooks import append_context, append_tool_summary, finalize_turn
 from src.sandbox.command_policy import BASH_REVIEW_PAGE_SIZE, BashCommandDecision, inspect_commands
+from src.agent.turn_policy import (
+    confirm_approved as _confirm_approved,
+    confirm_interrupted as _confirm_interrupted,
+    is_committed_playback_result as _is_committed_playback_result,
+    is_player_confirm_result as _is_player_confirm_result,
+    is_suspended_interaction_result as _is_suspended_interaction_result,
+    normalized_call_key as _normalized_call_key,
+    planning_command_intent as _planning_command_intent,
+    player_confirm_payload as _player_confirm_payload,
+    spotify_premium_failure_answer as _spotify_premium_failure_answer,
+    to_serializable as _to_serializable,
+)
 from src.tools.player_permission import complete_player_confirm
 from src.tools.registry import ToolRegistry
 
@@ -42,19 +53,6 @@ class AgentState:
     is_error: bool = False
     calls: list[ToolAction] | None = None
 
-def _to_serializable(value: Any) -> Any:
-    """Prepares to serializable for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs to serializable without duplicating the local rules.
-
-    Example: _to_serializable(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    try:
-        json.dumps(value, ensure_ascii=True)
-    except TypeError:
-        return str(value)
-    return value
-
 def _format_error(exc: Exception) -> str:
     """Prepares format error for an internal Sonex flow.
 
@@ -63,101 +61,6 @@ def _format_error(exc: Exception) -> str:
     Example: _format_error(exc=...) -> returns the value used by the surrounding Sonex flow.
     """
     return sanitize_error_message(exc)
-
-def _is_player_confirm_result(value: Any) -> bool:
-    """Prepares is player confirm result for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs is player confirm result without duplicating the local rules.
-
-    Example: _is_player_confirm_result(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return isinstance(value, dict) and value.get("status") == "requires_player_confirm"
-
-
-def _is_suspended_interaction_result(value: Any) -> bool:
-    """Return whether an Agent Tool asked the UI runtime to suspend the turn."""
-    return isinstance(value, dict) and value.get("status") in {
-        "requires_play_selection",
-        "requires_connection",
-        "requires_modify_confirmation",
-    }
-
-
-def _is_committed_playback_result(value: Any) -> bool:
-    """Return whether the runtime completed playback without another LLM pass."""
-    return isinstance(value, dict) and value.get("status") in {
-        "playback_completed",
-        "playback_failed",
-        "playback_cancelled",
-    }
-
-
-def _normalized_call_key(tool: str, arguments: dict[str, Any]) -> str:
-    """Build a stable per-turn key for repeated Agent Tool detection."""
-    return json.dumps(
-        {"tool": tool, "arguments": arguments},
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-
-def _spotify_premium_failure_answer(result: Any) -> str | None:
-    """Prepares spotify premium failure answer for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs spotify premium failure answer without duplicating the local rules.
-
-    Example: _spotify_premium_failure_answer(result=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    if not isinstance(result, dict):
-        return None
-    error_code = result.get("error_code")
-    if error_code == "SPOTIFY_APP_PREMIUM_REQUIRED":
-        message = result.get("message") or "Spotify search requires a Premium account for the app owner."
-        return f"{message} I can play the track through YouTube/local playback instead."
-    if error_code != "SPOTIFY_PREMIUM_REQUIRED":
-        return None
-    message = result.get("message") or "Spotify playback requires a Premium account."
-    return f"{message} I can search Spotify results, or play the track through YouTube/local playback instead."
-
-def _player_confirm_payload(result: dict[str, Any], tool_args: dict[str, Any]) -> dict[str, Any]:
-    """Prepares player confirm payload for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs player confirm payload without duplicating the local rules.
-
-    Example: _player_confirm_payload(result=..., tool_args=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    data = result.get("data") or {}
-    return {
-        "message": data.get("confirm_message") or result.get("message"),
-        "choices": data.get("choices") or [],
-        "tool_args": tool_args,
-        "player": data.get("player"),
-        "player_label": data.get("player_label"),
-    }
-
-def _confirm_approved(decision: Any) -> bool:
-    """Prepares confirm approved for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs confirm approved without duplicating the local rules.
-
-    Example: _confirm_approved(decision=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    if isinstance(decision, bool):
-        return decision
-    return str(decision).strip().lower() in {"allow_always", "allow_once", "yes", "true", "ok"}
-
-
-def _confirm_interrupted(decision: Any) -> bool:
-    """Return whether confirmation ended because the client disconnected."""
-    if not isinstance(decision, dict):
-        return False
-    data = decision.get("data")
-    return (
-        decision.get("status") == "cancelled"
-        and isinstance(data, dict)
-        and data.get("reason") == "session_disconnected"
-    )
 
 def _safe_memory_call(label: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
     """Prepares safe memory call for an internal Sonex flow.
@@ -171,26 +74,6 @@ def _safe_memory_call(label: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
     except Exception as exc:
         logger.warning("%s failed: %s", label, _format_error(exc))
         return None
-
-
-def _planning_command_intent(
-    command_intent: CommandIntent | None,
-    *,
-    tool_call_count: int,
-    tool_call_limit: int,
-) -> CommandIntent | None:
-    """Return a text-only intent after a bounded command uses its tool budget."""
-    if command_intent is None or tool_call_count < tool_call_limit:
-        return command_intent
-    return replace(
-        command_intent,
-        allowed_tools=(),
-        max_tool_calls=0,
-        intent_prompt=(
-            f"{command_intent.intent_prompt} The tool-call budget is now exhausted. "
-            "Do not call another tool. Answer now using the tool results already returned."
-        ),
-    )
 
 
 def agent_loop(

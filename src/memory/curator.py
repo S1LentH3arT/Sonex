@@ -82,6 +82,14 @@ def curate_completed_turn(
         return []
     envelope = TurnEnvelope.capture(user_input, store)
     explicit = explicit_memory_operation(user_input)
+    if explicit is not None and explicit.operation == "add" and safe_memory_content(explicit.content):
+        explicit = MemoryOperation(
+            explicit.operation,
+            _classify_explicit_target(explicit.content),
+            explicit.content,
+            source=explicit.source,
+            confidence=explicit.confidence,
+        )
     operations = [explicit] if explicit is not None else _implicit_operations(envelope, store)
     applied: list[MemoryOperation] = []
     for operation in operations:
@@ -92,13 +100,25 @@ def curate_completed_turn(
         if operation.operation == "remove":
             result = store.remove(operation.target, operation.content)
         elif operation.operation == "update":
-            result = store.update(
-                operation.target,
-                operation.content,
-                previous_content=operation.previous_content,
-                source=operation.source,
-                confidence=operation.confidence,
+            previous = str(operation.previous_content or "").strip()
+            protected = next(
+                (entry for entry in store.entries(operation.target) if entry.content == previous and entry.protected),
+                None,
             )
+            if protected is not None:
+                result = store.propose_update(
+                    protected.entry_id,
+                    operation.content,
+                    "The Memory Curator found related information that requires user review.",
+                )
+            else:
+                result = store.update(
+                    operation.target,
+                    operation.content,
+                    previous_content=operation.previous_content,
+                    source=operation.source,
+                    confidence=operation.confidence,
+                )
         else:
             result = store.add(
                 operation.target,
@@ -111,20 +131,14 @@ def curate_completed_turn(
             and not result.get("success")
             and result.get("error") == "Memory entry already exists."
         ):
-            result = store.update(
-                operation.target,
-                operation.content,
-                source=operation.source,
-                confidence=operation.confidence,
-            )
             operation = MemoryOperation(
-                "update",
+                "noop",
                 operation.target,
                 operation.content,
                 source=operation.source,
                 confidence=operation.confidence,
-                previous_content=operation.content,
             )
+            result = {"success": True}
         if result.get("success"):
             applied.append(operation)
     store.mark_memory_candidate("processed" if applied else "noop")
@@ -136,7 +150,10 @@ def memory_operation_message(operation: MemoryOperation) -> str:
         "add": "saved",
         "update": "updated",
         "remove": "removed",
+        "noop": "already exists",
     }.get(operation.operation, "updated")
+    if operation.operation == "noop":
+        return f"Memory already exists: {operation.content}"
     return f"Memory {verb}: {operation.content}"
 
 
@@ -149,12 +166,25 @@ def _implicit_operations(envelope: TurnEnvelope, store: MemoryStore) -> list[Mem
     )
     if not _PREFERENCE_SIGNAL.search(envelope.user_input) and not repeated_tool and not behavior_signals:
         return []
-    existing_user = store.search_memory(envelope.user_input, target="user", limit=6)
+    settings = store.settings()
+    if not settings["automatic_refinement"]:
+        return []
+    existing_user = [
+        store._entry_to_dict(entry)
+        for entry in _relevant_entries(
+            store.entries("user"),
+            envelope.user_input,
+            int(settings["user_refinement_window"]),
+        )
+    ]
     existing_agent = [
-        item
-        for tool in tool_names
-        for item in store.search_memory(tool, target="memory", limit=4)
-    ][:6]
+        store._entry_to_dict(entry)
+        for entry in _relevant_entries(
+            store.entries("memory"),
+            envelope.user_input,
+            int(settings["memory_refinement_window"]),
+        )
+    ]
     request = ChatRequest(
         model=ThinkingConfig.get_model(),
         messages=[
@@ -238,7 +268,7 @@ def _implicit_operations(envelope: TurnEnvelope, store: MemoryStore) -> list[Mem
             source=(
                 "experience"
                 if target == "memory"
-                else "explicit" if bounded_confidence >= 0.95 else "inferred"
+                else "inferred"
             ),
             confidence=bounded_confidence,
             previous_content=previous_content,
@@ -249,6 +279,67 @@ def _implicit_operations(envelope: TurnEnvelope, store: MemoryStore) -> list[Mem
 def safe_memory_content(content: str) -> bool:
     text = " ".join(str(content or "").split())
     return bool(text) and len(text) <= 500 and _SECRET.search(text) is None
+
+
+def _classify_explicit_target(content: str) -> Literal["user", "memory"]:
+    """Let the active model classify placement without rewriting explicit text."""
+    request = ChatRequest(
+        model=ThinkingConfig.get_model(),
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Classify one user-authored memory. Choose user for facts or preferences "
+                    "about the user. Choose memory for reusable Sonex Agent workflows. Do not "
+                    "rewrite, summarize, or evaluate the content. Call classify_memory once."
+                ),
+            },
+            {"role": "user", "content": content},
+        ],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "classify_memory",
+                    "description": "Choose the storage target for unchanged explicit memory.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"target": {"type": "string", "enum": ["user", "memory"]}},
+                        "required": ["target"],
+                    },
+                },
+            }
+        ],
+        tool_choice={"type": "function", "function": {"name": "classify_memory"}},
+        max_tokens=32,
+        temperature=0,
+    )
+    try:
+        response = ThinkingConfig.get_client().generate(request)
+        target = str(response.tool_calls[0].arguments.get("target") or "user").casefold()
+    except Exception:
+        return "user"
+    return "memory" if target == "memory" else "user"
+
+
+def _relevant_entries(entries: list[Any], query: str, limit: int) -> list[Any]:
+    """Select a finite runtime-entry window by lexical relevance and recency."""
+    terms = {
+        term.casefold()
+        for term in re.findall(r"[\w\u4e00-\u9fff]+", str(query or ""))
+        if len(term) > 1
+    }
+    ranked = sorted(
+        enumerate(entries),
+        key=lambda item: (
+            sum(term in item[1].content.casefold() for term in terms),
+            item[1].recall_count,
+            item[1].updated_at or "",
+            item[0],
+        ),
+        reverse=True,
+    )
+    return [entry for _index, entry in ranked[:max(1, limit)]]
 
 
 def _tool_names(events: tuple[dict[str, Any], ...]) -> list[str]:

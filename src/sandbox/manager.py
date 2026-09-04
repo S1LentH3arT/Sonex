@@ -260,6 +260,7 @@ class SandboxManager:
         command = [
             shutil.which("bwrap") or "bwrap",
             "--unshare-all",
+            "--share-net",
             "--die-with-parent",
             "--new-session",
             "--cap-drop",

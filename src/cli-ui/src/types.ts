@@ -8,6 +8,8 @@ export type ServerEvent =
     | { type: "input_state"; disabled: boolean; reason?: "recommendation" | null }
     | { type: "queue"; tracks: Array<{ index: string; title: string; artist: string; duration: string }> }
     | { type: "track_panel"; panel: "queue" | "playlist"; title: string; hint?: string | null; tracks: TrackPanelTrack[] }
+    | { type: "memory_panel"; view: MemoryPanelView; target?: "user" | "memory" | "dump" | null; title: string; hint?: string | null; read_only?: boolean; entries?: MemoryPanelEntry[]; settings?: Record<string, unknown> }
+    | { type: "extension_panel"; view: "list" | "detail" | "setup"; title: string; hint?: string | null; selected_extension?: string | null; extensions: ExtensionView[]; detail?: ExtensionDetail | null; setup?: ExtensionSetup | null }
     | { type: "search_results"; tracks: TrackSummary[] }
     | { type: "player"; state: PlayerState }
     | { type: "spotify_mode"; enabled: boolean; device_id?: string | null; device_name?: string | null }
@@ -19,7 +21,6 @@ export type ServerEvent =
     | { type: "confirm"; id: string; tool_name: string; tool_args: Record<string, unknown>; message?: string | null; warning?: string | null; hide_hint?: boolean | null; choices?: ConfirmChoice[] | null; variant?: "tool_call_review" | null; commands?: string[] | null; page_index?: number | null; page_count?: number | null }
     | { type: "confirm_dismiss"; id: string }
     | { type: "spotify_setup"; step: string; title: string; message: string; prompt?: string | null; mask?: boolean | null; active?: boolean | null }
-    | { type: "netease_login"; title: string; output: string; status: "waiting" | "success" | "failed" | "timeout" | "cancelled"; active?: boolean | null; fallback_online?: boolean | null }
     | { type: "auth_setup"; provider: string; step: string; title: string; message: string; prompt?: string | null; placeholder?: string | null; help_text?: string | null; mask?: boolean | null; active?: boolean | null; methods?: AuthMethodChoice[] | null; providers?: AuthMethodChoice[] | null; models?: AuthMethodChoice[] | null }
     | { type: "auth_state"; ready: boolean; provider: string; model: string; model_label?: string | null; auth_type: string; credential_source: string; reason?: string | null }
     | { type: "help_panel"; title: string; hint: string; commands: HelpCommand[] }
@@ -58,15 +59,78 @@ export type LanguagePanelState = {
     saveError?: string | null;
 } | null;
 
+export type ExtensionStatus = "enabled" | "not_configured" | "disabled" | "unavailable" | "unapplied" | "unsupported" | "waiting";
+
+export type ExtensionView = {
+    id: string;
+    name: string;
+    description: string;
+    status: ExtensionStatus;
+    enabled: boolean;
+    configured: boolean;
+    tags: string[];
+    reset_available: boolean;
+    setup_available: boolean;
+    signal: "green" | "gray" | "red" | "yellow" | "hollow";
+    reason_code?: string | null;
+    operation?: string | null;
+    revision?: number;
+};
+
+export type ExtensionDetail = {
+    status: ExtensionStatus;
+    actions?: string[];
+    action?: string | null;
+    reset_available: boolean;
+    armed_action?: "reset" | "restart" | null;
+    armed_message?: string | null;
+    selected_action?: string | null;
+    armed_token?: string | null;
+    revision?: number;
+};
+
+export type ExtensionSetup = {
+    extension_id: string;
+    page: number;
+    page_count: number;
+    title: string;
+    body: string;
+    input?: { placeholder: string; mask?: boolean } | null;
+    dependencies?: ExtensionDependency[] | null;
+    selected_dependency?: string | null;
+    error?: string | null;
+};
+
+export type ExtensionDependency = {
+    id: string;
+    label: string;
+    state: "installed" | "missing" | "failed" | "installing";
+    version?: string | null;
+    error?: string | null;
+    progress?: number | null;
+};
+
+export type ExtensionPanelState = {
+    view: "list" | "detail" | "setup";
+    title: string;
+    hint?: string | null;
+    selectedExtension?: string | null;
+    extensions: ExtensionView[];
+    detail?: ExtensionDetail | null;
+    setup?: ExtensionSetup | null;
+} | null;
+
 export type ClientEvent =
     | { type: "user_input"; text: string }
     | { type: "agent_turn_interrupt"; turn_id: string }
     | { type: "internal_command"; text: string }
     | { type: "track_panel_action"; action: "queue_add" | "play"; track: TrackPanelTrack; panel: "queue" | "playlist"; title: string }
+    | { type: "memory_panel_action"; action: string; target?: "user" | "memory" | "dump" | "all"; entry_id?: string; content?: string; value?: unknown }
+    | { type: "extension_panel_action"; action: string; extension_id?: string; dependency_id?: string; token?: string | null; revision?: number }
+    | { type: "extension_panel_input"; value: string }
     | { type: "confirm_result"; id: string; decision: string }
     | { type: "setup_input"; value: string }
     | { type: "auth_setup_input"; value: string }
-    | { type: "netease_login_input"; value: "__cancel__" }
     | { type: "bye"; messages: ChatTranscriptMessage[]; reason: string };
 
 export type MusicCandidateDisplay = {
@@ -113,14 +177,6 @@ export type SpotifySetupState = {
     prompt?: string | null;
     mask?: boolean | null;
     active: boolean;
-} | null;
-
-export type NetEaseLoginState = {
-    title: string;
-    output: string;
-    status: "waiting" | "success" | "failed" | "timeout" | "cancelled";
-    active: boolean;
-    fallback_online: boolean;
 } | null;
 
 export type SpotifyModeState = {
@@ -283,6 +339,7 @@ export type InfoBannerItem = {
     authState: AuthRuntimeState;
     cwd: string;
     sessionId: string | null;
+    showLogo: boolean;
 };
 
 export type ChatItem = ChatMessageItem | InfoBannerItem;
@@ -331,6 +388,35 @@ export type TrackPanelState = {
     title: string;
     hint?: string | null;
     tracks: TrackPanelTrack[];
+} | null;
+
+export type MemoryPanelView = "root" | "sources" | "entries" | "detail" | "revisions" | "format" | "settings";
+
+export type MemoryPanelEntry = {
+    entry_id: string;
+    target: "user" | "memory" | "dump";
+    content: string;
+    protected: boolean;
+    source: string;
+    confidence?: number;
+    created_at?: string | null;
+    updated_at?: string | null;
+    recall_count?: number;
+    last_recalled_at?: string | null;
+    review_pending?: boolean;
+    reason?: string | null;
+    forgotten_at?: string | null;
+    expires_at?: string | null;
+};
+
+export type MemoryPanelState = {
+    view: MemoryPanelView;
+    target?: "user" | "memory" | "dump" | null;
+    title: string;
+    hint?: string | null;
+    readOnly: boolean;
+    entries: MemoryPanelEntry[];
+    settings?: Record<string, unknown>;
 } | null;
 
 export type LayoutMode = "compact" | "full";

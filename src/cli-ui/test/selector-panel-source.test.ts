@@ -26,7 +26,7 @@ assert.match(panelSource, /withTrueColorBackground\(value, PANEL_BACKGROUND\)/);
 assert.equal((panelSource.match(/<Transform transform=\{withPanelBackground\}>/g) ?? []).length, 2);
 assert.match(
     panelSource,
-    /color: spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE,[\s\S]*bold: true/,
+    /color: item\.selectedColor \?\? \(spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE\),[\s\S]*bold: true/,
 );
 assert.doesNotMatch(panelSource, /borderStyle=|selectedBackground|backgroundColor=/);
 assert.doesNotMatch(panelSource, /selected \? "> "|showSelectionMarker/);
@@ -107,8 +107,8 @@ assert.match(compactConfirmBody, /color: choice\.disabled \? PANEL_SECONDARY : P
 assert.match(compactConfirmBody, /if \(confirm\.tool_name === "playlist_browse"\)/);
 assert.match(compactConfirmBody, /formatPlaylistBrowseName\(choice\.label\)/);
 assert.match(compactConfirmBody, /playlistBrowseTrackCount\(choice\)/);
-assert.equal((compactConfirmBody.match(/<PanelFrame/g) ?? []).length, 6);
-assert.equal((compactConfirmBody.match(/<PanelChoiceList/g) ?? []).length, 5);
+assert.equal((compactConfirmBody.match(/<PanelFrame/g) ?? []).length, 5);
+assert.equal((compactConfirmBody.match(/<PanelChoiceList/g) ?? []).length, 4);
 assert.match(compactConfirmBody, /confirm\.tool_name === "provider_mode_exit"/);
 assert.match(compactConfirmBody, /const includeCancelChoice = confirm\.tool_name === "provider_mode_exit"/);
 assert.match(compactConfirmBody, /getVisibleConfirmChoices\(confirm\.choices, includeCancelChoice\)/);
@@ -137,13 +137,16 @@ assert.match(
 assert.doesNotMatch(compactSetupBody, /borderStyle=|selectedBackground|trailingRowBackgroundMarker|\{"> "\}/);
 
 // Model selection is a formal panel, while InputDock itself remains excluded.
-assert.match(source, /const formatModelPanelLabel = \(model: AuthMethodChoice\): string => \(\s*model\.label\.padEnd/);
+assert.match(source, /import \{ filterModelChoices, formatModelPanelLabel, modelPanelLabelWidth \} from '\.\/model-selection\.js'/);
+assert.match(source, /const allModelChoices = authSetup\?\.models \?\? \[\]/);
+assert.match(source, /const modelLabelWidth = modelPanelLabelWidth\(allModelChoices\)/);
+assert.match(source, /formatModelPanelLabel\(model, modelLabelWidth\)/);
 assert.match(inputDockBody, /const insetPanelWidth = Math\.max\(3, Math\.floor\(terminalColumns \?\? 80\) - 2\)/);
 assert.match(
     inputDockBody,
     /<PanelFrame width=\{insetPanelWidth\} title=\{modelPanel\.title\} hint=\{modelPanel\.hint\}>[\s\S]*<PanelChoiceList[\s\S]*visibleLimit=\{MAX_VISIBLE_MODEL_CHOICES\}/,
 );
-assert.match(inputDockBody, /filterModelChoices\(authSetup\?\.models \?\? \[\], input\)/);
+assert.match(inputDockBody, /const filteredModelChoices = filterModelChoices\(allModelChoices, input\)/);
 assert.match(inputDockBody, /text: "Search: "/);
 assert.match(inputDockBody, /const spotifyTheme = Boolean\(spotifyMode\?\.enabled \|\| spotifySetup\)/);
 assert.match(inputDockBody, /<SlashCommandList suggestions=\{slashSuggestions\} selectedIndex=\{slashIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
@@ -168,9 +171,9 @@ assert.match(appSource, /const choices = filterModelChoices\(authSetup\?\.models
 assert.match(appSource, /key\.backspace \|\| key\.delete/);
 assert.match(appSource, /evt\.active === false && evt\.step === "model"/);
 assert.match(appSource, /const selectableConfirmChoices = React\.useMemo\(\(\) => confirm \? getSelectableConfirmChoices\(confirm\.choices, confirm\.tool_name === "provider_mode_exit"\) : \[\], \[confirm\]\)/);
-assert.match(appSource, /const decision = resolveConfirmDecisionFromInput\(text, selectableConfirmChoices\)/);
+assert.match(appSource, /resolveInputRoute\(value, \{[\s\S]*selectableConfirmChoices/);
 assert.match(appSource, /setConfirmIndex\(\(prev\) => selectableConfirmChoices\.length > 0 \? Math\.min\(selectableConfirmChoices\.length - 1, prev \+ 1\) : 0\)/);
 assert.match(appSource, /const isLoginScreenActive = isGenericAuthSetup\(authSetup\) && !isModelPanelActive/);
 assert.match(appSource, /completeSlashCommand\(selectedHelpCommand\)/);
 assert.match(appSource, /case "spotify_mode":/);
-assert.match(appSource, /setSpotifyMode\(\{ enabled: evt\.enabled, device_id: evt\.device_id, device_name: evt\.device_name \}\)/);
+assert.match(appSource, /applyProviderAction\(\{ type: "event", event: evt \}\)/);

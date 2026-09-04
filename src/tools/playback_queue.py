@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -12,32 +11,16 @@ from src.log import sonex_home
 from src.music.legacy_tracks import downgrade_retired_provider_track, is_retired_provider_track
 from src.tools.song_cache import recent_cached_songs
 from src.tools.spotify_play import recent_tracks_snapshot as spotify_recent_tracks_snapshot
+from src.tools.playback_queue_state import (
+    played_at_value as _played_at_value,
+    snapshot_track as _snapshot_track_state,
+)
 
 MAX_PLAYBACK_QUEUE = 10
 
 
 def _default_queue_path() -> Path:
     return sonex_home() / "cache" / "playback_queue.json"
-
-
-def _text(value: Any) -> str:
-    return str(value or "").strip()
-
-
-def _played_at_value(value: Any, fallback: float) -> float:
-    if isinstance(value, int | float):
-        return float(value)
-    text = _text(value)
-    if not text:
-        return fallback
-    try:
-        return float(text)
-    except ValueError:
-        pass
-    try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
-    except ValueError:
-        return fallback
 
 
 def _queue_path(queue_path: Path | None = None) -> Path:
@@ -56,70 +39,9 @@ def _seed_sources() -> tuple[Callable[[], list[dict[str, Any]]], ...]:
     )
 
 
-def _track_key(track: dict[str, Any]) -> str:
-    for key in (
-        "cache_id",
-        "uri",
-        "spotify_url",
-        "youtube_url",
-        "url",
-        "stream_url",
-        "audio_path",
-        "file_path",
-        "path",
-        "id",
-    ):
-        value = _text(track.get(key))
-        if value:
-            return f"{key}:{value}"
-    name = _text(track.get("name") or track.get("title"))
-    artist = _text(track.get("artist"))
-    album = _text(track.get("album"))
-    duration = int(track.get("duration_ms") or 0)
-    if not name:
-        return ""
-    if artist or album or duration or _text(track.get("provider") or track.get("source")) == "local":
-        return f"text:{name.casefold()}|{artist.casefold()}|{album.casefold()}|{duration}"
-    return ""
-
-
 def _snapshot_track(track: dict[str, Any], *, played_at: float) -> dict[str, Any] | None:
     track, _ = downgrade_retired_provider_track(track)
-    name = _text(track.get("name") or track.get("title"))
-    key = _track_key(track)
-    if not name or not key:
-        return None
-    snapshot: dict[str, Any] = {
-        "key": key,
-        "name": name,
-        "title": name,
-        "artist": _text(track.get("artist")) or "-",
-        "album": _text(track.get("album")) or "-",
-        "duration_ms": int(track.get("duration_ms") or 0),
-        "provider": _text(track.get("provider") or track.get("source")) or "unknown",
-        "source": _text(track.get("source")) or None,
-        "played_at": played_at,
-    }
-    for field in (
-        "cache_id",
-        "uri",
-        "url",
-        "stream_url",
-        "youtube_url",
-        "spotify_url",
-        "audio_path",
-        "file_path",
-        "path",
-        "album_cover_url",
-        "id",
-        "requires_resolution",
-    ):
-        value = track.get(field)
-        if value:
-            snapshot[field] = value
-    if track.get("requires_resolution"):
-        snapshot["playable"] = False
-    return snapshot
+    return _snapshot_track_state(track, played_at=played_at)
 
 
 def _load_queue(path: Path) -> list[dict[str, Any]] | None:

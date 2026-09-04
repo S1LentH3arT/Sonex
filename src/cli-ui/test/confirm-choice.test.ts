@@ -18,14 +18,13 @@ const choices: ConfirmChoice[] = [
         disabled: true,
         disabled_reason: 'Remote control only',
     },
-    { value: 'netease_play', label: 'NetEase 播放' },
     { value: 'online_play', label: '🌐 在线播放' },
     { value: 'cancel', label: '取消' },
 ];
 
 assert.equal(resolveConfirmDecisionFromInput('online_play', choices), 'online_play');
 assert.equal(resolveConfirmDecisionFromInput('在线播放', choices), 'online_play');
-assert.equal(resolveConfirmDecisionFromInput('3', choices), 'online_play');
+assert.equal(resolveConfirmDecisionFromInput('2', choices), 'online_play');
 assert.equal(resolveConfirmDecisionFromInput('remote_only', choices), null);
 assert.equal(resolveConfirmDecisionFromInput('Clementine', choices), null);
 assert.equal(resolveConfirmDecisionFromInput('取消', choices), null);
@@ -37,30 +36,26 @@ assert.equal(isCancelConfirmChoice({ value: 'online_play', label: '🌐 在线�
 assert.deepEqual(getVisibleConfirmChoices(choices).map((choice) => choice.value), [
     'spotify_play',
     'remote_only',
-    'netease_play',
     'online_play',
 ]);
 assert.deepEqual(getVisibleConfirmChoices(choices, true).map((choice) => choice.value), [
     'spotify_play',
     'remote_only',
-    'netease_play',
     'online_play',
     'cancel',
 ]);
 assert.deepEqual(getSelectableConfirmChoices(choices).map((choice) => choice.value), [
     'spotify_play',
-    'netease_play',
     'online_play',
 ]);
 assert.deepEqual(getSelectableConfirmChoices(choices, true).map((choice) => choice.value), [
     'spotify_play',
-    'netease_play',
     'online_play',
     'cancel',
 ]);
 assert.equal(resolveConfirmChoiceDisplayIndex(choices, 0), 0);
 assert.equal(resolveConfirmChoiceDisplayIndex(choices, 1), 2);
-assert.equal(resolveConfirmChoiceDisplayIndex(choices, 2), 3);
+assert.equal(resolveConfirmChoiceDisplayIndex(choices, 2), 2);
 assert.equal(
     resolveConfirmChoiceDisplayIndex([
         { value: 'remote_only', label: 'Remote', disabled: true },

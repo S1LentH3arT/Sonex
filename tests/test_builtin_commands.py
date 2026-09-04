@@ -131,19 +131,19 @@ class BuiltinCommandParserTests(unittest.TestCase):
         commands = {command.name: command for command in command_suggestions()}
         self.assertNotIn("player", commands)
 
-    def test_connect_is_a_visible_interactive_local_command(self) -> None:
+    def test_connect_is_unknown_and_extension_is_the_visible_local_command(self) -> None:
         parsed = parse_builtin_command("/connect spotify")
 
         self.assertIsNotNone(parsed)
         assert parsed is not None
-        self.assertTrue(parsed.known)
+        self.assertFalse(parsed.known)
         self.assertEqual(parsed.args, "spotify")
-        self.assertIsNone(parsed.command_intent())
         commands = {command.name: command for command in command_suggestions()}
-        self.assertEqual(commands["connect"].usage, "/connect")
+        self.assertNotIn("connect", commands)
+        self.assertEqual(commands["extension"].usage, "/extension")
         self.assertEqual(
-            commands["connect"].description,
-            "connect a supported music account",
+            commands["extension"].description,
+            "check and manage built-in music extensions",
         )
 
     def test_playback_control_commands_are_hidden_from_help_and_suggestions(self) -> None:
@@ -163,18 +163,14 @@ class BuiltinCommandParserTests(unittest.TestCase):
                 self.assertTrue(parsed.known)
                 self.assertFalse(parsed.command.visible)
 
-    def test_keymap_is_local_tui_command_metadata(self) -> None:
-        parsed = parse_builtin_command("/keymap off")
+    def test_keymap_command_is_removed(self) -> None:
+        parsed = parse_builtin_command("/keymap status")
+
         self.assertIsNotNone(parsed)
         assert parsed is not None
-        self.assertEqual(parsed.name, "keymap")
-        self.assertEqual(parsed.args, "off")
-        self.assertTrue(parsed.known)
+        self.assertFalse(parsed.known)
         self.assertIsNone(parsed.command_intent())
-
-        commands = {command.name: command for command in command_suggestions()}
-        self.assertEqual(commands["keymap"].usage, "/keymap [on|off|toggle|status]")
-        self.assertEqual(commands["keymap"].description, "enable or disable mini-player playback shortcuts")
+        self.assertNotIn("keymap", {command.name for command in command_suggestions()})
 
     def test_lang_definition_is_retained_but_disabled(self) -> None:
         parsed = parse_builtin_command("/lang zh-CN")
@@ -371,7 +367,7 @@ class BuiltinCommandParserTests(unittest.TestCase):
         """
         commands = {command.name: command for command in command_suggestions()}
 
-        for name in ["help", "info", "model", "logout", "sandbox", "bye", "exit", "keymap"]:
+        for name in ["help", "info", "model", "logout", "sandbox", "bye", "exit"]:
             with self.subTest(name=name):
                 self.assertEqual(commands[name].mode, "local")
 

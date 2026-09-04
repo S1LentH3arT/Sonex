@@ -71,10 +71,6 @@ assert.equal(helpPlayer, undefined);
 assert.equal(slashPlayer, undefined);
 assert.equal(localizedHelpCommands.find((command) => command.name === "help")?.description, "显示命令列表");
 
-const helpKeymap = allHelpCommands.find((command) => command.name === "keymap");
-assert.equal(helpKeymap?.usage, "/keymap [on|off|toggle|status]");
-assert.equal(helpKeymap?.description, "toggle playback shortcuts");
-
 const slashLang = SLASH_COMMANDS.find((command) => command.name === "lang");
 const helpLang = allHelpCommands.find((command) => command.name === "lang");
 assert.equal(slashLang?.usage, "/lang");
@@ -88,6 +84,7 @@ assert.equal(unknownSlashCommandMessage("  /exp extra"), "Unknown command: /exp.
 const helpInfo = allHelpCommands.find((command) => command.name === "info");
 assert.equal(helpInfo?.usage, "/info");
 assert.equal(helpInfo?.description, "show runtime info");
+assert.equal(matchingSlashCommand("/keymap"), undefined);
 
 const helpExit = allHelpCommands.find((command) => command.name === "exit");
 assert.equal(helpExit?.usage, "/exit");
@@ -101,7 +98,7 @@ const helpQueue = allHelpCommands.find((command) => command.name === "queue");
 assert.equal(helpQueue?.usage, "/queue");
 assert.equal(helpQueue?.description, "show playback queue");
 
-assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["bye", "connect", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "spotify"]);
+assert.deepEqual(SPOTIFY_MODE_COMMAND_NAMES, ["bye", "extension", "exit", "info", "lang", "login", "logout", "memory", "model", "playlist", "queue", "random", "recommend", "settings", "spotify"]);
 assert.deepEqual(spotifyModeSlashCommands().map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
 assert.deepEqual(spotifyModeSlashCommands("/").map((command) => command.name), SPOTIFY_MODE_COMMAND_NAMES.filter((name) => name !== "lang"));
 assert.deepEqual(spotifyModeSlashCommands("/p").map((command) => command.name), ["playlist"]);

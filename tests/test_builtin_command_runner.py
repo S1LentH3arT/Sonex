@@ -15,7 +15,7 @@ import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from fastapi import WebSocketDisconnect
 
@@ -29,7 +29,6 @@ from src.auth.models import OAuthToken
 from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
 from src.music.playback_coordinator import ProviderReadiness, RecordingIdentity
-from src.music.connections import MusicConnectionManager
 from src.thinking.config import ThinkingConfig
 
 
@@ -122,6 +121,9 @@ class FakeUI:
         """
         self.events.append({"type": "spotify_setup", **kwargs})
 
+    async def send_extension_panel(self, payload: dict[str, object]) -> None:
+        self.events.append({"type": "extension_panel", **payload})
+
     async def send_auth_setup(self, **kwargs: object) -> None:
         """Verifies that send auth setup behaves as expected.
 
@@ -130,9 +132,6 @@ class FakeUI:
         Example: send_auth_setup() -> passes without assertion failures when the behavior remains correct.
         """
         self.events.append({"type": "auth_setup", **kwargs})
-
-    async def send_netease_login(self, **kwargs: object) -> None:
-        self.events.append({"type": "netease_login", **kwargs})
 
     async def send_auth_state(self, state: object) -> None:
         """Verifies that send auth state behaves as expected.
@@ -517,67 +516,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    async def test_authoritative_route_rejection_tries_next_ready_provider(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        spotify = ProviderReadiness(
-            "spotify",
-            True,
-            True,
-            True,
-            True,
-            startup_latency_ms=10,
-        )
-        netease = ProviderReadiness(
-            "netease",
-            True,
-            True,
-            True,
-            True,
-            startup_latency_ms=20,
-        )
-        runner._probe_authoritative_providers = AsyncMock(
-            return_value=[netease, spotify]
-        )
-        runner._confirm_agent_playback_route = AsyncMock(
-            side_effect=[False, True]
-        )
-        runner._ensure_authoritative_mode = AsyncMock(return_value=True)
-        runner._try_selected_native_provider = AsyncMock(
-            return_value={
-                "status": "playback_completed",
-                "message": "NetEase playback started.",
-                "data": {"provider": "netease"},
-            }
-        )
-
-        result = await runner._route_authoritative_provider(
-            ui,
-            identity=RecordingIdentity("BB88", "方大同"),
-            selected_candidate={"title": "BB88", "artist": "方大同"},
-            requested_provider=None,
-            hard_provider=False,
-        )
-
-        self.assertEqual(result["status"], "playback_completed")
-        self.assertEqual(
-            [
-                call.kwargs["provider"]
-                for call in runner._confirm_agent_playback_route.await_args_list
-            ],
-            ["spotify", "netease"],
-        )
-        self.assertEqual(
-            runner._try_selected_native_provider.await_args.kwargs["provider"],
-            "netease",
-        )
-
     async def test_explicit_provider_rejection_does_not_cross_provider_boundary(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
         providers = [
             ProviderReadiness("spotify", True, True, True, True),
-            ProviderReadiness("netease", True, True, True, True),
         ]
         runner._probe_authoritative_providers = AsyncMock(return_value=providers)
         runner._confirm_agent_playback_route = AsyncMock(return_value=False)
@@ -595,65 +538,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "playback_failed")
         runner._try_selected_native_provider.assert_not_awaited()
         self.assertEqual(result["data"]["attempted"], ["spotify"])
-
-    async def test_unlogged_netease_online_choice_authorizes_direct_fallback_once(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        health = type(
-            "Health",
-            (),
-            {"login_available": True, "login_ready": False},
-        )()
-        netease = ProviderReadiness(
-            "netease",
-            True,
-            False,
-            True,
-            False,
-            details={"health": health, "worker": object()},
-        )
-        runner._probe_authoritative_providers = AsyncMock(return_value=[netease])
-        runner._offer_netease_login = AsyncMock(return_value=(None, "online"))
-
-        result = await runner._route_authoritative_provider(
-            ui,
-            identity=RecordingIdentity("BB88", "方大同"),
-            selected_candidate={"title": "BB88", "artist": "方大同"},
-            requested_provider=None,
-            hard_provider=False,
-        )
-
-        self.assertTrue(result["data"]["online_allowed"])
-
-    async def test_explicit_unlogged_netease_rejection_never_authorizes_online(self) -> None:
-        runner = WebSocketRunner()
-        ui = FakeUI()
-        health = type(
-            "Health",
-            (),
-            {"login_available": True, "login_ready": False},
-        )()
-        netease = ProviderReadiness(
-            "netease",
-            True,
-            False,
-            True,
-            False,
-            details={"health": health, "worker": object()},
-        )
-        runner._probe_authoritative_providers = AsyncMock(return_value=[netease])
-        runner._offer_netease_login = AsyncMock(return_value=(None, "cancel"))
-
-        result = await runner._route_authoritative_provider(
-            ui,
-            identity=RecordingIdentity("BB88", "方大同"),
-            selected_candidate={"title": "BB88", "artist": "方大同"},
-            requested_provider="netease",
-            hard_provider=True,
-        )
-
-        self.assertFalse(result["data"].get("online_allowed", False))
-        self.assertEqual(result["data"]["provider"], "netease")
 
     async def test_agent_community_fallback_offers_only_one_explicit_alternative(self) -> None:
         runner = WebSocketRunner()
@@ -868,7 +752,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         runner._handle_user_input.assert_awaited_once_with(
             ui,
             "给我推荐几首歌",
-            append_user_message=False,
         )
 
     async def test_websocket_starts_local_playback_sync_task(self) -> None:
@@ -995,10 +878,23 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(runner._run_agent_turn.called)
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
+        self.assertFalse(any(event.get("type") == "chat" and event.get("role") == "user" for event in ui.events))
+        self.assertFalse(any(item.get("role") == "user" for item in ui.transcript))
         help_events = [event for event in ui.events if event.get("type") == "help_panel"]
         self.assertTrue(help_events)
         self.assertTrue(any(command.usage == "/recommend [taste]" for command in help_events[0]["commands"]))
         self.assertFalse(any("Available commands" in str(event.get("text")) for event in ui.events))
+
+    async def test_agent_command_appends_user_message_before_agent_turn(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+
+        with patch("src.api.ws_runner._llm_auth_ready", return_value=(True, "openai", None)), \
+             patch.object(runner, "_start_agent_turn", new=Mock()) as start_agent_turn:
+            await runner._handle_user_input(ui, "/recommend")
+
+        self.assertEqual(ui.transcript, [{"role": "user", "content": "/recommend"}])
+        start_agent_turn.assert_called_once()
 
     async def test_login_opens_provider_picker_without_agent_turn(self) -> None:
         runner = WebSocketRunner()
@@ -1335,23 +1231,20 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             },
         }), patch("src.api.ws_runner.spotify_devices") as devices, \
              patch("src.api.ws_runner.spotify_redirect_uri", return_value="http://127.0.0.1:9957/callback"), \
-             patch("src.api.ws_runner.spotify_authorize_url", return_value=("https://accounts.spotify.com/authorize", "state")), \
-             patch("src.api.ws_runner.SpotifySetupSession._finish_oauth", new_callable=AsyncMock), \
              patch("src.api.ws_runner.asyncio.to_thread", side_effect=_to_thread_inline):
             await runner._handle_user_input(ui, "/spotify")
 
         devices.assert_not_called()
         self.assertFalse(runner._run_agent_turn.called)
         self.assertIsNone(getattr(ui, "_spotify_mode", None))
-        self.assertTrue(getattr(ui, "_spotify_setup"))
-        spotify_setup_events = [event for event in ui.events if event.get("type") == "spotify_setup"]
-        self.assertTrue(spotify_setup_events)
-        self.assertEqual(spotify_setup_events[-1]["step"], "oauth")
-        messages = [str(event.get("text")) for event in ui.events if event.get("type") == "chat"]
-        self.assertTrue(any("Spotify authorization must be renewed" in message for message in messages))
-        self.assertTrue(any("playlist-read-private" in message for message in messages))
-        self.assertTrue(any("playlist-read-collaborative" in message for message in messages))
-        self.assertTrue(any("user-library-read" in message for message in messages))
+        self.assertFalse(getattr(ui, "_spotify_setup", None))
+        extension_events = [event for event in ui.events if event.get("type") == "extension_panel"]
+        self.assertTrue(extension_events)
+        self.assertEqual(extension_events[-1]["view"], "setup")
+        self.assertEqual(extension_events[-1]["selected_extension"], "spotify")
+        self.assertIn("playlist-read-private", str(extension_events[-1]["setup"]))
+        self.assertIn("playlist-read-collaborative", str(extension_events[-1]["setup"]))
+        self.assertIn("user-library-read", str(extension_events[-1]["setup"]))
 
     async def test_spotify_command_asks_for_inactive_device_choice(self) -> None:
         runner = WebSocketRunner()
@@ -1521,16 +1414,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(getattr(ui, "_spotify_mode")["enabled"])
         self.assertTrue(any("not available in Spotify mode" in str(event.get("text")) for event in ui.events))
 
-    async def test_keymap_command_is_reported_as_tui_handled(self) -> None:
-        runner = WebSocketRunner()
-        runner._run_agent_turn = AsyncMock()
-        ui = FakeUI()
-
-        await runner._handle_user_input(ui, "/keymap status")
-
-        self.assertFalse(runner._run_agent_turn.called)
-        self.assertTrue(any("handled by the TUI" in str(event.get("text")) for event in ui.events))
-
     async def test_unknown_command_does_not_trigger_agent(self) -> None:
         """Verifies that unknown command does not trigger agent behaves as expected.
 
@@ -1573,7 +1456,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner._run_agent_turn.called)
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
         self.assertTrue(all(item["reason"] == "bye" for item in payload))
-        self.assertTrue(payload)
+        self.assertEqual(payload, [])
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any("Session saved" in str(event.get("text")) for event in ui.events))
 
@@ -1598,7 +1481,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(runner._run_agent_turn.called)
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
         self.assertTrue(all(item["reason"] == "exit" for item in payload))
-        self.assertTrue(payload)
+        self.assertEqual(payload, [])
         self.assertTrue(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any("Session saved" in str(event.get("text")) for event in ui.events))
 
@@ -1762,29 +1645,6 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transcripts, [])
         self.assertFalse(any(event.get("type") == "bye" for event in ui.events))
         self.assertTrue(any(event.get("text") == "You are not logged in." for event in ui.events))
-
-    async def test_logout_netease_clears_external_and_session_state(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            manager = MusicConnectionManager(path=Path(directory) / "connections.json")
-            manager.mark_connected("netease", account_label="ncm-cli")
-            runner = WebSocketRunner(music_connection_manager_factory=lambda: manager)
-            ui = FakeUI()
-            setattr(ui, "_netease_login_declined", True)
-            setattr(ui, "_netease_verified_signature", ("ncm-cli", "0.1.6", 1))
-            setattr(ui, "_preferred_playback_provider", "netease")
-            with patch("src.api.ws_runner.NetEaseProviderWorker.is_logged_in", return_value=True), patch(
-                "src.api.ws_runner.NetEaseProviderWorker.logout",
-                return_value=True,
-            ) as logout:
-                changed = await runner._logout_netease(ui)
-
-        self.assertTrue(changed)
-        logout.assert_called_once_with()
-        self.assertIsNone(manager.record("netease"))
-        self.assertFalse(getattr(ui, "_netease_login_declined"))
-        self.assertIsNone(getattr(ui, "_netease_verified_signature"))
-        self.assertIsNone(getattr(ui, "_preferred_playback_provider"))
-
 
 
 
@@ -5672,25 +5532,25 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             any(event.get("text") == "Usage: /spotify" for event in ui.events)
         )
 
-    async def test_connect_panel_lists_initial_agent_providers_without_emoji(self) -> None:
+    async def test_connect_is_unknown_after_extension_migration(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
 
         with self._isolated_auth_env():
             await runner._handle_user_input(ui, "/connect")
 
-        confirm = [event for event in ui.events if event.get("type") == "confirm"][-1]
-        labels = [choice["label"] for choice in confirm["choices"]]
-        self.assertEqual(
-            labels,
-            [
-                "Spotify",
-                "NetEase Cloud Music",
-                "Jamendo",
-                "Audius",
-            ],
-        )
-        self.assertFalse(any(label.startswith(("🎵", "🍎", "🟢")) for label in labels))
+        self.assertFalse(any(event.get("type") == "confirm" for event in ui.events))
+        self.assertTrue(any("Unknown command: /connect" in str(event.get("text")) for event in ui.events))
+
+    def test_youtube_setup_includes_manual_wheel_instructions(self) -> None:
+        runner = WebSocketRunner()
+
+        with patch.object(ws_runner, "youtube_dependency_snapshot", return_value=[]):
+            setup = runner._extension_setup_page("youtube", 1)
+
+        self.assertIn("trusted mirror", str(setup["body"]))
+        self.assertIn("yt_dlp-*.whl", str(setup["body"]))
+        self.assertIn("bgutil_ytdlp_pot_provider-*.whl", str(setup["body"]))
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:

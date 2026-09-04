@@ -18,6 +18,7 @@ from src.llm.transport import Usage
 from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
 from src.tools.cover_sources import cover_bytes_for_source
 from src.ws.types import AuthRuntimeState
+from src.ws.session_orchestration import session_get
 
 
 class WebSocketUIAdapter:
@@ -121,7 +122,7 @@ class WebSocketUIAdapter:
             payload["document"] = safe_document
         if stream:
             payload["stream"] = True
-        mode = getattr(self, "_spotify_mode", None)
+        mode = session_get(self, "_spotify_mode", None)
         if isinstance(mode, dict) and mode.get("enabled"):
             transcript_item["theme"] = "spotify"
             payload["theme"] = "spotify"
@@ -269,6 +270,11 @@ class WebSocketUIAdapter:
         """
         await self._send(state.to_event())
 
+    async def send_extension_panel(self, payload: dict[str, Any]) -> None:
+        """Publish one server-owned built-in extension panel snapshot."""
+        event = {"type": "extension_panel", **payload}
+        await self._send(event)
+
     async def send_cover(self, url: str) -> None:
         """Sends cover to the active runtime client.
 
@@ -332,27 +338,6 @@ class WebSocketUIAdapter:
                 "prompt": prompt,
                 "mask": mask,
                 "active": active,
-            }
-        )
-
-    async def send_netease_login(
-        self,
-        *,
-        title: str,
-        output: str,
-        status: str,
-        active: bool = True,
-        fallback_online: bool = False,
-    ) -> None:
-        """Publish one bounded NetEase QR-login surface update."""
-        await self._send(
-            {
-                "type": "netease_login",
-                "title": title,
-                "output": output,
-                "status": status,
-                "active": active,
-                "fallback_online": fallback_online,
             }
         )
 

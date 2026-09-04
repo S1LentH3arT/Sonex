@@ -273,6 +273,75 @@ class TrackSearchTests(unittest.TestCase):
             "Forgotten Beauty",
         ])
 
+    def test_itunes_query_match_outranks_album_script_when_original_artist_is_requested(self) -> None:
+        payloads = [
+            {"results": [
+                {
+                    "trackId": 1,
+                    "trackName": "特別的人",
+                    "artistName": "方大同",
+                    "collectionName": "危險世界",
+                },
+                {
+                    "trackId": 2,
+                    "trackName": "特别的人 (女聲版)",
+                    "artistName": "王一只",
+                    "collectionName": "特别的人 (女聲版) - Single",
+                },
+            ]},
+            {"results": []},
+            {"results": [
+                {
+                    "trackId": 3,
+                    "trackName": "特别的人",
+                    "artistName": "方大同",
+                    "collectionName": "危險世界",
+                },
+                {
+                    "trackId": 4,
+                    "trackName": "特别的人",
+                    "artistName": "李莹小熊",
+                    "collectionName": "稍尽春风",
+                },
+                {
+                    "trackId": 5,
+                    "trackName": "特别的人 (女声版)",
+                    "artistName": "王一只",
+                    "collectionName": "特别的人 (女声版) - Single",
+                },
+                {
+                    "trackId": 6,
+                    "trackName": "特别的人",
+                    "artistName": "吴映香",
+                    "collectionName": "特别 - Single",
+                },
+                {
+                    "trackId": 7,
+                    "trackName": "特别的人(女声版)",
+                    "artistName": "六月",
+                    "collectionName": "特别的人(女声版) - Single",
+                },
+            ]},
+            {"results": [
+                {
+                    "trackId": 8,
+                    "trackName": "方大同",
+                    "artistName": "SIKON & MISANG",
+                    "collectionName": "SEXOPHONE",
+                },
+            ]},
+        ]
+
+        def fake_urlopen(request, timeout=0):
+            return FakeResponse(payloads.pop(0))
+
+        with patch.dict(os.environ, {"SONEX_ITUNES_COUNTRY": "", "SONEX_ITUNES_COUNTRIES": ""}), \
+             patch("src.tools.track_search.urlopen", side_effect=fake_urlopen):
+            result = track_search.search_track_metadata_candidates("方大同 特别的人", limit=5)
+
+        self.assertEqual(result["candidates"][0]["artist"], "方大同")
+        self.assertEqual(result["candidates"][0]["name"], "特别的人")
+
     def test_itunes_region_failure_continues_to_later_regions(self) -> None:
         rate_limit = HTTPError(
             "https://itunes.apple.com/search",

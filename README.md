@@ -105,6 +105,32 @@ Run:
 `sonex` command, `~/.sonex`, optional local players, and Spotify configuration
 status.
 
+### YouTube PO Token runtime
+
+YouTube's yt-dlp and PO Token Provider run in an isolated runtime under
+`SONEX_HOME`. Sonex checks the local runtime in the background at application
+startup and checks stable releases at most once every 24 hours; startup checks
+never request YouTube. The first uncached YouTube playback asks before setup.
+Installation and updates continue in the background, and completion prompts a
+restart.
+
+```bash
+sonex youtube setup       # interactive confirmation, then background setup
+sonex youtube status      # read-only status
+sonex youtube status --json
+sonex youtube repair      # manually retry setup/update
+```
+
+If the PyPI download is too slow, download the binary wheels for `yt-dlp` and
+`bgutil-ytdlp-pot-provider` from PyPI or a trusted mirror and place both files
+in `SONEX_HOME/youtube-runtime/offline`. Return to `/extension`, select
+`yt-dlp`, and press Enter to retry; Sonex will install the local wheels without
+using the package index.
+
+The managed runtime does not read YouTube account/browser cookies or user-level
+yt-dlp configuration, and it does not discover arbitrary external PO Token
+Providers.
+
 ## LLM Provider Setup
 
 Sonex stores local credentials under `~/.sonex` by default. Set `SONEX_HOME` if
@@ -182,8 +208,8 @@ Advanced users can still override per-provider `base_url`, `model`,
 
 ## Music Service Setup
 
-Run `/connect` to open the interactive music-account panel. It lists Spotify,
-NetEase Cloud Music, Jamendo, and Audius. Availability checks stay specific to
+Run `/extension` to open the interactive music-extension panel. It lists
+Spotify, Jamendo, Audius, and YouTube. Availability checks stay specific to
 each service and do not silently change the active playback provider.
 
 > [!NOTE]
@@ -238,20 +264,23 @@ read-timeout failures are reported separately. If the saved token is missing
 newly required Spotify scopes, Sonex starts the Spotify authorization guide in
 the current chat so you can grant the updated permissions.
 
-### Local and Online Playback
+### Local and Provider Playback
 
-Install `mpv` if you want controllable local-file or online playback. Sonex uses
-mpv directly for these routes. Spotify Connect remains a separate provider mode
-and does not use the local player.
+Install `mpv` if you want controllable local-file or online playback.
+Spotify playback uses Spotify Connect and does not use the local player.
+Persistent Spotify Mode still keeps the whole music surface on Spotify, while
+normal mode can select a ready Spotify connection for one playback request.
 
-### Online Audio Fallback
+### Playback Source Selection
 
-In normal mode, Sonex uses local files first and then resolves selected songs
-through online audio sources. Spotify playback belongs to Spotify Mode.
-iTunes Search remains part of metadata discovery in the normal search chain; it
-is not a playback mode. Configure at least one online audio provider:
+In normal mode, Sonex checks local files first. If no local result is found or
+you skip it, Sonex offers Spotify alongside Online when available. It searches
+only the selected catalog, keeps the native Spotify URI, and lets you retry,
+refine the query, or choose another source when the search cannot produce a
+playable match. iTunes Search remains metadata discovery rather than a playback
+source. Configure at least one online audio provider to use the Online route:
 
-Use `/connect` and choose Jamendo or Audius.
+Use `/extension` and choose Jamendo or Audius.
 
 You can also provide credentials through environment variables:
 

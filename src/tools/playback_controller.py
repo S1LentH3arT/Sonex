@@ -17,17 +17,24 @@ import tempfile
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Literal, Protocol
 
 from src.tools.registry import Params, registry
 from src.tools.result import ToolResult
 from src.tools.mpv_diagnostics import MpvDiagnosticSession, MpvPlaybackHealthMonitor
+from src.tools.playback_state import (
+    PlayerName,
+    PlayerState,
+    PlaybackSource,
+    coerce_ms as _coerce_ms,
+    coerce_volume as _coerce_volume,
+    metadata_state as _metadata_state,
+    timestamp_ms as _timestamp_ms,
+)
 
-PlayerName = Literal["mpv"]
 PlayerBackend = Literal["mpv"]
-PlaybackSource = Literal["local", "youtube", "spotify"]
 
 LOCAL_PLAYBACK_APPLICATIONS: tuple[dict[str, Any], ...] = (
     {
@@ -64,16 +71,6 @@ def available_local_playback_backends() -> list[dict[str, str]]:
     return available
 
 
-def _timestamp_ms() -> int:
-    """Prepares timestamp ms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs timestamp ms without duplicating the local rules.
-
-    Example: _timestamp_ms() -> returns the value used by the surrounding Sonex flow.
-    """
-    return int(time.time() * 1000)
-
-
 def _player_debug(message: str) -> None:
     """Prepares player debug for an internal Sonex flow.
 
@@ -83,118 +80,6 @@ def _player_debug(message: str) -> None:
     """
     if os.environ.get("SONEX_PLAYER_DEBUG") == "1":
         print(f"[sonex-player-debug] {message}", file=sys.stderr)
-
-
-@dataclass(frozen=True)
-class PlayerState:
-    """Represents player state.
-
-    Encapsulates player state data and behavior used by Sonex runtime flows.
-    """
-    provider: str
-    source: PlaybackSource
-    player: PlayerName
-    session_id: str
-    name: str
-    artist: str
-    album: str
-    duration_ms: int
-    progress_ms: int
-    timestamp: int
-    is_playing: bool
-    paused_for_cache: bool = False
-    diagnostic_notice: str | None = None
-    id: str | None = None
-    uri: str | None = None
-    url: str | None = None
-    stream_url: str | None = None
-    album_cover_url: str | None = None
-    volume_percent: int | None = None
-    ended: bool = False
-
-    def to_dict(self) -> dict[str, Any]:
-        """Coordinates to dict for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs to dict as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: to_dict() -> returns the value used by the surrounding Sonex flow.
-        """
-        return asdict(self)
-
-
-def _coerce_ms(value: Any) -> int:
-    """Prepares coerce ms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs coerce ms without duplicating the local rules.
-
-    Example: _coerce_ms(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    try:
-        return max(0, int(float(value or 0)))
-    except (TypeError, ValueError):
-        return 0
-
-
-def _metadata_state(
-    *,
-    metadata: dict[str, Any],
-    source: PlaybackSource,
-    player: PlayerName,
-    session_id: str,
-    progress_ms: int = 0,
-    duration_ms: int | None = None,
-    is_playing: bool = True,
-    paused_for_cache: bool = False,
-    diagnostic_notice: str | None = None,
-    volume_percent: int | None = None,
-    ended: bool = False,
-) -> PlayerState:
-    """Prepares metadata state for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs metadata state without duplicating the local rules.
-
-    Example: _metadata_state(metadata=..., source=..., player=..., session_id=..., progress_ms=..., duration_ms=..., is_playing=..., volume_percent=..., ended=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    duration = _coerce_ms(duration_ms if duration_ms is not None else metadata.get("duration_ms"))
-    provider = str(metadata.get("provider") or source)
-    return PlayerState(
-        provider=provider,
-        source=source,
-        player=player,
-        session_id=session_id,
-        id=metadata.get("id"),
-        name=str(metadata.get("name") or metadata.get("title") or metadata.get("file") or "-"),
-        artist=str(metadata.get("artist") or "-"),
-        album=str(metadata.get("album") or "-"),
-        duration_ms=duration,
-        progress_ms=_coerce_ms(progress_ms),
-        timestamp=_timestamp_ms(),
-        is_playing=is_playing,
-        paused_for_cache=paused_for_cache,
-        diagnostic_notice=diagnostic_notice,
-        uri=metadata.get("uri"),
-        url=metadata.get("url"),
-        stream_url=metadata.get("stream_url"),
-        album_cover_url=metadata.get("album_cover_url") or metadata.get("cover_url"),
-        volume_percent=volume_percent,
-        ended=ended,
-    )
-
-
-def _coerce_volume(value: Any) -> int:
-    """Prepares coerce volume for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs coerce volume without duplicating the local rules.
-
-    Example: _coerce_volume(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    try:
-        volume = int(value)
-    except (TypeError, ValueError):
-        raise ValueError("Volume must be an integer from 0 to 100.") from None
-    if not 0 <= volume <= 100:
-        raise ValueError("Volume must be an integer from 0 to 100.")
-    return volume
 
 
 class PlaybackAdapter(Protocol):

@@ -16,7 +16,6 @@ type MessageKey =
     | "input.label"
     | "input.placeholder"
     | "input.recommendPending"
-    | "keymap.usage"
     | "language.english"
     | "language.hint"
     | "language.saveError"
@@ -59,7 +58,6 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "input.label": "Input",
         "input.placeholder": "Ask Sonex anything.",
         "input.recommendPending": "Waiting for recommendations...",
-        "keymap.usage": "Usage: /keymap [on|off|toggle|status]",
         "language.english": "English",
         "language.hint": "Esc to close without changing.",
         "language.saveError": "Language changed for this session, but the setting was not saved.",
@@ -101,7 +99,6 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
         "input.label": "输入",
         "input.placeholder": "和 Sonex 说点什么。",
         "input.recommendPending": "等待Sonex推荐中...",
-        "keymap.usage": "用法：/keymap [on|off|toggle|status]",
         "language.english": "English",
         "language.hint": "Esc 关闭且不更改。",
         "language.saveError": "语言已在本会话切换，但设置未保存。",
@@ -133,10 +130,8 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
 
 const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     bye: { en: "save and exit", "zh-CN": "保存会话并退出" },
-    connect: { en: "connect a music account", "zh-CN": "连接音乐账号" },
     help: { en: "show commands", "zh-CN": "显示可用的 Sonex 命令" },
     info: { en: "show runtime info", "zh-CN": "显示当前运行信息" },
-    keymap: { en: "toggle playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
     lang: { en: "choose display language", "zh-CN": "选择 TUI 显示语言" },
     logout: { en: "sign out and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
     model: { en: "switch active model", "zh-CN": "切换当前模型" },
@@ -153,11 +148,9 @@ const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = 
 
 const helpCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     bye: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
-    connect: { en: "connect a supported music account", "zh-CN": "连接支持的音乐账号" },
     exit: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
     help: { en: "show available Sonex commands", "zh-CN": "显示可用的 Sonex 命令" },
     info: { en: "show current runtime information", "zh-CN": "显示当前运行信息" },
-    keymap: { en: "enable or disable mini-player playback shortcuts", "zh-CN": "切换迷你播放器快捷键" },
     lang: { en: "choose the TUI display language", "zh-CN": "选择 TUI 显示语言" },
     logout: { en: "sign out from the current LLM provider and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
     model: { en: "switch the active model for this session", "zh-CN": "切换当前模型" },
@@ -200,10 +193,6 @@ const knownText: Record<string, Record<UiLanguage, string>> = {
         en: "Spotify client ID",
         "zh-CN": "Spotify Client ID",
     },
-    "The /keymap command is handled by the TUI for this session.": {
-        en: "The /keymap command is handled by the TUI for this session.",
-        "zh-CN": "/keymap 命令由本次 TUI 会话处理。",
-    },
     "The /lang command is handled by the TUI for this session.": {
         en: "The /lang command is handled by the TUI for this session.",
         "zh-CN": "/lang 命令由本次 TUI 会话处理。",
@@ -215,6 +204,30 @@ const knownText: Record<string, Record<UiLanguage, string>> = {
     "Allow Sonex to open mpv?": {
         en: "Allow Sonex to open mpv?",
         "zh-CN": "允许 Sonex 打开 mpv 吗？",
+    },
+    "YouTube playback is not configured. Open /extension to configure it.": {
+        en: "YouTube playback is not configured. Open /extension to configure it.",
+        "zh-CN": "YouTube 播放尚未配置，请打开 /extension 进行配置。",
+    },
+    "Another YouTube request is still running. Try again shortly.": {
+        en: "Another YouTube request is still running. Try again shortly.",
+        "zh-CN": "另一个 YouTube 请求仍在运行，请稍后再试。",
+    },
+    "Selected YouTube result requires age verification. Choose another candidate or refine the search.": {
+        en: "Selected YouTube result requires age verification. Choose another candidate or refine the search.",
+        "zh-CN": "所选 YouTube 结果需要年龄验证，请选择其他候选或优化搜索。",
+    },
+    "Selected YouTube result is not available. Choose another candidate or refine the search.": {
+        en: "Selected YouTube result is not available. Choose another candidate or refine the search.",
+        "zh-CN": "所选 YouTube 结果不可用，请选择其他候选或优化搜索。",
+    },
+    "YouTube is temporarily unavailable; playback is cooling down.": {
+        en: "YouTube is temporarily unavailable; playback is cooling down.",
+        "zh-CN": "YouTube 暂时不可用，播放正在进入冷却。",
+    },
+    "YouTube is temporarily unavailable; search is cooling down.": {
+        en: "YouTube is temporarily unavailable; search is cooling down.",
+        "zh-CN": "YouTube 暂时不可用，搜索正在进入冷却。",
     },
 };
 

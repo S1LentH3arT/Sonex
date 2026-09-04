@@ -11,7 +11,7 @@ import type { ChatMessageItem } from '../src/types.js';
 
 const presentation = {
     contentWidth: 76,
-    headerVariant: 'full',
+    headerVariant: 'mascot',
     language: 'en',
 } as const;
 

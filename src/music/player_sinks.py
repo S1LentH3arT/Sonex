@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 from src.log import sonex_home
+from src.music.player_preferences import (
+    PlayerSinkPreferences,
+    read_player_preferences,
+    write_player_preferences,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -310,27 +313,15 @@ class PlayerSinkManager:
         self._discovery_complete = True
 
     def _load_preferences(self) -> None:
-        try:
-            payload = json.loads(self._preferences_path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
-            return
-        if not isinstance(payload, dict) or payload.get("version") != 1:
-            return
-        default_sink_id = payload.get("default_sink_id")
-        pending_sink_id = payload.get("pending_sink_id")
-        self._default_sink_id = default_sink_id if isinstance(default_sink_id, str) else None
-        self._pending_sink_id = pending_sink_id if isinstance(pending_sink_id, str) else None
+        preferences = read_player_preferences(self._preferences_path)
+        self._default_sink_id = preferences.default_sink_id
+        self._pending_sink_id = preferences.pending_sink_id
 
     def _save_preferences(self) -> None:
-        payload: dict[str, object] = {"version": 1}
-        if self._default_sink_id:
-            payload["default_sink_id"] = self._default_sink_id
-        if self._pending_sink_id:
-            payload["pending_sink_id"] = self._pending_sink_id
-
-        self._preferences_path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self._preferences_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
-        os.chmod(temporary, 0o600)
-        temporary.replace(self._preferences_path)
-        os.chmod(self._preferences_path, 0o600)
+        write_player_preferences(
+            self._preferences_path,
+            PlayerSinkPreferences(
+                default_sink_id=self._default_sink_id,
+                pending_sink_id=self._pending_sink_id,
+            ),
+        )

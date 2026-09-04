@@ -10,52 +10,15 @@ import subprocess
 from typing import Any
 
 from src.tools.result import ToolResult
-
-PLAYER_CONFIRM_CHOICES = [
-    {
-        "value": "mpv",
-        "label": "mpv",
-        "description": "default controllable backend for smooth background playback",
-    },
-    {"value": "deny", "label": "Cancel"},
-]
+from src.tools.player_permission_state import (
+    PLAYER_CONFIRM_CHOICES,
+    normalize_confirm_decision,
+    normalize_player,
+    player_label,
+    public_data as _public_data,
+)
 
 _ALLOWED_PLAYERS: set[str] = set()
-_PRIVATE_CONFIRM_KEYS = {
-    "cmd",
-    "choices",
-    "success_message",
-    "confirm_message",
-    "playback_source_url",
-    "playback_source",
-    "playback_metadata",
-}
-
-
-def normalize_player(player: str) -> str:
-    """Coordinates normalize player for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs normalize player as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: normalize_player(player=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return player.strip().lower()
-
-
-def player_label(player: str) -> str:
-    """Coordinates player label for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs player label as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: player_label(player=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    known = {
-        "auto": "mpv",
-        "mpv": "mpv",
-    }
-    return known.get(normalize_player(player), player)
-
-
 def is_player_allowed(player: str) -> bool:
     """Checks whether is player allowed is true for the supplied input.
 
@@ -78,16 +41,6 @@ def remember_player(player: str) -> None:
     """
     normalized = normalize_player(player)
     _ALLOWED_PLAYERS.add("mpv" if normalized == "auto" else normalized)
-
-
-def _public_data(data: dict[str, Any]) -> dict[str, Any]:
-    """Prepares public data for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs public data without duplicating the local rules.
-
-    Example: _public_data(data=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    return {key: value for key, value in data.items() if key not in _PRIVATE_CONFIRM_KEYS}
 
 
 def build_player_confirm_result(
@@ -120,26 +73,6 @@ def build_player_confirm_result(
         },
         "error_code": None,
     }
-
-
-def normalize_confirm_decision(decision: Any) -> str:
-    """Coordinates normalize confirm decision for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs normalize confirm decision as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: normalize_confirm_decision(decision=...) -> returns the value used by the surrounding Sonex flow.
-    """
-    if decision is True:
-        return "allow_once"
-    if decision is False or decision is None:
-        return "deny"
-
-    decision_text = str(decision).strip().lower()
-    if decision_text in {"allow_always", "allow_once", "mpv", "deny"}:
-        return decision_text
-    if decision_text in {"yes", "true", "ok"}:
-        return "allow_once"
-    return "deny"
 
 
 def launch_player_command(

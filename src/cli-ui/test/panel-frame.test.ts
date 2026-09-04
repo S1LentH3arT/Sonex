@@ -59,6 +59,11 @@ assert.deepEqual(resolvePanelChoiceSegments(choice, true, true), [{
     color: '#1db954',
     bold: true,
 }]);
+assert.deepEqual(resolvePanelChoiceSegments({ ...choice, selectedColor: '#ef4444' }, true, false), [{
+    text: 'Song  Artist',
+    color: '#ef4444',
+    bold: true,
+}]);
 assert.deepEqual(resolvePanelChoiceSegments(choice, false, false), choice.segments);
 assert.equal(resolvePanelChoiceSegments({ ...choice, unselectedBold: true }, false, false).every((segment) => segment.bold), true);
 

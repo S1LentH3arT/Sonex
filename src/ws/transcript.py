@@ -9,12 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from src.log import sonex_home
-
-
-def create_session_id(now: datetime | None = None) -> str:
-    """Return the canonical UTC timestamp identifier for a chat session."""
-    timestamp = now or datetime.now(timezone.utc)
-    return timestamp.astimezone(timezone.utc).strftime("%Y%m%d%H%M%S%fZ")
+from src.session_id import create_session_id
 
 
 def _coerce_transcript_messages(messages: Any) -> list[dict[str, Any]]:

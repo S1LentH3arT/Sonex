@@ -28,7 +28,7 @@ const dynamicTailBody = source.slice(dynamicTailStart, dynamicTailEnd);
 assert.match(dynamicTailBody, /const hasModelPanel = authSetup\?\.active && authSetup\.step === "model";/);
 assert.match(dynamicTailBody, /const hasSetupPanel = Boolean\(spotifySetup\) \|\| Boolean\(authSetup && authSetup\.step !== "model"\);/);
 assert.match(dynamicTailBody, /const hasSlashPanel = slashSuggestions\.length > 0;/);
-assert.match(dynamicTailBody, /const showInput = !helpPanel && !languagePanel && !hasModelPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
+assert.match(dynamicTailBody, /const showInput = !helpPanel && !languagePanel && !hasModelPanel && !memoryPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
 assert.match(dynamicTailBody, /const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;/);
 assert.match(dynamicTailBody, /agentWorking \? <AgentWorkingStatus \/> : <MiniMascotStatus \/>/);
 assert.match(dynamicTailBody, /<InputDock[\s\S]*modelStatus=\{modelStatus\}/);

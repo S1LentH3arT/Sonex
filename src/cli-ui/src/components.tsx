@@ -16,13 +16,15 @@ import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
 import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPatternPayload, type CoverPatternVariant, type TerminalSpace } from './cover-pattern.js';
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
-import { filterModelChoices } from './model-selection.js';
+import { filterModelChoices, formatModelPanelLabel, modelPanelLabelWidth } from './model-selection.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem } from './panel-frame.js';
+import { SONEX_LOGO } from './sonex-logo.js';
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
+import { ExtensionPanelOverlay } from './extension-panel.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, HelpPanelState, LanguagePanelState, LoginScreenProps, NetEaseLoginState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, ExtensionPanelState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -34,6 +36,23 @@ const Mascot = () => {
                             {segment.text}
                         </Text>
                     ))}
+                </Text>
+            ))}
+        </Box>
+    );
+};
+
+export const SonexLogo = () => {
+    const useColor = process.env.NO_COLOR === undefined;
+    return (
+        <Box width="100%" flexDirection="column">
+            {SONEX_LOGO.map((line, rowIndex) => (
+                <Text
+                    key={rowIndex}
+                    color={useColor ? BORDER_BLUE_SOFT : undefined}
+                    wrap="truncate-end"
+                >
+                    {line}
                 </Text>
             ))}
         </Box>
@@ -104,46 +123,36 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
 }) => {
     const identityModel = authState.model_label || authState.model || authState.provider || FALLBACK_MODEL_NAME;
     const displayCwd = formatWorkingDirectory(cwd);
+    const runtimeInformation = (
+        <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+            <Text wrap="truncate-end"><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
+            <Box height={1} />
+            <Text color="#d8bcc7" wrap="truncate-end">
+                {identityModel} • {authState.ready
+                    ? formatAuthLabel(authState)
+                    : <Text color="#facc15" bold>Not logged in</Text>}
+            </Text>
+            <Text color="#fff4f6" wrap="truncate-end">{displayCwd}</Text>
+            {sessionId ? (
+                <>
+                    <Text color="#808791">session id:</Text>
+                    <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
+                </>
+            ) : null}
+        </Box>
+    );
     if (variant === 'compact') {
         return (
-            <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791" flexDirection="column">
-                <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
-                <Box height={1} />
-                <Text color="#d8bcc7" wrap="truncate-end">
-                    {identityModel} • {authState.ready
-                        ? formatAuthLabel(authState)
-                        : <Text color="#facc15" bold>Not logged in</Text>}
-                </Text>
-                <Text color="#fff4f6" wrap="truncate-end">{displayCwd}</Text>
-                {sessionId ? (
-                    <>
-                        <Text color="#808791">session id:</Text>
-                        <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
-                    </>
-                ) : null}
+            <Box width="100%" flexDirection="column" marginBottom={2}>
+                {runtimeInformation}
             </Box>
         );
     }
 
     return (
-        <Box width="100%" height={8} paddingX={1} borderStyle="round" borderColor="#808791">
+        <Box width="100%" marginBottom={2}>
             <Mascot />
-            <Box flexDirection="column" justifyContent="flex-start">
-                <Text><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
-                <Box height={1} />
-                <Text color="#d8bcc7">
-                    {identityModel} • {authState.ready
-                        ? formatAuthLabel(authState)
-                        : <Text color="#facc15" bold>Not logged in</Text>}
-                </Text>
-                <Text color="#fff4f6">{displayCwd}</Text>
-                {sessionId ? (
-                    <>
-                        <Text color="#808791">session id:</Text>
-                        <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
-                    </>
-                ) : null}
-            </Box>
+            {runtimeInformation}
         </Box>
     );
 };
@@ -193,30 +202,6 @@ const LoginChoiceList = ({ choices, selectedIndex, visibleLimit, showConnectionS
 };
 
 export const MAX_VISIBLE_LOGIN_PROVIDERS = 8;
-
-export const NetEaseLoginScreen = ({ login }: { login: NetEaseLoginState }) => {
-    if (!login) return null;
-    const waiting = login.status === "waiting";
-    return (
-        <PanelFrame
-            width={74}
-            paddingX={2}
-            title={login.title}
-            hint={
-                waiting
-                    ? login.fallback_online
-                        ? "press Esc to play online"
-                        : "press Esc to cancel"
-                    : login.status
-            }
-        >
-            <Box flexDirection="column" paddingX={2}>
-                <Text>{login.output}</Text>
-                {waiting ? <Text color={BORDER_BLUE_SOFT}>Waiting for scan...</Text> : null}
-            </Box>
-        </PanelFrame>
-    );
-};
 
 export const LoginScreen = ({
     authSetup,
@@ -390,8 +375,8 @@ type ConfirmChoiceLabel = {
 const COMMAND_LIST_LABEL_WIDTH = 12;
 const CONFIRM_CHOICE_LABEL_WIDTH = 18;
 const CONFIRM_CHOICE_ROW_LABEL_WIDTH = 102;
-const MODEL_PANEL_LABEL_WIDTH = 20;
 const PLAYLIST_BROWSE_NAME_WIDTH = 32;
+const MEMORY_SETTING_LABEL_WIDTH = 48;
 const TRACK_PANEL_ROW_WIDTH = 96;
 
 const truncateDisplayWidth = (value: string, width: number): string => {
@@ -409,12 +394,12 @@ const fitDisplayWidth = (value: string, width: number): string => {
     return rendered + " ".repeat(Math.max(0, width - stringWidth(rendered)));
 };
 
-const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): string => (
-    `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
+const formatMemorySettingRow = (label: string, value: string): string => (
+    `${fitDisplayWidth(label, MEMORY_SETTING_LABEL_WIDTH)}${value}`
 );
 
-const formatModelPanelLabel = (model: AuthMethodChoice): string => (
-    model.label.padEnd(MODEL_PANEL_LABEL_WIDTH, " ")
+const formatCommandListLabel = (command: Pick<SlashCommandSuggestion, "name">): string => (
+    `/${command.name}`.slice(0, COMMAND_LIST_LABEL_WIDTH).padEnd(COMMAND_LIST_LABEL_WIDTH, " ")
 );
 
 const formatPlaylistBrowseName = (label: string): string => (
@@ -582,13 +567,21 @@ export const CommittedRecord = ({
 }) => (
     <Box flexDirection="column" paddingX={1}>
         {record.item.type === "info_banner" ? (
-            <HeaderFrame
-                authState={record.item.authState}
-                cwd={record.item.cwd}
-                sessionId={record.item.sessionId}
-                variant={record.presentation.headerVariant}
-                language={record.presentation.language}
-            />
+            <>
+                {record.item.showLogo ? (
+                    <>
+                        <SonexLogo />
+                        <Box height={1} />
+                    </>
+                ) : null}
+                <HeaderFrame
+                    authState={record.item.authState}
+                    cwd={record.item.cwd}
+                    sessionId={record.item.sessionId}
+                    variant={record.presentation.headerVariant}
+                    language={record.presentation.language}
+                />
+            </>
         ) : (
             <ChatBubble
                 role={record.item.role}
@@ -747,6 +740,122 @@ const TrackPanelOverlay = ({
         />
     </Box>
 );
+
+const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor = null, panelWidth = 74 }: {
+    panel: MemoryPanelState;
+    selectedIndex?: number;
+    searchQuery?: string;
+    editor?: { mode: "search" | "add" | "edit" | "setting"; value: string; settingKey?: string } | null;
+    panelWidth?: number;
+}) => {
+    if (!panel) return null;
+    const width = Math.max(3, Math.min(74, Math.floor(panelWidth)));
+    if (editor) {
+        return (
+            <Box width="100%" flexDirection="column" flexShrink={0} paddingX={1}>
+                <PanelFrame
+                    width={width}
+                    paddingX={2}
+                    title={editor.mode === "search"
+                        ? "Search memory"
+                        : editor.mode === "add"
+                            ? "Add memory"
+                            : editor.mode === "edit"
+                                ? "Edit memory"
+                                : "Change memory setting"}
+                    hint={editor.mode === "search" || editor.mode === "setting"
+                        ? "Enter to apply; Esc to cancel"
+                        : "Ctrl+S to save; Enter for a new line; Esc to cancel"}
+                >
+                    <PanelRow
+                        width={width}
+                        paddingX={2}
+                        segments={[{ text: `${editor.mode === "search" ? "/" : ""}${editor.value || " "}`, color: PANEL_PRIMARY }]}
+                    />
+                </PanelFrame>
+            </Box>
+        );
+    }
+    const rootItems = panel.view === "root"
+        ? ["view memory entries", "reset memory"]
+        : panel.view === "sources"
+            ? ["USER.md", "MEMORY.md", "Memory Dump"]
+            : panel.view === "format"
+                ? ["USER.md", "MEMORY.md", "All memory"]
+            : panel.view === "settings"
+                ? [
+                    formatMemorySettingRow("Forget retention", `${panel.settings?.forget_retention_days ?? 7} days`),
+                    formatMemorySettingRow("USER.md capacity", String(panel.settings?.user_capacity ?? "Unlimited")),
+                    formatMemorySettingRow("MEMORY.md capacity", String(panel.settings?.memory_capacity ?? "Unlimited")),
+                    formatMemorySettingRow("Automatic forgetting", String(panel.settings?.automatic_forgetting ?? "off")),
+                    formatMemorySettingRow("Idle threshold", `${panel.settings?.idle_threshold_days ?? 30} days`),
+                    formatMemorySettingRow("Automatic refinement", panel.settings?.automatic_refinement === false ? "Off" : "On"),
+                    formatMemorySettingRow("USER.md refinement window", String(panel.settings?.user_refinement_window ?? 8)),
+                    formatMemorySettingRow("MEMORY.md refinement window", String(panel.settings?.memory_refinement_window ?? 12)),
+                ]
+                : [];
+    if (panel.view === "detail") {
+        const entry = panel.entries[0];
+        const revisions = Array.isArray(panel.settings?.revisions) ? panel.settings.revisions : [];
+        return (
+            <Box width="100%" flexDirection="column" flexShrink={0} paddingX={1}>
+                <PanelFrame width={width} paddingX={2} title={`${panel.title}${panel.readOnly ? " · Read only" : ""}`} hint={panel.hint}>
+                    {entry ? (
+                        <Box flexDirection="column" paddingX={2}>
+                            <Text color={PANEL_PRIMARY}>{entry.content}</Text>
+                            <Text color={PANEL_SECONDARY}>{entry.protected ? "Protected" : "Inferred"} · {entry.source}</Text>
+                            <Text color={PANEL_SECONDARY}>Updated: {entry.updated_at ?? "Never"}</Text>
+                            <Text color={PANEL_SECONDARY}>Recalled: {entry.recall_count ?? 0} · Last: {entry.last_recalled_at ?? "Never"}</Text>
+                            {entry.reason ? <Text color={PANEL_SECONDARY}>Reason: {entry.reason}</Text> : null}
+                            {entry.expires_at ? <Text color={PANEL_SECONDARY}>Expires: {entry.expires_at}</Text> : null}
+                            {entry.review_pending ? <Text color="#facc15" bold>Review pending</Text> : null}
+                            <Text color={PANEL_SECONDARY}>Revisions: {revisions.length}</Text>
+                        </Box>
+                    ) : <PanelRow width={width} paddingX={2} segments={[{ text: "Memory entry is unavailable.", color: PANEL_SECONDARY }]} />}
+                </PanelFrame>
+            </Box>
+        );
+    }
+    const items: PanelChoiceItem[] = rootItems.length > 0
+        ? rootItems.map((label) => ({ key: label, segments: [{ text: label, color: PANEL_PRIMARY }] }))
+        : panel.entries
+        .filter((entry) => entry.content.toLocaleLowerCase().includes(searchQuery.toLocaleLowerCase()))
+        .map((entry) => ({
+            key: entry.entry_id,
+            segments: [{
+                text: panel.view === "revisions"
+                    ? `${entry.content.replaceAll("\n", " ").slice(0, 56)}  ${entry.source ?? "unknown"}`
+                    : `${entry.content.replaceAll("\n", " ").slice(0, 64)}  ${entry.protected ? "Protected" : "Inferred"}${entry.review_pending ? " · Review pending" : ""}`,
+                color: PANEL_PRIMARY,
+            }],
+        }));
+    return (
+        <Box width="100%" flexDirection="column" flexShrink={0} paddingX={1}>
+            <PanelFrame
+                width={width}
+                paddingX={2}
+                title={`${panel.title}${panel.readOnly ? " · Read only" : ""}`}
+                hint={searchQuery ? `Filter: /${searchQuery} · ${panel.hint ?? ""}` : panel.hint}
+            >
+                {items.length > 0 ? (
+                    <PanelChoiceList
+                        items={items}
+                        selectedIndex={selectedIndex}
+                        visibleLimit={12}
+                        width={width}
+                        paddingX={2}
+                    />
+                ) : (
+                    <PanelRow
+                        width={width}
+                        paddingX={2}
+                        segments={[{ text: "No memory entries.", color: PANEL_SECONDARY }]}
+                    />
+                )}
+            </PanelFrame>
+        </Box>
+    );
+};
 
 const CoverAtmosphere = ({ visual, art, compact }: {
     visual: CoverVisualModel;
@@ -1062,22 +1171,6 @@ const confirmCancelHint = (choices: ConfirmChoice[]): string => (
         : "press Esc to close"
 );
 
-const MUSIC_CONNECTION_PROVIDER_WIDTH = 24;
-const MUSIC_CONNECTION_WARNING = "#facc15";
-const MUSIC_CONNECTION_MISSING = "#ef4444";
-
-const truncateConnectionDescription = (value: string, width: number): string => {
-    if (stringWidth(value) <= width) return value;
-    if (width <= 0) return "";
-    const ellipsisWidth = stringWidth("…");
-    let rendered = "";
-    for (const character of Array.from(value)) {
-        if (stringWidth(rendered + character) + ellipsisWidth > width) break;
-        rendered += character;
-    }
-    return `${rendered}${"…".slice(0, width)}`;
-};
-
 export const CompactConfirm = ({
     confirm,
     confirmIndex,
@@ -1099,23 +1192,6 @@ export const CompactConfirm = ({
     panelWidth: number;
     spotifyTheme?: boolean;
 }) => {
-    const checkingConnection = Boolean(
-        confirm?.tool_name === "music_connection"
-        && confirm.choices.some((choice) => choice.connection_status === "checking"),
-    );
-    const [connectionBlinkFilled, setConnectionBlinkFilled] = React.useState(false);
-
-    React.useEffect(() => {
-        if (!checkingConnection) {
-            setConnectionBlinkFilled(false);
-            return;
-        }
-        const timer = setInterval(() => {
-            setConnectionBlinkFilled((current) => !current);
-        }, 500);
-        return () => clearInterval(timer);
-    }, [checkingConnection, confirm?.id]);
-
     if (!confirm) return null;
     const includeCancelChoice = confirm.tool_name === "provider_mode_exit";
     const visibleChoices = getVisibleConfirmChoices(confirm.choices, includeCancelChoice);
@@ -1208,58 +1284,6 @@ export const CompactConfirm = ({
                         </React.Fragment>
                     );
                 })}
-            </PanelFrame>
-        );
-    }
-
-    if (confirm.tool_name === "music_connection") {
-        const contentWidth = Math.max(1, panelWidth - 2);
-        const descriptionWidth = Math.max(
-            0,
-            contentWidth - 2 - MUSIC_CONNECTION_PROVIDER_WIDTH,
-        );
-        const connectionItems: PanelChoiceItem[] = visibleChoices.map((choice) => {
-            const status = choice.connection_status ?? "missing";
-            const statusColor = status === "connected"
-                ? SPOTIFY_GREEN
-                : status === "missing"
-                    ? MUSIC_CONNECTION_MISSING
-                    : MUSIC_CONNECTION_WARNING;
-            const marker = status === "checking"
-                ? connectionBlinkFilled ? "•" : "◦"
-                : "•";
-            const markerColor = status === "checking" ? PANEL_PRIMARY : statusColor;
-            return {
-                key: choice.value,
-                segments: [
-                    {
-                        text: `${marker} `,
-                        color: markerColor,
-                        preserveColorWhenSelected: true,
-                    },
-                    {
-                        text: fitDisplayWidth(choice.label, MUSIC_CONNECTION_PROVIDER_WIDTH),
-                        color: PANEL_PRIMARY,
-                    },
-                    {
-                        text: truncateConnectionDescription(choice.description ?? "", descriptionWidth),
-                        color: statusColor,
-                        bold: status === "warning" || status === "checking",
-                        preserveColorWhenSelected: true,
-                    },
-                ],
-            };
-        });
-        const hint = typeof confirm.tool_args.hint === "string"
-            ? confirm.tool_args.hint
-            : "↑/↓ to select · Enter to connect/check · Esc to close";
-        return (
-            <PanelFrame width={panelWidth} title={confirm.message} hint={hint}>
-                <PanelChoiceList
-                    items={connectionItems}
-                    selectedIndex={selectedDisplayIndex}
-                    width={panelWidth}
-                />
             </PanelFrame>
         );
     }
@@ -1523,7 +1547,9 @@ const InputDock = ({
     const spotifyTheme = Boolean(spotifyMode?.enabled || spotifySetup);
     const isSongCandidateConfirm = confirm?.tool_name === "song_candidate";
     const insetPanelWidth = Math.max(3, Math.floor(terminalColumns ?? 80) - 2);
-    const filteredModelChoices = filterModelChoices(authSetup?.models ?? [], input);
+    const allModelChoices = authSetup?.models ?? [];
+    const filteredModelChoices = filterModelChoices(allModelChoices, input);
+    const modelLabelWidth = modelPanelLabelWidth(allModelChoices);
     const modelPanel = authSetup?.active && authSetup.step === "model"
         ? {
             title: authSetup.title,
@@ -1531,7 +1557,7 @@ const InputDock = ({
             items: filteredModelChoices.map((model) => ({
                 key: model.value,
                 segments: [
-                    { text: formatModelPanelLabel(model), color: PANEL_PRIMARY },
+                    { text: formatModelPanelLabel(model, modelLabelWidth), color: PANEL_PRIMARY },
                     { text: model.provider ?? model.value, color: PANEL_SECONDARY },
                 ],
             })),
@@ -1676,6 +1702,10 @@ export const DynamicTail = ({
     languagePanel,
     languagePanelIndex,
     modelPanelIndex,
+    memoryPanel,
+    memoryPanelIndex,
+    memorySearchQuery,
+    memoryEditor,
     terminalColumns,
     agentWorking,
     streamingMessage,
@@ -1702,6 +1732,10 @@ export const DynamicTail = ({
     languagePanel: LanguagePanelState;
     languagePanelIndex: number;
     modelPanelIndex: number;
+    memoryPanel: MemoryPanelState;
+    memoryPanelIndex: number;
+    memorySearchQuery: string;
+    memoryEditor: { mode: "search" | "add" | "edit" | "setting"; value: string; settingKey?: string } | null;
     terminalColumns: number | null;
     agentWorking: boolean;
     streamingMessage: ChatMessageItem | null;
@@ -1711,7 +1745,7 @@ export const DynamicTail = ({
     const hasModelPanel = authSetup?.active && authSetup.step === "model";
     const hasSetupPanel = Boolean(spotifySetup) || Boolean(authSetup && authSetup.step !== "model");
     const hasSlashPanel = slashSuggestions.length > 0;
-    const showInput = !helpPanel && !languagePanel && !hasModelPanel && (!confirm || Boolean(selectedChoice?.input));
+    const showInput = !helpPanel && !languagePanel && !hasModelPanel && !memoryPanel && (!confirm || Boolean(selectedChoice?.input));
     const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;
 
     return (
@@ -1731,31 +1765,42 @@ export const DynamicTail = ({
             {showMiniMascotStatus ? (
                 agentWorking ? <AgentWorkingStatus /> : <MiniMascotStatus />
             ) : null}
-            <InputDock
-                input={input}
-                setInput={setInput}
-                onSubmit={onSubmit}
-                inputPlaceholder={inputPlaceholder}
-                inputMask={inputMask}
-                inputFocus={inputFocus}
-                inputRevision={inputRevision}
-                confirm={confirm}
-                confirmIndex={confirmIndex}
-                spotifyMode={spotifyMode}
-                providerMode={providerMode}
-                spotifySetup={spotifySetup}
-                authSetup={authSetup}
-                modelStatus={modelStatus}
-                slashSuggestions={slashSuggestions}
-                slashIndex={slashIndex}
-                helpPanel={helpPanel}
-                helpPanelIndex={helpPanelIndex}
-                languagePanel={languagePanel}
-                languagePanelIndex={languagePanelIndex}
-                modelPanelIndex={modelPanelIndex}
-                terminalColumns={terminalColumns}
-                language={language}
-            />
+            {memoryPanel ? (
+                <MemoryPanelOverlay
+                    panel={memoryPanel}
+                    selectedIndex={memoryPanelIndex}
+                    searchQuery={memorySearchQuery}
+                    editor={memoryEditor}
+                    panelWidth={Math.max(3, Math.floor(terminalColumns ?? 80) - 2)}
+                />
+            ) : null}
+            {!memoryPanel ? (
+                <InputDock
+                    input={input}
+                    setInput={setInput}
+                    onSubmit={onSubmit}
+                    inputPlaceholder={inputPlaceholder}
+                    inputMask={inputMask}
+                    inputFocus={inputFocus}
+                    inputRevision={inputRevision}
+                    confirm={confirm}
+                    confirmIndex={confirmIndex}
+                    spotifyMode={spotifyMode}
+                    providerMode={providerMode}
+                    spotifySetup={spotifySetup}
+                    authSetup={authSetup}
+                    modelStatus={modelStatus}
+                    slashSuggestions={slashSuggestions}
+                    slashIndex={slashIndex}
+                    helpPanel={helpPanel}
+                    helpPanelIndex={helpPanelIndex}
+                    languagePanel={languagePanel}
+                    languagePanelIndex={languagePanelIndex}
+                    modelPanelIndex={modelPanelIndex}
+                    terminalColumns={terminalColumns}
+                    language={language}
+                />
+            ) : null}
         </Box>
     );
 };
@@ -1886,6 +1931,13 @@ export const DynamicShell = ({
     modelPanelIndex,
     trackPanel,
     trackPanelIndex,
+    extensionPanel,
+    extensionPanelIndex,
+    extensionInputFocused,
+    memoryPanel,
+    memoryPanelIndex,
+    memorySearchQuery,
+    memoryEditor,
     activeRegion,
     miniSnapshotRevision,
     miniLayout,
@@ -1921,6 +1973,13 @@ export const DynamicShell = ({
     modelPanelIndex: number;
     trackPanel: TrackPanelState;
     trackPanelIndex: number;
+    extensionPanel: ExtensionPanelState;
+    extensionPanelIndex: number;
+    extensionInputFocused: boolean;
+    memoryPanel: MemoryPanelState;
+    memoryPanelIndex: number;
+    memorySearchQuery: string;
+    memoryEditor: { mode: "search" | "add" | "edit" | "setting"; value: string; settingKey?: string } | null;
     activeRegion: ShellRegion;
     miniSnapshotRevision: number;
     miniLayout: MiniPlayerLayout;
@@ -1966,6 +2025,20 @@ export const DynamicShell = ({
         );
     }
 
+    if (extensionPanel) {
+        return (
+            <ExtensionPanelOverlay
+                panel={extensionPanel}
+                selectedIndex={extensionPanelIndex}
+                width={Math.max(3, Math.floor(terminalSpace.columns ?? 80) - 2)}
+                input={input}
+                setInput={setInput}
+                onSubmit={onSubmit}
+                inputFocus={extensionPanel.view === "setup" && extensionInputFocused}
+            />
+        );
+    }
+
     return (
         <DynamicTail
             input={input}
@@ -1989,6 +2062,10 @@ export const DynamicShell = ({
             languagePanel={languagePanel}
             languagePanelIndex={languagePanelIndex}
             modelPanelIndex={modelPanelIndex}
+            memoryPanel={activeRegion === "memoryPanel" ? memoryPanel : null}
+            memoryPanelIndex={memoryPanelIndex}
+            memorySearchQuery={memorySearchQuery}
+            memoryEditor={memoryEditor}
             terminalColumns={terminalSpace.columns}
             agentWorking={agentWorking}
             streamingMessage={streamingMessage}

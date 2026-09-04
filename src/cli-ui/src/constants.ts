@@ -2,7 +2,7 @@ import type { ConfirmChoice, SlashCommandSuggestion } from './types.js';
 
 export const wsUrl = process.env.SONEX_WS_URL ?? "ws://localhost:9001/ws";
 
-export const APP_VERSION = "1.0.1";
+export const APP_VERSION = "0.1.0-alpha.1";
 export const FALLBACK_MODEL_NAME = "gpt-5.5";
 export const BORDER_BLUE = "#3b82f6";
 export const BORDER_BLUE_SOFT = "#9fd9ff";
@@ -19,11 +19,10 @@ export const MAX_VISIBLE_SLASH_COMMANDS = 4;
 export const MAX_VISIBLE_MODEL_CHOICES = 4;
 export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "bye", usage: "/bye", description: "save and exit", needsArgument: false },
-    { name: "connect", usage: "/connect", description: "connect a music account", needsArgument: false },
+    { name: "extension", usage: "/extension", description: "check and manage music extensions", needsArgument: false },
     { name: "exit", usage: "/exit", description: "save and exit", needsArgument: false },
     { name: "help", usage: "/help", description: "show commands", needsArgument: false },
     { name: "info", usage: "/info", description: "show runtime info", needsArgument: false },
-    { name: "keymap", usage: "/keymap [on|off|toggle|status]", description: "toggle playback shortcuts", needsArgument: false },
     { name: "lang", usage: "/lang", description: "choose display language", needsArgument: false, enabled: false },
     { name: "login", usage: "/login", description: "connect or switch LLM provider", needsArgument: false },
     { name: "logout", usage: "/logout", description: "sign out and exit", needsArgument: false },
@@ -35,6 +34,7 @@ export const SLASH_COMMANDS: SlashCommandSuggestion[] = [
     { name: "recommend", usage: "/recommend", description: "recommend songs", needsArgument: false },
     { name: "resume", usage: "/resume", description: "resume playback", needsArgument: false },
     { name: "sandbox", usage: "/sandbox", description: "check Agent Bash sandbox", needsArgument: false },
+    { name: "settings", usage: "/settings", description: "configure Sonex settings", needsArgument: false, aliases: ["setting"] },
     { name: "spotify", usage: "/spotify", description: "toggle Spotify mode", needsArgument: false },
 ].sort((a, b) => a.name.localeCompare(b.name));
 export const API_NOT_RUNNING_MESSAGE = "Sonex API is not running";

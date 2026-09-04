@@ -76,7 +76,7 @@ test('renders semantic Agent emphasis with accent, bold, and background ANSI', a
                 },
                 presentation: {
                     contentWidth: 60,
-                    headerVariant: 'complete',
+                    headerVariant: 'mascot',
                     language: 'en',
                 },
             },

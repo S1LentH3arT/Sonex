@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import threading
 import time
 import uuid
@@ -20,6 +18,12 @@ from src.tools.playlists import (
     list_playlists,
     playlist_storage_path,
     playlist_snapshot,
+)
+from src.tools.modify_idempotency import (
+    MAX_IDEMPOTENCY_RESULTS,
+    load_idempotency_entries,
+    operation_fingerprint,
+    record_idempotency_entry,
 )
 from src.tools.result import ToolResult
 from src.tools.track_refs import resolve_track_reference
@@ -43,7 +47,6 @@ PLAYLIST_ACTIONS = {
 }
 UP_NEXT_ACTIONS = {"add", "remove", "move", "clear", "replace"}
 DESTRUCTIVE_ACTIONS = {"remove", "clear", "delete", "replace"}
-_MAX_IDEMPOTENCY_RESULTS = 256
 _MAX_PENDING_MODIFICATIONS = 64
 _MODIFY_LOCK = threading.RLock()
 _IDEMPOTENCY_RESULTS: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -83,37 +86,8 @@ def _idempotency_path() -> Path:
     return up_next_storage_path().with_name("modify_idempotency.json")
 
 
-def _operation_fingerprint(operations: list[dict[str, Any]]) -> str:
-    payload = json.dumps(
-        operations,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
 def _cache_key(idempotency_key: str) -> str:
     return f"{_idempotency_path()}::{idempotency_key}"
-
-
-def _load_persisted_idempotency() -> dict[str, dict[str, Any]]:
-    path = _idempotency_path()
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, OSError, json.JSONDecodeError):
-        return {}
-    entries = payload.get("entries") if isinstance(payload, dict) else None
-    if not isinstance(entries, list):
-        return {}
-    return {
-        str(entry.get("key")): dict(entry)
-        for entry in entries
-        if isinstance(entry, dict)
-        and str(entry.get("key") or "")
-        and isinstance(entry.get("result"), dict)
-    }
 
 
 def _lookup_idempotency(
@@ -123,7 +97,7 @@ def _lookup_idempotency(
     key = _cache_key(idempotency_key)
     cached = _IDEMPOTENCY_RESULTS.get(key)
     if cached is None:
-        cached = _load_persisted_idempotency().get(idempotency_key)
+        cached = load_idempotency_entries(_idempotency_path()).get(idempotency_key)
         if cached is not None:
             _IDEMPOTENCY_RESULTS[key] = cached
     if cached is None:
@@ -138,30 +112,17 @@ def _lookup_idempotency(
 
 def _record_idempotency(plan: _Plan, result: dict[str, Any]) -> None:
     path = _idempotency_path()
-    entries = _load_persisted_idempotency()
-    entries[plan.idempotency_key] = {
-        "key": plan.idempotency_key,
-        "fingerprint": plan.fingerprint,
-        "result": result,
-        "completed_at": time.time(),
-    }
-    ordered = sorted(
-        entries.values(),
-        key=lambda item: float(item.get("completed_at") or 0),
-        reverse=True,
-    )[:_MAX_IDEMPOTENCY_RESULTS]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".json.tmp")
-    temporary.write_text(
-        json.dumps({"version": 1, "entries": ordered}, ensure_ascii=False, indent=2)
-        + "\n",
-        encoding="utf-8",
+    entry = record_idempotency_entry(
+        path,
+        key=plan.idempotency_key,
+        fingerprint=plan.fingerprint,
+        result=result,
+        completed_at=time.time(),
     )
-    temporary.replace(path)
     cache_key = _cache_key(plan.idempotency_key)
-    _IDEMPOTENCY_RESULTS[cache_key] = entries[plan.idempotency_key]
+    _IDEMPOTENCY_RESULTS[cache_key] = entry
     _IDEMPOTENCY_RESULTS.move_to_end(cache_key)
-    while len(_IDEMPOTENCY_RESULTS) > _MAX_IDEMPOTENCY_RESULTS:
+    while len(_IDEMPOTENCY_RESULTS) > MAX_IDEMPOTENCY_RESULTS:
         _IDEMPOTENCY_RESULTS.popitem(last=False)
 
 
@@ -576,7 +537,7 @@ def Modify(
     if not key:
         return _failure("Modify requires idempotency_key.", "INVALID_ARGUMENT")
     with _MODIFY_LOCK:
-        fingerprint = _operation_fingerprint(operations)
+        fingerprint = operation_fingerprint(operations)
         try:
             cached = _lookup_idempotency(key, fingerprint)
         except ModifyError as exc:

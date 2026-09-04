@@ -15,7 +15,7 @@ const layoutSource = readFileSync(new URL('../src/layout.ts', import.meta.url), 
 
 assert.match(
     layoutSource,
-    /export type ShellRegion = 'chat' \| 'miniPlayer' \| 'providerImmersive' \| 'spotifyImmersive' \| 'trackPanel';/,
+    /export type ShellRegion = 'chat' \| 'miniPlayer' \| 'providerImmersive' \| 'spotifyImmersive' \| 'trackPanel' \| 'memoryPanel';/,
 );
 
 const idle: PlayerState = {
@@ -191,7 +191,10 @@ assert.equal(toggleShellRegion('spotifyImmersive', false), 'chat');
 assert.equal(toggleShellRegion('trackPanel', false), 'chat');
 
 assert.equal(resolveChatHeaderVariant(71), 'compact');
-assert.equal(resolveChatHeaderVariant(72), 'full');
+assert.equal(resolveChatHeaderVariant(72), 'mascot');
+assert.equal(resolveChatHeaderVariant(116), 'mascot');
+assert.equal(resolveChatHeaderVariant(117), 'mascot');
+assert.equal(resolveChatHeaderVariant(240), 'mascot');
 
 const artwork = resolveMiniPlayerLayout({ columns: 124, rows: 44 });
 assert.equal(artwork.mode, 'artwork');
