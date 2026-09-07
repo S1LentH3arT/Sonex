@@ -5,8 +5,9 @@ Contains pytest coverage for the test online play behavior.
 
 from __future__ import annotations
 
-import unittest
+import os
 import tempfile
+import unittest
 import urllib.parse
 from pathlib import Path
 from threading import Barrier, Event
@@ -98,6 +99,11 @@ class OnlinePlayTests(unittest.TestCase):
 
     Collects assertions that exercise online play tests behavior without mixing unrelated fixtures.
     """
+    def setUp(self) -> None:
+        self._home = tempfile.TemporaryDirectory()
+        self._previous_home = os.environ.get("SONEX_HOME")
+        os.environ["SONEX_HOME"] = self._home.name
+
     def tearDown(self) -> None:
         """Verifies that tearDown behaves as expected.
 
@@ -105,8 +111,14 @@ class OnlinePlayTests(unittest.TestCase):
 
         Example: tearDown() -> passes without assertion failures when the behavior remains correct.
         """
+        online._youtube_search_cooldown_until = 0.0
         FakeYoutubeDL.responses = []
         FakeYoutubeDL.calls = []
+        if self._previous_home is None:
+            os.environ.pop("SONEX_HOME", None)
+        else:
+            os.environ["SONEX_HOME"] = self._previous_home
+        self._home.cleanup()
 
     def test_provider_failure_code_accepts_stable_queue_error_code(self) -> None:
         self.assertEqual(
