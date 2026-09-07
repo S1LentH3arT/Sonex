@@ -38,7 +38,6 @@ VENV_SONEX="$VENV_DIR/bin/sonex"
 RUNTIME_NODE_PACKAGES=(
   react
   ink
-  ink-image
   ink-text-input
   terminal-image
   ws

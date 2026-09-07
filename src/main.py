@@ -50,7 +50,8 @@ from src.tools.youtube_runtime import (
 )
 from src.workspace import user_workspace_root
 
-APP_VERSION = "0.1.0-alpha.1"
+DEFAULT_APP_VERSION = "0.1.0-alpha.1"
+APP_VERSION = os.getenv("SONEX_APP_VERSION", DEFAULT_APP_VERSION)
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9001
 SERVER_START_TIMEOUT = 15.0
@@ -82,6 +83,9 @@ def _cli_ui_dir() -> Path:
 
     Example: _cli_ui_dir() -> returns the value used by the surrounding Sonex flow.
     """
+    configured = os.getenv("SONEX_CLI_UI_DIR")
+    if configured:
+        return Path(configured).expanduser().resolve()
     return _project_root() / "src" / "cli-ui"
 
 
@@ -397,6 +401,11 @@ def _build_ink_ui_if_needed() -> None:
     """
     if _dist_entry().exists():
         return
+
+    if os.getenv("SONEX_CLI_UI_DIR"):
+        raise typer.BadParameter(
+            "Published Sonex package is missing its prebuilt TUI. Reinstall the package."
+        )
 
     tsc = _tsc_entry()
     if not tsc.exists():

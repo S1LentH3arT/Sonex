@@ -14,5 +14,8 @@ temp/
 src/cli-ui/node_modules/
 src/cli-ui/node_modules/.package-lock.json
 src/cli-ui/dist/
+src/cli-ui/vendor/*
+!src/cli-ui/vendor/
+!src/cli-ui/vendor/.npmignore
 lib/
 share/

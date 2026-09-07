@@ -11,7 +11,6 @@ EXPECTED_USER_SHIM="$USER_BIN/sonex"
 RUNTIME_NODE_PACKAGES=(
   react
   ink
-  ink-image
   ink-text-input
   terminal-image
   ws

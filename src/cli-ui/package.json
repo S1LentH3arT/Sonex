@@ -1,23 +1,51 @@
 {
-  "name": "cli-ui",
+  "name": "sonex-agent",
   "version": "0.1.0-alpha.1",
-  "private": true,
+  "description": "An AI-powered music agent for the terminal.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/S1LentH3arT/Sonex.git"
+  },
+  "bugs": {
+    "url": "https://github.com/S1LentH3arT/Sonex/issues"
+  },
+  "homepage": "https://github.com/S1LentH3arT/Sonex#readme",
   "type": "module",
+  "bin": {
+    "sonex": "bin/sonex.js"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "vendor/",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "os": ["linux"],
+  "cpu": ["x64", "arm64"],
+  "publishConfig": {
+    "access": "public",
+    "tag": "alpha"
+  },
   "scripts": {
     "build": "tsc --outDir dist",
     "start": "node dist/index.js",
     "test": "tsx --test test/*.test.ts",
-    "verify:pty": "python3 ../../scripts/verify_cli_tui_append.py"
+    "verify:pty": "python3 ../../scripts/verify_cli_tui_append.py",
+    "pack:release": "bash ../../scripts/build_npm_package.sh"
   },
   "dependencies": {
     "@openai/codex": "0.146.0",
     "ink": "^5.0.0",
-    "ink-image": "^2.0.0",
     "ink-text-input": "^6.0.0",
     "react": "^18.3.1",
     "string-width": "^7.2.0",
-    "terminal-image": "^3.1.1",
-    "ws": "^8.18.0"
+    "terminal-image": "^5.0.1",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/node": "^20.17.10",
