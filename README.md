@@ -16,22 +16,35 @@ confirmations, and playback state synced over WebSocket.
 
 ## Requirements
 
-Install these system runtimes before running the Sonex installer:
+For the published npm package, only Node.js and npm are required initially:
 
 | Requirement | Notes |
 | --- | --- |
-| Python 3.12 | Must be available as `python3.12` |
-| Node.js and `npm` | Required to install and build the terminal UI |
+| Node.js 20+ and `npm` | Required to run the launcher |
 | Linux or WSL | A compatible shell environment is required |
 | `mpv` | Optional; enables local-file and online audio playback |
 
 > [!NOTE]
-> The installer checks for Python, Node.js, and npm, but it does not install
-> system packages for you.
+> The first npm launch downloads a pinned uv release and provisions a private
+> Python 3.12 runtime under `~/.sonex/runtime`.
 
 ## Installation
 
-From the project checkout:
+Install the published package:
+
+```bash
+npm install -g sonex-agent@alpha
+sonex
+```
+
+The first `sonex` launch provisions the Python runtime and dependencies. Later
+launches reuse the versioned runtime.
+
+Maintainers can prepare the release payload with
+`npm --prefix src/cli-ui run pack:release`, then verify it with
+`npm --prefix src/cli-ui pack --dry-run`.
+
+For source development, install from the project checkout:
 
 ```bash
 ./scripts/install.sh

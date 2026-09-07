@@ -15,21 +15,33 @@ FastAPI/WebSocket 后端。正常使用时只需要运行一个命令：`sonex` 
 
 ## 运行要求
 
-运行 Sonex 安装脚本之前，请先安装这些系统运行时：
+安装 npm 发布包时，首次只需要 Node.js 和 npm：
 
 | 依赖 | 说明 |
 | --- | --- |
-| Python 3.12 | 必须可以通过 `python3.12` 调用 |
-| Node.js 和 `npm` | 用于安装并构建终端界面 |
+| Node.js 20+ 和 `npm` | 用于运行启动器 |
 | Linux 或 WSL | 需要兼容的 shell 环境 |
 | `mpv` | 可选；用于本地文件和在线播放 |
 
 > [!NOTE]
-> 安装脚本会检查 Python、Node.js 和 npm，但不会替你安装系统软件包。
+> npm 首次启动时会下载固定版本的 uv，并在 `~/.sonex/runtime` 下创建私有
+> Python 3.12 runtime。
 
 ## 安装
 
-在项目 checkout 目录中运行：
+安装 npm 发布包：
+
+```bash
+npm install -g sonex-agent@alpha
+sonex
+```
+
+首次运行 `sonex` 时会创建 Python runtime，之后复用对应版本的 runtime。
+
+维护者可以运行 `npm --prefix src/cli-ui run pack:release` 准备发布载荷，
+再用 `npm --prefix src/cli-ui pack --dry-run` 检查包内容。
+
+源码开发时，仍然可以在项目 checkout 目录中运行：
 
 ```bash
 ./scripts/install.sh
