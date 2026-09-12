@@ -147,7 +147,9 @@ assert.match(
     /<PanelFrame width=\{insetPanelWidth\} title=\{modelPanel\.title\} hint=\{modelPanel\.hint\}>[\s\S]*<PanelChoiceList[\s\S]*visibleLimit=\{MAX_VISIBLE_MODEL_CHOICES\}/,
 );
 assert.match(inputDockBody, /const filteredModelChoices = filterModelChoices\(allModelChoices, input\)/);
-assert.match(inputDockBody, /text: "Search: "/);
+assert.match(inputDockBody, /text: "⌕ ", color: PANEL_SECONDARY/);
+assert.match(inputDockBody, /text: input \|\| "Search model…", color: input \? PANEL_PRIMARY : PANEL_SECONDARY/);
+assert.doesNotMatch(inputDockBody, /borderColor=\{PANEL_SECONDARY\}[\s\S]*Search model…/);
 assert.match(inputDockBody, /const spotifyTheme = Boolean\(spotifyMode\?\.enabled \|\| spotifySetup\)/);
 assert.match(inputDockBody, /<SlashCommandList suggestions=\{slashSuggestions\} selectedIndex=\{slashIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
 assert.match(inputDockBody, /borderStyle="single" borderColor="#808791"/);

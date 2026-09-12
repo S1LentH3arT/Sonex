@@ -862,7 +862,7 @@ const CoverAtmosphere = ({ visual, art, compact }: {
     art: string | null;
     compact: boolean;
 }) => {
-    if (!compact && art) {
+    if (art) {
         return <Text>{art}</Text>;
     }
 
@@ -919,7 +919,7 @@ const StaticCover = React.memo(({ visual, coverUrl, coverPattern, terminalSpace,
         : resolveCoverPatternDisplay(null, terminalSpace);
     const compactCoverWidth = Math.max(22, Math.min(48, (terminalSpace?.columns ?? 40) - 6));
     const compactCoverHeight = Math.max(8, Math.min(24, (terminalSpace?.rows ?? 22) - 8));
-    const fetchableCoverUrl = patternDisplay.status === 'none' && isHttpCoverSource(coverUrl) ? coverUrl : null;
+    const fetchableCoverUrl = isHttpCoverSource(coverUrl) ? coverUrl : null;
     const { art, failed } = useCoverArt(fetchableCoverUrl, compact ? compactCoverWidth : 32, compact ? compactCoverHeight : 16);
     const resolvedVisual = React.useMemo(() => coverVisualFromSource(coverUrl, failed), [coverUrl, failed]);
     const patternRequestedAt = React.useRef<number | null>(null);
@@ -941,6 +941,18 @@ const StaticCover = React.memo(({ visual, coverUrl, coverPattern, terminalSpace,
             patternRequestedAt.current = null;
         }
     }, [coverUrl, coverPattern]);
+
+    if (art) {
+        return compact ? (
+            <Box flexGrow={1} flexShrink={1} minHeight={compactCoverHeight} alignItems="center" justifyContent="center">
+                <CoverAtmosphere visual={resolvedVisual} art={art} compact={compact} />
+            </Box>
+        ) : (
+            <Box width={36} paddingRight={2} flexDirection="column">
+                <CoverAtmosphere visual={resolvedVisual} art={art} compact={compact} />
+            </Box>
+        );
+    }
 
     if (patternDisplay.status === 'unavailable') {
         return compact
@@ -1595,8 +1607,8 @@ const InputDock = ({
                             <PanelRow
                                 width={insetPanelWidth}
                                 segments={[
-                                    { text: "Search: ", color: PANEL_SECONDARY },
-                                    { text: input || "type to filter", color: input ? PANEL_PRIMARY : PANEL_SECONDARY },
+                                    { text: "⌕ ", color: PANEL_SECONDARY },
+                                    { text: input || "Search model…", color: input ? PANEL_PRIMARY : PANEL_SECONDARY },
                                 ]}
                             />
                             <PanelChoiceList

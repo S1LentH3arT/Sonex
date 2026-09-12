@@ -6,6 +6,59 @@ import type { ClientEvent, PlayerState, ServerEvent } from './types.js';
 
 export const PLAYBACK_PROGRESS_INTERVAL_MS = 1000;
 
+let nextKittyImageId = 1;
+
+export const kittyDeleteSequence = (imageId: number): string => (
+    `\u001B_Ga=d,d=I,i=${imageId},q=2;\u001B\\`
+);
+
+export const decorateKittyImage = (sequence: string): { sequence: string; imageId: number } | null => {
+    if (!sequence.includes("\u001B_G")) return null;
+    const imageId = nextKittyImageId++;
+    return {
+        sequence: sequence.replace("\u001B_G", `\u001B_Gi=${imageId},`),
+        imageId,
+    };
+};
+
+const captureTerminalImage = async (
+    buffer: Buffer,
+    width: number,
+    height: number,
+): Promise<{ art: string | null; imageId: number | null }> => {
+    const writes: string[] = [];
+    const passthrough: Array<{ chunk: string | Uint8Array; args: unknown[] }> = [];
+    const stdout = process.stdout;
+    const originalWrite = stdout.write;
+    stdout.write = ((chunk: string | Uint8Array, ...args: unknown[]): boolean => {
+        if (typeof chunk === "string" && chunk.includes("\u001B_G")) {
+            writes.push(chunk);
+        } else {
+            passthrough.push({ chunk, args });
+        }
+        return true;
+    }) as typeof stdout.write;
+
+    try {
+        await terminalImage.buffer(buffer, {
+            width,
+            height,
+            preserveAspectRatio: true,
+            // Multiplexers cannot reliably place or clear Kitty images.
+            preferNativeRender: !process.env.TMUX && !process.env.STY,
+        });
+        const kitty = decorateKittyImage(writes.join(""));
+        return kitty
+            ? { art: kitty.sequence, imageId: kitty.imageId }
+            : { art: null, imageId: null };
+    } finally {
+        stdout.write = originalWrite;
+        for (const { chunk, args } of passthrough) {
+            (originalWrite as (...values: any[]) => boolean).call(stdout, chunk, ...args);
+        }
+    }
+};
+
 export function isPlaybackStarting(player: PlayerState): boolean {
     return player.playback_status === "starting";
 }
@@ -88,15 +141,24 @@ export function usePlaybackProgress(player: PlayerState, active = true): number 
 export function useCoverArt(url: string | null, width = 32, height = 16): { art: string | null; failed: boolean } {
     const [art, setArt] = React.useState<string | null>(null);
     const [failed, setFailed] = React.useState(false);
+    const imageId = React.useRef<number | null>(null);
 
     React.useEffect(() => {
         if (!url) {
+            if (imageId.current !== null) {
+                process.stdout.write(kittyDeleteSequence(imageId.current));
+                imageId.current = null;
+            }
             setArt(null);
             setFailed(false);
             return;
         }
 
         let cancelled = false;
+        if (imageId.current !== null) {
+            process.stdout.write(kittyDeleteSequence(imageId.current));
+            imageId.current = null;
+        }
         setArt(null);
         setFailed(false);
 
@@ -109,17 +171,14 @@ export function useCoverArt(url: string | null, width = 32, height = 16): { art:
                 }
                 const fetchedAt = Date.now();
                 const arrayBuffer = await response.arrayBuffer();
-                const rendered = await terminalImage.buffer(Buffer.from(arrayBuffer), {
-                    width,
-                    height,
-                    preserveAspectRatio: true,
-                });
+                const rendered = await captureTerminalImage(Buffer.from(arrayBuffer), width, height);
                 if (process.env.SONEX_PLAYER_DEBUG === '1') {
                     const decodedAt = Date.now();
                     console.error(`[sonex-player-debug] cover fetch ${fetchedAt - start}ms decode ${decodedAt - fetchedAt}ms url=${url}`);
                 }
                 if (!cancelled) {
-                    setArt(rendered);
+                    imageId.current = rendered.imageId;
+                    setArt(rendered.art);
                 }
             } catch (err) {
                 if (process.env.SONEX_PLAYER_DEBUG === '1') {
@@ -136,6 +195,10 @@ export function useCoverArt(url: string | null, width = 32, height = 16): { art:
 
         return () => {
             cancelled = true;
+            if (imageId.current !== null) {
+                process.stdout.write(kittyDeleteSequence(imageId.current));
+                imageId.current = null;
+            }
         };
     }, [url, width, height]);
 

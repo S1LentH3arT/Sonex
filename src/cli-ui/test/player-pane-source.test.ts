@@ -33,7 +33,8 @@ assert.match(staticCover, /alignItems="center" justifyContent=\{compact \? 'flex
 assert.match(source, /const MINI_COVER_PATTERN_MAX_SIZE = 80/);
 assert.match(staticCover, /const maxSize = maxPatternSize \?\? \(compact \? MINI_COVER_PATTERN_MAX_SIZE : 32\)/);
 assert.match(staticCover, /const patternDisplay = coverPattern/);
-assert.match(staticCover, /const fetchableCoverUrl = patternDisplay\.status === 'none'/);
+assert.match(staticCover, /const fetchableCoverUrl = isHttpCoverSource\(coverUrl\)/);
+assert.match(staticCover, /if \(art\)/);
 assert.match(staticCover, /if \(patternDisplay\.status === 'unfit'\)/);
 assert.match(miniBody, /alignItems="center"\s+justifyContent="flex-end"/);
 
