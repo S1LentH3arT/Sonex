@@ -46,7 +46,7 @@ locked packages. Later launches reuse the versioned runtime.
 
 Maintainers can prepare the release payload with
 `npm --prefix src/cli-ui run pack:release`, then verify it with
-`npm --prefix src/cli-ui pack --dry-run`.
+`(cd src/cli-ui && npm pack --dry-run)`.
 
 `pack:release` downloads and compiles the pinned PO Token Provider into the npm
 package's `vendor/youtube-runtime` directory. Running `npm install` in a source

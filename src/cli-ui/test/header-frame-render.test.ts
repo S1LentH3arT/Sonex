@@ -171,7 +171,7 @@ test('renders the mascot and info without the session wordmark', async () => {
     const plain = output.replaceAll(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
     assert.match(plain, /Claude Sonnet 4\.6 • API billing/);
     const rows = plain.split('\n');
-    assert.match(plain, /Sonex CLI v0\.1\.0-alpha\.1/);
+    assert.match(plain, /Sonex CLI v0\.1\.0-alpha\.2/);
     assert.doesNotMatch(plain, /[╭╮╰╯│]/);
     assert.ok(SONEX_LOGO.every((logoRow) => rows.every((row) => !row.includes(logoRow))));
     for (const mascotRow of SONEX_MASCOT) {

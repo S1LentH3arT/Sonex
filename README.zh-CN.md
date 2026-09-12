@@ -43,7 +43,7 @@ Provider，无需 YouTube 配置或凭据。首次运行需要网络来下载 uv
 Python 依赖，之后会复用对应版本的 runtime。
 
 维护者可以运行 `npm --prefix src/cli-ui run pack:release` 准备发布载荷，
-再用 `npm --prefix src/cli-ui pack --dry-run` 检查包内容。
+再用 `(cd src/cli-ui && npm pack --dry-run)` 检查包内容。
 
 `pack:release` 会下载并编译固定版本的 PO Token Provider，写入 npm 包的
 `vendor/youtube-runtime`。在源码 checkout 中直接执行 `npm install` 不会执行这一步发布打包。

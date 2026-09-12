@@ -29,7 +29,7 @@ mkdir -p "$VENDOR_DIR"
 find "$VENDOR_DIR" -maxdepth 1 -type f -name 'sonex-*.whl' -delete
 rm -f "$VENDOR_DIR/requirements-linux-py312.txt"
 
-if [ ! -f "$VENDOR_DIR/youtube-runtime/server/build/main.js" ]; then
+if [ ! -f "$VENDOR_DIR/youtube-runtime/server/build/main.js" ] || [ -d "$VENDOR_DIR/youtube-runtime/server/src" ]; then
   "$ROOT_DIR/scripts/build_youtube_runtime_bundle.sh" "$VENDOR_DIR/youtube-runtime"
 fi
 
@@ -50,4 +50,4 @@ if [ "$wheel_count" -ne 1 ]; then
 fi
 
 printf 'Npm package payload prepared in %s.\n' "$CLI_UI_DIR"
-printf 'Run: npm --prefix src/cli-ui pack --dry-run\n'
+printf 'Run: (cd src/cli-ui && npm pack --dry-run)\n'
