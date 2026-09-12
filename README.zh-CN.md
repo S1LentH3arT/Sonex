@@ -33,13 +33,20 @@ FastAPI/WebSocket 后端。正常使用时只需要运行一个命令：`sonex` 
 
 ```bash
 npm install -g sonex-agent@alpha
+sonex youtube status  # 首次运行时部署内置 YouTube runtime
 sonex
 ```
 
-首次运行 `sonex` 时会创建 Python runtime，之后复用对应版本的 runtime。
+`npm install` 只负责复制 npm 包；首次执行 `sonex` 时，启动器才会创建私有
+Python runtime，并根据包内锁定的 requirements 安装内置 yt-dlp 和 PO Token
+Provider，无需 YouTube 配置或凭据。首次运行需要网络来下载 uv、Python 和锁定的
+Python 依赖，之后会复用对应版本的 runtime。
 
 维护者可以运行 `npm --prefix src/cli-ui run pack:release` 准备发布载荷，
 再用 `npm --prefix src/cli-ui pack --dry-run` 检查包内容。
+
+`pack:release` 会下载并编译固定版本的 PO Token Provider，写入 npm 包的
+`vendor/youtube-runtime`。在源码 checkout 中直接执行 `npm install` 不会执行这一步发布打包。
 
 源码开发时，仍然可以在项目 checkout 目录中运行：
 
@@ -111,27 +118,15 @@ sonex tui
 `doctor.sh` 会检查 Python 依赖、Node 依赖、TUI 构建产物、`sonex` 命令、
 `~/.sonex`、可选本地播放器，以及 Spotify 配置状态。
 
-### YouTube PO Token 运行时
+### YouTube 内置扩展
 
-YouTube 的 yt-dlp 与 PO Token Provider 运行在 `SONEX_HOME` 下的独立 runtime
-中。启动 Sonex 时会在后台检查本地 runtime，并最多每 24 小时检查一次稳定版；
-不会在启动检查中请求 YouTube。首次未缓存的 YouTube 播放会提示是否安装，安装和
-更新在后台进行，完成后提示重启应用。
+npm 包内置固定版本的 yt-dlp 和 PO Token Provider，支持 Linux x64/arm64（包括
+WSL2）。YouTube 默认启用，无需凭据或依赖配置；使用 `/extension` 启用或禁用。
 
 ```bash
-sonex youtube setup       # 交互确认后后台安装
 sonex youtube status      # 查看状态，不启动播放
 sonex youtube status --json
-sonex youtube repair      # 忽略自动重试冷却并人工修复
 ```
-
-如果 PyPI 在线下载速度过慢，可以从 PyPI 或可信镜像手动下载 `yt-dlp` 和
-`bgutil-ytdlp-pot-provider` 的 wheel 文件，并将两个文件放入
-`SONEX_HOME/youtube-runtime/offline`。回到 `/extension`，选中 `yt-dlp` 后按
-Enter 重试；Sonex 会在不访问包索引的情况下安装本地文件。
-
-受管 runtime 不读取 YouTube 账号 Cookie、浏览器 Cookie 或用户级 yt-dlp 配置，
-也不会加载任意外部 PO Token Provider。
 
 ## LLM Provider 设置
 
@@ -148,11 +143,11 @@ Sonex 优先为主流云端 LLM provider 调用官方 API：
 | DeepSeek | 官方 API adapter |
 | LiteLLM | 作为自定义或暂未 native 化 provider 的兼容 fallback 保留；不是以上云端 provider 的默认调用路径 |
 
-使用以下命令管理 LLM provider 凭据：
+使用以下命令管理 LLM provider 凭据。`login` 会从隐藏输入、
+`SONEX_<PROVIDER>_API_KEY` 环境变量或 stdin 读取密钥，不接受命令行明文密钥：
 
 ```bash
 sonex auth login openai
-sonex auth set-key openai
 sonex auth list
 sonex auth set-default openai
 sonex auth logout openai
@@ -297,14 +292,11 @@ Spotify 或 Online 播放源，再展示该来源最多五个候选。`/recommen
 偏好，并把推荐曲目加入 Sonex 播放队列但不直接播放。之后可以继续要求播放某一项，
 例如 `play number 2` 或 `播放第2首`。
 
-本地或在线曲目播放时，可以使用：
+本地或在线曲目播放时，可以使用 TUI 快捷键：
 
 ```text
-/pause
-/resume
-/stop
-/progress
-/volume 65
+Space       暂停/继续
+F8/F9       音量减小/增大
 ```
 
 ## 封面珠子图

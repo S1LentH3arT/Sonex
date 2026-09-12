@@ -34,15 +34,23 @@ Install the published package:
 
 ```bash
 npm install -g sonex-agent@alpha
+sonex youtube status  # provisions the bundled YouTube runtime on first run
 sonex
 ```
 
-The first `sonex` launch provisions the Python runtime and dependencies. Later
-launches reuse the versioned runtime.
+`npm install` only copies the package. The first `sonex` command creates the
+private Python runtime and installs the bundled yt-dlp and PO Token Provider
+from the package's locked requirements; no YouTube setup or credentials are
+required. The first run needs network access to download uv, Python, and the
+locked packages. Later launches reuse the versioned runtime.
 
 Maintainers can prepare the release payload with
 `npm --prefix src/cli-ui run pack:release`, then verify it with
 `npm --prefix src/cli-ui pack --dry-run`.
+
+`pack:release` downloads and compiles the pinned PO Token Provider into the npm
+package's `vendor/youtube-runtime` directory. Running `npm install` in a source
+checkout does not perform this release packaging step.
 
 For source development, install from the project checkout:
 
@@ -118,31 +126,16 @@ Run:
 `sonex` command, `~/.sonex`, optional local players, and Spotify configuration
 status.
 
-### YouTube PO Token runtime
+### YouTube built-in extension
 
-YouTube's yt-dlp and PO Token Provider run in an isolated runtime under
-`SONEX_HOME`. Sonex checks the local runtime in the background at application
-startup and checks stable releases at most once every 24 hours; startup checks
-never request YouTube. The first uncached YouTube playback asks before setup.
-Installation and updates continue in the background, and completion prompts a
-restart.
+The npm package includes the pinned yt-dlp and PO Token Provider runtime for
+Linux x64/arm64, including WSL2. YouTube is enabled by default and requires no
+credentials or dependency setup. Use `/extension` to enable or disable it.
 
 ```bash
-sonex youtube setup       # interactive confirmation, then background setup
 sonex youtube status      # read-only status
 sonex youtube status --json
-sonex youtube repair      # manually retry setup/update
 ```
-
-If the PyPI download is too slow, download the binary wheels for `yt-dlp` and
-`bgutil-ytdlp-pot-provider` from PyPI or a trusted mirror and place both files
-in `SONEX_HOME/youtube-runtime/offline`. Return to `/extension`, select
-`yt-dlp`, and press Enter to retry; Sonex will install the local wheels without
-using the package index.
-
-The managed runtime does not read YouTube account/browser cookies or user-level
-yt-dlp configuration, and it does not discover arbitrary external PO Token
-Providers.
 
 ## LLM Provider Setup
 
@@ -181,6 +174,21 @@ export SONEX_ANTHROPIC_API_KEY=sk-ant-...
 export SONEX_GEMINI_API_KEY=...
 export SONEX_DEEPSEEK_API_KEY=sk-...
 ```
+
+The same provider credentials can be managed from the shell:
+
+```bash
+sonex auth login openai
+sonex auth list --json
+sonex auth set-default openai
+sonex auth logout openai
+```
+
+`auth login` reads secrets from a hidden prompt, `SONEX_<PROVIDER>_API_KEY`, or
+stdin; secret values are not accepted as command-line arguments. Read-only
+runtime and music queries support `--json`, including `sonex status`,
+`sonex extension list`, `sonex model list`, `sonex recent`, and
+`sonex playlist list`.
 
 > [!WARNING]
 > Never commit API keys or saved Sonex credentials to source control. Prefer
@@ -324,14 +332,11 @@ five tracks, uses the hint before recent playback and `USER.md` preferences, and
 adds the recommended tracks to the Sonex playback queue without starting
 playback. You can then ask to play an item such as `play number 2` or `播放第2首`.
 
-While a local or online track is playing, use:
+While a local or online track is playing, use the TUI playback shortcuts:
 
 ```text
-/pause
-/resume
-/stop
-/progress
-/volume 65
+Space       pause/resume
+F8/F9       volume down/up
 ```
 
 ## Cover Bead Art
