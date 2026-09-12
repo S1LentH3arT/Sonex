@@ -86,7 +86,7 @@ class ParsedCommand:
 
 
 BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
-    BuiltinCommand("help", "/help", "show available Sonex commands", aliases=("?",)),
+    BuiltinCommand("help", "/help", "show available Sonex commands"),
     BuiltinCommand("info", "/info", "show current runtime information"),
     BuiltinCommand("lang", "/lang", "choose the TUI display language", enabled=False),
     BuiltinCommand("login", "/login", "connect or switch the active LLM provider"),
@@ -109,7 +109,6 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
         "recommend",
         "/recommend [taste]",
         "recommend songs based on a taste hint",
-        aliases=("rec",),
         mode="agent",
         intent_prompt=(
             "The user invoked /recommend. Treat the args as a music taste hint. "
