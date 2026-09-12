@@ -30,12 +30,12 @@ export const extensionSignal = (extension: ExtensionView): string => (
 );
 
 const extensionActionColor = (action: string): string => {
-    if (action === "reset" || action === "prepare_reset") return "#ef4444";
+    if (action === "reset" || action === "prepare_reset") return PANEL_PRIMARY;
     if (action === "repair" || action === "restart" || action === "prepare_restart") return "#facc15";
     return PANEL_PRIMARY;
 };
 
-const extensionActionBold = (action: string): boolean => action === "restart" || action === "prepare_restart" || action === "prepare_reset";
+const extensionActionBold = (action: string): boolean => action === "restart" || action === "prepare_restart";
 
 const statusLabel = (status: ExtensionStatus): string => STATUS_LABELS[status];
 
@@ -141,12 +141,11 @@ export const ExtensionPanelOverlay = ({
         }
         return {
             key: action,
-            selectedColor: action === "prepare_reset" ? "#ef4444" : undefined,
             segments: [{
                 text: extensionActionLabel(action),
                 color: extensionActionColor(action),
                 bold: extensionActionBold(action),
-                preserveColorWhenSelected: !["disable", "setup", "prepare_reset"].includes(action),
+                preserveColorWhenSelected: !["disable", "setup", "quick_check", "prepare_reset"].includes(action),
             }],
         };
     });
@@ -161,7 +160,7 @@ export const ExtensionPanelOverlay = ({
             ]}
             hint={panel.hint || "↑/↓ select · Enter act · Esc back"}
         >
-            <PanelRow width={width} segments={[{ text: `Status       ${statusLabel(detail.status)}`, color: detail.status === "waiting" ? PANEL_SECONDARY : PANEL_PRIMARY }]} />
+            <PanelRow width={width} segments={[{ text: `Status       ${statusLabel(detail.status)}`, color: signalColor, bold: true }]} />
             <PanelRow width={width} segments={[
                 { text: "Tag          ", color: PANEL_PRIMARY },
                 { text: extension.tags.join(" · "), color: "#183b8c", italic: true },

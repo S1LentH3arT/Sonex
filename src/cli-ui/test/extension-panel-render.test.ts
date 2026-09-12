@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import stringWidth from 'string-width';
@@ -7,6 +8,18 @@ import { dependencyLine } from '../src/extension-panel.js';
 import type { ExtensionPanelState } from '../src/types.js';
 
 const stripAnsi = (value: string): string => value.replaceAll(/\u001b\[[0-9;?]*[A-Za-z]/g, '');
+const extensionSource = readFileSync(new URL('../src/extension-panel.tsx', import.meta.url), 'utf8');
+
+test('uses the shared blue selected state for Quick Check and Reset', () => {
+    assert.match(extensionSource, /if \(action === "reset" \|\| action === "prepare_reset"\) return PANEL_PRIMARY/);
+    assert.doesNotMatch(extensionSource, /selectedColor: action === "prepare_reset"/);
+    assert.match(extensionSource, /preserveColorWhenSelected: !\["disable", "setup", "quick_check", "prepare_reset"\]\.includes\(action\)/);
+    assert.doesNotMatch(extensionSource, /const extensionActionBold = [^;]+prepare_reset/);
+});
+
+test('renders extension status with the signal color in bold', () => {
+    assert.match(extensionSource, /text: `Status       \$\{statusLabel\(detail\.status\)\}`, color: signalColor, bold: true/);
+});
 
 test('aligns dependency names after every status marker and animates unknown progress', () => {
     const dependencies = [
@@ -27,7 +40,7 @@ test('aligns dependency names after every status marker and animates unknown pro
     );
 });
 
-test('renders manual wheel instructions above YouTube dependencies', async () => {
+test('renders the bundled YouTube runtime notice', async () => {
     process.env.FORCE_COLOR = '3';
     const [{ default: React }, { render }, { ExtensionPanelOverlay }] = await Promise.all([
         import('react'),
@@ -52,9 +65,8 @@ test('renders manual wheel instructions above YouTube dependencies', async () =>
                 extension_id: 'youtube',
                 page: 1,
                 page_count: 1,
-                title: 'YouTube setup',
-                body: 'Download both wheels manually:\n  yt_dlp-*.whl',
-                dependencies: [{ id: 'yt-dlp', label: 'yt-dlp', state: 'missing' }],
+                title: 'YouTube built-in',
+                body: 'yt-dlp and the PO Token Provider are bundled with Sonex.',
             },
         },
         selectedIndex: 0,
@@ -64,8 +76,7 @@ test('renders manual wheel instructions above YouTube dependencies', async () =>
     await new Promise((resolve) => setImmediate(resolve));
     const plain = stripAnsi(output);
     try {
-        assert.match(plain, /Download both wheels manually/);
-        assert.match(plain, /yt_dlp-\*\.whl/);
+        assert.match(plain, /yt-dlp and the PO Token Provider are bundled/);
     } finally {
         app.unmount();
         stdin.destroy();
