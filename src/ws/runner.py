@@ -126,10 +126,10 @@ from src.llm.usage import reset_token_usage_observer, set_token_usage_observer
 from src.log import sonex_home
 from src.tools.youtube_runtime import (
     consume_restart_notice,
-    offline_package_dir,
     start_background_health_check,
     start_update_job,
     youtube_dependency_snapshot,
+    youtube_enabled,
     YoutubeRuntimeUnavailable,
 )
 from src.memory.memory import bind_memory_scope, memory_store
@@ -3411,14 +3411,11 @@ class PlaySelectionSession:
         await self._finish("Online audio setup required.", status="error")
 
     async def _ask_youtube_runtime_setup(self, query: str) -> None:
-        """Suspend YouTube playback at the built-in extension setup action."""
-        session_set(self.ui, "_youtube_setup_query", query)
-        session_set(self.ui, "_youtube_setup_session", self)
-        session_set(self.ui, "_youtube_setup_retry_claimed", False)
-        session_set(self.ui, "_extension_panel_view", "detail")
-        session_set(self.ui, "_extension_selected_id", "youtube")
-        session_set(self.ui, "_extension_focus_action", "setup")
-        await self.runner._send_extension_panel(self.ui, view="detail", selected_id="youtube")
+        """Report a missing bundled runtime and point to the application update."""
+        message = "YouTube's bundled runtime is unavailable. Upgrade or reinstall Sonex."
+        await self.ui.append_activity(kind="error", title="YouTube unavailable", detail=message, status="error")
+        await self.ui.send_error(message)
+        await self._finish(message, status="error")
 
     async def _ask_local_choice(self, local_file: str) -> None:
         """Prepares ask local choice for an internal Sonex flow.
@@ -6870,6 +6867,9 @@ class WebSocketRunner:
         failures: list[str] = []
         while state["items"]:
             current = dict(state["items"][0])
+            if str(current.get("provider") or current.get("source") or "").casefold() == "youtube" and not youtube_enabled():
+                await ui.send_error("YouTube is disabled in /extension; queued YouTube tracks remain until it is re-enabled.")
+                return
             if current.get("requires_resolution"):
                 query = " ".join(
                     part
@@ -6929,6 +6929,11 @@ class WebSocketRunner:
         *,
         report_failure: bool = True,
     ) -> tuple[bool, str]:
+        if str(track.get("provider") or track.get("source") or "").casefold() == "youtube" and not youtube_enabled():
+            message = "YouTube is disabled in /extension."
+            if report_failure:
+                await ui.send_error(message)
+            return False, message
         if track.get("requires_resolution"):
             query = " ".join(
                 part
@@ -7595,14 +7600,10 @@ class WebSocketRunner:
         await self._send_extension_panel(ui, view="setup", selected_id=extension_id)
 
     def _extension_setup_page(self, extension_id: str, page: int, *, error: str | None = None) -> dict[str, Any]:
-        youtube_setup_body = (
-            "Select a missing item and press Enter to install it privately under SONEX_HOME.\n"
-            "If the network is slow, download both wheels from PyPI or a trusted mirror:\n"
-            f"  {offline_package_dir()}\n"
-            "  yt_dlp-*.whl\n"
-            "  bgutil_ytdlp_pot_provider-*.whl\n"
-            "Then select yt-dlp and press Enter to retry."
-        )
+        youtube_pages = [{
+            "title": "YouTube built-in",
+            "body": "yt-dlp and the PO Token Provider are bundled with Sonex.\nUse the YouTube detail page to enable or disable it.",
+        }]
         pages: dict[str, list[dict[str, Any]]] = {
             "spotify": [
                 {"title": "Spotify setup · Before you start", "body": "You need Spotify Premium, a Spotify developer account, and a browser.\nOpen https://developer.spotify.com/dashboard to begin."},
@@ -7629,9 +7630,7 @@ class WebSocketRunner:
                 {"title": "Audius setup · Paste value", "body": "Paste the copied value in the input below.", "input": {"placeholder": "[Audius API Key]", "mask": True}},
                 {"title": "Audius setup · Verify connection", "body": "Sonex checks the node and performs one minimum read-only request.\nA valid response saves the key atomically and enables Audius."},
             ],
-            "youtube": [
-                {"title": "YouTube setup", "body": youtube_setup_body, "dependencies": youtube_dependency_snapshot()},
-            ],
+            "youtube": youtube_pages,
         }
         selected = pages.get(extension_id, pages["youtube"])
         bounded_page = max(1, min(page, len(selected)))
@@ -7673,6 +7672,8 @@ class WebSocketRunner:
             return
         try:
             if action == "setup":
+                if extension_id == "youtube":
+                    raise ExtensionActionError("YouTube is bundled; only enable or disable is available.")
                 await self._open_extension_setup(ui, extension_id)
                 return
             if action in {"next_page", "prev_page"}:
@@ -7694,6 +7695,11 @@ class WebSocketRunner:
                     expected_revision=expected_revision,
                     on_update=update,
                 )
+                if extension_id == "youtube" and action == "disable":
+                    playback = await asyncio.to_thread(registry.invoke_system, "local_playback_status", {})
+                    playback_data = playback.get("data") if isinstance(playback, dict) else {}
+                    if isinstance(playback_data, dict) and playback_data.get("provider") == "youtube":
+                        await asyncio.to_thread(registry.invoke_system, "local_playback_stop", {})
                 await self._send_extension_panel(ui, view="detail", selected_id=extension_id)
                 return
             if action == "prepare_reset":

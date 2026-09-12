@@ -81,6 +81,16 @@ class YoutubeRuntimeTests(unittest.TestCase):
         self.assertTrue(options["ignoreconfig"])
         self.assertNotIn("youtubepot-bgutilhttp", options.get("extractor_args", {}))
 
+    def test_disabled_runtime_rejects_new_worker_requests(self) -> None:
+        manifest = self._manifest()
+        runtime.set_youtube_enabled(False)
+        try:
+            with patch.object(runtime, "active_manifest", return_value=manifest):
+                with self.assertRaises(runtime.YoutubeRuntimeUnavailable):
+                    runtime.prepare_worker({"quiet": True})
+        finally:
+            runtime.set_youtube_enabled(True)
+
     def test_pending_runtime_is_activated_atomically_and_previous_is_kept(self) -> None:
         previous = self._manifest() | {"runtime_id": "previous"}
         candidate = self._manifest() | {"runtime_id": "candidate"}

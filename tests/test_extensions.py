@@ -53,13 +53,19 @@ class ExtensionManagerTests(unittest.TestCase):
         self.assertEqual(view.status, ExtensionStatus.UNAPPLIED)
         self.assertFalse(view.reset_available)
 
-    def test_unapplied_runtime_exposes_prepare_restart_action(self) -> None:
+    def test_youtube_only_exposes_enable_or_disable(self) -> None:
+        manager = ExtensionManager(path=self.state_path)
+        self.assertEqual(manager.actions("youtube"), ("disable",))
+        manager.set_enabled("youtube", False, expected_revision=0)
+        self.assertEqual(manager.actions("youtube"), ("enable",))
+
+    def test_youtube_exposes_only_disable_when_enabled(self) -> None:
         manager = ExtensionManager(path=self.state_path)
         with patch(
             "src.extensions.manager.runtime_status",
             return_value={"status": "restart_required"},
         ):
-            self.assertEqual(manager.actions("youtube"), ("quick_check", "prepare_restart"))
+            self.assertEqual(manager.actions("youtube"), ("disable",))
 
     def test_snapshot_does_not_probe_network(self) -> None:
         with patch(

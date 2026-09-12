@@ -22,7 +22,7 @@ from src.auth.spotify import load_spotify_token, spotify_user_client
 from src.auth.store import get_provider_auth, load_auth_store, remove_provider_method, set_api_key
 from src.log import sonex_home
 from src.tools.online_play import online_audio_config
-from src.tools.youtube_runtime import local_runtime_check, runtime_status
+from src.tools.youtube_runtime import local_runtime_check, runtime_status, set_youtube_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +285,7 @@ class ExtensionManager:
             configured=configured,
             tags=extension.tags,
             reset_available=local and extension.extension_id != "youtube",
-            setup_available=extension.extension_id != "youtube" or _supported_platform(),
+            setup_available=extension.extension_id != "youtube",
             reason_code=reason_code,
             operation=operation,
             revision=int(entry.get("revision") or 0),
@@ -299,6 +299,8 @@ class ExtensionManager:
         view = self.get(extension_id)
         if view.status in {ExtensionStatus.WAITING, ExtensionStatus.UNSUPPORTED}:
             return ()
+        if extension_id == "youtube":
+            return ("enable",) if not view.enabled else ("disable",)
         if armed_action == "reset":
             return ("confirm_reset",)
         if armed_action == "restart":
@@ -340,6 +342,8 @@ class ExtensionManager:
         if view.status is ExtensionStatus.UNSUPPORTED:
             raise ExtensionActionError("Extension is unsupported on this platform.")
         entry = self._entry(extension_id)
+        if extension_id == "youtube":
+            set_youtube_enabled(enabled)
         entry["enabled"] = enabled
         entry["revision"] = int(entry.get("revision") or 0) + 1
         entry["updated_at"] = time.time()

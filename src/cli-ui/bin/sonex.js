@@ -212,6 +212,7 @@ function launch(runtime) {
       SONEX_CLI_UI_DIR: join(packageRoot, "dist"),
       SONEX_NODE: process.execPath,
       SONEX_RUNTIME_DIR: runtime,
+      SONEX_YOUTUBE_RUNTIME_DIR: join(packageRoot, "vendor", "youtube-runtime"),
     },
     stdio: "inherit",
   });

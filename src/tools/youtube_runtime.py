@@ -1,10 +1,4 @@
-"""Managed YouTube runtime, provider lifecycle, and cross-process request gates.
-
-The normal Sonex environment deliberately does not install or update YouTube
-plugins in the application virtualenv.  This module owns the small state
-machine around a user-authorized runtime bundle and keeps the real YouTube
-worker path fail-closed when no verified bundle is active.
-"""
+"""Built-in YouTube runtime, provider lifecycle, and request gates."""
 
 from __future__ import annotations
 
@@ -235,12 +229,50 @@ def _active_manifest_path() -> Path:
     return runtime_root() / "active.json"
 
 
+def _bundled_manifest_path() -> Path:
+    return Path(os.environ.get("SONEX_YOUTUBE_RUNTIME_DIR", "")) / "active.json"
+
+
+def _bundled_manifest() -> dict[str, Any] | None:
+    bundle = os.environ.get("SONEX_YOUTUBE_RUNTIME_DIR")
+    runtime = os.environ.get("SONEX_RUNTIME_DIR")
+    if not bundle or not runtime:
+        return None
+    bundle_path = Path(bundle)
+    python_path = Path(runtime) / "venv" / "bin" / "python"
+    server_path = bundle_path / "server" / "build" / "main.js"
+    if not python_path.is_file() or not server_path.is_file():
+        return None
+    provider_version = "bundled"
+    with contextlib.suppress(OSError):
+        provider_version = (bundle_path / "provider-version").read_text(encoding="utf-8").strip() or provider_version
+    return {
+        "format": RUNTIME_FORMAT,
+        "runtime_id": "bundled",
+        "bundle_path": str(bundle_path),
+        "python_executable": str(python_path),
+        "yt_dlp_version": "bundled",
+        "provider_version": provider_version,
+        "server_entry": str(server_path),
+        "node_executable": os.environ.get("SONEX_NODE") or "node",
+        "npm_executable": "",
+    }
+
+
 def _pending_manifest_path() -> Path:
     return runtime_root() / "pending.json"
 
 
 def active_manifest() -> dict[str, Any] | None:
+    bundled = _read_json(_bundled_manifest_path()) if os.environ.get("SONEX_YOUTUBE_RUNTIME_DIR") else None
+    if bundled is None:
+        bundled = _bundled_manifest()
+    if bundled and bundled.get("provider_mode") != "external":
+        if runtime_manifest_is_usable(bundled, runtime_format=RUNTIME_FORMAT):
+            return bundled
     payload = _read_json(_active_manifest_path())
+    if payload and payload.get("provider_mode") == "external":
+        payload = None
     if not runtime_manifest_is_usable(payload, runtime_format=RUNTIME_FORMAT):
         return None
     return payload
@@ -248,6 +280,8 @@ def active_manifest() -> dict[str, Any] | None:
 
 def pending_manifest() -> dict[str, Any] | None:
     payload = _read_json(_pending_manifest_path())
+    if payload and payload.get("provider_mode") == "external":
+        return None
     return payload if runtime_manifest_is_usable(payload, runtime_format=RUNTIME_FORMAT) else None
 
 
@@ -349,6 +383,29 @@ def _provider_state() -> dict[str, Any] | None:
     return _read_json(_state_path("provider.json"))
 
 
+def youtube_enabled() -> bool:
+    state = _read_json(_state_path("enabled.json")) or {}
+    return state.get("enabled", True) is not False
+
+
+def stop_provider() -> None:
+    provider = _provider_state()
+    if provider:
+        _terminate_pid(int(provider.get("monitor_pid") or 0))
+        with contextlib.suppress(FileNotFoundError):
+            _state_path("provider.json").unlink()
+
+
+def set_youtube_enabled(enabled: bool) -> None:
+    _write_json(_state_path("enabled.json"), {"enabled": bool(enabled), "updated_at": time.time()})
+    if not enabled:
+        stop_provider()
+        with contextlib.suppress(Exception):
+            from src.tools.yt_dlp_runner import stop_active_processes
+
+            stop_active_processes()
+
+
 def _provider_log_path() -> Path:
     _mkdir(state_root() / "logs")
     path = state_root() / "logs" / "provider.log"
@@ -393,7 +450,7 @@ def _terminate_pid(pid: int | None) -> None:
 def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
     manifest = manifest or active_manifest()
     if not manifest:
-        raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Open /extension to configure YouTube.")
+        raise YoutubeRuntimeUnavailable("The bundled YouTube runtime is unavailable. Upgrade or reinstall Sonex.")
     provider = _provider_state()
     if provider:
         base_url = str(provider.get("base_url") or "")
@@ -416,7 +473,7 @@ def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
     node = str(manifest.get("node_executable") or "")
     server_entry = Path(str(manifest.get("server_entry") or ""))
     if not node or not server_entry.is_file():
-        raise YoutubeRuntimeUnavailable("The managed PO Token Provider runtime is incomplete. Open /extension to repair YouTube.")
+        raise YoutubeRuntimeUnavailable("The bundled PO Token Provider runtime is incomplete. Upgrade or reinstall Sonex.")
     port = _pick_port()
     command = [
         sys.executable,
@@ -461,7 +518,7 @@ def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
     _terminate_pid(monitor.pid)
     with contextlib.suppress(FileNotFoundError):
         _state_path("provider.json").unlink()
-    raise YoutubeRuntimeUnavailable("The managed PO Token Provider did not become healthy. Open /extension to repair YouTube.")
+    raise YoutubeRuntimeUnavailable("The bundled PO Token Provider did not become healthy. Upgrade or reinstall Sonex.")
 
 
 def ensure_provider_running(manifest: dict[str, Any] | None = None) -> str:
@@ -469,7 +526,7 @@ def ensure_provider_running(manifest: dict[str, Any] | None = None) -> str:
 
     resolved = manifest or active_manifest()
     if not resolved:
-        raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Open /extension to configure YouTube.")
+        raise YoutubeRuntimeUnavailable("The bundled YouTube runtime is unavailable. Upgrade or reinstall Sonex.")
     with _exclusive_file_lock(state_root() / "provider.lock", timeout=10.0, purpose="provider"):
         return _ensure_provider_running_locked(resolved)
 
@@ -529,8 +586,10 @@ def prepare_worker(
     """Prepare safe yt-dlp options and the provider URL for one real request."""
 
     manifest = active_manifest()
+    if not youtube_enabled():
+        raise YoutubeRuntimeUnavailable("YouTube is disabled in /extension.")
     if not manifest:
-        raise YoutubeRuntimeUnavailable("YouTube PO Token Provider is not set up. Open /extension to configure YouTube.")
+        raise YoutubeRuntimeUnavailable("The bundled YouTube runtime is unavailable. Upgrade or reinstall Sonex.")
     if (_read_json(_state_path("state.json")) or {}).get("rollback_pending"):
         raise YoutubeRuntimeUnavailable("The active YouTube runtime failed probation and is awaiting rollback. Restart Sonex.")
     safe_options = dict(options)
@@ -1157,6 +1216,8 @@ def start_background_health_check() -> None:
         try:
             refresh_local_health_check()
             manifest = active_manifest()
+            if manifest and manifest.get("runtime_id") == "bundled":
+                return
             latest = latest_versions()
             update_job = update_state()
             pending = pending_manifest()

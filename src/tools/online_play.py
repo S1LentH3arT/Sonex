@@ -47,6 +47,7 @@ from src.tools.youtube_runtime import (
     mark_runtime_failure,
     mark_runtime_success,
     prepare_worker,
+    youtube_enabled,
     youtube_request_gate,
 )
 from src.tools.youtube_runtime_state import managed_runtime_failure_code, provider_failure_category
@@ -2608,7 +2609,9 @@ def resolve_online_audio_candidates(
     source_attempts: list[dict[str, Any]] = []
     youtube_candidates: list[dict[str, Any]] = []
     youtube_cooldown = _youtube_search_cooldown_remaining(cache_root=cache_root)
-    if youtube_cooldown > 0:
+    if not youtube_enabled():
+        pass
+    elif youtube_cooldown > 0:
         youtube_error = RuntimeError(
             f"YouTube is cooling down for {math.ceil(youtube_cooldown)} seconds."
         )

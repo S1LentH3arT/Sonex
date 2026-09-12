@@ -10,6 +10,10 @@ import time
 from typing import Any
 
 
+_active_processes: set[subprocess.Popen[str]] = set()
+_active_processes_lock = threading.Lock()
+
+
 class YtDlpError(RuntimeError):
     """Raised when the isolated yt-dlp worker returns an error."""
 
@@ -19,7 +23,10 @@ class YtDlpTimeoutError(TimeoutError):
 
 
 def _terminate_process(process: subprocess.Popen[str]) -> None:
-    process.terminate()
+    try:
+        process.terminate()
+    except OSError:
+        return
     try:
         process.communicate(timeout=2.0)
         return
@@ -44,6 +51,15 @@ def _force_stop_process(process: subprocess.Popen[str]) -> None:
         process.wait(timeout=2.0)
     except (subprocess.TimeoutExpired, OSError):
         pass
+
+
+def stop_active_processes() -> int:
+    """Terminate all in-flight yt-dlp workers and return the count."""
+    with _active_processes_lock:
+        processes = tuple(_active_processes)
+    for process in processes:
+        _terminate_process(process)
+    return len(processes)
 
 
 def _communicate_download_with_watchdog(
@@ -123,6 +139,8 @@ def run_ytdlp(
         text=True,
         env=_worker_environment(),
     )
+    with _active_processes_lock:
+        _active_processes.add(process)
     serialized_payload = json.dumps(payload, ensure_ascii=False, default=str)
     try:
         if operation == "download" and hasattr(process, "poll"):
@@ -142,6 +160,9 @@ def run_ytdlp(
         raise YtDlpTimeoutError(
             f"yt-dlp {operation} exceeded {float(timeout_seconds):g} seconds."
         ) from exc
+    finally:
+        with _active_processes_lock:
+            _active_processes.discard(process)
 
     raw_output = (stdout or "").strip().splitlines()
     response: dict[str, Any] | None = None

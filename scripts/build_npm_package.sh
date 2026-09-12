@@ -29,6 +29,10 @@ mkdir -p "$VENDOR_DIR"
 find "$VENDOR_DIR" -maxdepth 1 -type f -name 'sonex-*.whl' -delete
 rm -f "$VENDOR_DIR/requirements-linux-py312.txt"
 
+if [ ! -f "$VENDOR_DIR/youtube-runtime/server/build/main.js" ]; then
+  "$ROOT_DIR/scripts/build_youtube_runtime_bundle.sh" "$VENDOR_DIR/youtube-runtime"
+fi
+
 # The release build only needs tsc; dependency install scripts belong to the
 # consumer install and are not required to compile the already locked TUI.
 npm --prefix "$CLI_UI_DIR" ci --ignore-scripts

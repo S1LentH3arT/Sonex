@@ -5542,15 +5542,13 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(event.get("type") == "confirm" for event in ui.events))
         self.assertTrue(any("Unknown command: /connect" in str(event.get("text")) for event in ui.events))
 
-    def test_youtube_setup_includes_manual_wheel_instructions(self) -> None:
+    def test_youtube_setup_describes_bundled_runtime(self) -> None:
         runner = WebSocketRunner()
 
-        with patch.object(ws_runner, "youtube_dependency_snapshot", return_value=[]):
-            setup = runner._extension_setup_page("youtube", 1)
+        setup = runner._extension_setup_page("youtube", 1)
 
-        self.assertIn("trusted mirror", str(setup["body"]))
-        self.assertIn("yt_dlp-*.whl", str(setup["body"]))
-        self.assertIn("bgutil_ytdlp_pot_provider-*.whl", str(setup["body"]))
+        self.assertIn("bundled", str(setup["body"]))
+        self.assertNotIn("dependencies", setup)
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:
