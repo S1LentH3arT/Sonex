@@ -1,7 +1,4 @@
 """Registry support for tool implementations used by the planner and playback flows.
-
-Implements the registry module responsibilities used by Sonex runtime flows.
-Key public entry points include Params, ToolSpec, ToolRegistry.
 """
 
 from __future__ import annotations
@@ -16,10 +13,6 @@ ToolKind = Literal["system", "agent"]
 
 @dataclass(frozen=True)
 class Params:
-    """Represents params.
-
-    Encapsulates params data and behavior used by Sonex runtime flows.
-    """
     type: str
     properties: dict[str, Any]
     required: list[str]
@@ -27,10 +20,6 @@ class Params:
 
 @dataclass(frozen=True)
 class ToolSpec:
-    """Represents tool spec.
-
-    Encapsulates tool spec data and behavior used by Sonex runtime flows.
-    """
     name: str
     kind: ToolKind
     domain: str
@@ -43,12 +32,6 @@ class ToolSpec:
     availability: Callable[[], bool] | None = None
 
     def to_openai_schema(self) -> dict[str, Any]:
-        """Coordinates to openai schema for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs to openai schema as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: to_openai_schema() -> returns the value used by the surrounding Sonex flow.
-        """
         return {
             "type": "function",
             "function": {
@@ -64,10 +47,6 @@ class ToolSpec:
 
 
 class ToolRegistry:
-    """Represents tool registry.
-
-    Encapsulates tool registry data and behavior used by Sonex runtime flows.
-    """
     def __init__(self) -> None:
         """Init for tool registry.
 
@@ -76,12 +55,6 @@ class ToolRegistry:
         self.tools: dict[str, ToolSpec] = {}
 
     def register(self, spec: ToolSpec | None = None, **kwargs: Any) -> None:
-        """Coordinates register for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs register as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: register(spec=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if spec is None:
             if "kind" not in kwargs or "domain" not in kwargs:
                 raise TypeError("Tool registration requires explicit 'kind' and 'domain'.")
@@ -110,12 +83,6 @@ class ToolRegistry:
         self.tools[spec.name] = spec
 
     def get(self, name: str) -> ToolSpec | None:
-        """Coordinates get for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs get as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: get(name=...) -> returns the value used by the surrounding Sonex flow.
-        """
         spec = self.tools.get(name)
         if not spec or not spec.enabled:
             return None

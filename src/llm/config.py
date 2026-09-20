@@ -1,7 +1,4 @@
 """Config support for language model configuration, catalogs, transports, and planning.
-
-Implements the config module responsibilities used by Sonex runtime flows.
-Key public entry points include ProviderConfig, RuntimeConfig.
 """
 
 from dataclasses import dataclass, field, replace

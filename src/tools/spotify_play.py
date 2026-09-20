@@ -1,7 +1,4 @@
 """Spotify play support for tool implementations used by the planner and playback flows.
-
-Implements the spotify_play module responsibilities used by Sonex runtime flows.
-Key public entry points include SpotifyAppPremiumRequiredError, remember_recent_track, recent_tracks_snapshot, reset_recent_tracks, spotify_search.
 """
 
 from __future__ import annotations
@@ -133,70 +130,30 @@ _SPOTIFY_API_REQUEST_GATE = SpotifyApiRequestGate()
 
 
 class SpotifyAppPremiumRequiredError(RuntimeError):
-    """Represents spotify app premium required error.
-
-    Encapsulates spotify app premium required error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
-    """
     pass
 
 
 def _timestamp_ms() -> int:
-    """Prepares timestamp ms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs timestamp ms without duplicating the local rules.
-
-    Example: _timestamp_ms() -> returns the value used by the surrounding Sonex flow.
-    """
     return int(time.time() * 1000)
 
 
 def _spotify_cache_dir() -> Path:
-    """Prepares spotify cache dir for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs spotify cache dir without duplicating the local rules.
-
-    Example: _spotify_cache_dir() -> returns the value used by the surrounding Sonex flow.
-    """
     return sonex_home() / "cache" / "spotify"
 
 
 def _spotify_cover_dir() -> Path:
-    """Prepares spotify cover dir for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs spotify cover dir without duplicating the local rules.
-
-    Example: _spotify_cover_dir() -> returns the value used by the surrounding Sonex flow.
-    """
     return _spotify_cache_dir() / "covers"
 
 
 def _recent_tracks_path() -> Path:
-    """Prepares recent tracks path for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs recent tracks path without duplicating the local rules.
-
-    Example: _recent_tracks_path() -> returns the value used by the surrounding Sonex flow.
-    """
     return _spotify_cache_dir() / "recent_tracks.json"
 
 
 def _iso_now() -> str:
-    """Prepares iso now for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs iso now without duplicating the local rules.
-
-    Example: _iso_now() -> returns the value used by the surrounding Sonex flow.
-    """
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def _best_image(images: list[dict[str, Any]]) -> str | None:
-    """Prepares best image for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs best image without duplicating the local rules.
-
-    Example: _best_image(images=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if not images:
         return None
     ranked = sorted(
@@ -208,12 +165,6 @@ def _best_image(images: list[dict[str, Any]]) -> str | None:
 
 
 def _normalize_track(item: dict[str, Any]) -> dict[str, Any]:
-    """Prepares normalize track for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalize track without duplicating the local rules.
-
-    Example: _normalize_track(item=...) -> returns the value used by the surrounding Sonex flow.
-    """
     album = item.get("album") or {}
     artists = item.get("artists") or []
     images = album.get("images") or []
@@ -234,12 +185,6 @@ def _normalize_track(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _cover_filename(track: dict[str, Any]) -> str | None:
-    """Prepares cover filename for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs cover filename without duplicating the local rules.
-
-    Example: _cover_filename(track=...) -> returns the value used by the surrounding Sonex flow.
-    """
     key = _track_key(track)
     if not key:
         return None
@@ -248,12 +193,6 @@ def _cover_filename(track: dict[str, Any]) -> str | None:
 
 
 def _cache_cover(track: dict[str, Any]) -> str | None:
-    """Prepares cache cover for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs cache cover without duplicating the local rules.
-
-    Example: _cache_cover(track=...) -> returns the value used by the surrounding Sonex flow.
-    """
     url = str(track.get("album_cover_url") or "").strip()
     if not url:
         return track.get("album_cover_path")
@@ -278,12 +217,6 @@ def _cache_cover(track: dict[str, Any]) -> str | None:
 
 
 def _load_recent_tracks() -> None:
-    """Prepares load recent tracks for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs load recent tracks without duplicating the local rules.
-
-    Example: _load_recent_tracks() -> returns the value used by the surrounding Sonex flow.
-    """
     global _RECENT_TRACKS, _RECENT_TRACKS_LOADED
     if _RECENT_TRACKS_LOADED:
         return
@@ -317,12 +250,6 @@ def _load_recent_tracks() -> None:
 
 
 def _save_recent_tracks() -> None:
-    """Prepares save recent tracks for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs save recent tracks without duplicating the local rules.
-
-    Example: _save_recent_tracks() -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         _spotify_cache_dir().mkdir(parents=True, exist_ok=True)
         payload = {"version": 1, "tracks": _RECENT_TRACKS[:MAX_RECENT_TRACKS]}
@@ -334,12 +261,6 @@ def _save_recent_tracks() -> None:
 
 
 def remember_recent_track(track: dict[str, Any]) -> list[dict[str, Any]]:
-    """Coordinates remember recent track for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs remember recent track as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: remember_recent_track(track=...) -> returns the value used by the surrounding Sonex flow.
-    """
     _load_recent_tracks()
     compact = _compact_track(track)
     key = _track_key(compact)
@@ -362,23 +283,11 @@ def remember_recent_track(track: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def recent_tracks_snapshot(limit: int = MAX_RECENT_TRACKS) -> list[dict[str, Any]]:
-    """Coordinates recent tracks snapshot for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs recent tracks snapshot as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: recent_tracks_snapshot(limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     _load_recent_tracks()
     return [dict(item) for item in _RECENT_TRACKS[: max(0, limit)]]
 
 
 def reset_recent_tracks(*, clear_disk: bool = False, reload_from_disk: bool = False) -> None:
-    """Coordinates reset recent tracks for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs reset recent tracks as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: reset_recent_tracks(clear_disk=..., reload_from_disk=...) -> returns the value used by the surrounding Sonex flow.
-    """
     global _RECENT_TRACKS_LOADED
     _RECENT_TRACKS.clear()
     _RECENT_TRACKS_LOADED = not reload_from_disk
@@ -392,12 +301,6 @@ def reset_recent_tracks(*, clear_disk: bool = False, reload_from_disk: bool = Fa
 
 
 def _cached_track_for_query(query: str) -> dict[str, Any] | None:
-    """Prepares cached track for query for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs cached track for query without duplicating the local rules.
-
-    Example: _cached_track_for_query(query=...) -> returns the value used by the surrounding Sonex flow.
-    """
     needle = " ".join(query.strip().lower().split())
     if not needle:
         return None
@@ -416,12 +319,6 @@ def _cached_track_for_query(query: str) -> dict[str, Any] | None:
 
 
 def _normalize_artist(item: dict[str, Any]) -> dict[str, Any]:
-    """Prepares normalize artist for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalize artist without duplicating the local rules.
-
-    Example: _normalize_artist(item=...) -> returns the value used by the surrounding Sonex flow.
-    """
     images = item.get("images") or []
     followers = item.get("followers") or {}
 
@@ -438,12 +335,6 @@ def _normalize_artist(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_album(item: dict[str, Any]) -> dict[str, Any]:
-    """Prepares normalize album for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalize album without duplicating the local rules.
-
-    Example: _normalize_album(item=...) -> returns the value used by the surrounding Sonex flow.
-    """
     images = item.get("images") or []
     artists = item.get("artists") or []
     artist_names = [a.get("name") for a in artists if a.get("name")]
@@ -463,12 +354,6 @@ def _normalize_album(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _normalize_current_playback(payload: dict[str, Any] | None) -> dict[str, Any]:
-    """Prepares normalize current playback for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalize current playback without duplicating the local rules.
-
-    Example: _normalize_current_playback(payload=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if not payload:
         return {
             "is_playing": False,
@@ -503,12 +388,6 @@ def _normalize_current_playback(payload: dict[str, Any] | None) -> dict[str, Any
 
 
 def _normalize_device(device: dict[str, Any]) -> dict[str, Any]:
-    """Prepares normalize device for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalize device without duplicating the local rules.
-
-    Example: _normalize_device(device=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return {
         "id": device.get("id"),
         "name": device.get("name"),
@@ -538,12 +417,6 @@ def _normalize_playlist(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _list_devices(client: Any) -> list[dict[str, Any]]:
-    """Prepares list devices for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs list devices without duplicating the local rules.
-
-    Example: _list_devices(client=...) -> returns the value used by the surrounding Sonex flow.
-    """
     payload = _spotify_api_call(client.devices)
     return [_normalize_device(device) for device in (payload.get("devices") or [])]
 
@@ -554,12 +427,6 @@ def _find_device(
     device_id: str | None = None,
     device_name: str | None = None,
 ) -> dict[str, Any] | None:
-    """Prepares find device for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs find device without duplicating the local rules.
-
-    Example: _find_device(client=..., device_id=..., device_name=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if not device_id and not device_name:
         return None
 
@@ -575,12 +442,6 @@ def _find_device(
 
 
 def _error_message(exc: Exception) -> str:
-    """Prepares error message for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs error message without duplicating the local rules.
-
-    Example: _error_message(exc=...) -> returns the value used by the surrounding Sonex flow.
-    """
     message = str(exc)
     if isinstance(exc, SpotifyException):
         message = exc.msg or exc.reason or message
@@ -588,12 +449,6 @@ def _error_message(exc: Exception) -> str:
 
 
 def _is_app_owner_premium_error(message: str) -> bool:
-    """Prepares is app owner premium error for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs is app owner premium error without duplicating the local rules.
-
-    Example: _is_app_owner_premium_error(message=...) -> returns the value used by the surrounding Sonex flow.
-    """
     lowered = message.lower()
     return "premium" in lowered and "owner of the app" in lowered
 
@@ -670,12 +525,6 @@ def _loopback_proxy_url() -> str | None:
 
 
 def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR") -> dict[str, Any]:
-    """Prepares spotify error for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs spotify error without duplicating the local rules.
-
-    Example: _spotify_error(tool=..., exc=..., default_code=...) -> returns the value used by the surrounding Sonex flow.
-    """
     status = getattr(exc, "http_status", None)
     message = _error_message(exc)
     lowered = message.lower()
@@ -749,12 +598,6 @@ def _spotify_error(tool: str, exc: Exception, default_code: str = "SPOTIFY_ERROR
 
 
 def _search_with_client(query: str, limit: int, types: str, *, use_user: bool = False) -> dict[str, Any]:
-    """Prepares search with client for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs search with client without duplicating the local rules.
-
-    Example: _search_with_client(query=..., limit=..., types=..., use_user=...) -> returns the value used by the surrounding Sonex flow.
-    """
     client = (
         spotify_user_client(requests_timeout=5, retries=0)
         if use_user
@@ -764,12 +607,6 @@ def _search_with_client(query: str, limit: int, types: str, *, use_user: bool = 
 
 
 def _search_payload(query: str, limit: int, types: str) -> tuple[dict[str, Any], str]:
-    """Prepares search payload for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs search payload without duplicating the local rules.
-
-    Example: _search_payload(query=..., limit=..., types=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         return _search_with_client(query, limit, types), "app"
     except SpotifyConfigMissingError:
@@ -792,12 +629,6 @@ def _search_payload(query: str, limit: int, types: str) -> tuple[dict[str, Any],
 
 
 def _normalize_search_payload(payload: dict[str, Any], types: str) -> dict[str, Any]:
-    """Prepares normalize search payload for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalize search payload without duplicating the local rules.
-
-    Example: _normalize_search_payload(payload=..., types=...) -> returns the value used by the surrounding Sonex flow.
-    """
     data: dict[str, Any] = {}
     requested = {part.strip() for part in types.split(",") if part.strip()}
     if "track" in requested:
@@ -813,12 +644,6 @@ def _normalize_search_payload(payload: dict[str, Any], types: str) -> dict[str, 
 
 
 def spotify_search(query: str, limit: int = 10, types: str = "track,artist,album") -> dict[str, Any]:
-    """Coordinates spotify search for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify search as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_search(query=..., limit=..., types=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         payload, auth_mode = _search_payload(query, limit, types)
     except Exception as exc:
@@ -835,12 +660,6 @@ def spotify_search(query: str, limit: int = 10, types: str = "track,artist,album
 
 
 def _spotify_product(*, requests_timeout: float | None = None) -> tuple[str, dict[str, Any] | None]:
-    """Prepares spotify product for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs spotify product without duplicating the local rules.
-
-    Example: _spotify_product() -> returns the value used by the surrounding Sonex flow.
-    """
     client = spotify_user_client(
         SPOTIFY_PRIVATE_SCOPES,
         requests_timeout=5 if requests_timeout is None else requests_timeout,
@@ -851,12 +670,6 @@ def _spotify_product(*, requests_timeout: float | None = None) -> tuple[str, dic
 
 
 def _account_capabilities(product: str, scopes: set[str], logged_in: bool) -> dict[str, bool]:
-    """Prepares account capabilities for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs account capabilities without duplicating the local rules.
-
-    Example: _account_capabilities(product=..., scopes=..., logged_in=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return {
         "search": True,
         "account": logged_in,
@@ -882,12 +695,6 @@ def _product_is_known_non_premium(product: Any) -> bool:
 
 
 def spotify_account(requests_timeout: float | None = None) -> dict[str, Any]:
-    """Coordinates spotify account for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify account as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_account() -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         token = load_spotify_token()
         logged_in = bool(token and token.access_token)
@@ -916,12 +723,6 @@ def spotify_account(requests_timeout: float | None = None) -> dict[str, Any]:
 
 
 def spotify_current_playback() -> dict[str, Any]:
-    """Coordinates spotify current playback for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify current playback as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_current_playback() -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
         playback = _spotify_api_call(client.current_playback)
@@ -934,12 +735,6 @@ def spotify_current_playback() -> dict[str, Any]:
 
 
 def spotify_recent_tracks(limit: int = MAX_RECENT_TRACKS) -> dict[str, Any]:
-    """Coordinates spotify recent tracks for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify recent tracks as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_recent_tracks(limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     try:
         client = spotify_user_client(SPOTIFY_RECENTLY_PLAYED_SCOPES, requests_timeout=5, retries=0)
@@ -1160,12 +955,6 @@ def spotify_queue_add(uri: str, device_id: str | None = None) -> dict[str, Any]:
 
 
 def _require_premium_control(tool: str) -> dict[str, Any] | None:
-    """Prepares require premium control for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs require premium control without duplicating the local rules.
-
-    Example: _require_premium_control(tool=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         ensure_spotify_token(SPOTIFY_MODIFY_PLAYBACK_SCOPES)
     except Exception as exc:
@@ -1174,12 +963,6 @@ def _require_premium_control(tool: str) -> dict[str, Any] | None:
 
 
 def _has_active_device(client: Any) -> bool:
-    """Prepares has active device for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs has active device without duplicating the local rules.
-
-    Example: _has_active_device(client=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         payload = _spotify_api_call(client.devices)
     except SpotifyException:
@@ -1189,12 +972,6 @@ def _has_active_device(client: Any) -> bool:
 
 
 def spotify_devices() -> dict[str, Any]:
-    """Coordinates spotify devices for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify devices as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_devices() -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         client = spotify_user_client(SPOTIFY_READ_PLAYBACK_SCOPES, requests_timeout=5, retries=0)
         devices = _list_devices(client)
@@ -1213,12 +990,6 @@ def spotify_transfer_playback(
     device_name: str | None = None,
     play: bool = True,
 ) -> dict[str, Any]:
-    """Coordinates spotify transfer playback for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify transfer playback as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_transfer_playback(device_id=..., device_name=..., play=...) -> returns the value used by the surrounding Sonex flow.
-    """
     blocked = _require_premium_control("spotify_transfer_playback")
     if blocked:
         return blocked
@@ -1269,12 +1040,6 @@ def spotify_play(
     device_id: str | None = None,
     device_name: str | None = None,
 ) -> dict[str, Any]:
-    """Coordinates spotify play for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify play as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_play(query=..., uri=..., device_id=..., device_name=...) -> returns the value used by the surrounding Sonex flow.
-    """
     blocked = _require_premium_control("spotify_play")
     if blocked:
         return blocked
@@ -1361,12 +1126,6 @@ def spotify_play(
 
 
 def _user_preferences_text() -> str:
-    """Prepares user preferences text for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs user preferences text without duplicating the local rules.
-
-    Example: _user_preferences_text() -> returns the value used by the surrounding Sonex flow.
-    """
     user_path = sonex_home() / "USER.md"
     if not user_path.exists():
         return ""
@@ -1374,12 +1133,6 @@ def _user_preferences_text() -> str:
 
 
 def _dedupe_tracks(tracks: list[dict[str, Any]], limit: int = 40) -> list[dict[str, Any]]:
-    """Prepares dedupe tracks for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs dedupe tracks without duplicating the local rules.
-
-    Example: _dedupe_tracks(tracks=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []
     for track in tracks:
@@ -1399,12 +1152,6 @@ def _spotify_candidate_tracks(
     limit: int,
     recent_tracks: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Prepares spotify candidate tracks for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs spotify candidate tracks without duplicating the local rules.
-
-    Example: _spotify_candidate_tracks(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     candidates: list[dict[str, Any]] = []
 
     local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
@@ -1443,12 +1190,6 @@ def _spotify_candidate_tracks(
 
 
 def _parse_recommendation_json(text: str) -> list[dict[str, Any]]:
-    """Prepares parse recommendation json for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs parse recommendation json without duplicating the local rules.
-
-    Example: _parse_recommendation_json(text=...) -> returns the value used by the surrounding Sonex flow.
-    """
     start = text.find("[")
     end = text.rfind("]")
     if start == -1 or end == -1 or end <= start:
@@ -1468,12 +1209,6 @@ def _rank_candidates_with_llm(
     candidates: list[dict[str, Any]],
     limit: int,
 ) -> list[dict[str, str]]:
-    """Prepares rank candidates with llm for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs rank candidates with llm without duplicating the local rules.
-
-    Example: _rank_candidates_with_llm(query=..., preferences=..., recent_tracks=..., candidates=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     compact_candidates = [
         {
             "uri": track.get("uri"),
@@ -1527,12 +1262,6 @@ def spotify_recommend(
     recent_tracks: list[dict[str, Any]] | None = None,
     preferences: str | None = None,
 ) -> dict[str, Any]:
-    """Coordinates spotify recommend for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify recommend as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_recommend(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     bounded_limit = min(MAX_RECENT_TRACKS, max(1, int(limit or MAX_RECENT_TRACKS)))
     preferences = _user_preferences_text() if preferences is None else str(preferences)
     local_recent = list(recent_tracks) if recent_tracks is not None else recent_tracks_snapshot()
@@ -1585,12 +1314,6 @@ def spotify_recommend(
 
 
 def spotify_pause(device_id: str | None = None) -> dict[str, Any]:
-    """Coordinates spotify pause for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify pause as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_pause(device_id="desktop") pauses the selected Spotify Connect device.
-    """
     blocked = _require_premium_control("spotify_pause")
     if blocked:
         return blocked
@@ -1606,12 +1329,6 @@ def spotify_pause(device_id: str | None = None) -> dict[str, Any]:
 
 
 def spotify_resume(device_id: str | None = None) -> dict[str, Any]:
-    """Coordinates spotify resume for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify resume as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_resume(device_id="desktop") resumes the selected Spotify Connect device.
-    """
     blocked = _require_premium_control("spotify_resume")
     if blocked:
         return blocked
@@ -1627,12 +1344,6 @@ def spotify_resume(device_id: str | None = None) -> dict[str, Any]:
 
 
 def spotify_next() -> dict[str, Any]:
-    """Coordinates spotify next for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify next as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_next() -> returns the value used by the surrounding Sonex flow.
-    """
     blocked = _require_premium_control("spotify_next")
     if blocked:
         return blocked
@@ -1645,12 +1356,6 @@ def spotify_next() -> dict[str, Any]:
 
 
 def spotify_previous() -> dict[str, Any]:
-    """Coordinates spotify previous for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs spotify previous as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: spotify_previous() -> returns the value used by the surrounding Sonex flow.
-    """
     blocked = _require_premium_control("spotify_previous")
     if blocked:
         return blocked
@@ -1663,42 +1368,18 @@ def spotify_previous() -> dict[str, Any]:
 
 
 def search_tracks(query: str, limit: int = 10) -> dict[str, Any]:
-    """Coordinates search tracks for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs search tracks as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: search_tracks(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return spotify_search(query=query, limit=limit, types="track")
 
 
 def search_albums(query: str, limit: int = 10) -> dict[str, Any]:
-    """Coordinates search albums for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs search albums as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: search_albums(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return spotify_search(query=query, limit=limit, types="album")
 
 
 def search_artists(query: str, limit: int = 10) -> dict[str, Any]:
-    """Coordinates search artists for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs search artists as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: search_artists(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return spotify_search(query=query, limit=limit, types="artist")
 
 
 def search_spotify(query: str, limit: int = 10) -> dict[str, Any]:
-    """Coordinates search spotify for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs search spotify as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: search_spotify(query=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return spotify_search(query=query, limit=limit)
 
 
@@ -1711,12 +1392,6 @@ def _register_tool(
     *,
     read_only: bool = True,
 ) -> None:
-    """Prepares register tool for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs register tool without duplicating the local rules.
-
-    Example: _register_tool(name=..., description=..., properties=..., required=..., fn=..., read_only=...) -> returns the value used by the surrounding Sonex flow.
-    """
     registry.register(
         name=name,
         kind="system",

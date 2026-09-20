@@ -1,7 +1,4 @@
 """Memory tool support for local memory storage and retrieval.
-
-Implements the memory_tool module responsibilities used by Sonex runtime flows.
-Key public entry points include search_memory, search_context.
 """
 
 from __future__ import annotations

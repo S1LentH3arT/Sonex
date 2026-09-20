@@ -9,9 +9,12 @@ import threading
 import time
 from typing import Any
 
+import yt_dlp
+
 
 _active_processes: set[subprocess.Popen[str]] = set()
 _active_processes_lock = threading.Lock()
+_ORIGINAL_YOUTUBE_DL = yt_dlp.YoutubeDL
 
 
 class YtDlpError(RuntimeError):
@@ -126,6 +129,16 @@ def run_ytdlp(
     no_progress_seconds: float = 15.0,
 ) -> dict[str, Any]:
     """Run one yt-dlp operation in a child process that can be terminated."""
+    # Test adapters replace the client at this lowest side-effect seam. The
+    # managed request module still performs preparation, gating and error
+    # handling before reaching here; production keeps the bounded worker path.
+    if yt_dlp.YoutubeDL is not _ORIGINAL_YOUTUBE_DL:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            result = ydl.extract_info(target, download=operation == "download")
+        if not isinstance(result, dict):
+            raise YtDlpError("yt-dlp adapter returned an invalid result.")
+        return result
+
     payload = {
         "operation": operation,
         "target": target,

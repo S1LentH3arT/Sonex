@@ -1,7 +1,4 @@
 """Music support for tool implementations used by the planner and playback flows.
-
-Implements the music module responsibilities used by Sonex runtime flows.
-Key public entry points include normalize_track_shape.
 """
 
 from __future__ import annotations
@@ -24,12 +21,6 @@ def normalize_track_shape(
     is_playable: Any = None,
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Coordinates normalize track shape for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs normalize track shape as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: normalize_track_shape(provider=..., track_id=..., name=..., artists=..., album=..., duration_ms=..., cover_url=..., url=..., uri=..., play_params=..., is_playable=..., extra=...) -> returns the value used by the surrounding Sonex flow.
-    """
     artist_names = [str(artist) for artist in (artists or []) if artist]
     title = str(name) if name is not None else None
     data: dict[str, Any] = {

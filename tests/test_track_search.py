@@ -1,6 +1,4 @@
 """Tests test track search.
-
-Contains pytest coverage for the test track search behavior.
 """
 
 from __future__ import annotations
@@ -16,59 +14,21 @@ import src.tools.track_search as track_search
 
 
 class FakeResponse:
-    """Groups related response cases.
-
-    Collects assertions that exercise response behavior without mixing unrelated fixtures.
-    """
     def __init__(self, payload: dict) -> None:
-        """Verifies that init behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the init behavior against regressions.
-
-        Example: __init__() -> passes without assertion failures when the behavior remains correct.
-        """
         self.payload = payload
 
     def __enter__(self) -> "FakeResponse":
-        """Verifies that enter behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the enter behavior against regressions.
-
-        Example: __enter__() -> passes without assertion failures when the behavior remains correct.
-        """
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        """Verifies that exit behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the exit behavior against regressions.
-
-        Example: __exit__() -> passes without assertion failures when the behavior remains correct.
-        """
         return None
 
     def read(self, size: int = -1) -> bytes:
-        """Verifies that read behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the read behavior against regressions.
-
-        Example: read() -> passes without assertion failures when the behavior remains correct.
-        """
         return json.dumps(self.payload).encode("utf-8")
 
 
 class TrackSearchTests(unittest.TestCase):
-    """Groups related track search tests cases.
-
-    Collects assertions that exercise track search tests behavior without mixing unrelated fixtures.
-    """
     def test_itunes_normalizes_metadata_candidates(self) -> None:
-        """Verifies that itunes normalizes metadata candidates behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the itunes normalizes metadata candidates behavior against regressions.
-
-        Example: test_itunes_normalizes_metadata_candidates() -> passes without assertion failures when the behavior remains correct.
-        """
         payload = {
             "results": [
                 {
@@ -383,12 +343,6 @@ class TrackSearchTests(unittest.TestCase):
         self.assertEqual(result["source_attempts"][0]["countries"], ["US", "TW", "HK", "CN"])
 
     def test_deezer_and_musicbrainz_fill_to_five_with_dedupe(self) -> None:
-        """Verifies that deezer and musicbrainz fill to five with dedupe behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the deezer and musicbrainz fill to five with dedupe behavior against regressions.
-
-        Example: test_deezer_and_musicbrainz_fill_to_five_with_dedupe() -> passes without assertion failures when the behavior remains correct.
-        """
         payloads = [
             {
                 "results": [
@@ -457,12 +411,6 @@ class TrackSearchTests(unittest.TestCase):
         ]
 
         def fake_urlopen(request, timeout=0):
-            """Verifies that fake urlopen behaves as expected.
-
-            Typical use: Use this in automated tests when guarding the fake urlopen behavior against regressions.
-
-            Example: fake_urlopen() -> passes without assertion failures when the behavior remains correct.
-            """
             return FakeResponse(payloads.pop(0))
 
         with patch("src.tools.track_search.urlopen", side_effect=fake_urlopen), \
@@ -482,12 +430,6 @@ class TrackSearchTests(unittest.TestCase):
         self.assertEqual([attempt["provider"] for attempt in result["source_attempts"]], ["itunes", "deezer", "musicbrainz"])
 
     def test_itunes_rate_limit_is_sanitized_and_deezer_still_runs(self) -> None:
-        """Verifies that itunes rate limit is sanitized and deezer still runs behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the itunes rate limit is sanitized and deezer still runs behavior against regressions.
-
-        Example: test_itunes_rate_limit_is_sanitized_and_deezer_still_runs() -> passes without assertion failures when the behavior remains correct.
-        """
         rate_limit = HTTPError(
             "https://itunes.apple.com/search",
             429,

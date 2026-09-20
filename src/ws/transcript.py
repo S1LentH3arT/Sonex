@@ -13,12 +13,6 @@ from src.session_id import create_session_id
 
 
 def _coerce_transcript_messages(messages: Any) -> list[dict[str, Any]]:
-    """Prepares coerce transcript messages for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs coerce transcript messages without duplicating the local rules.
-
-    Example: _coerce_transcript_messages(messages=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if not isinstance(messages, list):
         return []
 
@@ -113,12 +107,6 @@ def _save_session_transcript(
     reason: str,
     session_id: str,
 ) -> Path:
-    """Prepares save session transcript for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs save session transcript without duplicating the local rules.
-
-    Example: _save_session_transcript(messages=..., reason=...) -> returns the value used by the surrounding Sonex flow.
-    """
     now = datetime.now(timezone.utc)
     root = sonex_home() / "sessions" / session_id
     root.mkdir(parents=True, exist_ok=True)

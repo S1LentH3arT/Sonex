@@ -1,6 +1,4 @@
 """Tests test deepseek models transport.
-
-Contains pytest coverage for the test deepseek models transport behavior.
 """
 
 from __future__ import annotations
@@ -28,59 +26,21 @@ from src.llm.transport.deepseek import DeepSeekTransport, _chat_completions_url
 
 
 class _FakeResponse:
-    """Groups related fake response cases.
-
-    Collects assertions that exercise fake response behavior without mixing unrelated fixtures.
-    """
     def __init__(self, payload: dict[str, object]) -> None:
-        """Verifies that init behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the init behavior against regressions.
-
-        Example: __init__() -> passes without assertion failures when the behavior remains correct.
-        """
         self.payload = payload
 
     def __enter__(self) -> "_FakeResponse":
-        """Verifies that enter behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the enter behavior against regressions.
-
-        Example: __enter__() -> passes without assertion failures when the behavior remains correct.
-        """
         return self
 
     def __exit__(self, *args: object) -> None:
-        """Verifies that exit behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the exit behavior against regressions.
-
-        Example: __exit__() -> passes without assertion failures when the behavior remains correct.
-        """
         return None
 
     def read(self) -> bytes:
-        """Verifies that read behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the read behavior against regressions.
-
-        Example: read() -> passes without assertion failures when the behavior remains correct.
-        """
         return json.dumps(self.payload).encode("utf-8")
 
 
 class DeepSeekModelCatalogTests(unittest.TestCase):
-    """Groups related deep seek model catalog tests cases.
-
-    Collects assertions that exercise deep seek model catalog tests behavior without mixing unrelated fixtures.
-    """
     def test_lists_models_from_deepseek_api(self) -> None:
-        """Verifies that lists models from deepseek api behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the lists models from deepseek api behavior against regressions.
-
-        Example: test_lists_models_from_deepseek_api() -> passes without assertion failures when the behavior remains correct.
-        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
 
         with patch("src.llm.models.urllib.request.urlopen") as urlopen:
@@ -111,12 +71,6 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
         self.assertEqual(request.headers["Authorization"], "Bearer sk-test")
 
     def test_falls_back_when_deepseek_model_api_fails(self) -> None:
-        """Verifies that falls back when deepseek model api fails behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the falls back when deepseek model api fails behavior against regressions.
-
-        Example: test_falls_back_when_deepseek_model_api_fails() -> passes without assertion failures when the behavior remains correct.
-        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
 
         with patch("src.llm.models.urllib.request.urlopen", side_effect=OSError("offline")):
@@ -131,12 +85,6 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
         )
 
     def test_normalizes_legacy_deepseek_model_names(self) -> None:
-        """Verifies that normalizes legacy deepseek model names behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the normalizes legacy deepseek model names behavior against regressions.
-
-        Example: test_normalizes_legacy_deepseek_model_names() -> passes without assertion failures when the behavior remains correct.
-        """
         self.assertEqual(normalize_provider_model("deepseek", "Deepseek-v4-pro"), "Deepseek-v4-pro")
         self.assertEqual(normalize_provider_model("deepseek", "deepseek-chat"), "deepseek-chat")
         self.assertEqual(normalize_provider_model("deepseek", "deepseek-reasoner"), "deepseek-reasoner")
@@ -149,17 +97,7 @@ class DeepSeekModelCatalogTests(unittest.TestCase):
 
 
 class OfficialProviderModelCatalogTests(unittest.TestCase):
-    """Groups related official provider model catalog tests cases.
-
-    Collects assertions that exercise official provider model catalog tests behavior without mixing unrelated fixtures.
-    """
     def test_lists_openai_models_from_models_api(self) -> None:
-        """Verifies that lists openai models from models api behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the lists openai models from models api behavior against regressions.
-
-        Example: test_lists_openai_models_from_models_api() -> passes without assertion failures when the behavior remains correct.
-        """
         config = ProviderConfig(name="openai", api_key="sk-test", base_url="https://api.openai.com/v1")
 
         with patch("src.llm.models.urllib.request.urlopen") as urlopen:
@@ -183,12 +121,6 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
         self.assertEqual(request.headers["Authorization"], "Bearer sk-test")
 
     def test_lists_anthropic_models_from_models_api(self) -> None:
-        """Verifies that lists anthropic models from models api behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the lists anthropic models from models api behavior against regressions.
-
-        Example: test_lists_anthropic_models_from_models_api() -> passes without assertion failures when the behavior remains correct.
-        """
         config = ProviderConfig(name="anthropic", api_key="sk-ant", base_url="https://api.anthropic.com/v1")
 
         with patch("src.llm.models.urllib.request.urlopen") as urlopen:
@@ -234,12 +166,6 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
         self.assertEqual(request.headers["Anthropic-version"], "2023-06-01")
 
     def test_lists_gemini_models_from_models_api(self) -> None:
-        """Verifies that lists gemini models from models api behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the lists gemini models from models api behavior against regressions.
-
-        Example: test_lists_gemini_models_from_models_api() -> passes without assertion failures when the behavior remains correct.
-        """
         config = ProviderConfig(name="gemini", api_key="gem-key", base_url="https://generativelanguage.googleapis.com/v1beta")
 
         with patch("src.llm.models.urllib.request.urlopen") as urlopen:
@@ -281,12 +207,6 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
         )
 
     def test_official_provider_model_choices_fall_back_to_curated_ids(self) -> None:
-        """Verifies that official provider model choices fall back to curated ids behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the official provider model choices fall back to curated ids behavior against regressions.
-
-        Example: test_official_provider_model_choices_fall_back_to_curated_ids() -> passes without assertion failures when the behavior remains correct.
-        """
         expected = {
             "openai": "openai::gpt-5.5",
             "anthropic": "anthropic::claude-fable-5",
@@ -347,17 +267,7 @@ class OfficialProviderModelCatalogTests(unittest.TestCase):
 
 
 class DeepSeekTransportTests(unittest.TestCase):
-    """Groups related deep seek transport tests cases.
-
-    Collects assertions that exercise deep seek transport tests behavior without mixing unrelated fixtures.
-    """
     def test_builds_official_chat_completions_request(self) -> None:
-        """Verifies that builds official chat completions request behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the builds official chat completions request behavior against regressions.
-
-        Example: test_builds_official_chat_completions_request() -> passes without assertion failures when the behavior remains correct.
-        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
         chat_request = ChatRequest(
             messages=[{"role": "user", "content": "hello"}],
@@ -392,24 +302,12 @@ class DeepSeekTransportTests(unittest.TestCase):
         self.assertIn("tools", payload)
 
     def test_chat_url_normalizes_v1_base_url(self) -> None:
-        """Verifies that chat url normalizes v1 base url behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the chat url normalizes v1 base url behavior against regressions.
-
-        Example: test_chat_url_normalizes_v1_base_url() -> passes without assertion failures when the behavior remains correct.
-        """
         self.assertEqual(
             _chat_completions_url("https://api.deepseek.com/v1"),
             "https://api.deepseek.com/chat/completions",
         )
 
     def test_reports_urllib_resolved_loopback_proxy_on_connection_refused(self) -> None:
-        """Verifies that reports urllib resolvedloopback proxy on connection refused behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the reports urllib resolvedloopback proxy on connection refused behavior against regressions.
-
-        Example: test_reports_urllib_resolved_loopback_proxy_on_connection_refused() -> passes without assertion failures when the behavior remains correct.
-        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
         provider_request = ProviderRequest(
             provider="deepseek",
@@ -442,12 +340,6 @@ class DeepSeekTransportTests(unittest.TestCase):
                 DeepSeekTransport().send(provider_request, config)
 
     def test_reports_urllib_resolved_loopback_proxy_on_ssl_eof(self) -> None:
-        """Verifies that reports urllib resolvedloopback proxy on ssl eof behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the reports urllib resolvedloopback proxy on ssl eof behavior against regressions.
-
-        Example: test_reports_urllib_resolved_loopback_proxy_on_ssl_eof() -> passes without assertion failures when the behavior remains correct.
-        """
         config = ProviderConfig(name="deepseek", api_key="sk-test", base_url="https://api.deepseek.com")
         provider_request = ProviderRequest(
             provider="deepseek",

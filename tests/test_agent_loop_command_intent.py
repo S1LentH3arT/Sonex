@@ -1,6 +1,4 @@
 """Tests test agent loop command intent.
-
-Contains pytest coverage for the test agent loop command intent behavior.
 """
 
 from __future__ import annotations
@@ -16,12 +14,6 @@ from src.tools.registry import Params, ToolRegistry
 
 
 def _registry(*, read_only: bool = True) -> ToolRegistry:
-    """Verifies that registry behaves as expected.
-
-    Typical use: Use this in automated tests when guarding the registry behavior against regressions.
-
-    Example: _registry() -> passes without assertion failures when the behavior remains correct.
-    """
     tools = ToolRegistry()
     tools.register(
         name="spotify_play" if not read_only else "spotify_search",
@@ -37,12 +29,6 @@ def _registry(*, read_only: bool = True) -> ToolRegistry:
 
 
 def _youtube_registry() -> ToolRegistry:
-    """Verifies that youtube registry behaves as expected.
-
-    Typical use: Use this in automated tests when guarding the youtube registry behavior against regressions.
-
-    Example: _youtube_registry() -> passes without assertion failures when the behavior remains correct.
-    """
     tools = ToolRegistry()
     tools.register(
         name="play_youtube_song",
@@ -57,12 +43,6 @@ def _youtube_registry() -> ToolRegistry:
 
 
 def _premium_error_registry() -> ToolRegistry:
-    """Verifies that premium error registry behaves as expected.
-
-    Typical use: Use this in automated tests when guarding the premium error registry behavior against regressions.
-
-    Example: _premium_error_registry() -> passes without assertion failures when the behavior remains correct.
-    """
     tools = ToolRegistry()
     tools.register(
         name="spotify_play",
@@ -109,12 +89,6 @@ def _recommend_registry() -> ToolRegistry:
 
 
 def _search_premium_error_registry() -> ToolRegistry:
-    """Verifies that search premium error registry behaves as expected.
-
-    Typical use: Use this in automated tests when guarding the search premium error registry behavior against regressions.
-
-    Example: _search_premium_error_registry() -> passes without assertion failures when the behavior remains correct.
-    """
     tools = ToolRegistry()
     tools.register(
         name="spotify_search",
@@ -134,17 +108,7 @@ def _search_premium_error_registry() -> ToolRegistry:
 
 
 class AgentLoopCommandIntentTests(unittest.TestCase):
-    """Groups related agent loop command intent tests cases.
-
-    Collects assertions that exercise agent loop command intent tests behavior without mixing unrelated fixtures.
-    """
     def test_empty_allowed_tools_rejects_planner_tool_call(self) -> None:
-        """Verifies that empty allowed tools rejects planner tool call behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the empty allowed tools rejects planner tool call behavior against regressions.
-
-        Example: test_empty_allowed_tools_rejects_planner_tool_call() -> passes without assertion failures when the behavior remains correct.
-        """
         tools = _registry()
         intent = CommandIntent(
             command="general",
@@ -163,12 +127,6 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         invoke.assert_not_called()
 
     def test_planner_playback_tool_outside_allowlist_is_rejected(self) -> None:
-        """Verifies that planner playback tool outside allowlist is rejected behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the planner playback tool outside allowlist is rejected behavior against regressions.
-
-        Example: test_planner_playback_tool_outside_allowlist_is_rejected() -> passes without assertion failures when the behavior remains correct.
-        """
         tools = _youtube_registry()
         intent = CommandIntent(
             command="recommend",
@@ -187,12 +145,6 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         invoke.assert_not_called()
 
     def test_command_intent_is_passed_to_planner(self) -> None:
-        """Verifies that command intent is passed to planner behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the command intent is passed to planner behavior against regressions.
-
-        Example: test_command_intent_is_passed_to_planner() -> passes without assertion failures when the behavior remains correct.
-        """
         intent = _search_intent()
 
         with patch("src.agent.core.append_context"), \
@@ -207,12 +159,6 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         self.assertEqual(states[-1].content, "answer")
 
     def test_rejected_write_tool_is_not_invoked(self) -> None:
-        """Verifies that rejected write tool is not invoked behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the rejected write tool is not invoked behavior against regressions.
-
-        Example: test_rejected_write_tool_is_not_invoked() -> passes without assertion failures when the behavior remains correct.
-        """
         tools = _registry(read_only=False)
         intent = CommandIntent(
             command="test",
@@ -237,12 +183,6 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         invoke.assert_not_called()
 
     def test_youtube_playback_tool_requires_confirmation_before_invocation(self) -> None:
-        """Verifies that youtube playback tool requires confirmation before invocation behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the youtube playback tool requires confirmation before invocation behavior against regressions.
-
-        Example: test_youtube_playback_tool_requires_confirmation_before_invocation() -> passes without assertion failures when the behavior remains correct.
-        """
         tools = _youtube_registry()
         intent = CommandIntent(
             command="test",
@@ -267,12 +207,6 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         invoke.assert_not_called()
 
     def test_finalize_turn_failure_does_not_block_final_answer(self) -> None:
-        """Verifies that finalize turn failure does not block final answer behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the finalize turn failure does not block final answer behavior against regressions.
-
-        Example: test_finalize_turn_failure_does_not_block_final_answer() -> passes without assertion failures when the behavior remains correct.
-        """
         with patch("src.agent.core.append_context"), \
             patch("src.agent.core.llm_plan", return_value=Action(output="answer", usage=3)), \
             patch("src.agent.core.finalize_turn", side_effect=RuntimeError("cache failed")):
@@ -282,12 +216,6 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         self.assertEqual(states[-1].content, "answer")
 
     def test_premium_capability_error_returns_clear_final_answer(self) -> None:
-        """Verifies that premium capability error returns clear final answer behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the premium capability error returns clear final answer behavior against regressions.
-
-        Example: test_premium_capability_error_returns_clear_final_answer() -> passes without assertion failures when the behavior remains correct.
-        """
         tools = _premium_error_registry()
 
         with patch("src.agent.core.append_context"), \
@@ -303,12 +231,6 @@ class AgentLoopCommandIntentTests(unittest.TestCase):
         plan.assert_called_once()
 
     def test_spotify_search_premium_error_does_not_claim_spotify_search_works(self) -> None:
-        """Verifies that spotify search premium error does not claim spotify search works behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify search premium error does not claim spotify search works behavior against regressions.
-
-        Example: test_spotify_search_premium_error_does_not_claim_spotify_search_works() -> passes without assertion failures when the behavior remains correct.
-        """
         tools = _search_premium_error_registry()
 
         with patch("src.agent.core.append_context"), \

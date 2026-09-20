@@ -1,7 +1,4 @@
 """Builtin commands support for fastapi and websocket routing for the sonex runtime.
-
-Implements the builtin_commands module responsibilities used by Sonex runtime flows.
-Key public entry points include BuiltinCommand, CommandIntent, ParsedCommand, parse_builtin_command, command_suggestions.
 """
 
 from __future__ import annotations
@@ -12,10 +9,6 @@ from typing import Literal
 
 @dataclass(frozen=True)
 class BuiltinCommand:
-    """Represents builtin command.
-
-    Encapsulates builtin command data and behavior used by Sonex runtime flows.
-    """
     name: str
     usage: str
     description: str
@@ -31,10 +24,6 @@ class BuiltinCommand:
 
 @dataclass(frozen=True)
 class CommandIntent:
-    """Represents command intent.
-
-    Encapsulates command intent data and behavior used by Sonex runtime flows.
-    """
     command: str
     raw: str
     args: str
@@ -46,10 +35,6 @@ class CommandIntent:
 
 @dataclass(frozen=True)
 class ParsedCommand:
-    """Represents parsed command.
-
-    Encapsulates parsed command data and behavior used by Sonex runtime flows.
-    """
     raw: str
     name: str
     args: str
@@ -57,21 +42,9 @@ class ParsedCommand:
 
     @property
     def known(self) -> bool:
-        """Coordinates known for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs known as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: known() -> returns the value used by the surrounding Sonex flow.
-        """
         return self.command is not None
 
     def command_intent(self) -> CommandIntent | None:
-        """Coordinates command intent for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs command intent as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: command_intent() -> returns the value used by the surrounding Sonex flow.
-        """
         if self.command is None or self.command.mode != "agent":
             return None
         return CommandIntent(
@@ -147,12 +120,6 @@ _COMMANDS_BY_NAME = {
 
 
 def parse_builtin_command(text: str) -> ParsedCommand | None:
-    """Parses builtin command into structured data.
-
-    Typical use: Use this function when runtime code needs parse builtin command as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: parse_builtin_command("/help") -> ParsedCommand(name="help", args="", known=True).
-    """
     stripped = text.strip()
     if not stripped.startswith("/"):
         return None
@@ -172,12 +139,6 @@ def parse_builtin_command(text: str) -> ParsedCommand | None:
 
 
 def command_suggestions(prefix: str = "") -> list[BuiltinCommand]:
-    """Coordinates command suggestions for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs command suggestions as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: command_suggestions(prefix=...) -> returns the value used by the surrounding Sonex flow.
-    """
     normalized = prefix.strip().lower().removeprefix("/")
     commands = sorted(
         (command for command in BUILTIN_COMMANDS if command.enabled and command.visible),
@@ -194,12 +155,6 @@ def command_suggestions(prefix: str = "") -> list[BuiltinCommand]:
 
 
 def format_help(prefix: str = "") -> str:
-    """Formats help for display.
-
-    Typical use: Use this function when runtime code needs format help as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: format_help(prefix=...) -> returns the value used by the surrounding Sonex flow.
-    """
     commands = command_suggestions(prefix)
     if not commands:
         return "Unknown command. Type /help to see available commands."

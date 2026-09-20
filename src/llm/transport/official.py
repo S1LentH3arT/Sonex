@@ -1,7 +1,4 @@
 """Official support for language model configuration, catalogs, transports, and planning.
-
-Implements the official module responsibilities used by Sonex runtime flows.
-Key public entry points include OpenAICompatibleTransport, AnthropicOfficialTransport, GeminiOfficialTransport.
 """
 
 from __future__ import annotations
@@ -20,26 +17,10 @@ logger = get_logger(__name__)
 
 
 class OpenAICompatibleTransport:
-    """Represents open a i compatible transport.
-
-    Encapsulates open a i compatible transport data and behavior used by Sonex runtime flows.
-    """
     def __init__(self, *, default_base_url: str) -> None:
-        """Prepares init for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
-
-        Example: __init__(default_base_url=...) -> returns the value used by the surrounding Sonex flow.
-        """
         self.default_base_url = default_base_url
 
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Coordinates send for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
-        """
         is_custom = config.name == "custom" or config.name.startswith("custom__")
         if not config.api_key and not is_custom:
             raise LLMTransportError(f"LLM provider '{config.name}' request failed: missing API key")
@@ -64,17 +45,7 @@ class OpenAICompatibleTransport:
 
 
 class AnthropicOfficialTransport:
-    """Represents anthropic official transport.
-
-    Encapsulates anthropic official transport data and behavior used by Sonex runtime flows.
-    """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Coordinates send for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if not config.api_key:
             raise LLMTransportError("LLM provider 'anthropic' request failed: missing API key")
 
@@ -97,17 +68,7 @@ class AnthropicOfficialTransport:
 
 
 class GeminiOfficialTransport:
-    """Represents gemini official transport.
-
-    Encapsulates gemini official transport data and behavior used by Sonex runtime flows.
-    """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Coordinates send for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if not config.api_key and "Authorization" not in config.extra_headers:
             raise LLMTransportError("LLM provider 'gemini' request failed: missing API key or OAuth token")
 
@@ -128,12 +89,6 @@ class GeminiOfficialTransport:
 
 
 def _json_request(url: str, payload: dict[str, Any], *, timeout: float | None) -> urllib.request.Request:
-    """Prepares json request for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs json request without duplicating the local rules.
-
-    Example: _json_request(url=..., payload=..., timeout=...) -> returns the value used by the surrounding Sonex flow.
-    """
     del timeout
     body = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(url, data=body, method="POST")
@@ -142,12 +97,6 @@ def _json_request(url: str, payload: dict[str, Any], *, timeout: float | None) -
 
 
 def _send_json(http_request: urllib.request.Request, provider: str, *, timeout: float | None) -> Any:
-    """Prepares send json for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs send json without duplicating the local rules.
-
-    Example: _send_json(http_request=..., provider=..., timeout=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         with urllib.request.urlopen(http_request, timeout=timeout or 60) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -163,12 +112,6 @@ def _send_json(http_request: urllib.request.Request, provider: str, *, timeout: 
 
 
 def _chat_completions_url(base_url: str) -> str:
-    """Prepares chat completions url for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs chat completions url without duplicating the local rules.
-
-    Example: _chat_completions_url(base_url=...) -> returns the value used by the surrounding Sonex flow.
-    """
     normalized = base_url.rstrip("/")
     if normalized.endswith("/chat/completions"):
         return normalized
@@ -176,12 +119,6 @@ def _chat_completions_url(base_url: str) -> str:
 
 
 def _gemini_generate_content_url(base_url: str, model: str, *, api_key: str | None) -> str:
-    """Prepares gemini generate content url for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs gemini generate content url without duplicating the local rules.
-
-    Example: _gemini_generate_content_url(base_url=..., model=..., api_key=...) -> returns the value used by the surrounding Sonex flow.
-    """
     normalized = base_url.rstrip("/")
     encoded_model = urllib.parse.quote(model, safe="")
     url = f"{normalized}/models/{encoded_model}:generateContent"
@@ -191,10 +128,4 @@ def _gemini_generate_content_url(base_url: str, model: str, *, api_key: str | No
 
 
 def _join_url(base_url: str, path: str) -> str:
-    """Prepares join url for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs join url without duplicating the local rules.
-
-    Example: _join_url(base_url=..., path=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return f"{base_url.rstrip('/')}/{path.lstrip('/')}"

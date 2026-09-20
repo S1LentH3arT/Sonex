@@ -81,6 +81,50 @@ class YoutubeRuntimeTests(unittest.TestCase):
         self.assertTrue(options["ignoreconfig"])
         self.assertNotIn("youtubepot-bgutilhttp", options.get("extractor_args", {}))
 
+    def test_managed_request_owns_prepare_gate_worker_sequence(self) -> None:
+        expected = {"entries": [{"id": "abc"}]}
+        gate = MagicMock()
+        gate.__enter__.return_value = None
+        gate.__exit__.return_value = None
+        with patch.object(runtime, "prepare_worker", return_value=({"safe": True}, "provider")) as prepare, \
+            patch.object(runtime, "youtube_request_gate", return_value=gate) as request_gate, \
+            patch("src.tools.yt_dlp_runner.run_ytdlp", return_value=expected) as run:
+            result = runtime.run_managed_ytdlp_request(
+                operation="resolve",
+                target="https://www.youtube.com/watch?v=abc",
+                options={"quiet": True},
+                timeout_seconds=12,
+            )
+
+        self.assertEqual(result, expected)
+        prepare.assert_called_once_with({"quiet": True}, operation="resolve")
+        request_gate.assert_called_once_with(options={"safe": True})
+        run.assert_called_once_with(
+            operation="resolve",
+            target="https://www.youtube.com/watch?v=abc",
+            options={"safe": True},
+            timeout_seconds=12,
+        )
+
+    def test_playback_success_requires_the_runtime_id_used_for_download(self) -> None:
+        manifest = self._manifest()
+        with patch.object(runtime, "active_manifest", return_value=manifest), patch.object(
+            runtime, "mark_runtime_success"
+        ) as mark:
+            runtime.mark_runtime_success_for_playback(
+                {"youtube_runtime_id": "candidate-1", "youtube_runtime_verified": True}
+            )
+            mark.assert_called_once_with()
+            mark.reset_mock()
+            runtime.mark_runtime_success_for_playback(
+                {"youtube_runtime_id": "old-runtime", "youtube_runtime_verified": True}
+            )
+            mark.assert_not_called()
+            runtime.mark_runtime_success_for_playback(
+                {"youtube_runtime_id": "candidate-1", "youtube_runtime_verified": False}
+            )
+            mark.assert_not_called()
+
     def test_disabled_runtime_rejects_new_worker_requests(self) -> None:
         manifest = self._manifest()
         runtime.set_youtube_enabled(False)

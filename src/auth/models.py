@@ -1,7 +1,4 @@
 """Models support for provider authentication and credential persistence.
-
-Implements the models module responsibilities used by Sonex runtime flows.
-Key public entry points include OAuthToken, ApiKeyCredential, ProviderAuth, AuthStore.
 """
 
 from __future__ import annotations
@@ -24,10 +21,6 @@ def _optional_float(value: Any) -> float | None:
 
 @dataclass(slots=True)
 class OAuthToken:
-    """Represents oauth token.
-
-    Encapsulates oauth token data and behavior used by Sonex runtime flows.
-    """
     access_token: str
     refresh_token: str | None = None
     refresh_token_ref: str | None = None
@@ -36,12 +29,6 @@ class OAuthToken:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "OAuthToken | None":
-        """Coordinates from dict for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs from dict as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: from_dict(data=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if not data:
             return None
         access_token = str(data.get("access_token") or "")
@@ -58,12 +45,6 @@ class OAuthToken:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Coordinates to dict for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs to dict as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: to_dict() -> returns the value used by the surrounding Sonex flow.
-        """
         data: dict[str, Any] = {}
         if self.access_token and not self.refresh_token_ref:
             data["access_token"] = self.access_token
@@ -80,20 +61,10 @@ class OAuthToken:
 
 @dataclass(slots=True)
 class ApiKeyCredential:
-    """Represents api key credential.
-
-    Encapsulates api key credential data and behavior used by Sonex runtime flows.
-    """
     api_key: str
 
     @classmethod
     def from_value(cls, value: str | None) -> "ApiKeyCredential | None":
-        """Coordinates from value for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs from value as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: from_value(value=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if not value:
             return None
         return cls(api_key=value)
@@ -101,10 +72,6 @@ class ApiKeyCredential:
 
 @dataclass(slots=True)
 class ProviderAuth:
-    """Represents provider auth.
-
-    Encapsulates provider auth data and behavior used by Sonex runtime flows.
-    """
     name: str
     auth_method: AuthMethod = "auto"
     api_key: str | None = None
@@ -124,12 +91,6 @@ class ProviderAuth:
 
     @classmethod
     def from_dict(cls, name: str, data: dict[str, Any] | None) -> "ProviderAuth":
-        """Coordinates from dict for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs from dict as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: from_dict(name=..., data=...) -> returns the value used by the surrounding Sonex flow.
-        """
         data = data or {}
         method = str(data.get("auth_method") or "auto")
         if method not in {"auto", "oauth", "api_key", "none"}:
@@ -158,12 +119,6 @@ class ProviderAuth:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Coordinates to dict for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs to dict as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: to_dict() -> returns the value used by the surrounding Sonex flow.
-        """
         data: dict[str, Any] = {"auth_method": self.auth_method}
         if self.api_key:
             data["api_key"] = self.api_key
@@ -198,10 +153,6 @@ class ProviderAuth:
 
 @dataclass(slots=True)
 class AuthStore:
-    """Represents auth store.
-
-    Encapsulates auth store data and behavior used by Sonex runtime flows.
-    """
     version: int = 1
     default_provider: str | None = None
     default_model: str | None = None
@@ -209,12 +160,6 @@ class AuthStore:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "AuthStore":
-        """Coordinates from dict for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs from dict as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: from_dict(data=...) -> returns the value used by the surrounding Sonex flow.
-        """
         data = data or {}
         providers = {
             str(name): ProviderAuth.from_dict(str(name), provider_data)
@@ -228,12 +173,6 @@ class AuthStore:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """Coordinates to dict for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs to dict as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: to_dict() -> returns the value used by the surrounding Sonex flow.
-        """
         data: dict[str, Any] = {
             "version": self.version,
             "providers": {

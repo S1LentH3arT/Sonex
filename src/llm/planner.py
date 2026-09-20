@@ -1,7 +1,4 @@
 """Planner support for language model configuration, catalogs, transports, and planning.
-
-Implements the planner module responsibilities used by Sonex runtime flows.
-Key public entry points include llm_plan.
 """
 
 from __future__ import annotations
@@ -38,12 +35,6 @@ Do not mention internal memory mechanics unless the user asks about them."""
 
 
 def _format_command_intent(command_intent: CommandIntent | None) -> str:
-    """Prepares format command intent for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs format command intent without duplicating the local rules.
-
-    Example: _format_command_intent(command_intent=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if command_intent is None:
         return ""
     allowed = ", ".join(command_intent.allowed_tools) if command_intent.allowed_tools else "none"
@@ -64,12 +55,6 @@ def _format_command_intent(command_intent: CommandIntent | None) -> str:
 
 
 def _planner_system_prompt(command_intent: CommandIntent | None) -> str:
-    """Prepares planner system prompt for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs planner system prompt without duplicating the local rules.
-
-    Example: _planner_system_prompt(command_intent=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if command_intent is None or not command_intent.intent_prompt:
         return PLANNER_SYSTEM_PROMPT
     return (
@@ -85,12 +70,6 @@ def llm_plan(
     command_intent: CommandIntent | None = None,
     planning_feedback: str | None = None,
 ) -> Action:
-    """Coordinates llm plan for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs llm plan as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: llm_plan(user_input=..., tools=..., command_intent=...) -> returns the value used by the surrounding Sonex flow.
-    """
     client = ThinkingConfig.get_client()
     model = ThinkingConfig.get_model()
     context = build_planning_context(user_input)

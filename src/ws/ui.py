@@ -22,17 +22,7 @@ from src.ws.session_orchestration import session_get
 
 
 class WebSocketUIAdapter:
-    """Represents web socket ui adapter.
-
-    Encapsulates web socket ui adapter data and behavior used by Sonex runtime flows.
-    """
     def __init__(self, ws: WebSocket, *, session_id: str) -> None:
-        """Prepares init for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
-
-        Example: __init__(ws=..., session_id=...) -> returns the value used by the surrounding Sonex flow.
-        """
         self.ws = ws
         self.session_id = session_id
         self.closed = False
@@ -43,12 +33,6 @@ class WebSocketUIAdapter:
         self._event_loop = asyncio.get_running_loop()
 
     async def _send(self, payload: dict[str, Any]) -> None:
-        """Prepares send for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs send without duplicating the local rules.
-
-        Example: await _send(payload=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if self.closed:
             return
         try:
@@ -92,12 +76,6 @@ class WebSocketUIAdapter:
         )
 
     async def append_user_message(self, text: str) -> None:
-        """Coordinates append user message for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs append user message as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await append_user_message(text=...) -> returns the value used by the surrounding Sonex flow.
-        """
         self.transcript.append({"role": "user", "content": text})
         await self._send({"type": "chat", "role": "user", "text": text})
 
@@ -166,21 +144,9 @@ class WebSocketUIAdapter:
         )
 
     async def send_error(self, message: str) -> None:
-        """Sends error to the active runtime client.
-
-        Typical use: Use this function when runtime code needs send error as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await send_error(message=...) -> returns the value used by the surrounding Sonex flow.
-        """
         await self._send({"type": "error", "message": message, "recoverable": True})
 
     async def append_tool_message(self, text: str) -> None:
-        """Coordinates append tool message for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs append tool message as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await append_tool_message(text=...) -> returns the value used by the surrounding Sonex flow.
-        """
         await self.append_activity(
             kind="tool",
             title=text,
@@ -196,12 +162,6 @@ class WebSocketUIAdapter:
         status: str | None = None,
         activity_id: str | None = None,
     ) -> str:
-        """Coordinates append activity for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs append activity as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await append_activity(kind=..., title=..., detail=..., status=..., activity_id=...) -> returns the value used by the surrounding Sonex flow.
-        """
         activity_id = activity_id or _new_event_id("activity")
         await self._send(
             {
@@ -217,12 +177,6 @@ class WebSocketUIAdapter:
         return activity_id
 
     def set_status(self, status: UiStatus) -> None:
-        """Coordinates set status for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs set status as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: set_status(status=...) -> returns the value used by the surrounding Sonex flow.
-        """
         asyncio.create_task(
             self.send_status(status)
         )
@@ -233,12 +187,6 @@ class WebSocketUIAdapter:
         *,
         active: bool | None = None,
     ) -> None:
-        """Sends status to the active runtime client.
-
-        Typical use: Use this function when runtime code needs send status as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await send_status(status=..., active=...) -> returns the value used by the surrounding Sonex flow.
-        """
         payload = {
             "type": "status",
             "phase": status.phase,
@@ -262,12 +210,6 @@ class WebSocketUIAdapter:
         await self._send(payload)
 
     async def send_auth_state(self, state: AuthRuntimeState) -> None:
-        """Sends auth state to the active runtime client.
-
-        Typical use: Use this function when runtime code needs send auth state as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await send_auth_state(state=...) -> returns the value used by the surrounding Sonex flow.
-        """
         await self._send(state.to_event())
 
     async def send_extension_panel(self, payload: dict[str, Any]) -> None:
@@ -276,22 +218,10 @@ class WebSocketUIAdapter:
         await self._send(event)
 
     async def send_cover(self, url: str) -> None:
-        """Sends cover to the active runtime client.
-
-        Typical use: Use this function when runtime code needs send cover as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await send_cover(url=...) -> returns the value used by the surrounding Sonex flow.
-        """
         await self._send({"type": "cover", "url": url})
         asyncio.create_task(_send_cover_pattern(self, url))
 
     async def ask_confirm(self, attached: dict[str, Any]) -> None:
-        """Coordinates ask confirm for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs ask confirm as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await ask_confirm(attached=...) -> returns the value used by the surrounding Sonex flow.
-        """
         await self._send(
             {
                 "type": "confirm",
@@ -323,12 +253,6 @@ class WebSocketUIAdapter:
         mask: bool = False,
         active: bool = True,
     ) -> None:
-        """Sends spotify setup to the active runtime client.
-
-        Typical use: Use this function when runtime code needs send spotify setup as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await send_spotify_setup(step=..., title=..., message=..., prompt=..., mask=..., active=...) -> returns the value used by the surrounding Sonex flow.
-        """
         await self._send(
             {
                 "type": "spotify_setup",
@@ -357,12 +281,6 @@ class WebSocketUIAdapter:
         providers: list[dict[str, Any]] | None = None,
         models: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Sends auth setup to the active runtime client.
-
-        Typical use: Use this function when runtime code needs send auth setup as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await send_auth_setup(provider=..., step=..., title=..., message=..., prompt=..., mask=..., active=..., methods=..., providers=..., models=...) -> returns the value used by the surrounding Sonex flow.
-        """
         await self._send(
             {
                 "type": "auth_setup",
@@ -388,12 +306,6 @@ class WebSocketUIAdapter:
         title: str = "Slash commands",
         hint: str = "press Esc to hide",
     ) -> None:
-        """Sends help panel to the active runtime client.
-
-        Typical use: Use this function when runtime code needs send help panel as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await send_help_panel(commands=..., title=..., hint=...) -> returns the value used by the surrounding Sonex flow.
-        """
         await self._send(
             {
                 "type": "help_panel",
@@ -411,12 +323,6 @@ class WebSocketUIAdapter:
         )
 
     async def close(self) -> None:
-        """Coordinates close for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs close as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: await close() -> returns the value used by the surrounding Sonex flow.
-        """
         if self.closed:
             return
         self.closed = True
@@ -424,30 +330,12 @@ class WebSocketUIAdapter:
             await self.ws.close()
 
 def _timestamp_ms() -> int:
-    """Prepares timestamp ms for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs timestamp ms without duplicating the local rules.
-
-    Example: _timestamp_ms() -> returns the value used by the surrounding Sonex flow.
-    """
     return int(time.time() * 1000)
 
 def _new_event_id(prefix: str) -> str:
-    """Prepares new event id for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs new event id without duplicating the local rules.
-
-    Example: _new_event_id(prefix=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return f"{prefix}_{uuid.uuid4().hex[:12]}"
 
 async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
-    """Prepares send cover pattern for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs send cover pattern without duplicating the local rules.
-
-    Example: await _send_cover_pattern(ui=..., source_url=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         image_bytes = cover_bytes_for_source(source_url)
         if image_bytes is not None:
@@ -472,11 +360,5 @@ async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
         await ui._send(payload)
 
 def _is_http_cover_source(source: str) -> bool:
-    """Prepares is http cover source for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs is http cover source without duplicating the local rules.
-
-    Example: _is_http_cover_source(source=...) -> returns the value used by the surrounding Sonex flow.
-    """
     lowered = source.lower()
     return lowered.startswith("http://") or lowered.startswith("https://")

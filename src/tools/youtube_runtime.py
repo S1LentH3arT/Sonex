@@ -94,6 +94,8 @@ class YoutubeQueueBusy(YoutubeRuntimeError):
     code = "YOUTUBE_QUEUE_BUSY"
 
 
+
+
 def runtime_root() -> Path:
     return sonex_home() / "runtimes" / "youtube"
 
@@ -369,6 +371,20 @@ def mark_runtime_success() -> None:
     )
 
 
+def mark_runtime_success_for_playback(metadata: dict[str, Any]) -> None:
+    """Mark probation only when this playback used the active runtime."""
+    try:
+        if metadata.get("youtube_runtime_verified") is not True:
+            return
+        runtime_id = str(metadata.get("youtube_runtime_id") or "")
+        active_id = str((active_manifest() or {}).get("runtime_id") or "")
+        if runtime_id and runtime_id == active_id:
+            mark_runtime_success()
+    except (OSError, TypeError, ValueError):
+        # Playback has already started; a state-file failure must not report it as failed.
+        return
+
+
 def mark_runtime_failure(reason: str) -> None:
     state = _read_json(_state_path("state.json")) or {}
     if not state.get("probation"):
@@ -609,6 +625,34 @@ def prepare_worker(
     else:
         provider_url = ""
     return safe_options, provider_url
+
+
+def run_managed_ytdlp_request(
+    *,
+    operation: str,
+    target: str,
+    options: dict[str, Any],
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """Run one YouTube request through the managed runtime seam."""
+    from src.tools.yt_dlp_runner import YtDlpError, run_ytdlp
+
+    safe_options, _provider_url = prepare_worker(options, operation=operation)
+    try:
+        with youtube_request_gate(options=safe_options):
+            return run_ytdlp(
+                operation=operation,
+                target=target,
+                options=safe_options,
+                timeout_seconds=timeout_seconds,
+            )
+    except (YoutubeQueueBusy, YoutubeRuntimeUnavailable):
+        raise
+    except YtDlpError as exc:
+        lowered = str(exc).casefold()
+        if any(marker in lowered for marker in ("bgutil", "pot provider", "plugin", "extractor")):
+            mark_runtime_failure(type(exc).__name__)
+        raise
 
 
 def worker_command() -> list[str]:

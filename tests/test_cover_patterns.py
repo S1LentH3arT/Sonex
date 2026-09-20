@@ -1,6 +1,4 @@
 """Tests test cover patterns.
-
-Contains pytest coverage for the test cover patterns behavior.
 """
 
 from __future__ import annotations
@@ -32,12 +30,6 @@ EXPECTED_COVER_PATTERN_VARIANTS = {str(size) for size in EXPECTED_COVER_PATTERN_
 
 
 def _png_bytes(size: tuple[int, int] = (96, 80)) -> bytes:
-    """Verifies that png bytes behaves as expected.
-
-    Typical use: Use this in automated tests when guarding the png bytes behavior against regressions.
-
-    Example: _png_bytes() -> passes without assertion failures when the behavior remains correct.
-    """
     image = Image.new("RGB", size, "#2448a8")
     for x in range(size[0] // 3, size[0]):
         for y in range(size[1] // 4, size[1]):
@@ -48,17 +40,7 @@ def _png_bytes(size: tuple[int, int] = (96, 80)) -> bytes:
 
 
 class CoverPatternTests(unittest.TestCase):
-    """Groups related cover pattern tests cases.
-
-    Collects assertions that exercise cover pattern tests behavior without mixing unrelated fixtures.
-    """
     def test_previous_fixed_palette_cache_is_invalidated(self) -> None:
-        """Verifies that previous 48 color cache is invalidated behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the previous 48 color cache is invalidated behavior against regressions.
-
-        Example: test_previous_48_color_cache_is_invalidated() -> passes without assertion failures when the behavior remains correct.
-        """
         with tempfile.TemporaryDirectory() as tempdir:
             source = "https://cdn.example.test/album/legacy-cover.jpg"
             cache_path = cover_pattern_cache_path(source, cache_root=Path(tempdir))
@@ -80,12 +62,6 @@ class CoverPatternTests(unittest.TestCase):
         self.assertNotEqual(payload["source_hash"], "legacy")
 
     def test_generate_cover_pattern_caches_expected_variants_without_source_bytes(self) -> None:
-        """Verifies that generate cover pattern caches expected variants without source bytes behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the generate cover pattern caches expected variants without source bytes behavior against regressions.
-
-        Example: test_generate_cover_pattern_caches_expected_variants_without_source_bytes() -> passes without assertion failures when the behavior remains correct.
-        """
         with tempfile.TemporaryDirectory() as tempdir:
             source = "https://cdn.example.test/album/cover-640.jpg"
             payload = generate_cover_pattern(source, _png_bytes(), cache_root=Path(tempdir))
@@ -320,12 +296,6 @@ class CoverPatternTests(unittest.TestCase):
         self.assertEqual(raised.exception.reason, "invalid_brand")
 
     def test_decode_failure_is_recoverable(self) -> None:
-        """Verifies that decode failure is recoverable behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the decode failure is recoverable behavior against regressions.
-
-        Example: test_decode_failure_is_recoverable() -> passes without assertion failures when the behavior remains correct.
-        """
         with tempfile.TemporaryDirectory() as tempdir:
             with self.assertRaises(CoverPatternError) as raised:
                 generate_cover_pattern("track-1", b"not an image", cache_root=Path(tempdir))
@@ -336,54 +306,20 @@ class CoverPatternTests(unittest.TestCase):
             self.assertFalse(cache_path.exists())
 
     def test_download_failure_is_recoverable(self) -> None:
-        """Verifies that download failure is recoverable behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the download failure is recoverable behavior against regressions.
-
-        Example: test_download_failure_is_recoverable() -> passes without assertion failures when the behavior remains correct.
-        """
         with patch("src.tools.cover_patterns.urlopen", side_effect=URLError("offline")):
             with self.assertRaises(CoverPatternError):
                 fetch_cover_pattern("https://cdn.example.test/missing.jpg")
 
     def test_oversized_response_is_recoverable(self) -> None:
-        """Verifies that oversized response is recoverable behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the oversized response is recoverable behavior against regressions.
-
-        Example: test_oversized_response_is_recoverable() -> passes without assertion failures when the behavior remains correct.
-        """
         class OversizedResponse:
-            """Groups related oversized response cases.
-
-            Collects assertions that exercise oversized response behavior without mixing unrelated fixtures.
-            """
             def __enter__(self) -> "OversizedResponse":
-                """Verifies that enter behaves as expected.
-
-                Typical use: Use this in automated tests when guarding the enter behavior against regressions.
-
-                Example: __enter__() -> passes without assertion failures when the behavior remains correct.
-                """
                 self.remaining = COVER_PATTERN_MAX_BYTES + 1
                 return self
 
             def __exit__(self, *_args: object) -> None:
-                """Verifies that exit behaves as expected.
-
-                Typical use: Use this in automated tests when guarding the exit behavior against regressions.
-
-                Example: __exit__() -> passes without assertion failures when the behavior remains correct.
-                """
                 return None
 
             def read(self, size: int) -> bytes:
-                """Verifies that read behaves as expected.
-
-                Typical use: Use this in automated tests when guarding the read behavior against regressions.
-
-                Example: read() -> passes without assertion failures when the behavior remains correct.
-                """
                 if self.remaining <= 0:
                     return b""
                 chunk = b"x" * min(size, self.remaining)

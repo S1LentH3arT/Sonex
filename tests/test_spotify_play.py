@@ -1,6 +1,4 @@
 """Tests test spotify play.
-
-Contains pytest coverage for the test spotify play behavior.
 """
 
 from __future__ import annotations
@@ -24,17 +22,7 @@ auth_models = importlib.import_module("src.auth.models")
 
 
 class SpotifyToolTests(unittest.TestCase):
-    """Groups related spotify tool tests cases.
-
-    Collects assertions that exercise spotify tool tests behavior without mixing unrelated fixtures.
-    """
     def setUp(self) -> None:
-        """Verifies that setUp behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the setUp behavior against regressions.
-
-        Example: setUp() -> passes without assertion failures when the behavior remains correct.
-        """
         spotify.reset_recent_tracks()
         spotify.reset_spotify_api_request_gate()
 
@@ -170,12 +158,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(recovered["data"]["product"], "premium")
 
     def _track(self, idx: int) -> dict:
-        """Verifies that track behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the track behavior against regressions.
-
-        Example: _track() -> passes without assertion failures when the behavior remains correct.
-        """
         return {
             "id": f"track-{idx}",
             "name": f"Song {idx}",
@@ -189,12 +171,6 @@ class SpotifyToolTests(unittest.TestCase):
         }
 
     def test_normalize_track_uses_largest_cover(self) -> None:
-        """Verifies that normalize track uses largest cover behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the normalize track uses largest cover behavior against regressions.
-
-        Example: test_normalize_track_uses_largest_cover() -> passes without assertion failures when the behavior remains correct.
-        """
         track = spotify._normalize_track(
             {
                 "id": "track-id",
@@ -218,12 +194,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(track["uri"], "spotify:track:track-id")
 
     def test_current_playback_preserves_progress_and_state(self) -> None:
-        """Verifies that current playback preserves progress and state behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the current playback preserves progress and state behavior against regressions.
-
-        Example: test_current_playback_preserves_progress_and_state() -> passes without assertion failures when the behavior remains correct.
-        """
         playback = spotify._normalize_current_playback(
             {
                 "progress_ms": 42000,
@@ -248,12 +218,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(playback["album_cover_url"], "cover")
 
     def test_free_account_disables_playback_control(self) -> None:
-        """Verifies that free account disables playback control behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the free account disables playback control behavior against regressions.
-
-        Example: test_free_account_disables_playback_control() -> passes without assertion failures when the behavior remains correct.
-        """
         capabilities = spotify._account_capabilities(
             "free",
             {"user-read-playback-state", "user-modify-playback-state"},
@@ -270,12 +234,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertIn("user-library-read", spotify_auth.DEFAULT_SPOTIFY_SCOPES)
 
     def test_current_playback_maps_premium_error_without_account_preflight(self) -> None:
-        """Verifies that current playback skips player endpoint for free account behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the current playback skips player endpoint for free account behavior against regressions.
-
-        Example: test_current_playback_skips_player_endpoint_for_free_account() -> passes without assertion failures when the behavior remains correct.
-        """
         client = Mock()
         client.current_playback.side_effect = SpotifyException(403, -1, "Premium account required")
         with patch.object(spotify, "spotify_account", side_effect=AssertionError("should not call /me")), patch.object(
@@ -308,24 +266,8 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["data"]["name"], "Song")
 
     def test_find_device_matches_partial_name(self) -> None:
-        """Verifies that find device matches partial name behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the find device matches partial name behavior against regressions.
-
-        Example: test_find_device_matches_partial_name() -> passes without assertion failures when the behavior remains correct.
-        """
         class Client:
-            """Groups related client cases.
-
-            Collects assertions that exercise client behavior without mixing unrelated fixtures.
-            """
             def devices(self) -> dict:
-                """Verifies that devices behaves as expected.
-
-                Typical use: Use this in automated tests when guarding the devices behavior against regressions.
-
-                Example: devices() -> passes without assertion failures when the behavior remains correct.
-                """
                 return {
                     "devices": [
                         {"id": "phone", "name": "Pixel Phone", "type": "Smartphone"},
@@ -339,12 +281,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(device["id"], "desktop")
 
     def test_recent_queue_caps_dedupes_and_orders_newest_first(self) -> None:
-        """Verifies that recent queue caps dedupes and orders newest first behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the recent queue caps dedupes and orders newest first behavior against regressions.
-
-        Example: test_recent_queue_caps_dedupes_and_orders_newest_first() -> passes without assertion failures when the behavior remains correct.
-        """
         with patch.object(spotify, "_cache_cover", return_value=None):
             for idx in range(12):
                 spotify.remember_recent_track(self._track(idx))
@@ -358,12 +294,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertNotIn("spotify:track:0", {track["uri"] for track in tracks})
 
     def test_recent_tracks_persist_and_reload_from_cache(self) -> None:
-        """Verifies that recent tracks persist and reload from cache behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the recent tracks persist and reload from cache behavior against regressions.
-
-        Example: test_recent_tracks_persist_and_reload_from_cache() -> passes without assertion failures when the behavior remains correct.
-        """
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
             spotify.reset_recent_tracks(clear_disk=True)
             with patch.object(spotify, "_cache_cover", return_value=None):
@@ -379,12 +309,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(tracks[0]["uri"], "spotify:track:1")
 
     def test_recent_track_cover_cache_failure_is_non_blocking(self) -> None:
-        """Verifies that recent track cover cache failure is non blocking behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the recent track cover cache failure is non blocking behavior against regressions.
-
-        Example: test_recent_track_cover_cache_failure_is_non_blocking() -> passes without assertion failures when the behavior remains correct.
-        """
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
             spotify.reset_recent_tracks(clear_disk=True)
             with patch.object(spotify.urllib.request, "urlopen", side_effect=OSError("offline")):
@@ -393,33 +317,11 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(tracks[0]["uri"], "spotify:track:1")
 
     def test_spotify_play_uses_cached_uri_before_searching(self) -> None:
-        """Verifies that spotify play uses cached uri before searching behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify play uses cached uri before searching behavior against regressions.
-
-        Example: test_spotify_play_uses_cached_uri_before_searching() -> passes without assertion failures when the behavior remains correct.
-        """
         class Client:
-            """Groups related client cases.
-
-            Collects assertions that exercise client behavior without mixing unrelated fixtures.
-            """
             def devices(self) -> dict:
-                """Verifies that devices behaves as expected.
-
-                Typical use: Use this in automated tests when guarding the devices behavior against regressions.
-
-                Example: devices() -> passes without assertion failures when the behavior remains correct.
-                """
                 return {"devices": [{"id": "desktop", "is_active": True}]}
 
             def start_playback(self, device_id: str | None = None, uris: list[str] | None = None) -> None:
-                """Verifies that start playback behaves as expected.
-
-                Typical use: Use this in automated tests when guarding the start playback behavior against regressions.
-
-                Example: start_playback() -> passes without assertion failures when the behavior remains correct.
-                """
                 self.device_id = device_id
                 self.uris = uris
 
@@ -439,33 +341,11 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(client.uris, ["spotify:track:7"])
 
     def test_spotify_play_falls_back_to_search_when_cache_misses(self) -> None:
-        """Verifies that spotify play falls back to search when cache misses behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify play falls back to search when cache misses behavior against regressions.
-
-        Example: test_spotify_play_falls_back_to_search_when_cache_misses() -> passes without assertion failures when the behavior remains correct.
-        """
         class Client:
-            """Groups related client cases.
-
-            Collects assertions that exercise client behavior without mixing unrelated fixtures.
-            """
             def devices(self) -> dict:
-                """Verifies that devices behaves as expected.
-
-                Typical use: Use this in automated tests when guarding the devices behavior against regressions.
-
-                Example: devices() -> passes without assertion failures when the behavior remains correct.
-                """
                 return {"devices": [{"id": "desktop", "is_active": True}]}
 
             def start_playback(self, device_id: str | None = None, uris: list[str] | None = None) -> None:
-                """Verifies that start playback behaves as expected.
-
-                Typical use: Use this in automated tests when guarding the start playback behavior against regressions.
-
-                Example: start_playback() -> passes without assertion failures when the behavior remains correct.
-                """
                 self.uris = uris
 
         track = self._track(8)
@@ -509,12 +389,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(client.uris, ["spotify:track:direct"])
 
     def test_spotify_app_credentials_preserve_oauth_token(self) -> None:
-        """Verifies that spotify app credentials preserve oauth token behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify app credentials preserve oauth token behavior against regressions.
-
-        Example: test_spotify_app_credentials_preserve_oauth_token() -> passes without assertion failures when the behavior remains correct.
-        """
         with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {"SONEX_HOME": home}):
             token = auth_models.OAuthToken(access_token="access", refresh_token="refresh", scopes=["user-read-private"])
             auth_store.set_oauth_token("spotify", token)
@@ -529,12 +403,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(provider.oauth.access_token, "access")
 
     def test_spotify_play_requires_login(self) -> None:
-        """Verifies that spotify play requires login behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify play requires login behavior against regressions.
-
-        Example: test_spotify_play_requires_login() -> passes without assertion failures when the behavior remains correct.
-        """
         with patch.object(
             spotify,
             "ensure_spotify_token",
@@ -557,12 +425,6 @@ class SpotifyToolTests(unittest.TestCase):
         ensure.assert_called_once_with(spotify.SPOTIFY_MODIFY_PLAYBACK_SCOPES)
 
     def test_spotify_transfer_requires_device(self) -> None:
-        """Verifies that spotify transfer requires device behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify transfer requires device behavior against regressions.
-
-        Example: test_spotify_transfer_requires_device() -> passes without assertion failures when the behavior remains correct.
-        """
         with patch.object(spotify, "_require_premium_control", return_value=None):
             result = spotify.spotify_transfer_playback()
 
@@ -570,24 +432,8 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "SPOTIFY_DEVICE_REQUIRED")
 
     def test_spotify_recent_tracks_normalizes_and_updates_queue(self) -> None:
-        """Verifies that spotify recent tracks normalizes and updates queue behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify recent tracks normalizes and updates queue behavior against regressions.
-
-        Example: test_spotify_recent_tracks_normalizes_and_updates_queue() -> passes without assertion failures when the behavior remains correct.
-        """
         class Client:
-            """Groups related client cases.
-
-            Collects assertions that exercise client behavior without mixing unrelated fixtures.
-            """
             def current_user_recently_played(self, limit: int) -> dict:
-                """Verifies that current user recently played behaves as expected.
-
-                Typical use: Use this in automated tests when guarding the current user recently played behavior against regressions.
-
-                Example: current_user_recently_played() -> passes without assertion failures when the behavior remains correct.
-                """
                 return {
                     "items": [
                         {
@@ -621,12 +467,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(spotify.recent_tracks_snapshot()[0]["uri"], "spotify:track:recent")
 
     def test_spotify_recent_tracks_reports_missing_scope(self) -> None:
-        """Verifies that spotify recent tracks reports missing scope behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify recent tracks reports missing scope behavior against regressions.
-
-        Example: test_spotify_recent_tracks_reports_missing_scope() -> passes without assertion failures when the behavior remains correct.
-        """
         with patch.object(
             spotify,
             "spotify_user_client",
@@ -1007,12 +847,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "SPOTIFY_API_ERROR")
 
     def test_spotify_recommend_uses_only_candidate_tracks(self) -> None:
-        """Verifies that spotify recommend uses only candidate tracks behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify recommend uses only candidate tracks behavior against regressions.
-
-        Example: test_spotify_recommend_uses_only_candidate_tracks() -> passes without assertion failures when the behavior remains correct.
-        """
         candidates = [self._track(1), self._track(2)]
         with (
             patch.object(spotify, "_user_preferences_text", return_value=""),
@@ -1060,12 +894,6 @@ class SpotifyToolTests(unittest.TestCase):
         user_client.assert_not_called()
 
     def test_spotify_recommend_handles_empty_user_memory(self) -> None:
-        """Verifies that spotify recommend handles empty user memory behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify recommend handles empty user memory behavior against regressions.
-
-        Example: test_spotify_recommend_handles_empty_user_memory() -> passes without assertion failures when the behavior remains correct.
-        """
         with (
             patch.object(spotify, "_user_preferences_text", return_value=""),
             patch.object(spotify, "_spotify_candidate_tracks", return_value=[self._track(3)]),
@@ -1078,12 +906,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["data"]["tracks"][0]["uri"], "spotify:track:3")
 
     def test_spotify_search_maps_app_premium_error(self) -> None:
-        """Verifies that spotify search maps app premium error behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify search maps app premium error behavior against regressions.
-
-        Example: test_spotify_search_maps_app_premium_error() -> passes without assertion failures when the behavior remains correct.
-        """
         with patch.object(
             spotify,
             "_search_payload",
@@ -1095,12 +917,6 @@ class SpotifyToolTests(unittest.TestCase):
         self.assertEqual(result["error_code"], "SPOTIFY_APP_PREMIUM_REQUIRED")
 
     def test_spotify_search_sanitizes_premium_owner_search_error(self) -> None:
-        """Verifies that spotify search sanitizes premium owner search error behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the spotify search sanitizes premium owner search error behavior against regressions.
-
-        Example: test_spotify_search_sanitizes_premium_owner_search_error() -> passes without assertion failures when the behavior remains correct.
-        """
         error = SpotifyException(
             403,
             -1,

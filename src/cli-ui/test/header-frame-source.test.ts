@@ -2,13 +2,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
-const logoSource = readFileSync(new URL('../src/sonex-logo.ts', import.meta.url), 'utf8');
-
-assert.match(source, /export const SonexLogo =/);
-assert.match(source, /SONEX_LOGO\.map/);
-assert.match(source, /process\.env\.NO_COLOR === undefined/);
-assert.match(source, /color=\{useColor \? BORDER_BLUE_SOFT : undefined\}/);
-assert.doesNotMatch(logoSource, /SONEX_LOGO_START_COLOR|SONEX_LOGO_END_COLOR|sonexLogoColumnColor/);
 
 const mascotStart = source.indexOf('const Mascot =');
 const mascotEnd = source.indexOf('\n};', mascotStart);
@@ -62,6 +55,6 @@ const committedRecordEnd = source.indexOf('export const CommittedTranscript =', 
 const committedRecordBody = source.slice(committedRecordStart, committedRecordEnd);
 assert.match(
     committedRecordBody,
-    /record\.item\.showLogo \? \([\s\S]*<SonexLogo \/>[\s\S]*<Box height=\{1\} \/>[\s\S]*\) : null/,
+    /record\.item\.type === "info_banner" \? \([\s\S]*<HeaderFrame[\s\S]*variant=\{record\.presentation\.headerVariant\}/,
 );
 assert.match(committedRecordBody, /<HeaderFrame[\s\S]*variant=\{record\.presentation\.headerVariant\}/);

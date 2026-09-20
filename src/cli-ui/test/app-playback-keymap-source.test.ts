@@ -16,7 +16,8 @@ assert.match(appSource, /const providerShortcut = shellStateRef\.current\.region
 assert.match(appSource, /if \(!localShortcut && !spotifyShortcut && !providerShortcut\) return;/);
 assert.match(appSource, /send\(\{ type: "internal_command", text: command \}\)/);
 assert.match(appSource, /case "track_panel":/);
-assert.match(appSource, /setTrackPanel\(\{/);
+assert.match(appSource, /reduceServerEventState/);
+assert.match(appSource, /dispatchServerEvent\(\{ type: 'event', event: evt/);
 assert.match(appSource, /const selectedTrackPanelTrack = trackPanel\.tracks\[Math\.min\(trackPanelIndex, Math\.max\(0, trackPanel\.tracks\.length - 1\)\)\] \?\? null;/);
 assert.match(appSource, /const isTrackPanelQueueShortcut = \(inputKey: string, key: .*?\): boolean =>/);
 assert.match(appSource, /return Boolean\(key\.ctrl && \(inputKey === "\\x01" \|\| inputKey\.toLowerCase\(\) === "a"\)\);/);

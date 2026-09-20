@@ -1,7 +1,4 @@
 """Playback controller support for tool implementations used by the planner and playback flows.
-
-Implements the playback_controller module responsibilities used by Sonex runtime flows.
-Key public entry points include PlayerState, PlaybackAdapter, MpvPlaybackAdapter, LocalPlaybackController.
 """
 
 from __future__ import annotations
@@ -72,21 +69,11 @@ def available_local_playback_backends() -> list[dict[str, str]]:
 
 
 def _player_debug(message: str) -> None:
-    """Prepares player debug for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs player debug without duplicating the local rules.
-
-    Example: _player_debug(message=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if os.environ.get("SONEX_PLAYER_DEBUG") == "1":
         print(f"[sonex-player-debug] {message}", file=sys.stderr)
 
 
 class PlaybackAdapter(Protocol):
-    """Represents playback adapter.
-
-    Encapsulates playback adapter data and behavior used by Sonex runtime flows. Extends protocol semantics.
-    """
     session_id: str
 
     def start(self) -> PlayerState:
@@ -142,10 +129,6 @@ class PlaybackAdapter(Protocol):
 
 
 class MpvPlaybackAdapter:
-    """Represents mpv playback adapter.
-
-    Encapsulates mpv playback adapter data and behavior used by Sonex runtime flows.
-    """
     def __init__(
         self,
         *,
@@ -154,12 +137,6 @@ class MpvPlaybackAdapter:
         metadata: dict[str, Any],
         diagnostic_time_source: Callable[[], float] = time.monotonic,
     ) -> None:
-        """Prepares init for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs init without duplicating the local rules.
-
-        Example: __init__(source_url=..., source=..., metadata=...) -> returns the value used by the surrounding Sonex flow.
-        """
         self.source_url = source_url
         self.source = source
         self.metadata = metadata
@@ -175,12 +152,6 @@ class MpvPlaybackAdapter:
         self._last_duration_ms: int | None = None
 
     def start(self) -> PlayerState:
-        """Coordinates start for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs start as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: start() -> returns the value used by the surrounding Sonex flow.
-        """
         if shutil.which("mpv") is None:
             raise RuntimeError("mpv is not installed or not on PATH.")
         try:
@@ -260,12 +231,6 @@ class MpvPlaybackAdapter:
         raise RuntimeError("mpv IPC returned no matching response.")
 
     def _request(self, command: list[Any]) -> Any:
-        """Prepares request for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs request without duplicating the local rules.
-
-        Example: _request(command=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if self.process and self.process.poll() is not None:
             raise RuntimeError("mpv process is not running.")
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
@@ -303,12 +268,6 @@ class MpvPlaybackAdapter:
         return value
 
     def _property(self, name: str) -> Any:
-        """Prepares property for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs property without duplicating the local rules.
-
-        Example: _property(name=...) -> returns the value used by the surrounding Sonex flow.
-        """
         return self._request(["get_property", name])
 
     def _diagnostic_probe(self) -> dict[str, Any]:
@@ -346,12 +305,6 @@ class MpvPlaybackAdapter:
             self.diagnostics.close()
 
     def status(self, *, default_playing: bool | None = None) -> PlayerState:
-        """Coordinates status for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs status as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: status(default_playing=...) -> returns the value used by the surrounding Sonex flow.
-        """
         ended = bool(self.process and self.process.poll() is not None)
         if ended:
             self._close_diagnostics("process_ended")
@@ -436,32 +389,14 @@ class MpvPlaybackAdapter:
         )
 
     def pause(self) -> PlayerState:
-        """Coordinates pause for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs pause as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: pause() -> returns the value used by the surrounding Sonex flow.
-        """
         self._request(["set_property", "pause", True])
         return self.status(default_playing=False)
 
     def resume(self) -> PlayerState:
-        """Coordinates resume for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs resume as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: resume() -> returns the value used by the surrounding Sonex flow.
-        """
         self._request(["set_property", "pause", False])
         return self.status(default_playing=True)
 
     def stop(self) -> PlayerState:
-        """Coordinates stop for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs stop as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: stop() -> returns the value used by the surrounding Sonex flow.
-        """
         try:
             final_state = self.status(default_playing=False)
         except Exception:
@@ -486,12 +421,6 @@ class MpvPlaybackAdapter:
             self._close_diagnostics("playback_stopped")
 
     def set_volume(self, volume_percent: int) -> PlayerState:
-        """Coordinates set volume for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs set volume as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: set_volume(volume_percent=...) -> returns the value used by the surrounding Sonex flow.
-        """
         volume = _coerce_volume(volume_percent)
         self._request(["set_property", "volume", volume])
         self.volume_percent = volume
@@ -499,10 +428,6 @@ class MpvPlaybackAdapter:
 
 
 class LocalPlaybackController:
-    """Represents local playback controller.
-
-    Encapsulates local playback controller data and behavior used by Sonex runtime flows.
-    """
     def __init__(self) -> None:
         """Init for local playback controller.
 
@@ -519,12 +444,6 @@ class LocalPlaybackController:
         metadata: dict[str, Any],
         player: str | None = None,
     ) -> PlayerState:
-        """Coordinates play for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs play as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: play(source_url=..., source=..., metadata=..., player=...) -> returns the value used by the surrounding Sonex flow.
-        """
         backend = self._normalize_backend(player or "auto")
         if self._adapter is not None:
             try:
@@ -542,12 +461,6 @@ class LocalPlaybackController:
         return state
 
     def _normalize_backend(self, backend: str) -> PlayerBackend:
-        """Prepares normalize backend for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs normalize backend without duplicating the local rules.
-
-        Example: _normalize_backend(backend=...) -> returns the value used by the surrounding Sonex flow.
-        """
         normalized = backend.strip().lower()
         if normalized not in {"auto", "mpv"}:
             raise ValueError("Unsupported local playback backend. Sonex uses mpv.")
@@ -561,12 +474,6 @@ class LocalPlaybackController:
         source: PlaybackSource,
         metadata: dict[str, Any],
     ) -> PlaybackAdapter:
-        """Prepares adapter for for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs adapter for without duplicating the local rules.
-
-        Example: _adapter_for(backend=..., source_url=..., source=..., metadata=...) -> returns the value used by the surrounding Sonex flow.
-        """
         return MpvPlaybackAdapter(source_url=source_url, source=source, metadata=metadata)
 
     def _start_adapter(
@@ -577,12 +484,6 @@ class LocalPlaybackController:
         source: PlaybackSource,
         metadata: dict[str, Any],
     ) -> tuple[PlaybackAdapter, PlayerState]:
-        """Prepares start adapter for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs start adapter without duplicating the local rules.
-
-        Example: _start_adapter(backend=..., source_url=..., source=..., metadata=...) -> returns the value used by the surrounding Sonex flow.
-        """
         adapter = self._adapter_for(
             "mpv",
             source_url=source_url,
@@ -600,41 +501,17 @@ class LocalPlaybackController:
             raise
 
     def _require_adapter(self) -> PlaybackAdapter:
-        """Prepares require adapter for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs require adapter without duplicating the local rules.
-
-        Example: _require_adapter() -> returns the value used by the surrounding Sonex flow.
-        """
         if self._adapter is None:
             raise RuntimeError("No active local playback session.")
         return self._adapter
 
     def pause(self) -> PlayerState:
-        """Coordinates pause for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs pause as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: pause() -> returns the value used by the surrounding Sonex flow.
-        """
         return self._require_adapter().pause()
 
     def resume(self) -> PlayerState:
-        """Coordinates resume for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs resume as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: resume() -> returns the value used by the surrounding Sonex flow.
-        """
         return self._require_adapter().resume()
 
     def status(self) -> PlayerState:
-        """Coordinates status for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs status as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: status() -> returns the value used by the surrounding Sonex flow.
-        """
         state = self._require_adapter().status()
         if state.ended:
             self._adapter = None
@@ -642,12 +519,6 @@ class LocalPlaybackController:
         return state
 
     def stop(self) -> PlayerState:
-        """Coordinates stop for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs stop as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: stop() -> returns the value used by the surrounding Sonex flow.
-        """
         adapter = self._require_adapter()
         state = adapter.stop()
         self._adapter = None
@@ -655,12 +526,6 @@ class LocalPlaybackController:
         return state
 
     def set_volume(self, volume_percent: int) -> PlayerState:
-        """Coordinates set volume for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs set volume as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: set_volume(volume_percent=...) -> returns the value used by the surrounding Sonex flow.
-        """
         return self._require_adapter().set_volume(_coerce_volume(volume_percent))
 
 
@@ -681,12 +546,6 @@ def start_local_playback(
     player: str = "auto",
     success_message: str,
 ) -> dict[str, Any]:
-    """Coordinates start local playback for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs start local playback as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: start_local_playback(tool=..., source_url=..., source=..., metadata=..., player=..., success_message=...) -> returns the value used by the surrounding Sonex flow.
-    """
     selected_player = resolve_local_playback_backend(player)
     try:
         state = controller.play(source_url=source_url, source=source, metadata=metadata, player=selected_player)
@@ -697,16 +556,15 @@ def start_local_playback(
             error_code="PLAYER_START_FAILED",
             data={**metadata, "source": source, "player": player},
         ).to_dict()
-    return ToolResult.success(tool=tool, message=success_message, data=state.to_dict()).to_dict()
+    result = ToolResult.success(tool=tool, message=success_message, data=state.to_dict()).to_dict()
+    if source == "youtube":
+        from src.tools.youtube_runtime import mark_runtime_success_for_playback
+
+        mark_runtime_success_for_playback(metadata)
+    return result
 
 
 def _control_result(tool: str, action: str) -> dict[str, Any]:
-    """Prepares control result for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs control result without duplicating the local rules.
-
-    Example: _control_result(tool=..., action=...) -> returns the value used by the surrounding Sonex flow.
-    """
     messages = {
         "pause": "Playback paused.",
         "resume": "Playback resumed.",
@@ -730,52 +588,22 @@ def _control_result(tool: str, action: str) -> dict[str, Any]:
 
 
 def local_playback_pause() -> dict[str, Any]:
-    """Coordinates local playback pause for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs local playback pause as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: local_playback_pause() -> returns the value used by the surrounding Sonex flow.
-    """
     return _control_result("local_playback_pause", "pause")
 
 
 def local_playback_resume() -> dict[str, Any]:
-    """Coordinates local playback resume for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs local playback resume as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: local_playback_resume() -> returns the value used by the surrounding Sonex flow.
-    """
     return _control_result("local_playback_resume", "resume")
 
 
 def local_playback_stop() -> dict[str, Any]:
-    """Coordinates local playback stop for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs local playback stop as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: local_playback_stop() -> returns the value used by the surrounding Sonex flow.
-    """
     return _control_result("local_playback_stop", "stop")
 
 
 def local_playback_status() -> dict[str, Any]:
-    """Coordinates local playback status for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs local playback status as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: local_playback_status() -> returns the value used by the surrounding Sonex flow.
-    """
     return _control_result("local_playback_status", "status")
 
 
 def local_playback_volume(volume_percent: int) -> dict[str, Any]:
-    """Coordinates local playback volume for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs local playback volume as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: local_playback_volume(volume_percent=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         volume = _coerce_volume(volume_percent)
     except ValueError as exc:

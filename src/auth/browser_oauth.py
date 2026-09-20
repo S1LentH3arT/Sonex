@@ -1,7 +1,4 @@
 """Browser oauth support for provider authentication and credential persistence.
-
-Implements the browser_oauth module responsibilities used by Sonex runtime flows.
-Key public entry points include BrowserOAuthError, BrowserOAuthUnsupportedError, BrowserOAuthConfigError, BrowserOAuthConfig, browser_oauth_supported.
 """
 
 from __future__ import annotations
@@ -28,35 +25,19 @@ from src.log import sonex_home
 
 
 class BrowserOAuthError(RuntimeError):
-    """Represents browser oauth error.
-
-    Encapsulates browser oauth error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
-    """
     pass
 
 
 class BrowserOAuthUnsupportedError(BrowserOAuthError):
-    """Represents browser oauth unsupported error.
-
-    Encapsulates browser oauth unsupported error data and behavior used by Sonex runtime flows. Extends browser oauth error semantics.
-    """
     pass
 
 
 class BrowserOAuthConfigError(BrowserOAuthError):
-    """Represents browser oauth config error.
-
-    Encapsulates browser oauth config error data and behavior used by Sonex runtime flows. Extends browser oauth error semantics.
-    """
     pass
 
 
 @dataclass(frozen=True, slots=True)
 class BrowserOAuthConfig:
-    """Represents browser oauth config.
-
-    Encapsulates browser oauth config data and behavior used by Sonex runtime flows.
-    """
     provider: str
     client_id: str
     client_secret: str | None
@@ -82,22 +63,10 @@ GEMINI_DEFAULT_SCOPES = [
 
 
 def browser_oauth_supported(provider: str) -> bool:
-    """Coordinates browser oauth supported for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs browser oauth supported as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: browser_oauth_supported(provider=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return normalize_provider(provider) == "gemini"
 
 
 def browser_oauth_requirements(provider: str) -> str:
-    """Coordinates browser oauth requirements for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs browser oauth requirements as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: browser_oauth_requirements(provider=...) -> returns the value used by the surrounding Sonex flow.
-    """
     name = normalize_provider(provider)
     if name == "gemini":
         return (
@@ -109,12 +78,6 @@ def browser_oauth_requirements(provider: str) -> str:
 
 
 def run_browser_oauth(provider: str, *, project_id: str | None = None) -> None:
-    """Coordinates run browser oauth for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs run browser oauth as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: run_browser_oauth(provider=...) -> returns the value used by the surrounding Sonex flow.
-    """
     config = load_browser_oauth_config(provider)
     state = secrets.token_urlsafe(24)
     verifier = _pkce_verifier()
@@ -231,12 +194,6 @@ def refresh_browser_oauth_token(
 
 
 def load_browser_oauth_config(provider: str) -> BrowserOAuthConfig:
-    """Loads browser oauth config from persistent state.
-
-    Typical use: Use this function when runtime code needs load browser oauth config as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: load_browser_oauth_config(provider=...) -> returns the value used by the surrounding Sonex flow.
-    """
     name = normalize_provider(provider)
     if name != "gemini":
         raise BrowserOAuthUnsupportedError(browser_oauth_requirements(name))
@@ -275,12 +232,6 @@ def load_browser_oauth_config(provider: str) -> BrowserOAuthConfig:
 
 
 def _provider_file_config(provider: str) -> dict[str, Any]:
-    """Prepares provider file config for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs provider file config without duplicating the local rules.
-
-    Example: _provider_file_config(provider=...) -> returns the value used by the surrounding Sonex flow.
-    """
     config_path = Path(os.getenv("SONEX_CONFIG_PATH") or (sonex_home() / "thinking.json")).expanduser()
     try:
         with config_path.open("r", encoding="utf-8") as f:
@@ -297,12 +248,6 @@ def _provider_file_config(provider: str) -> dict[str, Any]:
 
 
 def _coerce_scopes(value: Any) -> list[str]:
-    """Prepares coerce scopes for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs coerce scopes without duplicating the local rules.
-
-    Example: _coerce_scopes(value=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if isinstance(value, str):
         return [item for item in value.replace(",", " ").split() if item]
     if isinstance(value, list):
@@ -311,33 +256,15 @@ def _coerce_scopes(value: Any) -> list[str]:
 
 
 def _pkce_verifier() -> str:
-    """Prepares pkce verifier for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs pkce verifier without duplicating the local rules.
-
-    Example: _pkce_verifier() -> returns the value used by the surrounding Sonex flow.
-    """
     return secrets.token_urlsafe(64)[:128]
 
 
 def _pkce_challenge(verifier: str) -> str:
-    """Prepares pkce challenge for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs pkce challenge without duplicating the local rules.
-
-    Example: _pkce_challenge(verifier=...) -> returns the value used by the surrounding Sonex flow.
-    """
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
 
 
 def _authorize_url(config: BrowserOAuthConfig, *, state: str, challenge: str) -> str:
-    """Prepares authorize url for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs authorize url without duplicating the local rules.
-
-    Example: _authorize_url(config=..., state=..., challenge=...) -> returns the value used by the surrounding Sonex flow.
-    """
     query = urlencode(
         {
             "client_id": config.client_id,
@@ -356,12 +283,6 @@ def _authorize_url(config: BrowserOAuthConfig, *, state: str, challenge: str) ->
 
 
 def _wait_for_authorization_code(redirect_uri: str, authorize_url: str, expected_state: str) -> str:
-    """Prepares wait for authorization code for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs wait for authorization code without duplicating the local rules.
-
-    Example: _wait_for_authorization_code(redirect_uri=..., authorize_url=..., expected_state=...) -> returns the value used by the surrounding Sonex flow.
-    """
     redirect = urlparse(redirect_uri)
     host = redirect.hostname or "127.0.0.1"
     port = redirect.port or 80
@@ -369,17 +290,7 @@ def _wait_for_authorization_code(redirect_uri: str, authorize_url: str, expected
     received: dict[str, str] = {}
 
     class OAuthCallbackHandler(BaseHTTPRequestHandler):
-        """Represents oauth callback handler.
-
-        Encapsulates oauth callback handler data and behavior used by Sonex runtime flows. Extends base h t t p request handler semantics.
-        """
         def do_GET(self) -> None:
-            """Coordinates do GET for the current Sonex flow.
-
-            Typical use: Use this function when runtime code needs do GET as part of a Sonex command, playback, auth, llm, or ui path.
-
-            Example: do_GET() -> returns the value used by the surrounding Sonex flow.
-            """
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             if parsed.path != callback_path:
@@ -400,12 +311,6 @@ def _wait_for_authorization_code(redirect_uri: str, authorize_url: str, expected
             self.wfile.write(b"Sonex OAuth complete. You can return to the terminal.")
 
         def log_message(self, format: str, *args: object) -> None:
-            """Coordinates log message for the current Sonex flow.
-
-            Typical use: Use this function when runtime code needs log message as part of a Sonex command, playback, auth, llm, or ui path.
-
-            Example: log_message(format=...) -> returns the value used by the surrounding Sonex flow.
-            """
             return
 
     webbrowser.open(authorize_url)
@@ -423,12 +328,6 @@ def _wait_for_authorization_code(redirect_uri: str, authorize_url: str, expected
 
 
 def _exchange_code(config: BrowserOAuthConfig, *, code: str, verifier: str) -> dict[str, Any]:
-    """Prepares exchange code for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs exchange code without duplicating the local rules.
-
-    Example: _exchange_code(config=..., code=..., verifier=...) -> returns the value used by the surrounding Sonex flow.
-    """
     payload: dict[str, str] = {
         "client_id": config.client_id,
         "code": code,
@@ -462,12 +361,6 @@ def _save_token_info(
     *,
     project_id: str | None = None,
 ) -> None:
-    """Prepares save token info for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs save token info without duplicating the local rules.
-
-    Example: _save_token_info(provider=..., token_info=..., default_scopes=...) -> returns the value used by the surrounding Sonex flow.
-    """
     expires_in = token_info.get("expires_in")
     if expires_in not in (None, ""):
         expires_at_value = (

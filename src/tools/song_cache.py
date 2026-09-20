@@ -1,7 +1,4 @@
 """Song cache support for tool implementations used by the planner and playback flows.
-
-Implements the song_cache module responsibilities used by Sonex runtime flows.
-Key public entry points include upsert_cached_song, find_best_cached_song, resolve_cached_song, recent_cached_songs.
 """
 
 from __future__ import annotations
@@ -27,33 +24,15 @@ SESSION_QUEUE_LIMIT = 10
 
 
 def _default_cache_root() -> Path:
-    """Prepares default cache root for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs default cache root without duplicating the local rules.
-
-    Example: _default_cache_root() -> returns the value used by the surrounding Sonex flow.
-    """
     return sonex_home() / "cache" / "songs"
 
 
 def _cache_paths(cache_root: Path | None = None) -> tuple[Path, Path, Path]:
-    """Prepares cache paths for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs cache paths without duplicating the local rules.
-
-    Example: _cache_paths(cache_root=...) -> returns the value used by the surrounding Sonex flow.
-    """
     root = cache_root or _default_cache_root()
     return root, root / "cache.db", root / "items"
 
 
 def _connect(cache_root: Path | None = None) -> sqlite3.Connection:
-    """Prepares connect for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs connect without duplicating the local rules.
-
-    Example: _connect(cache_root=...) -> returns the value used by the surrounding Sonex flow.
-    """
     root, db_path, items_dir = _cache_paths(cache_root)
     root.mkdir(parents=True, exist_ok=True)
     items_dir.mkdir(parents=True, exist_ok=True)
@@ -78,12 +57,6 @@ def _connect(cache_root: Path | None = None) -> sqlite3.Connection:
 
 
 def _compact(row: sqlite3.Row) -> dict[str, Any]:
-    """Prepares compact for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs compact without duplicating the local rules.
-
-    Example: _compact(row=...) -> returns the value used by the surrounding Sonex flow.
-    """
     providers = json.loads(row["provider_summary"] or "[]")
     return {
         "cache_id": row["cache_id"],
@@ -97,12 +70,6 @@ def _compact(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _delete_cached_audio(item: dict[str, Any], root: Path) -> None:
-    """Prepares delete cached audio for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs delete cached audio without duplicating the local rules.
-
-    Example: _delete_cached_audio(item=..., root=...) -> returns the value used by the surrounding Sonex flow.
-    """
     audio_path = _text(item.get("audio_path"))
     if not audio_path:
         return
@@ -119,12 +86,6 @@ def _delete_cached_audio(item: dict[str, Any], root: Path) -> None:
 
 
 def _prune(conn: sqlite3.Connection, root: Path, items_dir: Path) -> None:
-    """Prepares prune for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs prune without duplicating the local rules.
-
-    Example: _prune(conn=..., root=..., items_dir=...) -> returns the value used by the surrounding Sonex flow.
-    """
     rows = conn.execute(
         "SELECT cache_id FROM songs ORDER BY last_played_at DESC, updated_at DESC LIMIT -1 OFFSET ?",
         (MAX_CACHED_SONGS,),
@@ -153,12 +114,6 @@ def upsert_cached_song(
     cache_root: Path | None = None,
     now: float | None = None,
 ) -> dict[str, Any]:
-    """Coordinates upsert cached song for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs upsert cached song as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: upsert_cached_song(item=..., cache_root=..., now=...) -> returns the value used by the surrounding Sonex flow.
-    """
     timestamp = time.time() if now is None else float(now)
     name = _text(item.get("name") or item.get("title") or item.get("query"))
     artist = _artists_text(item) or "-"
@@ -196,12 +151,6 @@ def upsert_cached_song(
 
 
 def find_best_cached_song(query: str, *, cache_root: Path | None = None) -> dict[str, Any] | None:
-    """Coordinates find best cached song for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs find best cached song as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: find_best_cached_song(query=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
-    """
     needle = _text(query).casefold()
     if not needle:
         return None
@@ -218,12 +167,6 @@ def find_best_cached_song(query: str, *, cache_root: Path | None = None) -> dict
 
 
 def resolve_cached_song(cache_id: str, *, cache_root: Path | None = None) -> dict[str, Any]:
-    """Resolves cached song from available runtime state.
-
-    Typical use: Use this function when runtime code needs resolve cached song as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: resolve_cached_song(cache_id=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
-    """
     _, _, items_dir = _cache_paths(cache_root)
     path = items_dir / f"{cache_id}.json"
     if not path.exists():
@@ -232,12 +175,6 @@ def resolve_cached_song(cache_id: str, *, cache_root: Path | None = None) -> dic
 
 
 def recent_cached_songs(*, limit: int = SESSION_QUEUE_LIMIT, cache_root: Path | None = None) -> list[dict[str, Any]]:
-    """Coordinates recent cached songs for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs recent cached songs as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: recent_cached_songs(limit=..., cache_root=...) -> returns the value used by the surrounding Sonex flow.
-    """
     bounded_limit = min(SESSION_QUEUE_LIMIT, max(1, int(limit or SESSION_QUEUE_LIMIT)))
     conn = _connect(cache_root)
     rows = conn.execute(

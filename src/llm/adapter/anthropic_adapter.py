@@ -1,7 +1,4 @@
 """Anthropic adapter support for language model configuration, catalogs, transports, and planning.
-
-Implements the anthropic_adapter module responsibilities used by Sonex runtime flows.
-Key public entry points include AnthropicAdapter.
 """
 
 from typing import Any

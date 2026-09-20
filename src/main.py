@@ -1,7 +1,4 @@
 """Main support for sonex application behavior.
-
-Implements the main module responsibilities used by Sonex runtime flows.
-Key public entry points include login, list_auth, logout, and set_default_auth.
 """
 
 from __future__ import annotations
@@ -94,22 +91,10 @@ _ERROR_EXIT_CODES = {
 
 
 def _project_root() -> Path:
-    """Prepares project root for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs project root without duplicating the local rules.
-
-    Example: _project_root() -> returns the value used by the surrounding Sonex flow.
-    """
     return Path(__file__).resolve().parents[1]
 
 
 def _cli_ui_dir() -> Path:
-    """Prepares cli ui dir for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs cli ui dir without duplicating the local rules.
-
-    Example: _cli_ui_dir() -> returns the value used by the surrounding Sonex flow.
-    """
     configured = os.getenv("SONEX_CLI_UI_DIR")
     if configured:
         return Path(configured).expanduser().resolve()
@@ -117,22 +102,10 @@ def _cli_ui_dir() -> Path:
 
 
 def _node_bin() -> str:
-    """Prepares node bin for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs node bin without duplicating the local rules.
-
-    Example: _node_bin() -> returns the value used by the surrounding Sonex flow.
-    """
     return os.getenv("SONEX_NODE", "node")
 
 
 def _process_env() -> dict[str, str]:
-    """Prepares process env for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs process env without duplicating the local rules.
-
-    Example: _process_env() -> returns the value used by the surrounding Sonex flow.
-    """
     env = os.environ.copy()
     project_root = str(_project_root())
     pythonpath = env.get("PYTHONPATH")
@@ -141,12 +114,6 @@ def _process_env() -> dict[str, str]:
 
 
 def _normalize_auth_method(method: str) -> str:
-    """Prepares normalize auth method for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs normalize auth method without duplicating the local rules.
-
-    Example: _normalize_auth_method(method=...) -> returns the value used by the surrounding Sonex flow.
-    """
     normalized = method.strip().lower().replace("_", "-")
     if normalized not in {"auto", "oauth", "api-key"}:
         raise typer.BadParameter("method must be one of: auto, oauth, api-key")
@@ -191,34 +158,16 @@ def _read_secret(provider: str, kind: str, *, optional: bool = False) -> str | N
 
 
 def _prompt_api_key(provider: str) -> str:
-    """Prepares prompt api key for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs prompt api key without duplicating the local rules.
-
-    Example: _prompt_api_key(provider=...) -> returns the value used by the surrounding Sonex flow.
-    """
     value = _read_secret(provider, "API_KEY")
     assert value is not None
     return value
 
 
 def _print_auth_store_path(path: Path) -> None:
-    """Prepares print auth store path for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs print auth store path without duplicating the local rules.
-
-    Example: _print_auth_store_path(path=...) -> returns the value used by the surrounding Sonex flow.
-    """
     console.print(f"[dim]Saved credentials to {path}[/dim]")
 
 
 def _spotify_loopback_login() -> None:
-    """Prepares spotify loopback login for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs spotify loopback login without duplicating the local rules.
-
-    Example: _spotify_loopback_login() -> returns the value used by the surrounding Sonex flow.
-    """
     redirect = urlparse(spotify_redirect_uri())
     host = redirect.hostname or DEFAULT_HOST
     port = redirect.port or 80
@@ -226,17 +175,7 @@ def _spotify_loopback_login() -> None:
     received: dict[str, str] = {}
 
     class SpotifyCallbackHandler(BaseHTTPRequestHandler):
-        """Represents spotify callback handler.
-
-        Encapsulates spotify callback handler data and behavior used by Sonex runtime flows. Extends base h t t p request handler semantics.
-        """
         def do_GET(self) -> None:
-            """Coordinates do GET for the current Sonex flow.
-
-            Typical use: Use this function when runtime code needs do GET as part of a Sonex command, playback, auth, llm, or ui path.
-
-            Example: do_GET() -> returns the value used by the surrounding Sonex flow.
-            """
             parsed = urlparse(self.path)
             params = parse_qs(parsed.query)
             if parsed.path != callback_path:
@@ -257,12 +196,6 @@ def _spotify_loopback_login() -> None:
             self.wfile.write(b"Spotify connected. You can return to Sonex.")
 
         def log_message(self, format: str, *args: object) -> None:
-            """Coordinates log message for the current Sonex flow.
-
-            Typical use: Use this function when runtime code needs log message as part of a Sonex command, playback, auth, llm, or ui path.
-
-            Example: log_message(format=...) -> returns the value used by the surrounding Sonex flow.
-            """
             return
 
     authorize_url, expected_state = spotify_authorize_url()
@@ -683,32 +616,14 @@ def playlist_show(
 
 
 def _dist_entry() -> Path:
-    """Prepares dist entry for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs dist entry without duplicating the local rules.
-
-    Example: _dist_entry() -> returns the value used by the surrounding Sonex flow.
-    """
     return _cli_ui_dir() / "dist" / "index.js"
 
 
 def _tsc_entry() -> Path:
-    """Prepares tsc entry for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs tsc entry without duplicating the local rules.
-
-    Example: _tsc_entry() -> returns the value used by the surrounding Sonex flow.
-    """
     return _cli_ui_dir() / "node_modules" / "typescript" / "bin" / "tsc"
 
 
 def _build_ink_ui_if_needed() -> None:
-    """Prepares build ink ui if needed for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs build ink ui if needed without duplicating the local rules.
-
-    Example: _build_ink_ui_if_needed() -> returns the value used by the surrounding Sonex flow.
-    """
     if _dist_entry().exists():
         return
 
@@ -733,12 +648,6 @@ def _build_ink_ui_if_needed() -> None:
 
 
 def _run_ink_tui(host: str, port: int) -> int:
-    """Prepares run ink tui for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs run ink tui without duplicating the local rules.
-
-    Example: _run_ink_tui(host=..., port=...) -> returns the value used by the surrounding Sonex flow.
-    """
     _build_ink_ui_if_needed()
     env = _process_env()
     env["SONEX_WS_URL"] = f"ws://{host}:{port}/ws"
@@ -754,12 +663,6 @@ def _run_ink_tui(host: str, port: int) -> int:
 
 
 def _wait_for_server(host: str, port: int, timeout: float = SERVER_START_TIMEOUT) -> None:
-    """Prepares wait for server for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs wait for server without duplicating the local rules.
-
-    Example: _wait_for_server(host=..., port=..., timeout=...) -> returns the value used by the surrounding Sonex flow.
-    """
     deadline = time.monotonic() + timeout
     last_error: OSError | None = None
 
@@ -776,12 +679,6 @@ def _wait_for_server(host: str, port: int, timeout: float = SERVER_START_TIMEOUT
 
 
 def _start_api_process(host: str, port: int) -> subprocess.Popen[bytes]:
-    """Prepares start api process for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs start api process without duplicating the local rules.
-
-    Example: _start_api_process(host=..., port=...) -> returns the value used by the surrounding Sonex flow.
-    """
     log_fd = os.open(sonex_log_path(), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
     try:
         return subprocess.Popen(
@@ -807,12 +704,6 @@ def _start_api_process(host: str, port: int) -> subprocess.Popen[bytes]:
 
 
 def _run_full_tui(host: str, port: int) -> None:
-    """Prepares run full tui for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs run full tui without duplicating the local rules.
-
-    Example: _run_full_tui(host=..., port=...) -> returns the value used by the surrounding Sonex flow.
-    """
     api_proc = _start_api_process(host, port)
     try:
         _wait_for_server(host, port)
@@ -836,12 +727,6 @@ def main(
     host: str = typer.Option(DEFAULT_HOST, "--host", help="WebSocket API host."),
     port: int = typer.Option(DEFAULT_PORT, "--port", help="WebSocket API port."),
 ) -> None:
-    """Coordinates main for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs main as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: main(ctx=..., version=..., host=..., port=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if version:
         typer.echo(f"v{APP_VERSION}")
         raise typer.Exit()

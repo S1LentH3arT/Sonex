@@ -1,7 +1,4 @@
 """Base support for language model configuration, catalogs, transports, and planning.
-
-Implements the base module responsibilities used by Sonex runtime flows.
-Key public entry points include LLMTransportError, sanitize_error_message, ToolCall, Usage, ChatRequest.
 """
 
 import re
@@ -29,12 +26,6 @@ _URL_PRIVATE_SUFFIX_PATTERN = re.compile(
 
 
 def sanitize_error_message(error: Any, *, limit: int = 500) -> str:
-    """Coordinates sanitize error message for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs sanitize error message as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: sanitize_error_message(error=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-    """
     text = str(error).strip() or error.__class__.__name__
     text = " ".join(text.split())
     for pattern in _SECRET_PATTERNS:
@@ -124,32 +115,12 @@ class ProviderRequest:
 
 
 class LLMTransport(Protocol):
-    """Represents llm transport.
-
-    Encapsulates llm transport data and behavior used by Sonex runtime flows. Extends protocol semantics.
-    """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Coordinates send for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
-        """
         ...
 
 
 class LiteLLMTransport(LLMTransport):
-    """Represents lite llm transport.
-
-    Encapsulates lite llm transport data and behavior used by Sonex runtime flows. Extends llm transport semantics.
-    """
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        """Coordinates send for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs send as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: send(request=..., config=...) -> returns the value used by the surrounding Sonex flow.
-        """
         from litellm import completion
 
         payload = dict(request.payload)
@@ -181,12 +152,6 @@ class LiteLLMTransport(LLMTransport):
 
 
 def _resolve_transport_model(model: str, config: ProviderConfig) -> str:
-    """Prepares resolve transport model for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs resolve transport model without duplicating the local rules.
-
-    Example: _resolve_transport_model(model=..., config=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if "/" in model:
         return model
 

@@ -1,6 +1,4 @@
 """Tests test playback controller.
-
-Contains pytest coverage for the test playback controller behavior.
 """
 
 from __future__ import annotations
@@ -18,26 +16,10 @@ from src.tools import playback_controller as playback
 
 
 class PlaybackControllerTests(unittest.TestCase):
-    """Groups related playback controller tests cases.
-
-    Collects assertions that exercise playback controller tests behavior without mixing unrelated fixtures.
-    """
     def setUp(self) -> None:
-        """Verifies that setUp behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the setUp behavior against regressions.
-
-        Example: setUp() -> passes without assertion failures when the behavior remains correct.
-        """
         self.controller = playback.LocalPlaybackController()
 
     def test_mpv_play_returns_current_session_state(self) -> None:
-        """Verifies that mpv play returns current session state behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the mpv play returns current session state behavior against regressions.
-
-        Example: test_mpv_play_returns_current_session_state() -> passes without assertion failures when the behavior remains correct.
-        """
         adapter = Mock()
         adapter.start.return_value = playback.PlayerState(
             provider="youtube",
@@ -67,12 +49,6 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.current_session_id, "session-1")
 
     def test_mpv_start_uses_network_buffering_options(self) -> None:
-        """Verifies that mpv start uses network buffering options behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the mpv start uses network buffering options behavior against regressions.
-
-        Example: test_mpv_start_uses_network_buffering_options() -> passes without assertion failures when the behavior remains correct.
-        """
         adapter = playback.MpvPlaybackAdapter(
             source_url="https://stream.example/audio",
             source="youtube",
@@ -360,12 +336,6 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(socket_count, 1)
 
     def test_auto_play_tries_mpv_only_when_mpv_fails(self) -> None:
-        """Verifies that auto play tries mpv only when mpv fails behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the auto play tries mpv only when mpv fails behavior against regressions.
-
-        Example: test_auto_play_tries_mpv_only_when_mpv_fails() -> passes without assertion failures when the behavior remains correct.
-        """
         mpv_adapter = Mock()
         mpv_adapter.start.side_effect = RuntimeError("mpv missing")
 
@@ -398,12 +368,6 @@ class PlaybackControllerTests(unittest.TestCase):
                 )
 
     def test_new_play_stops_previous_session(self) -> None:
-        """Verifies that new play stops previous session behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the new play stops previous session behavior against regressions.
-
-        Example: test_new_play_stops_previous_session() -> passes without assertion failures when the behavior remains correct.
-        """
         first = Mock()
         first.start.return_value = playback.PlayerState(
             provider="youtube",
@@ -441,12 +405,6 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.current_session_id, "second")
 
     def test_pause_resume_stop_and_status_delegate_to_adapter(self) -> None:
-        """Verifies that pause resume stop and status delegate to adapter behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the pause resume stop and status delegate to adapter behavior against regressions.
-
-        Example: test_pause_resume_stop_and_status_delegate_to_adapter() -> passes without assertion failures when the behavior remains correct.
-        """
         adapter = Mock()
         paused = playback.PlayerState(
             provider="youtube",
@@ -585,6 +543,35 @@ class PlaybackControllerTests(unittest.TestCase):
             player="mpv",
         )
         self.assertEqual(result["status"], "success")
+
+    def test_start_local_playback_verifies_youtube_runtime_after_start(self) -> None:
+        state = playback.PlayerState(
+            provider="youtube",
+            source="youtube",
+            player="mpv",
+            session_id="session-runtime",
+            name="Song",
+            artist="Artist",
+            album="Album",
+            duration_ms=1,
+            progress_ms=0,
+            timestamp=1,
+            is_playing=True,
+        )
+        with patch.object(playback.controller, "play", return_value=state), patch(
+            "src.tools.youtube_runtime.mark_runtime_success_for_playback"
+        ) as mark:
+            result = playback.start_local_playback(
+                tool="play_youtube_song",
+                source_url="cached.mp3",
+                source="youtube",
+                metadata={"youtube_runtime_id": "runtime-1"},
+                player="mpv",
+                success_message="Playing.",
+            )
+
+        self.assertEqual(result["status"], "success")
+        mark.assert_called_once_with({"youtube_runtime_id": "runtime-1"})
         self.assertEqual(result["data"]["player"], "mpv")
 
     def test_playback_control_ignores_legacy_persisted_external_sink(self) -> None:
@@ -609,12 +596,6 @@ class PlaybackControllerTests(unittest.TestCase):
         self.assertEqual(result["data"]["player"], "mpv")
 
     def test_volume_tool_validates_range_and_returns_state(self) -> None:
-        """Verifies that volume tool validates range and returns state behaves as expected.
-
-        Typical use: Use this in automated tests when guarding the volume tool validates range and returns state behavior against regressions.
-
-        Example: test_volume_tool_validates_range_and_returns_state() -> passes without assertion failures when the behavior remains correct.
-        """
         adapter = Mock()
         adapter.start.return_value = playback.PlayerState(
             provider="youtube",

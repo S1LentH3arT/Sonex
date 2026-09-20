@@ -7,6 +7,11 @@ export type PanelLifecyclePlan = Readonly<{
     resetSelection: readonly PanelName[];
 }>;
 
+export type PanelLifecycleBindings = Readonly<{
+    close: (panel: PanelName) => void;
+    resetSelection: (panel: PanelName) => void;
+}>;
+
 const plan = (close: readonly PanelName[], resetSelection: readonly PanelName[] = []): PanelLifecyclePlan => ({ close, resetSelection });
 
 export function planPanelLifecycle(trigger: PanelLifecycleTrigger): PanelLifecyclePlan {
@@ -24,4 +29,10 @@ export function planPanelLifecycle(trigger: PanelLifecycleTrigger): PanelLifecyc
         case 'bye':
             return plan(['help', 'track'], ['help', 'track']);
     }
+}
+
+export function applyPanelLifecycle(trigger: PanelLifecycleTrigger, bindings: PanelLifecycleBindings): void {
+    const lifecycle = planPanelLifecycle(trigger);
+    lifecycle.close.forEach(bindings.close);
+    lifecycle.resetSelection.forEach(bindings.resetSelection);
 }

@@ -3,29 +3,29 @@ import { Box, useApp, useInput, useStdin } from 'ink';
 import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands, unknownSlashCommandMessage } from './commands.js';
 import { getSelectableConfirmChoices } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
-import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, DEFAULT_CONFIRM_CHOICES, FALLBACK_MODEL_NAME, wsUrl } from './constants.js';
+import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, wsUrl } from './constants.js';
 import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
+import { planServerEventCoordination } from './event-coordination.js';
 import { ExtensionPanelOverlay } from './extension-panel.js';
 import { useSonexSocket } from './hooks.js';
 import { chatMessagesForTranscript, createInfoBannerItem } from './info-banner.js';
-import { applyLanguageToServerEvent, helpCommandsForLanguage, localizeSlashCommands, OFFICIAL_UI_LANGUAGE, t } from './i18n.js';
+import { applyLanguageToServerEvent, localizeSlashCommands, OFFICIAL_UI_LANGUAGE, t } from './i18n.js';
 import { LAUNCH_PREPARING_INTERVAL_MS, launchPreparingText } from './launch-preparing.js';
 import { resolveChatHeaderVariant, resolveMiniPlayerLayout, resolveSpotifyImmersiveLayout, type ShellRegion, type TerminalSize } from './layout.js';
 import { shouldRefreshMiniSnapshot, usePlaybackProgressWriter, usePlaybackStatusIconWriter } from './mini-progress-writer.js';
 import { formatModelStatus } from './model-status.js';
 import { filterModelChoices } from './model-selection.js';
-import { resolveLoginProviderSelectionIndex } from './login-navigation.js';
 import { isLocalPlaybackShortcutSource, isSpotifyPlaybackShortcutSource, playbackCommandForShortcut, playbackShortcutFromInput } from './playback-keymap.js';
 import type { TerminalSurfaceController } from './terminal-surface.js';
-import { markQueuedTracks } from './track-panel.js';
 import { TEXT_STREAM_INTERVAL_MS, nextTextStreamOffset, streamedChatMessage, textStreamUnits } from './text-stream.js';
 import { allTranscriptItems, classifyServerEventForTranscript, createTranscriptState, transcriptReducer, type TranscriptPresentation } from './transcript.js';
 import { initialShellState, planShellSurfaceTransition, reduceShellState, surfaceForShellRegion, type ShellStateAction } from './shell-state.js';
 import { createInitialRuntimeState, reduceRuntimeState, type RuntimeAction } from './runtime-state.js';
 import { resolveInputRoute } from './input-routing.js';
 import { initialProviderState, reduceProviderState, type ProviderAction } from './provider-state.js';
-import { planPanelLifecycle, type PanelLifecycleTrigger } from './panel-lifecycle.js';
-import type { AuthRuntimeState, ChatItem, ChatMessageItem, ConfirmState, CoverPatternEvent, ExtensionPanelState, HelpPanelState, LanguagePanelState, MemoryPanelState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, TrackPanelState, TrackPanelTrack, TrackSummary, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import { applyPanelLifecycle as applyPanelLifecyclePlan, type PanelLifecycleTrigger } from './panel-lifecycle.js';
+import { initialServerEventState, reduceServerEventState, type MemoryEditorState, type ServerEventState } from './server-event-state.js';
+import type { ChatItem, ChatMessageItem, ConfirmState, LanguagePanelState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
 import { TOKEN_USAGE_ANIMATION_INTERVAL_MS, nextAnimatedTokenUsage } from './usage-animation.js';
 
 type InkInputKey = {
@@ -70,35 +70,45 @@ export const App: React.FC<{
         undefined,
         createTranscriptState,
     );
-    const [queueItems, setQueueItems] = useState<TrackPanelTrack[]>([]);
-    const [searchItems, setSearchItems] = useState<TrackSummary[]>([]);
-    const [trackPanel, setTrackPanel] = useState<TrackPanelState>(null);
-    const [memoryPanel, setMemoryPanel] = useState<MemoryPanelState>(null);
-    const [extensionPanel, setExtensionPanel] = useState<ExtensionPanelState>(null);
-    const [extensionPanelIndex, setExtensionPanelIndex] = useState(0);
-    const [extensionInputFocused, setExtensionInputFocused] = useState(false);
-    const [memorySearchQuery, setMemorySearchQuery] = useState("");
-    const [memoryEditor, setMemoryEditor] = useState<{
-        mode: "search" | "add" | "edit" | "setting";
-        value: string;
-        settingKey?: string;
-    } | null>(null);
-    const [player, setPlayer] = useState<PlayerState>({ name: "-", artist: "-", album: "-", duration_ms: 0, progress_ms: 0, is_playing: false });
+    const [serverEventState, dispatchServerEvent] = React.useReducer(reduceServerEventState, initialServerEventState);
+    const {
+        queueItems,
+        searchItems,
+        trackPanel,
+        memoryPanel,
+        extensionPanel,
+        extensionPanelIndex,
+        extensionInputFocused,
+        memorySearchQuery,
+        memoryEditor,
+        player,
+        coverUrl,
+        coverPattern,
+        confirm,
+        confirmIndex,
+        authState,
+        helpPanel,
+        helpPanelIndex,
+        trackPanelIndex,
+        memoryPanelIndex,
+        loginSelectionIndex,
+        isExiting,
+    } = serverEventState;
+    const patchServerState = React.useCallback((key: keyof typeof initialServerEventState, value: unknown) => {
+        dispatchServerEvent({ type: 'patch', key, value });
+    }, []);
+    const setTrackPanel: React.Dispatch<React.SetStateAction<ServerEventState['trackPanel']>> = (value) => patchServerState('trackPanel', value);
+    const setMemoryPanel: React.Dispatch<React.SetStateAction<ServerEventState['memoryPanel']>> = (value) => patchServerState('memoryPanel', value);
+    const setExtensionPanel: React.Dispatch<React.SetStateAction<ServerEventState['extensionPanel']>> = (value) => patchServerState('extensionPanel', value);
+    const setExtensionPanelIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('extensionPanelIndex', value);
+    const setExtensionInputFocused: React.Dispatch<React.SetStateAction<boolean>> = (value) => patchServerState('extensionInputFocused', value);
+    const setMemorySearchQuery: React.Dispatch<React.SetStateAction<string>> = (value) => patchServerState('memorySearchQuery', value);
+    const setMemoryEditor: React.Dispatch<React.SetStateAction<MemoryEditorState>> = (value) => patchServerState('memoryEditor', value);
     const [launchPreparingFrame, setLaunchPreparingFrame] = useState(0);
-    const [coverUrl, setCoverUrl] = useState<string | null>(null);
-    const [coverPattern, setCoverPattern] = useState<CoverPatternEvent | null>(null);
-    const coverUrlRef = React.useRef<string | null>(null);
-    const [confirm, setConfirm] = useState<ConfirmState>(null);
-    const [confirmIndex, setConfirmIndex] = useState(0); // 0=Yes, 1=No
+    const setConfirm: React.Dispatch<React.SetStateAction<ConfirmState>> = (value) => patchServerState('confirm', value);
+    const setConfirmIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('confirmIndex', value); // 0=Yes, 1=No
     const [providerState, dispatchProviderState] = React.useReducer(reduceProviderState, initialProviderState);
     const { spotifyMode, providerMode, spotifySetup, authSetup } = providerState;
-    const [authState, setAuthState] = useState<AuthRuntimeState>({
-        ready: false,
-        provider: "openai",
-        model: FALLBACK_MODEL_NAME,
-        auth_type: "none",
-        credential_source: "pending",
-    });
     const [shellState, dispatchShellState] = React.useReducer(reduceShellState, initialShellState);
     const activeRegion = shellState.region;
     const playbackSessionActive = shellState.playbackSessionActive;
@@ -109,14 +119,14 @@ export const App: React.FC<{
     });
     const [slashIndex, setSlashIndex] = useState(0);
     const [slashMenuDismissedFor, setSlashMenuDismissedFor] = useState<string | null>(null);
-    const [isExiting, setIsExiting] = useState(false);
-    const [helpPanel, setHelpPanel] = useState<HelpPanelState>(null);
-    const [helpPanelIndex, setHelpPanelIndex] = useState(0);
+    const setIsExiting: React.Dispatch<React.SetStateAction<boolean>> = (value) => patchServerState('isExiting', value);
+    const setHelpPanel: React.Dispatch<React.SetStateAction<ServerEventState['helpPanel']>> = (value) => patchServerState('helpPanel', value);
+    const setHelpPanelIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('helpPanelIndex', value);
     const [languagePanel, setLanguagePanel] = useState<LanguagePanelState>(null);
     const [languagePanelIndex, setLanguagePanelIndex] = useState(0);
-    const [trackPanelIndex, setTrackPanelIndex] = useState(0);
-    const [memoryPanelIndex, setMemoryPanelIndex] = useState(0);
-    const [loginSelectionIndex, setLoginSelectionIndex] = useState(0);
+    const setTrackPanelIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('trackPanelIndex', value);
+    const setMemoryPanelIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('memoryPanelIndex', value);
+    const setLoginSelectionIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('loginSelectionIndex', value);
     const [loginApiKeyInput, setLoginApiKeyInput] = useState("");
     const runtimeStateRef = React.useRef(runtimeState);
     const providerStateRef = React.useRef(providerState);
@@ -376,18 +386,19 @@ export const App: React.FC<{
     }, [launchPreparing]);
 
     const applyPanelLifecycle = React.useCallback((trigger: PanelLifecycleTrigger) => {
-        const lifecycle = planPanelLifecycle(trigger);
-        for (const panel of lifecycle.close) {
-            if (panel === 'track') setTrackPanel(null);
-            if (panel === 'memory') setMemoryPanel(null);
-            if (panel === 'extension') setExtensionPanel(null);
-            if (panel === 'help') setHelpPanel(null);
-            if (panel === 'language') setLanguagePanel(null);
-        }
-        for (const panel of lifecycle.resetSelection) {
-            if (panel === 'track') setTrackPanelIndex(0);
-            if (panel === 'help') setHelpPanelIndex(0);
-        }
+        applyPanelLifecyclePlan(trigger, {
+            close: (panel) => {
+                if (panel === 'track') setTrackPanel(null);
+                if (panel === 'memory') setMemoryPanel(null);
+                if (panel === 'extension') setExtensionPanel(null);
+                if (panel === 'help') setHelpPanel(null);
+                if (panel === 'language') setLanguagePanel(null);
+            },
+            resetSelection: (panel) => {
+                if (panel === 'track') setTrackPanelIndex(0);
+                if (panel === 'help') setHelpPanelIndex(0);
+            },
+        });
     }, []);
 
     React.useEffect(() => {
@@ -452,7 +463,7 @@ export const App: React.FC<{
             : extensionSetupInput?.mask
                 ? "*"
             : undefined;
-    const onEvent = React.useCallback((rawEvent: ServerEvent) => {
+    const applyServerEvent = React.useCallback((rawEvent: ServerEvent) => {
         const evt = applyLanguageToServerEvent(rawEvent, language);
         const transcriptClass = classifyServerEventForTranscript(evt);
         if (transcriptClass === "chat" && evt.type === "chat") {
@@ -491,6 +502,18 @@ export const App: React.FC<{
             applyProviderAction({ type: "event", event: evt });
         }
 
+        const coordination = planServerEventCoordination(evt, {
+            shellState: shellStateRef.current,
+            providerMode: providerModeRef.current.enabled && providerModeRef.current.provider !== "normal"
+                ? providerModeRef.current.provider
+                : null,
+        });
+        const dismissedConfirm = evt.type === "confirm" && dismissedConfirmIdsRef.current.has(evt.id);
+        dispatchServerEvent({ type: 'event', event: evt, language, dismissedConfirm });
+        if (!dismissedConfirm) {
+            if (coordination.panelLifecycle) applyPanelLifecycle(coordination.panelLifecycle);
+        }
+
         switch (evt.type) {
             case "session_state":
                 break;
@@ -510,184 +533,64 @@ export const App: React.FC<{
                     setSlashMenuDismissedFor(null);
                 }
                 break;
-            case "queue":
-                setQueueItems(evt.tracks);
-                setTrackPanel((current) => current ? { ...current, tracks: markQueuedTracks(current.panel === "queue" ? evt.tracks : current.tracks, evt.tracks) } : current);
-                break;
             case "track_panel":
-                setTrackPanel({
-                    panel: evt.panel,
-                    title: evt.title,
-                    hint: evt.hint,
-                    tracks: markQueuedTracks(evt.tracks, queueItems),
-                });
-                setTrackPanelIndex(0);
-                switchRegion("trackPanel");
+                if (coordination.region === "trackPanel") switchRegion("trackPanel");
                 break;
             case "memory_panel":
-                setMemoryPanel({
-                    view: evt.view,
-                    target: evt.target,
-                    title: evt.title,
-                    hint: evt.hint,
-                    readOnly: Boolean(evt.read_only),
-                    entries: evt.entries ?? [],
-                    settings: evt.settings,
-                });
-                setMemoryPanelIndex(0);
-                setMemorySearchQuery("");
-                setMemoryEditor(null);
-                switchRegion("memoryPanel");
+                if (coordination.region === "memoryPanel") switchRegion("memoryPanel");
                 break;
-            case "extension_panel": {
-                const selected = evt.selected_extension ?? null;
-                setExtensionPanel({
-                    view: evt.view,
-                    title: evt.title,
-                    hint: evt.hint,
-                    selectedExtension: selected,
-                    extensions: evt.extensions,
-                    detail: evt.detail,
-                    setup: evt.setup,
-                });
-                const nextIndex = evt.view === "detail"
-                    ? (() => {
-                        const detailActions = evt.detail?.actions ?? [];
-                        const focused = evt.detail?.selected_action;
-                        const focusedIndex = focused ? detailActions.indexOf(focused) : 0;
-                        return focusedIndex >= 0 ? focusedIndex : 0;
-                    })()
-                    : evt.view === "setup"
-                        ? evt.setup?.dependencies && evt.setup.selected_dependency
-                            ? Math.max(0, evt.setup.dependencies.findIndex((dependency) => dependency.id === evt.setup?.selected_dependency))
-                            : 0
-                    : selected
-                        ? evt.extensions.findIndex((extension) => extension.id === selected)
-                        : 0;
-                setExtensionPanelIndex(Math.max(0, nextIndex));
-                setExtensionInputFocused(false);
-                applyPanelLifecycle("extension_event");
+            case "extension_panel":
                 break;
-            }
             case "search_results": {
-                setSearchItems(evt.tracks);
-                const first = evt.tracks[0];
-                if (first) {
-                    setPlayer({
-                        name: first.title || first.name || "-",
-                        artist: first.artist || "-",
-                        album: first.album || "-",
-                        duration_ms: first.duration_ms || 0,
-                        progress_ms: 0,
-                        is_playing: false,
-                    });
-                    coverUrlRef.current = first.album_cover_url ?? null;
-                    setCoverUrl(first.album_cover_url ?? null);
-                    setCoverPattern(null);
-                }
                 break;
             }
             case "player":
-                setPlayer(evt.state);
-                const nextShellState = reduceShellState(shellStateRef.current, {
-                    type: "player_event",
-                    player: evt.state,
-                    spotifyModeEnabled: false,
-                    providerMode: providerModeRef.current.enabled && providerModeRef.current.provider !== "normal"
-                        ? providerModeRef.current.provider
-                        : null,
-                });
-                if (nextShellState.region !== shellStateRef.current.region) {
-                    switchRegion(nextShellState.region);
+                if (coordination.shellState) {
+                    if (coordination.shellState.region !== shellStateRef.current.region) {
+                        switchRegion(coordination.shellState.region);
+                    }
+                    applyShellAction({ type: "replace", state: coordination.shellState });
                 }
-                applyShellAction({ type: "replace", state: nextShellState });
                 break;
             case "spotify_mode":
-                if (!evt.enabled && shellStateRef.current.region === "spotifyImmersive") {
-                    switchRegion("chat");
+                if (coordination.shellState) {
+                    switchRegion(coordination.shellState.region);
+                    applyShellAction({ type: "replace", state: coordination.shellState });
                 }
                 break;
             case "provider_mode": {
-                if (!evt.enabled && shellStateRef.current.region === "providerImmersive") {
-                    switchRegion("chat");
+                if (coordination.shellState) {
+                    switchRegion(coordination.shellState.region);
+                    applyShellAction({ type: "replace", state: coordination.shellState });
                 }
                 break;
             }
             case "cover":
-                coverUrlRef.current = evt.url;
-                setCoverUrl(evt.url);
-                setCoverPattern(null);
                 break;
             case "cover_pattern":
-                setCoverPattern((prev) => {
-                    if (evt.source_url !== coverUrlRef.current) return prev;
-                    return evt;
-                });
                 break;
             case "cover_pattern_unavailable":
-                setCoverPattern((prev) => {
-                    if (evt.source_url !== coverUrlRef.current) return prev;
-                    return {
-                        type: "cover_pattern",
-                        source_url: evt.source_url,
-                        palette: [],
-                        variants: {},
-                        unavailable_reason: evt.reason,
-                    };
-                });
                 break;
             case "confirm":
                 if (dismissedConfirmIdsRef.current.has(evt.id)) {
                     break;
                 }
                 setInput("");
-                switchRegion("chat");
-                setConfirm({
-                    id: evt.id,
-                    tool_name: evt.tool_name,
-                    tool_args: evt.tool_args ?? {},
-                    message: evt.message || `Confirm ${evt.tool_name}`,
-                    warning: evt.warning,
-                    hide_hint: evt.hide_hint === true,
-                    choices: evt.choices && evt.choices.length > 0 ? evt.choices : DEFAULT_CONFIRM_CHOICES,
-                    variant: evt.variant,
-                    commands: evt.commands ?? [],
-                    page_index: evt.page_index,
-                    page_count: evt.page_count,
-                });
-                if (evt.tool_args?.preserve_selection !== true) {
-                    setConfirmIndex(0);
-                }
+                if (coordination.region === "chat") switchRegion("chat");
                 break;
             case "confirm_dismiss": {
-                const currentConfirm = confirmRef.current;
                 dismissedConfirmIdsRef.current.add(evt.id);
-                if (currentConfirm?.id === evt.id) {
-                    setConfirm(null);
-                }
                 break;
             }
             case "spotify_setup":
-                applyPanelLifecycle("setup_event");
-                if (evt.active !== false) {
-                    switchRegion("chat");
-                }
+                if (coordination.region === "chat") switchRegion("chat");
                 break;
             case "auth_setup":
-                applyPanelLifecycle("setup_event");
                 if (evt.active === false && evt.step === "model") {
                     setInput("");
                     break;
                 }
-                if (evt.active !== false) {
-                    switchRegion("chat");
-                }
-                if (evt.step === "provider") {
-                    const providers = evt.providers ?? [];
-                    setLoginSelectionIndex(resolveLoginProviderSelectionIndex(providers, evt.provider));
-                } else {
-                    setLoginSelectionIndex(0);
-                }
+                if (coordination.region === "chat") switchRegion("chat");
                 if (evt.step === "model") {
                     setInput("");
                 }
@@ -703,34 +606,33 @@ export const App: React.FC<{
                     credential_source: evt.credential_source,
                     reason: evt.reason,
                 };
-                setAuthState(nextAuthState);
                 if (!startupInfoCapturedRef.current) {
                     startupInfoCapturedRef.current = true;
                     commitItems([createInfoBannerItem(
                         nextAuthState,
                         RUNTIME_WORKING_DIRECTORY,
                         sessionIdRef.current,
-                        { showLogo: true },
                     )]);
                 }
                 break;
             case "help_panel":
-                switchRegion("chat");
-                applyPanelLifecycle("help_event");
-                setHelpPanel({
-                    title: evt.title,
-                    hint: evt.hint,
-                    commands: helpCommandsForLanguage(evt.commands, language),
-                });
+                if (coordination.region === "chat") switchRegion("chat");
                 break;
             case "bye":
-                setIsExiting(true);
-                switchRegion("chat");
-                applyPanelLifecycle("bye");
+                if (coordination.region === "chat") switchRegion("chat");
                 setTimeout(() => exit(), 80);
                 break;
         }
-    }, [applyPanelLifecycle, applyRuntimeAction, applyShellAction, commitItems, exit, finishActiveTextStream, language, queueItems, showError, startTextStream, switchRegion, transcriptPresentation]);
+    }, [applyPanelLifecycle, applyRuntimeAction, applyShellAction, commitItems, exit, finishActiveTextStream, language, showError, startTextStream, switchRegion, transcriptPresentation]);
+
+    const onEvent = React.useCallback((rawEvent: ServerEvent) => {
+        try {
+            applyServerEvent(rawEvent);
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            showError("Unable to apply server event.", detail);
+        }
+    }, [applyServerEvent, showError]);
 
     const { send } = useSonexSocket({
         url: wsUrl,

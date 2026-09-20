@@ -19,7 +19,6 @@ import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout,
 import { filterModelChoices, formatModelPanelLabel, modelPanelLabelWidth } from './model-selection.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
 import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem } from './panel-frame.js';
-import { SONEX_LOGO } from './sonex-logo.js';
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import { ExtensionPanelOverlay } from './extension-panel.js';
@@ -36,23 +35,6 @@ const Mascot = () => {
                             {segment.text}
                         </Text>
                     ))}
-                </Text>
-            ))}
-        </Box>
-    );
-};
-
-export const SonexLogo = () => {
-    const useColor = process.env.NO_COLOR === undefined;
-    return (
-        <Box width="100%" flexDirection="column">
-            {SONEX_LOGO.map((line, rowIndex) => (
-                <Text
-                    key={rowIndex}
-                    color={useColor ? BORDER_BLUE_SOFT : undefined}
-                    wrap="truncate-end"
-                >
-                    {line}
                 </Text>
             ))}
         </Box>
@@ -567,21 +549,13 @@ export const CommittedRecord = ({
 }) => (
     <Box flexDirection="column" paddingX={1}>
         {record.item.type === "info_banner" ? (
-            <>
-                {record.item.showLogo ? (
-                    <>
-                        <SonexLogo />
-                        <Box height={1} />
-                    </>
-                ) : null}
-                <HeaderFrame
-                    authState={record.item.authState}
-                    cwd={record.item.cwd}
-                    sessionId={record.item.sessionId}
-                    variant={record.presentation.headerVariant}
-                    language={record.presentation.language}
-                />
-            </>
+            <HeaderFrame
+                authState={record.item.authState}
+                cwd={record.item.cwd}
+                sessionId={record.item.sessionId}
+                variant={record.presentation.headerVariant}
+                language={record.presentation.language}
+            />
         ) : (
             <ChatBubble
                 role={record.item.role}

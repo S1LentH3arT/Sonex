@@ -1,7 +1,4 @@
 """Core support for agent planning, tool execution, and ui event streaming.
-
-Implements the core module responsibilities used by Sonex runtime flows.
-Key public entry points include AgentState, agent_loop.
 """
 
 import logging
@@ -54,21 +51,9 @@ class AgentState:
     calls: list[ToolAction] | None = None
 
 def _format_error(exc: Exception) -> str:
-    """Prepares format error for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs format error without duplicating the local rules.
-
-    Example: _format_error(exc=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return sanitize_error_message(exc)
 
 def _safe_memory_call(label: str, fn: Any, *args: Any, **kwargs: Any) -> Any:
-    """Prepares safe memory call for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs safe memory call without duplicating the local rules.
-
-    Example: _safe_memory_call(label=..., fn=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         return fn(*args, **kwargs)
     except Exception as exc:
@@ -81,12 +66,6 @@ def agent_loop(
     tools: ToolRegistry,
     command_intent: CommandIntent | None = None,
 ) -> Generator[AgentState, AgentState, None]:
-    """Coordinates agent loop for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs agent loop as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: agent_loop(user_input=..., tools=..., command_intent=...) -> returns the value used by the surrounding Sonex flow.
-    """
     user_context: dict[str, Any]= {"user": user_input}
     if command_intent:
         user_context["command_intent"] = {

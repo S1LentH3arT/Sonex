@@ -1,13 +1,10 @@
 """Player permission support for tool implementations used by the planner and playback flows.
-
-Implements the player_permission module responsibilities used by Sonex runtime flows.
-Key public entry points include normalize_player, player_label, is_player_allowed, remember_player, build_player_confirm_result.
 """
 
 from __future__ import annotations
 
 import subprocess
-from typing import Any
+from typing import Any, Callable
 
 from src.tools.result import ToolResult
 from src.tools.player_permission_state import (
@@ -20,12 +17,6 @@ from src.tools.player_permission_state import (
 
 _ALLOWED_PLAYERS: set[str] = set()
 def is_player_allowed(player: str) -> bool:
-    """Checks whether is player allowed is true for the supplied input.
-
-    Typical use: Use this function when runtime code needs is player allowed as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: is_player_allowed(player=...) -> returns the value used by the surrounding Sonex flow.
-    """
     normalized = normalize_player(player)
     if normalized in _ALLOWED_PLAYERS:
         return True
@@ -33,12 +24,6 @@ def is_player_allowed(player: str) -> bool:
 
 
 def remember_player(player: str) -> None:
-    """Coordinates remember player for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs remember player as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: remember_player(player=...) -> returns the value used by the surrounding Sonex flow.
-    """
     normalized = normalize_player(player)
     _ALLOWED_PLAYERS.add("mpv" if normalized == "auto" else normalized)
 
@@ -51,12 +36,6 @@ def build_player_confirm_result(
     success_message: str,
     data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Builds player confirm result from the supplied input.
-
-    Typical use: Use this function when runtime code needs build player confirm result as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: build_player_confirm_result(tool=..., player=..., cmd=..., success_message=..., data=...) -> returns the value used by the surrounding Sonex flow.
-    """
     label = player_label(player)
     return {
         "status": "requires_player_confirm",
@@ -75,7 +54,7 @@ def build_player_confirm_result(
     }
 
 
-def launch_player_command(
+def launch_legacy_player_command(
     *,
     tool: str,
     player: str,
@@ -83,12 +62,6 @@ def launch_player_command(
     success_message: str,
     data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Coordinates launch player command for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs launch player command as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: launch_player_command(tool=..., player=..., cmd=..., success_message=..., data=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         subprocess.Popen(
             cmd,
@@ -111,13 +84,48 @@ def launch_player_command(
     ).to_dict()
 
 
+def confirm_or_start_playback(
+    *,
+    tool: str,
+    player: str,
+    source_url: str,
+    source: str,
+    metadata: dict[str, Any],
+    success_message: str,
+    is_allowed: Callable[[str], bool] = is_player_allowed,
+    start: Callable[..., dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Own the shared player permission and launch handoff."""
+    cmd = ["mpv", "--no-video", source_url]
+    if not is_allowed(player):
+        return build_player_confirm_result(
+            tool=tool,
+            player=player,
+            cmd=cmd,
+            success_message=success_message,
+            data={
+                **metadata,
+                "playback_source_url": source_url,
+                "playback_source": source,
+                "playback_metadata": metadata,
+            },
+        )
+
+    if start is None:
+        from src.tools.playback_controller import start_local_playback
+
+        start = start_local_playback
+    return start(
+        tool=tool,
+        source_url=source_url,
+        source=source,
+        metadata=metadata,
+        player=player,
+        success_message=success_message,
+    )
+
+
 def complete_player_confirm(pending_result: dict[str, Any], decision: Any) -> dict[str, Any]:
-    """Coordinates complete player confirm for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs complete player confirm as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: complete_player_confirm(pending_result=..., decision=...) -> returns the value used by the surrounding Sonex flow.
-    """
     data = pending_result.get("data") or {}
     tool = str(pending_result.get("tool") or data.get("tool") or "player")
     player = str(data.get("player") or "")
@@ -155,7 +163,7 @@ def complete_player_confirm(pending_result: dict[str, Any], decision: Any) -> di
     if isinstance(playback_source_url, str) and isinstance(playback_source, str) and isinstance(playback_metadata, dict):
         from src.tools.playback_controller import start_local_playback
 
-        return start_local_playback(
+        playback_result = start_local_playback(
             tool=tool,
             source_url=playback_source_url,
             source=playback_source,  # type: ignore[arg-type]
@@ -163,8 +171,11 @@ def complete_player_confirm(pending_result: dict[str, Any], decision: Any) -> di
             player=selected_player,
             success_message=str(data.get("success_message") or f"Playing via {selected_player} started."),
         )
+        return playback_result
 
-    return launch_player_command(
+    # Pending results created before the controllable playback metadata seam
+    # remain supported through this explicit legacy adapter.
+    return launch_legacy_player_command(
         tool=tool,
         player=selected_player,
         cmd=cmd,

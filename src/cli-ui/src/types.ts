@@ -339,7 +339,6 @@ export type InfoBannerItem = {
     authState: AuthRuntimeState;
     cwd: string;
     sessionId: string | null;
-    showLogo: boolean;
 };
 
 export type ChatItem = ChatMessageItem | InfoBannerItem;

@@ -1,7 +1,4 @@
 """Cover sources support for tool implementations used by the planner and playback flows.
-
-Implements the cover_sources module responsibilities used by Sonex runtime flows.
-Key public entry points include cover_bytes_for_source, register_cover_bytes, extract_embedded_cover, resolve_online_cover, lookup_cover_art_url.
 """
 
 from __future__ import annotations
@@ -27,6 +24,7 @@ MUSICBRAINZ_USER_AGENT = "Sonex/1.0 (https://github.com/sonex)"
 MUSICBRAINZ_SEARCH_URL = "https://musicbrainz.org/ws/2/recording"
 COVER_ART_ARCHIVE_BASE = "https://coverartarchive.org"
 MUSICBRAINZ_MIN_INTERVAL_SECONDS = 1.0
+DEFAULT_COVER_LOOKUP_TIMEOUT_SECONDS = 6.0
 
 _embedded_cover_bytes: dict[str, bytes] = {}
 _musicbrainz_lock = threading.Lock()
@@ -34,22 +32,10 @@ _last_musicbrainz_request = 0.0
 
 
 def cover_bytes_for_source(source: str) -> bytes | None:
-    """Coordinates cover bytes for source for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs cover bytes for source as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: cover_bytes_for_source(source=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return _embedded_cover_bytes.get(source)
 
 
 def register_cover_bytes(image_bytes: bytes) -> str:
-    """Coordinates register cover bytes for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs register cover bytes as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: register_cover_bytes(image_bytes=...) -> returns the value used by the surrounding Sonex flow.
-    """
     digest = hashlib.sha256(image_bytes).hexdigest()
     source = f"embedded:{digest}"
     _embedded_cover_bytes[source] = image_bytes
@@ -57,12 +43,6 @@ def register_cover_bytes(image_bytes: bytes) -> str:
 
 
 def extract_embedded_cover(path: str | Path) -> dict[str, Any] | None:
-    """Coordinates extract embedded cover for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs extract embedded cover as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: extract_embedded_cover(path=...) -> returns the value used by the surrounding Sonex flow.
-    """
     try:
         from mutagen import File
         from mutagen.flac import Picture
@@ -72,12 +52,6 @@ def extract_embedded_cover(path: str | Path) -> dict[str, Any] | None:
         raise RuntimeError("mutagen is required to read embedded cover art.") from exc
 
     def id3_fallback() -> dict[str, Any] | None:
-        """Coordinates id3 fallback for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs id3 fallback as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: id3_fallback() -> returns the value used by the surrounding Sonex flow.
-        """
         try:
             tags = ID3(str(path))
         except Exception:
@@ -142,13 +116,11 @@ def extract_embedded_cover(path: str | Path) -> dict[str, Any] | None:
     }
 
 
-def resolve_online_cover(metadata: dict[str, Any]) -> dict[str, Any]:
-    """Resolves online cover from available runtime state.
-
-    Typical use: Use this function when runtime code needs resolve online cover as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: resolve_online_cover(metadata=...) -> returns the value used by the surrounding Sonex flow.
-    """
+def resolve_online_cover(
+    metadata: dict[str, Any],
+    *,
+    timeout_seconds: float = DEFAULT_COVER_LOOKUP_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     provider_cover = _provider_cover_url(metadata)
     if provider_cover:
         return {
@@ -161,6 +133,7 @@ def resolve_online_cover(metadata: dict[str, Any]) -> dict[str, Any]:
         name=str(metadata.get("name") or metadata.get("title") or "").strip(),
         artist=str(metadata.get("artist") or "").strip(),
         album=str(metadata.get("album") or "").strip(),
+        timeout_seconds=timeout_seconds,
     )
     if caa_url:
         return {
@@ -171,38 +144,52 @@ def resolve_online_cover(metadata: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
-def lookup_cover_art_url(*, name: str, artist: str, album: str = "") -> str | None:
-    """Coordinates lookup cover art url for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs lookup cover art url as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: lookup_cover_art_url(name=..., artist=..., album=...) -> returns the value used by the surrounding Sonex flow.
-    """
+def lookup_cover_art_url(
+    *,
+    name: str,
+    artist: str,
+    album: str = "",
+    timeout_seconds: float = DEFAULT_COVER_LOOKUP_TIMEOUT_SECONDS,
+) -> str | None:
     if not name or not artist:
         return None
+    deadline = time.monotonic() + max(0.01, float(timeout_seconds))
     try:
-        release_group_mbid, release_mbid = _musicbrainz_cover_candidates(name=name, artist=artist, album=album)
+        release_group_mbid, release_mbid = _musicbrainz_cover_candidates(
+            name=name,
+            artist=artist,
+            album=album,
+            deadline=deadline,
+        )
     except Exception:
         return None
 
     for endpoint in _caa_front_endpoints(release_group_mbid, release_mbid):
-        if _cover_art_exists(endpoint):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if _cover_art_exists(endpoint, timeout_seconds=remaining):
             return endpoint
     return None
 
 
-def _musicbrainz_cover_candidates(*, name: str, artist: str, album: str) -> tuple[str | None, str | None]:
-    """Prepares musicbrainz cover candidates for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs musicbrainz cover candidates without duplicating the local rules.
-
-    Example: _musicbrainz_cover_candidates(name=..., artist=..., album=...) -> returns the value used by the surrounding Sonex flow.
-    """
+def _musicbrainz_cover_candidates(
+    *,
+    name: str,
+    artist: str,
+    album: str,
+    deadline: float | None = None,
+) -> tuple[str | None, str | None]:
     query_parts = [f'recording:"{name}"', f'artist:"{artist}"']
     if album and album != "-":
         query_parts.append(f'release:"{album}"')
     params = urlencode({"query": " AND ".join(query_parts), "fmt": "json", "limit": "5"})
-    payload = _musicbrainz_json(f"{MUSICBRAINZ_SEARCH_URL}?{params}")
+    timeout_seconds = (
+        DEFAULT_COVER_LOOKUP_TIMEOUT_SECONDS
+        if deadline is None
+        else max(0.01, deadline - time.monotonic())
+    )
+    payload = _musicbrainz_json(f"{MUSICBRAINZ_SEARCH_URL}?{params}", timeout_seconds=timeout_seconds)
     recordings = payload.get("recordings") if isinstance(payload, dict) else None
     if not isinstance(recordings, list):
         return None, None
@@ -227,35 +214,35 @@ def _musicbrainz_cover_candidates(*, name: str, artist: str, album: str) -> tupl
     return best_release_group, best_release
 
 
-def _musicbrainz_json(url: str) -> dict[str, Any]:
-    """Prepares musicbrainz json for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs musicbrainz json without duplicating the local rules.
-
-    Example: _musicbrainz_json(url=...) -> returns the value used by the surrounding Sonex flow.
-    """
+def _musicbrainz_json(
+    url: str,
+    *,
+    timeout_seconds: float = DEFAULT_COVER_LOOKUP_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    deadline = time.monotonic() + max(0.01, float(timeout_seconds))
     global _last_musicbrainz_request
     with _musicbrainz_lock:
         elapsed = time.monotonic() - _last_musicbrainz_request
         if elapsed < MUSICBRAINZ_MIN_INTERVAL_SECONDS:
-            time.sleep(MUSICBRAINZ_MIN_INTERVAL_SECONDS - elapsed)
+            time.sleep(min(MUSICBRAINZ_MIN_INTERVAL_SECONDS - elapsed, max(0.0, deadline - time.monotonic())))
         _last_musicbrainz_request = time.monotonic()
 
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Cover lookup exceeded its time budget.")
     request = Request(url, headers={"User-Agent": MUSICBRAINZ_USER_AGENT, "Accept": "application/json"})
-    with urlopen(request, timeout=6) as response:
+    with urlopen(request, timeout=remaining) as response:
         return json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
 
 
-def _cover_art_exists(url: str) -> bool:
-    """Prepares cover art exists for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs cover art exists without duplicating the local rules.
-
-    Example: _cover_art_exists(url=...) -> returns the value used by the surrounding Sonex flow.
-    """
+def _cover_art_exists(
+    url: str,
+    *,
+    timeout_seconds: float = DEFAULT_COVER_LOOKUP_TIMEOUT_SECONDS,
+) -> bool:
     request = Request(url, headers={"User-Agent": MUSICBRAINZ_USER_AGENT})
     try:
-        with urlopen(request, timeout=6):
+        with urlopen(request, timeout=max(0.01, float(timeout_seconds))):
             return True
     except Exception:
         return False

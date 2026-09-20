@@ -1,7 +1,4 @@
 """Oauth support for provider authentication and credential persistence.
-
-Implements the oauth module responsibilities used by Sonex runtime flows.
-Key public entry points include OAuthUnsupportedError, OAuthTokenExpiredError, provider_supports_oauth, save_oauth_token, ensure_oauth_token_usable.
 """
 
 from __future__ import annotations
@@ -16,28 +13,14 @@ _ACCESS_TOKEN_CACHE: dict[str, OAuthToken] = {}
 
 
 class OAuthUnsupportedError(RuntimeError):
-    """Represents oauth unsupported error.
-
-    Encapsulates oauth unsupported error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
-    """
     pass
 
 
 class OAuthTokenExpiredError(RuntimeError):
-    """Represents oauth token expired error.
-
-    Encapsulates oauth token expired error data and behavior used by Sonex runtime flows. Extends runtime error semantics.
-    """
     pass
 
 
 def provider_supports_oauth(provider: str) -> bool:
-    """Coordinates provider supports oauth for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs provider supports oauth as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: provider_supports_oauth(provider=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return get_provider_capability(provider).supports_oauth
 
 
@@ -52,12 +35,6 @@ def save_oauth_token(
     base_url: str | None = None,
     project_id: str | None = None,
 ) -> None:
-    """Persists oauth token for later use.
-
-    Typical use: Use this function when runtime code needs save oauth token as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: save_oauth_token(provider=..., access_token=..., refresh_token=..., expires_at=..., scopes=..., model=..., base_url=...) -> returns the value used by the surrounding Sonex flow.
-    """
     name = normalize_provider(provider)
     if not provider_supports_oauth(name):
         raise OAuthUnsupportedError(
@@ -85,12 +62,6 @@ def ensure_oauth_token_usable(
     *,
     project_id: str | None = None,
 ) -> OAuthToken:
-    """Coordinates ensure oauth token usable for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs ensure oauth token usable as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: ensure_oauth_token_usable(provider=..., token=...) -> returns the value used by the surrounding Sonex flow.
-    """
     name = normalize_provider(provider)
     cached = _ACCESS_TOKEN_CACHE.get(name)
     if not token.access_token and cached and cached.access_token:

@@ -1,7 +1,4 @@
 """Memory support for local memory storage and retrieval.
-
-Implements the memory module responsibilities used by Sonex runtime flows.
-Key public entry points include MemoryPaths, MemoryEntry, MemoryStore.
 """
 
 from __future__ import annotations
@@ -42,10 +39,6 @@ SUPPORTED_MEMORY_TARGETS = {"memory", "user", "all"}
 
 @dataclass(frozen=True)
 class MemoryPaths:
-    """Represents memory paths.
-
-    Encapsulates memory paths data and behavior used by Sonex runtime flows.
-    """
     memory: Path
     user: Path
     state: Path
@@ -59,10 +52,6 @@ class MemoryPaths:
 
 @dataclass(frozen=True)
 class MemoryEntry:
-    """Represents memory entry.
-
-    Encapsulates memory entry data and behavior used by Sonex runtime flows.
-    """
     entry_id: str
     target: MemoryTarget
     content: str
@@ -89,10 +78,6 @@ def bind_memory_scope(session_id: str, turn_id: str | None = None) -> None:
 
 
 class MemoryStore:
-    """Represents memory store.
-
-    Encapsulates memory store data and behavior used by Sonex runtime flows.
-    """
     def __init__(self) -> None:
         """Init for memory store.
 
@@ -140,12 +125,6 @@ class MemoryStore:
         self.rebuild_memory_index()
 
     def get_db(self) -> Path:
-        """Returns db for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs get db as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: get_db() -> returns the value used by the surrounding Sonex flow.
-        """
         scoped_session_id = _ACTIVE_SESSION_ID.get()
         session_id = scoped_session_id or self.current_session_id
         if session_id is None or session_id not in self._session_store:
@@ -214,12 +193,6 @@ class MemoryStore:
         target: SearchTarget = "all",
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Coordinates search memory for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs search memory as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: search_memory(query=..., target=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if target not in SUPPORTED_MEMORY_TARGETS:
             raise ValueError(f"Unsupported memory target: {target}")
 
@@ -243,12 +216,6 @@ class MemoryStore:
         return [dict(row) for row in rows]
 
     def append_context(self, role: str, content: dict[str, Any], tags: list[str]) -> int:
-        """Coordinates append context for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs append context as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: append_context(role=..., content=..., tags=...) -> returns the value used by the surrounding Sonex flow.
-        """
         with sqlite3.connect(self.get_db()) as conn:
             cursor = conn.execute(
                 """
@@ -447,12 +414,6 @@ class MemoryStore:
         table: SearchContextTable = "auto",
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Coordinates search context for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs search context as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: search_context(query=..., table=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if table not in SUPPORTED_CONTEXT_TABLES:
             raise ValueError(f"Unsupported context table: {table}")
 
@@ -508,12 +469,6 @@ class MemoryStore:
         source_context_id: int | None = None,
         kind: str = "turn_summary",
     ) -> None:
-        """Coordinates upsert cache for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs upsert cache as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: upsert_cache(key=..., summary=..., tags=..., importance=..., source=..., source_context_id=..., kind=...) -> returns the value used by the surrounding Sonex flow.
-        """
         key = key.strip()
         summary = summary.strip()
         if not key or not summary:
@@ -548,12 +503,6 @@ class MemoryStore:
             )
 
     def record_context_access(self, context_id: int) -> None:
-        """Coordinates record context access for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs record context access as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: record_context_access(context_id=...) -> returns the value used by the surrounding Sonex flow.
-        """
         with sqlite3.connect(self.get_db()) as conn:
             conn.row_factory = sqlite3.Row
             self._record_context_accesses(conn, [context_id])
@@ -565,12 +514,6 @@ class MemoryStore:
         target: ContextTable,
         limit: int = 5,
     ) -> dict[str, str] | list[dict[str, Any]]:
-        """Coordinates query for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs query as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: query(param=..., query=..., target=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-        """
         params = SUPPORTED_CONTEXT_QUERY_PARAMS if target == "context" else SUPPORTED_CACHE_QUERY_PARAMS
         if target not in {"context", "cache"}:
             return {"error": f"Target '{target}' is not supported."}
@@ -611,12 +554,6 @@ class MemoryStore:
         source: str = "explicit",
         confidence: float = 1.0,
     ) -> dict[str, Any]:
-        """Coordinates add for the current Sonex flow.
-
-        Typical use: Use this function when runtime code needs add as part of a Sonex command, playback, auth, llm, or ui path.
-
-        Example: add(target=..., content=...) -> returns the value used by the surrounding Sonex flow.
-        """
         self._ensure_runtime_loaded()
         if self._read_only:
             return {"success": False, "error": "Memory is read only."}
@@ -1139,12 +1076,6 @@ class MemoryStore:
         return self._sqlite.search_like(conn, query, target, limit)
 
     def _recent_context(self, table: ContextTable, limit: int) -> list[dict[str, Any]]:
-        """Prepares recent context for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs recent context without duplicating the local rules.
-
-        Example: _recent_context(table=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-        """
         with sqlite3.connect(self.get_db()) as conn:
             conn.row_factory = sqlite3.Row
             if table == "context":
@@ -1172,12 +1103,6 @@ class MemoryStore:
         return [dict(row) for row in rows]
 
     def _record_context_accesses(self, conn: sqlite3.Connection, context_ids: list[int]) -> None:
-        """Prepares record context accesses for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs record context accesses without duplicating the local rules.
-
-        Example: _record_context_accesses(conn=..., context_ids=...) -> returns the value used by the surrounding Sonex flow.
-        """
         for context_id in dict.fromkeys(context_ids):
             row = conn.execute(
                 """
@@ -1203,12 +1128,6 @@ class MemoryStore:
                 self._promote_context_row(conn, row)
 
     def _promote_context_row(self, conn: sqlite3.Connection, row: sqlite3.Row) -> None:
-        """Prepares promote context row for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs promote context row without duplicating the local rules.
-
-        Example: _promote_context_row(conn=..., row=...) -> returns the value used by the surrounding Sonex flow.
-        """
         context_id = int(row["id"])
         key = f"context:{context_id}"
         summary = self._summarize_context_row(row)
@@ -1245,12 +1164,6 @@ class MemoryStore:
         )
 
     def _summarize_context_row(self, row: sqlite3.Row) -> str:
-        """Prepares summarize context row for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs summarize context row without duplicating the local rules.
-
-        Example: _summarize_context_row(row=...) -> returns the value used by the surrounding Sonex flow.
-        """
         payload = self._loads_dict(row["content"])
         if row["type"] == "tool":
             tool = payload.get("tool", "unknown")
@@ -1265,12 +1178,6 @@ class MemoryStore:
         return f"Frequently referenced context: {self._clip_text(json.dumps(payload, ensure_ascii=False, default=str), 600)}"
 
     def _ensure_markdown_files(self) -> None:
-        """Prepares ensure markdown files for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs ensure markdown files without duplicating the local rules.
-
-        Example: _ensure_markdown_files() -> returns the value used by the surrounding Sonex flow.
-        """
         self.paths.memory.parent.mkdir(parents=True, exist_ok=True)
         for path in (self.paths.memory, self.paths.user):
             if not path.exists():
@@ -1302,12 +1209,6 @@ class MemoryStore:
         return str(value) if value else None
 
     def _path_for_target(self, target: MemoryTarget) -> Path:
-        """Prepares path for target for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs path for target without duplicating the local rules.
-
-        Example: _path_for_target(target=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if target == "memory":
             return self.paths.memory
         if target == "user":
@@ -1625,12 +1526,6 @@ class MemoryStore:
 
     @staticmethod
     def _loads_dict(value: Any) -> dict[str, Any]:
-        """Prepares loads dict for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs loads dict without duplicating the local rules.
-
-        Example: _loads_dict(value=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if isinstance(value, dict):
             return value
         if not isinstance(value, str):
@@ -1643,12 +1538,6 @@ class MemoryStore:
 
     @staticmethod
     def _loads_list(value: Any) -> list[str]:
-        """Prepares loads list for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs loads list without duplicating the local rules.
-
-        Example: _loads_list(value=...) -> returns the value used by the surrounding Sonex flow.
-        """
         if isinstance(value, list):
             return [str(item) for item in value]
         if not isinstance(value, str):
@@ -1663,12 +1552,6 @@ class MemoryStore:
 
     @staticmethod
     def _clip_text(text: str, limit: int) -> str:
-        """Prepares clip text for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs clip text without duplicating the local rules.
-
-        Example: _clip_text(text=..., limit=...) -> returns the value used by the surrounding Sonex flow.
-        """
         text = " ".join(text.split())
         if len(text) <= limit:
             return text
@@ -1676,12 +1559,6 @@ class MemoryStore:
 
     @staticmethod
     def _to_fts_query(query: str) -> str:
-        """Prepares to fts query for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs to fts query without duplicating the local rules.
-
-        Example: _to_fts_query(query=...) -> returns the value used by the surrounding Sonex flow.
-        """
         tokens = re.findall(r"[a-zA-Z0-9_./-]+|[\u4e00-\u9fff]+", query.lower())
         if not tokens:
             return query.replace('"', '""')
@@ -1689,12 +1566,6 @@ class MemoryStore:
 
     @staticmethod
     def _coerce_limit(limit: int) -> int:
-        """Prepares coerce limit for an internal Sonex flow.
-
-        Typical use: Use this helper when nearby code needs coerce limit without duplicating the local rules.
-
-        Example: _coerce_limit(limit=...) -> returns the value used by the surrounding Sonex flow.
-        """
         try:
             value = int(limit)
         except (TypeError, ValueError):

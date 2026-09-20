@@ -1,7 +1,4 @@
 """Providers support for provider authentication and credential persistence.
-
-Implements the providers module responsibilities used by Sonex runtime flows.
-Key public entry points include ProviderCapability, normalize_provider, normalize_provider_model, get_provider_capability, provider_names.
 """
 
 from __future__ import annotations
@@ -11,10 +8,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class ProviderCapability:
-    """Represents provider capability.
-
-    Encapsulates provider capability data and behavior used by Sonex runtime flows.
-    """
     name: str
     supports_api_key: bool
     supports_oauth: bool
@@ -127,22 +120,10 @@ PROVIDER_CAPABILITIES: dict[str, ProviderCapability] = {
 
 
 def normalize_provider(name: str) -> str:
-    """Coordinates normalize provider for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs normalize provider as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: normalize_provider(name=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return name.strip().lower().replace("-", "_")
 
 
 def normalize_provider_model(provider: str, model: str | None) -> str | None:
-    """Coordinates normalize provider model for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs normalize provider model as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: normalize_provider_model(provider=..., model=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if model is None:
         return None
 
@@ -175,12 +156,6 @@ def provider_display_name(provider: str) -> str:
 
 
 def get_provider_capability(name: str) -> ProviderCapability:
-    """Returns provider capability for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs get provider capability as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: get_provider_capability(name=...) -> returns the value used by the surrounding Sonex flow.
-    """
     normalized = normalize_provider(name)
     if normalized.startswith("custom__"):
         return ProviderCapability(
@@ -200,10 +175,4 @@ def get_provider_capability(name: str) -> ProviderCapability:
 
 
 def provider_names() -> set[str]:
-    """Coordinates provider names for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs provider names as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: provider_names() -> returns the value used by the surrounding Sonex flow.
-    """
     return set(PROVIDER_CAPABILITIES)

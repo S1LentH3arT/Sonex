@@ -10,7 +10,7 @@ assert.match(appSource, /const playbackSessionActive = shellState\.playbackSessi
 assert.match(appSource, /const switchRegion = React\.useCallback/);
 assert.match(appSource, /terminalSurface\.transition\(nextSurface, \(surface\) => \{[\s\S]*dispatchTranscript\(\{ type: "setSurface", surface \}\)[\s\S]*applyShellAction\(\{ type: "set_region", region: nextRegion \}\)/);
 assert.doesNotMatch(appSource, /clearTerminalForLayoutSwitch|stdout\.write\(['"]\\u001B\[2J/);
-assert.match(appSource, /reduceShellState\(shellStateRef\.current, \{[\s\S]*type: "player_event"/);
+assert.match(appSource, /planServerEventCoordination\(evt, \{[\s\S]*shellState: shellStateRef\.current/);
 assert.match(appSource, /reduceShellState\(shellStateRef\.current, \{[\s\S]*type: "toggle_region"/);
 assert.match(appSource, /switchRegion\("chat"\)/);
 assert.doesNotMatch(appSource, /activeRegion === "chat" \? <HeaderFrame/);

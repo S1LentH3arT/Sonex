@@ -1,7 +1,4 @@
 """Base support for language model configuration, catalogs, transports, and planning.
-
-Implements the base module responsibilities used by Sonex runtime flows.
-Key public entry points include BaseAdapter, DefaultAdapter.
 """
 
 import json

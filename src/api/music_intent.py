@@ -1,7 +1,4 @@
 """Music intent support for fastapi and websocket routing for the sonex runtime.
-
-Implements the music_intent module responsibilities used by Sonex runtime flows.
-Key public entry points include MusicIntentRoute, MusicIntentDecision, classify_music_intent_fast, classify_music_intent.
 """
 
 from __future__ import annotations
@@ -16,10 +13,6 @@ from src.thinking.config import ThinkingConfig
 
 
 class MusicIntentRoute(str, Enum):
-    """Represents music intent route.
-
-    Encapsulates music intent route data and behavior used by Sonex runtime flows. Extends str, enum semantics.
-    """
     EXPLICIT_PLAY = "explicit_play"
     CONFIRM_TRACK_PLAY = "confirm_track_play"
     RECOMMEND = "recommend"
@@ -28,10 +21,6 @@ class MusicIntentRoute(str, Enum):
 
 @dataclass(frozen=True)
 class MusicIntentDecision:
-    """Represents music intent decision.
-
-    Encapsulates music intent decision data and behavior used by Sonex runtime flows.
-    """
     route: MusicIntentRoute
     query: str | None = None
     recommendation_index: int | None = None
@@ -41,12 +30,6 @@ _CHINESE_NUMBERS = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, 
 
 
 def _recommendation_reference(text: str) -> int | None:
-    """Prepares recommendation reference for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs recommendation reference without duplicating the local rules.
-
-    Example: _recommendation_reference(text=...) -> returns the value used by the surrounding Sonex flow.
-    """
     if not any(marker in text for marker in ("第", "刚才", "推荐")):
         return None
     match = re.search(r"第\s*(\d+)\s*首", text)
@@ -59,12 +42,6 @@ def _recommendation_reference(text: str) -> int | None:
 
 
 def _explicit_play_fast_path(text: str) -> MusicIntentDecision | None:
-    """Prepares explicit play fast path for an internal Sonex flow.
-
-    Typical use: Use this helper when nearby code needs explicit play fast path without duplicating the local rules.
-
-    Example: _explicit_play_fast_path(text=...) -> returns the value used by the surrounding Sonex flow.
-    """
     stripped = text.strip()
     lowered = stripped.lower()
 
@@ -106,22 +83,10 @@ def _explicit_play_fast_path(text: str) -> MusicIntentDecision | None:
 
 
 def classify_music_intent_fast(text: str) -> MusicIntentDecision | None:
-    """Coordinates classify music intent fast for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs classify music intent fast as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: classify_music_intent_fast(text=...) -> returns the value used by the surrounding Sonex flow.
-    """
     return _explicit_play_fast_path(text)
 
 
 def classify_music_intent(text: str) -> MusicIntentDecision:
-    """Coordinates classify music intent for the current Sonex flow.
-
-    Typical use: Use this function when runtime code needs classify music intent as part of a Sonex command, playback, auth, llm, or ui path.
-
-    Example: classify_music_intent(text=...) -> returns the value used by the surrounding Sonex flow.
-    """
     fast_path = classify_music_intent_fast(text)
     if fast_path is not None:
         return fast_path

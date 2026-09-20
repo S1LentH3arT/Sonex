@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import threading
 import weakref
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Mapping, Protocol
@@ -98,6 +99,7 @@ class SessionContext:
     agent_input_queue: Any = None
     active_agent_turn_id: str | None = None
     agent_turn_interrupt_event: Any = None
+    active_agent_turn: AgentTurnLifecycle | None = None
     active_agent_provider_task: asyncio.Task[Any] | None = None
     agent_interaction_active: bool = False
     _closed: bool = False
@@ -118,8 +120,48 @@ class SessionContext:
         if self._closed:
             return
         self._closed = True
+        if self.active_agent_turn is not None:
+            self.active_agent_turn.interrupt()
         await self.tasks.cancel_and_wait()
         self.confirm_registry.clear()
+
+    async def abort_agent_turn(self, lifecycle: AgentTurnLifecycle) -> None:
+        """Finish an exceptional turn before another one can reuse the session."""
+        if self.active_agent_turn is not lifecycle:
+            return
+        lifecycle.interrupt()
+        await lifecycle.wait_for_producer()
+        provider_task = self.active_agent_provider_task
+        if provider_task is not None and not provider_task.done():
+            provider_task.cancel()
+            await asyncio.gather(provider_task, return_exceptions=True)
+        await self.finish_agent_turn(lifecycle)
+
+    async def finish_agent_turn(self, lifecycle: AgentTurnLifecycle) -> bool:
+        """Own the shared producer wait and clear all turn-scoped state."""
+        if self.active_agent_turn is not lifecycle:
+            return False
+        await lifecycle.wait_for_producer()
+        if self.active_agent_turn is lifecycle:
+            self.active_agent_turn = None
+            self.active_agent_turn_id = None
+            self.agent_turn_interrupt_event = None
+            self.agent_interaction_active = False
+        if self.running_task is asyncio.current_task():
+            self.running_task = None
+        self.active_agent_provider_task = None
+        return True
+
+    def take_next_agent_input(self) -> str | None:
+        pending = self.agent_input_queue
+        if isinstance(pending, queue.Queue):
+            try:
+                return pending.get_nowait()
+            except queue.Empty:
+                return None
+        if hasattr(pending, "popleft"):
+            return pending.popleft() if pending else None
+        return None
 
 
 _contexts: weakref.WeakKeyDictionary[Any, SessionContext] = weakref.WeakKeyDictionary()
@@ -192,6 +234,36 @@ def register_confirm_owner(ui: Any, confirm_id: str, owner: ConfirmOwner) -> Non
 
 
 ClientHandler = Callable[[dict[str, Any]], Awaitable[bool | None]]
+
+
+@dataclass
+class AgentTurnLifecycle:
+    """Owns the cross-thread lifetime of one foreground Agent turn."""
+
+    turn_id: str
+    interrupt_event: threading.Event = field(default_factory=threading.Event)
+    tool_message_gate: queue.Queue[bool] = field(
+        default_factory=lambda: queue.Queue(maxsize=1)
+    )
+    producer_thread: threading.Thread | None = None
+
+    def attach_producer(self, producer_thread: threading.Thread) -> None:
+        self.producer_thread = producer_thread
+
+    def interrupt(self) -> None:
+        self.interrupt_event.set()
+        self.release_tool_message(False)
+
+    def release_tool_message(self, delivered: bool) -> None:
+        try:
+            self.tool_message_gate.put_nowait(delivered)
+        except queue.Full:
+            pass
+
+    async def wait_for_producer(self) -> None:
+        producer = self.producer_thread
+        while producer is not None and producer.is_alive():
+            await asyncio.sleep(0.01)
 
 
 class ClientMessageRouter:
