@@ -59,6 +59,35 @@ class ExtensionManagerTests(unittest.TestCase):
         manager.set_enabled("youtube", False, expected_revision=0)
         self.assertEqual(manager.actions("youtube"), ("enable",))
 
+    def test_youtube_missing_runtime_is_unavailable_without_setup(self) -> None:
+        manager = ExtensionManager(path=self.state_path)
+        with patch("src.tools.youtube_runtime.active_manifest", return_value=None):
+            view = manager.get("youtube")
+            self.assertEqual(view.status, ExtensionStatus.UNAVAILABLE)
+            self.assertFalse(view.configured)
+            self.assertFalse(view.setup_available)
+            self.assertEqual(manager.actions("youtube"), ("disable",))
+            manager.set_enabled("youtube", False, expected_revision=0)
+            self.assertEqual(manager.get("youtube").status, ExtensionStatus.DISABLED)
+
+    def test_youtube_bundled_runtime_is_enabled_without_setup(self) -> None:
+        root = Path(self.home.name)
+        python = root / "app" / "venv" / "bin" / "python"
+        server = root / "bundle" / "server" / "build" / "main.js"
+        for path in (python, server):
+            path.parent.mkdir(parents=True)
+            path.touch()
+        with patch.dict(os.environ, {
+            "SONEX_RUNTIME_DIR": str(root / "app"),
+            "SONEX_YOUTUBE_RUNTIME_DIR": str(root / "bundle"),
+        }):
+            manager = ExtensionManager(path=self.state_path)
+            view = manager.get("youtube")
+            self.assertEqual(view.status, ExtensionStatus.ENABLED)
+            self.assertTrue(view.configured)
+            self.assertFalse(view.setup_available)
+            self.assertEqual(manager.actions("youtube"), ("disable",))
+
     def test_youtube_exposes_only_disable_when_enabled(self) -> None:
         manager = ExtensionManager(path=self.state_path)
         with patch(

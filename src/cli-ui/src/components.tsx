@@ -10,7 +10,7 @@ import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } 
 import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
 import { formatWorkingDirectory } from './info-banner.js';
-import { isHttpCoverSource, useCoverArt } from './hooks.js';
+import { useCoverArt } from './hooks.js';
 import { hideInputCursor, INPUT_CURSOR_BLINK_INTERVAL_MS } from './input-cursor.js';
 import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
@@ -23,7 +23,7 @@ import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import { ExtensionPanelOverlay } from './extension-panel.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, ExtensionPanelState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, CoverImageEvent, ExtensionPanelState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
 
 const Mascot = () => {
     return (
@@ -879,9 +879,10 @@ const CoverPatternArt = React.memo(({ pattern, variant }: {
 
 const MINI_COVER_PATTERN_MAX_SIZE = 80;
 
-const StaticCover = React.memo(({ visual, coverUrl, coverPattern, terminalSpace, compact, maxPatternSize }: {
+const StaticCover = React.memo(({ visual, coverUrl, coverImage, coverPattern, terminalSpace, compact, maxPatternSize }: {
     visual: CoverVisualModel;
     coverUrl: string | null;
+    coverImage: CoverImageEvent | null;
     coverPattern: CoverPatternPayload | null;
     terminalSpace?: TerminalSpace;
     compact: boolean;
@@ -893,8 +894,7 @@ const StaticCover = React.memo(({ visual, coverUrl, coverPattern, terminalSpace,
         : resolveCoverPatternDisplay(null, terminalSpace);
     const compactCoverWidth = Math.max(22, Math.min(48, (terminalSpace?.columns ?? 40) - 6));
     const compactCoverHeight = Math.max(8, Math.min(24, (terminalSpace?.rows ?? 22) - 8));
-    const fetchableCoverUrl = isHttpCoverSource(coverUrl) ? coverUrl : null;
-    const { art, failed } = useCoverArt(fetchableCoverUrl, compact ? compactCoverWidth : 32, compact ? compactCoverHeight : 16);
+    const { art, failed } = useCoverArt(coverImage, compact ? compactCoverWidth : 32, compact ? compactCoverHeight : 16);
     const resolvedVisual = React.useMemo(() => coverVisualFromSource(coverUrl, failed), [coverUrl, failed]);
     const patternRequestedAt = React.useRef<number | null>(null);
 
@@ -1019,12 +1019,14 @@ const MiniPlayerStaticBody = React.memo(({
     player,
     visual,
     coverUrl,
+    coverImage,
     coverPattern,
     layout,
 }: {
     player: PlayerState;
     visual: CoverVisualModel;
     coverUrl: string | null;
+    coverImage: CoverImageEvent | null;
     coverPattern: CoverPatternPayload | null;
     layout: MiniPlayerLayout;
 }) => {
@@ -1061,6 +1063,7 @@ const MiniPlayerStaticBody = React.memo(({
                     <StaticCover
                         visual={visual}
                         coverUrl={coverUrl}
+                        coverImage={coverImage}
                         coverPattern={coverPattern}
                         terminalSpace={{ columns: layout.coverWidth, rows: layout.contentRows }}
                         compact={true}
@@ -1073,6 +1076,7 @@ const MiniPlayerStaticBody = React.memo(({
     prev.player === next.player
     && prev.visual === next.visual
     && prev.coverUrl === next.coverUrl
+    && prev.coverImage === next.coverImage
     && prev.coverPattern === next.coverPattern
     && prev.layout === next.layout
 ));
@@ -1098,9 +1102,10 @@ const PlaybackMeter = ({ player, visual, compact = false, active = true }: {
     );
 };
 
-const PlayerPane = ({ player, coverUrl, coverPattern, terminalSpace, miniLayout, variant = "full", active = true }: {
+const PlayerPane = ({ player, coverUrl, coverImage, coverPattern, terminalSpace, miniLayout, variant = "full", active = true }: {
     player: PlayerState,
     coverUrl: string | null,
+    coverImage: CoverImageEvent | null,
     coverPattern?: CoverPatternPayload | null,
     terminalSpace?: TerminalSpace,
     miniLayout?: MiniPlayerLayout,
@@ -1118,6 +1123,7 @@ const PlayerPane = ({ player, coverUrl, coverPattern, terminalSpace, miniLayout,
                     player={player}
                     visual={visual}
                     coverUrl={coverUrl}
+                    coverImage={coverImage}
                     coverPattern={coverPattern ?? null}
                     layout={layout}
                 />
@@ -1133,7 +1139,7 @@ const PlayerPane = ({ player, coverUrl, coverPattern, terminalSpace, miniLayout,
                 </Box>
             ) : null}
             <Box marginTop={compact ? 0 : 1}>
-                {!compact ? <StaticCover visual={visual} coverUrl={coverUrl} coverPattern={coverPattern ?? null} terminalSpace={terminalSpace} compact={compact} /> : null}
+                {!compact ? <StaticCover visual={visual} coverUrl={coverUrl} coverImage={coverImage} coverPattern={coverPattern ?? null} terminalSpace={terminalSpace} compact={compact} /> : null}
                 <Box flexDirection="column" flexGrow={compact ? 0 : 1} flexShrink={0} paddingTop={compact ? 1 : 1}>
                     <TrackDetails player={player} compact={compact} />
                     <PlaybackMeter player={player} visual={visual} compact={compact} active={active} />
@@ -1816,6 +1822,7 @@ function useVisibleSnapshotOnRevision<T>(value: T, active: boolean, snapshotRevi
 const MiniPlayerRegion = ({
     player,
     coverUrl,
+    coverImage,
     coverPattern,
     terminalSpace,
     miniLayout,
@@ -1823,6 +1830,7 @@ const MiniPlayerRegion = ({
 }: {
     player: PlayerState;
     coverUrl: string | null;
+    coverImage: CoverImageEvent | null;
     coverPattern: CoverPatternPayload | null;
     terminalSpace: TerminalSpace;
     miniLayout: MiniPlayerLayout;
@@ -1831,6 +1839,7 @@ const MiniPlayerRegion = ({
     const miniSnapshot = useVisibleSnapshotOnRevision({
         player,
         coverUrl,
+        coverImage,
         coverPattern,
         terminalSpace,
         miniLayout,
@@ -1841,6 +1850,7 @@ const MiniPlayerRegion = ({
             <PlayerPane
                 player={miniSnapshot.player}
                 coverUrl={miniSnapshot.coverUrl}
+                coverImage={miniSnapshot.coverImage}
                 coverPattern={miniSnapshot.coverPattern}
                 terminalSpace={miniSnapshot.terminalSpace}
                 miniLayout={miniSnapshot.miniLayout}
@@ -1900,6 +1910,7 @@ export const DynamicShell = ({
     inputRevision,
     player,
     coverUrl,
+    coverImage,
     coverPattern,
     confirm,
     confirmIndex,
@@ -1942,6 +1953,7 @@ export const DynamicShell = ({
     inputRevision: number;
     player: PlayerState;
     coverUrl: string | null;
+    coverImage: CoverImageEvent | null;
     coverPattern: CoverPatternPayload | null;
     confirm: ConfirmState;
     confirmIndex: number;
@@ -1980,6 +1992,7 @@ export const DynamicShell = ({
             <MiniPlayerRegion
                 player={player}
                 coverUrl={coverUrl}
+                coverImage={coverImage}
                 coverPattern={coverPattern}
                 terminalSpace={terminalSpace}
                 miniLayout={miniLayout}

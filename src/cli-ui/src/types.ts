@@ -15,6 +15,7 @@ export type ServerEvent =
     | { type: "spotify_mode"; enabled: boolean; device_id?: string | null; device_name?: string | null }
     | { type: "provider_mode"; provider: "normal" | "spotify"; enabled: boolean; connection_status?: string | null }
     | { type: "cover"; url: string }
+    | CoverImageEvent
     | CoverPatternEvent
     | CoverPatternUnavailableEvent
     | { type: "error"; message: string; detail?: string | null; recoverable?: boolean | null }
@@ -43,6 +44,15 @@ export type CoverPatternEvent = {
     unavailable_reason?: "invalid_brand" | "catalog_invalid" | "decode_failed" | "generation_failed";
     source_hash?: string;
     generated_at?: number;
+};
+
+export type CoverImageEvent = {
+    type: "cover_image";
+    source_url: string;
+    format: "png";
+    width: number;
+    height: number;
+    data: string;
 };
 
 export type CoverPatternUnavailableEvent = {

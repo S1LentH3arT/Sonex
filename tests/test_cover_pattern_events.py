@@ -18,6 +18,7 @@ class CoverPatternEventTests(unittest.TestCase):
         sender_source = ast.get_source_segment(source, sender) or ""
 
         self.assertIn('"type": "cover_pattern_unavailable"', sender_source)
+        self.assertIn('await ui.send_cover_image(source_url, image_png, width=image_width, height=image_height)', sender_source)
         self.assertIn('"reason": exc.reason', sender_source)
         self.assertIn('"reason": "generation_failed"', sender_source)
         self.assertIn("await ui._send(payload)", sender_source)

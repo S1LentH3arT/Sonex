@@ -1,8 +1,7 @@
 import React from 'react';
 import WebSocket from 'ws';
-import terminalImage from 'terminal-image';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE } from './constants.js';
-import type { ClientEvent, PlayerState, ServerEvent } from './types.js';
+import type { ClientEvent, CoverImageEvent, PlayerState, ServerEvent } from './types.js';
 
 export const PLAYBACK_PROGRESS_INTERVAL_MS = 1000;
 
@@ -12,51 +11,34 @@ export const kittyDeleteSequence = (imageId: number): string => (
     `\u001B_Ga=d,d=I,i=${imageId},q=2;\u001B\\`
 );
 
-export const decorateKittyImage = (sequence: string): { sequence: string; imageId: number } | null => {
-    if (!sequence.includes("\u001B_G")) return null;
-    const imageId = nextKittyImageId++;
-    return {
-        sequence: sequence.replace("\u001B_G", `\u001B_Gi=${imageId},`),
-        imageId,
-    };
-};
+export const supportsKittyGraphics = (): boolean => (
+    !process.env.TMUX
+    && !process.env.STY
+    && (process.env.TERM === 'xterm-kitty' || Boolean(process.env.KITTY_WINDOW_ID))
+);
 
-const captureTerminalImage = async (
-    buffer: Buffer,
+export const kittyImageSequence = (
+    image: CoverImageEvent,
     width: number,
     height: number,
-): Promise<{ art: string | null; imageId: number | null }> => {
-    const writes: string[] = [];
-    const passthrough: Array<{ chunk: string | Uint8Array; args: unknown[] }> = [];
-    const stdout = process.stdout;
-    const originalWrite = stdout.write;
-    stdout.write = ((chunk: string | Uint8Array, ...args: unknown[]): boolean => {
-        if (typeof chunk === "string" && chunk.includes("\u001B_G")) {
-            writes.push(chunk);
-        } else {
-            passthrough.push({ chunk, args });
-        }
-        return true;
-    }) as typeof stdout.write;
-
-    try {
-        await terminalImage.buffer(buffer, {
-            width,
-            height,
-            preserveAspectRatio: true,
-            // Multiplexers cannot reliably place or clear Kitty images.
-            preferNativeRender: !process.env.TMUX && !process.env.STY,
-        });
-        const kitty = decorateKittyImage(writes.join(""));
-        return kitty
-            ? { art: kitty.sequence, imageId: kitty.imageId }
-            : { art: null, imageId: null };
-    } finally {
-        stdout.write = originalWrite;
-        for (const { chunk, args } of passthrough) {
-            (originalWrite as (...values: any[]) => boolean).call(stdout, chunk, ...args);
-        }
+): { art: string | null; imageId: number | null } => {
+    if (!supportsKittyGraphics() || image.format !== 'png' || !image.data) {
+        return { art: null, imageId: null };
     }
+    const imageId = nextKittyImageId++;
+    const sourceAspect = image.width / Math.max(1, image.height * 0.5);
+    const availableAspect = width / Math.max(1, height);
+    const columns = availableAspect > sourceAspect
+        ? Math.max(1, Math.round(height * sourceAspect))
+        : Math.max(1, Math.round(width));
+    const rows = availableAspect > sourceAspect
+        ? Math.max(1, Math.round(height))
+        : Math.max(1, Math.round(width / sourceAspect));
+    const chunks = image.data.match(/.{1,4096}/g) ?? [];
+    const sequence = chunks.map((chunk, index) => (
+        `\u001B_G${index === 0 ? `i=${imageId},` : ''}f=100,a=T,c=${columns},r=${rows},q=2,m=${index === chunks.length - 1 ? 0 : 1};${chunk}\u001B\\`
+    )).join('');
+    return { art: sequence || null, imageId: sequence ? imageId : null };
 };
 
 export function isPlaybackStarting(player: PlayerState): boolean {
@@ -138,13 +120,13 @@ export function usePlaybackProgress(player: PlayerState, active = true): number 
  * @param height Input value used by the use cover art operation.
  * @returns The computed result for the surrounding CLI UI flow.
  */
-export function useCoverArt(url: string | null, width = 32, height = 16): { art: string | null; failed: boolean } {
+export function useCoverArt(image: CoverImageEvent | null, width = 32, height = 16): { art: string | null; failed: boolean } {
     const [art, setArt] = React.useState<string | null>(null);
     const [failed, setFailed] = React.useState(false);
     const imageId = React.useRef<number | null>(null);
 
     React.useEffect(() => {
-        if (!url) {
+        if (!image) {
             if (imageId.current !== null) {
                 process.stdout.write(kittyDeleteSequence(imageId.current));
                 imageId.current = null;
@@ -154,7 +136,6 @@ export function useCoverArt(url: string | null, width = 32, height = 16): { art:
             return;
         }
 
-        let cancelled = false;
         if (imageId.current !== null) {
             process.stdout.write(kittyDeleteSequence(imageId.current));
             imageId.current = null;
@@ -162,45 +143,17 @@ export function useCoverArt(url: string | null, width = 32, height = 16): { art:
         setArt(null);
         setFailed(false);
 
-        const load = async () => {
-            const start = Date.now();
-            try {
-                const response = await fetch(url);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                const fetchedAt = Date.now();
-                const arrayBuffer = await response.arrayBuffer();
-                const rendered = await captureTerminalImage(Buffer.from(arrayBuffer), width, height);
-                if (process.env.SONEX_PLAYER_DEBUG === '1') {
-                    const decodedAt = Date.now();
-                    console.error(`[sonex-player-debug] cover fetch ${fetchedAt - start}ms decode ${decodedAt - fetchedAt}ms url=${url}`);
-                }
-                if (!cancelled) {
-                    imageId.current = rendered.imageId;
-                    setArt(rendered.art);
-                }
-            } catch (err) {
-                if (process.env.SONEX_PLAYER_DEBUG === '1') {
-                    const detail = err instanceof Error ? err.message : String(err);
-                    console.error(`[sonex-player-debug] cover fetch/decode failed after ${Date.now() - start}ms: ${detail}`);
-                }
-                if (!cancelled) {
-                    setFailed(true);
-                }
-            }
-        };
-
-        void load();
+        const rendered = kittyImageSequence(image, width, height);
+        imageId.current = rendered.imageId;
+        setArt(rendered.art);
 
         return () => {
-            cancelled = true;
             if (imageId.current !== null) {
                 process.stdout.write(kittyDeleteSequence(imageId.current));
                 imageId.current = null;
             }
         };
-    }, [url, width, height]);
+    }, [image, width, height]);
 
     return { art, failed };
 }
@@ -211,10 +164,6 @@ export function useCoverArt(url: string | null, width = 32, height = 16): { art:
  * @param url Input value used by the is http cover source operation.
  * @returns The computed result for the surrounding CLI UI flow.
  */
-export function isHttpCoverSource(url: string | null): boolean {
-    return Boolean(url && /^https?:\/\//i.test(url));
-}
-
 /**
  * Coordinates the use latest callback operation for the CLI UI runtime.
  *

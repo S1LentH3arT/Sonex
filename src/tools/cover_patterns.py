@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import hashlib
 import json
 import logging
@@ -11,6 +12,8 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from PIL import Image, ImageOps
+
 from src.log import sonex_home
 from src.tools.bead_catalogs import BeadCatalog, CatalogValidationError, load_bead_catalog
 from src.tools.bead_config import InvalidBeadBrand, SUPPORTED_BEAD_BRANDS, load_bead_brand
@@ -18,6 +21,9 @@ from src.tools.bead_pipeline import BeadGenerationProfile, BeadImageDecodeError,
 
 COVER_PATTERN_SIZES = (40, 48, 56, 64, 80, 96)
 COVER_PATTERN_MAX_BYTES = 8 * 1024 * 1024
+COVER_IMAGE_MAX_BYTES = 2 * 1024 * 1024
+COVER_IMAGE_MAX_PIXELS = 16_000_000
+COVER_IMAGE_MAX_DIMENSION = 640
 COVER_PATTERN_ALGORITHM_VERSION = "lab-ciede2000-original-crop-v5"
 
 logger = logging.getLogger(__name__)
@@ -101,6 +107,43 @@ def fetch_cover_pattern(source_url: str, *, brand: str | None = None) -> dict[st
     if fallback_cached is not None:
         return _event_payload(fallback_url, fallback_cached)
     return generate_cover_pattern(fallback_url, _download_cover(fallback_url), brand=catalog.brand)
+
+
+def fetch_cover_image(source_url: str) -> bytes:
+    """Download one bounded cover image, retaining the existing CAA fallback."""
+    try:
+        return _download_cover(source_url)
+    except CoverPatternError as exc:
+        fallback_url = _caa_front_500_fallback(source_url)
+        if not fallback_url or exc.stage != "download":
+            raise
+        return _download_cover(fallback_url)
+
+
+def prepare_cover_png(image_bytes: bytes) -> tuple[bytes, int, int]:
+    """Normalize a cover for Kitty without cropping or persisting source bytes."""
+    if len(image_bytes) > COVER_PATTERN_MAX_BYTES:
+        raise CoverPatternError("Cover image response is too large.", stage="download")
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as image:
+            width, height = image.size
+            if width <= 0 or height <= 0 or width * height > COVER_IMAGE_MAX_PIXELS:
+                raise CoverPatternError("Cover image dimensions are too large.", stage="decode")
+            normalized = ImageOps.exif_transpose(image)
+            normalized.thumbnail((COVER_IMAGE_MAX_DIMENSION, COVER_IMAGE_MAX_DIMENSION), Image.Resampling.LANCZOS)
+            width, height = normalized.size
+            if normalized.mode not in {"RGB", "RGBA"}:
+                normalized = normalized.convert("RGBA" if "A" in normalized.getbands() else "RGB")
+            output = io.BytesIO()
+            normalized.save(output, format="PNG", optimize=True)
+    except CoverPatternError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise CoverPatternError("Cover image could not be decoded.", reason="decode_failed", stage="decode") from exc
+    png = output.getvalue()
+    if len(png) > COVER_IMAGE_MAX_BYTES:
+        raise CoverPatternError("Normalized cover image is too large.", stage="generation")
+    return png, width, height
 
 
 def generate_cover_pattern(

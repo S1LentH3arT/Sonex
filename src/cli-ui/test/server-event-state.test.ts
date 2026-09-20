@@ -23,6 +23,12 @@ test('reduces panel, queue, cover, confirmation, and auth events without UI side
     state = reduceServerEventState(state, {
         type: 'event',
         language: 'en',
+        event: { type: 'cover_image', source_url: 'cover-a', format: 'png', width: 100, height: 100, data: 'encoded' },
+    });
+    assert.equal(state.coverImage?.source_url, 'cover-a');
+    state = reduceServerEventState(state, {
+        type: 'event',
+        language: 'en',
         event: { type: 'cover_pattern', source_url: 'cover-a', palette: ['#fff'], variants: {} },
     });
     assert.equal(state.coverPattern?.source_url, 'cover-a');

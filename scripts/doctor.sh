@@ -12,7 +12,6 @@ RUNTIME_NODE_PACKAGES=(
   react
   ink
   ink-text-input
-  terminal-image
   ws
 )
 STATUS=0

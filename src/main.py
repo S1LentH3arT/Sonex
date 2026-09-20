@@ -54,7 +54,7 @@ from src.tools.youtube_runtime import (
 )
 from src.workspace import user_workspace_root
 
-DEFAULT_APP_VERSION = "0.1.0-alpha.2"
+DEFAULT_APP_VERSION = "0.1.0-alpha.3"
 APP_VERSION = os.getenv("SONEX_APP_VERSION", DEFAULT_APP_VERSION)
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9001

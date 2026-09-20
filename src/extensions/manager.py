@@ -266,7 +266,7 @@ class ExtensionManager:
             status = ExtensionStatus.UNSUPPORTED
         elif not enabled:
             status = ExtensionStatus.DISABLED
-        elif extension.extension_id == "youtube" and reason_code == "degraded":
+        elif extension.extension_id == "youtube" and (not configured or reason_code == "degraded"):
             status = ExtensionStatus.UNAVAILABLE
         elif extension.extension_id == "youtube" and reason_code == "restart_required":
             status = ExtensionStatus.UNAPPLIED

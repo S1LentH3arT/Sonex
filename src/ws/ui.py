@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import threading
 import time
@@ -15,7 +16,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from src.agent.events import UiStatus
 from src.api.builtin_commands import BuiltinCommand
 from src.llm.transport import Usage
-from src.tools.cover_patterns import CoverPatternError, fetch_cover_pattern, generate_cover_pattern
+from src.tools.cover_patterns import CoverPatternError, fetch_cover_image, generate_cover_pattern, prepare_cover_png
 from src.tools.cover_sources import cover_bytes_for_source
 from src.ws.types import AuthRuntimeState
 from src.ws.session_orchestration import session_get
@@ -221,6 +222,18 @@ class WebSocketUIAdapter:
         await self._send({"type": "cover", "url": url})
         asyncio.create_task(_send_cover_pattern(self, url))
 
+    async def send_cover_image(self, url: str, image_bytes: bytes, *, width: int, height: int) -> None:
+        await self._send(
+            {
+                "type": "cover_image",
+                "source_url": url,
+                "format": "png",
+                "width": width,
+                "height": height,
+                "data": base64.b64encode(image_bytes).decode("ascii"),
+            }
+        )
+
     async def ask_confirm(self, attached: dict[str, Any]) -> None:
         await self._send(
             {
@@ -338,12 +351,13 @@ def _new_event_id(prefix: str) -> str:
 async def _send_cover_pattern(ui: WebSocketUIAdapter, source_url: str) -> None:
     try:
         image_bytes = cover_bytes_for_source(source_url)
-        if image_bytes is not None:
-            payload = await asyncio.to_thread(generate_cover_pattern, source_url, image_bytes)
-        elif _is_http_cover_source(source_url):
-            payload = await asyncio.to_thread(fetch_cover_pattern, source_url)
-        else:
+        if image_bytes is None and _is_http_cover_source(source_url):
+            image_bytes = await asyncio.to_thread(fetch_cover_image, source_url)
+        if image_bytes is None:
             return
+        image_png, image_width, image_height = await asyncio.to_thread(prepare_cover_png, image_bytes)
+        await ui.send_cover_image(source_url, image_png, width=image_width, height=image_height)
+        payload = await asyncio.to_thread(generate_cover_pattern, source_url, image_bytes)
     except CoverPatternError as exc:
         payload = {
             "type": "cover_pattern_unavailable",

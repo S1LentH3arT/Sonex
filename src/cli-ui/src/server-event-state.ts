@@ -5,6 +5,7 @@ import { markQueuedTracks } from './track-panel.js';
 import type {
     AuthRuntimeState,
     ConfirmState,
+    CoverImageEvent,
     CoverPatternEvent,
     ExtensionPanelState,
     HelpPanelState,
@@ -35,6 +36,7 @@ export type ServerEventState = {
     memoryEditor: MemoryEditorState;
     player: PlayerState;
     coverUrl: string | null;
+    coverImage: CoverImageEvent | null;
     coverPattern: CoverPatternEvent | null;
     confirm: ConfirmState;
     confirmIndex: number;
@@ -59,6 +61,7 @@ export const initialServerEventState: ServerEventState = {
     memoryEditor: null,
     player: { name: '-', artist: '-', album: '-', duration_ms: 0, progress_ms: 0, is_playing: false },
     coverUrl: null,
+    coverImage: null,
     coverPattern: null,
     confirm: null,
     confirmIndex: 0,
@@ -171,6 +174,7 @@ function reduceEvent(state: ServerEventState, event: Extract<ServerEventStateAct
                         is_playing: false,
                     },
                     coverUrl: first.album_cover_url ?? null,
+                    coverImage: null,
                     coverPattern: null,
                 } : {}),
             };
@@ -178,7 +182,9 @@ function reduceEvent(state: ServerEventState, event: Extract<ServerEventStateAct
         case 'player':
             return { ...state, player: evt.state };
         case 'cover':
-            return { ...state, coverUrl: evt.url, coverPattern: null };
+            return { ...state, coverUrl: evt.url, coverImage: null, coverPattern: null };
+        case 'cover_image':
+            return evt.source_url === state.coverUrl ? { ...state, coverImage: evt } : state;
         case 'cover_pattern':
             return evt.source_url === state.coverUrl ? { ...state, coverPattern: evt } : state;
         case 'cover_pattern_unavailable':

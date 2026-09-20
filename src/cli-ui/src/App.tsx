@@ -83,6 +83,7 @@ export const App: React.FC<{
         memoryEditor,
         player,
         coverUrl,
+        coverImage,
         coverPattern,
         confirm,
         confirmIndex,
@@ -566,6 +567,8 @@ export const App: React.FC<{
                 break;
             }
             case "cover":
+                break;
+            case "cover_image":
                 break;
             case "cover_pattern":
                 break;
@@ -1298,6 +1301,7 @@ export const App: React.FC<{
                         inputRevision={inputRevision}
                         player={player}
                         coverUrl={coverUrl}
+                        coverImage={coverImage}
                         coverPattern={coverPattern}
                         confirm={confirm}
                         confirmIndex={confirmIndex}

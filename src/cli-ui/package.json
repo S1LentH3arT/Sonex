@@ -1,6 +1,6 @@
 {
   "name": "sonex-agent",
-  "version": "0.1.0-alpha.2",
+  "version": "0.1.0-alpha.3",
   "description": "An AI-powered music agent for the terminal.",
   "license": "MIT",
   "repository": {
@@ -44,7 +44,6 @@
     "ink-text-input": "^6.0.0",
     "react": "^18.3.1",
     "string-width": "^7.2.0",
-    "terminal-image": "^5.0.1",
     "ws": "^8.21.0"
   },
   "devDependencies": {

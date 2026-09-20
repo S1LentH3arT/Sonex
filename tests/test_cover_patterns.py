@@ -23,6 +23,7 @@ from src.tools.cover_patterns import (
     cover_pattern_cache_path,
     fetch_cover_pattern,
     generate_cover_pattern,
+    prepare_cover_png,
 )
 
 EXPECTED_COVER_PATTERN_SIZES = (40, 48, 56, 64, 80, 96)
@@ -40,6 +41,17 @@ def _png_bytes(size: tuple[int, int] = (96, 80)) -> bytes:
 
 
 class CoverPatternTests(unittest.TestCase):
+    def test_prepare_cover_png_normalizes_format_and_size_without_cropping(self) -> None:
+        image = Image.new("RGB", (1600, 800), "#2448a8")
+        output = io.BytesIO()
+        image.save(output, format="JPEG")
+
+        png, width, height = prepare_cover_png(output.getvalue())
+        normalized = Image.open(io.BytesIO(png))
+        self.assertEqual(normalized.format, "PNG")
+        self.assertEqual(normalized.size, (640, 320))
+        self.assertEqual((width, height), (640, 320))
+
     def test_previous_fixed_palette_cache_is_invalidated(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             source = "https://cdn.example.test/album/legacy-cover.jpg"
