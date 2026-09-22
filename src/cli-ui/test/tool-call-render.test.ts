@@ -60,7 +60,7 @@ test('renders tool names in bold navy and values in white ANSI spans', async () 
 
     const navyAnsi = String.raw`\u001b\[(?:38;2;24;46;102|38;5;24)m`;
     const blueAnsi = String.raw`\u001b\[(?:38;2;59;130;246|38;5;75)m`;
-    const whiteAnsi = String.raw`\u001b\[(?:38;2;255;255;255|38;5;231)m`;
+    const whiteAnsi = String.raw`\u001b\[(?:38;2;255;244;246|38;5;225)m`;
     assert.match(
         output,
         new RegExp(String.raw`\u001b\[1m${blueAnsi}•\u001b\[22m`),
@@ -156,7 +156,7 @@ test('renders message dividers, aligned continuations, and complete warning colo
     assert.doesNotMatch(plain, /User|Agent|System|Warning|Caution|[└│]/);
 
     const grayAnsi = String.raw`\u001b\[(?:38;2;128;135;145|38;5;145)m`;
-    const whiteAnsi = String.raw`\u001b\[(?:38;2;255;255;255|38;5;231)m`;
+    const whiteAnsi = String.raw`\u001b\[(?:38;2;255;244;246|38;5;225)m`;
     const yellowAnsi = String.raw`\u001b\[(?:38;2;212;167;44|38;5;179)m`;
     const redAnsi = String.raw`\u001b\[(?:38;2;239;68;68|38;5;203)m`;
     const purpleAnsi = String.raw`\u001b\[(?:38;2;200;166;255|38;5;183)m`;
