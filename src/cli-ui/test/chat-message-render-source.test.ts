@@ -17,8 +17,8 @@ test('ChatBubble renders one colored bullet with aligned white continuation line
     assert.ok(chatBubbleStart >= 0);
     assert.ok(chatBubbleEnd > chatBubbleStart);
     assert.match(chatBubbleSource, /wrapChatMessageContent\(content, contentWidth\)/);
-    assert.match(chatBubbleSource, /resolveChatMarkerColor\(role, theme, tone\)/);
-    assert.match(chatBubbleSource, /resolveChatContentColor\(role, tone\)/);
+    assert.match(chatBubbleSource, /resolveChatMarkerColor\(role, theme, tone, uiTheme\)/);
+    assert.match(chatBubbleSource, /resolveChatContentColor\(role, tone, uiTheme\)/);
     assert.match(
         chatBubbleSource,
         /<Box marginBottom=\{1\} flexDirection="column" width="100%">\s*\{lines\.map/,
@@ -40,7 +40,7 @@ test('ChatBubble renders one colored bullet with aligned white continuation line
 test('ChatBubble renders a full-width input-style divider after every message', () => {
     assert.match(
         chatBubbleSource,
-        /<Box marginTop=\{1\}>\s*<Text color=\{CHAT_USER_MARKER_COLOR\}>\{"─"\.repeat\(contentWidth \+ 2\)\}<\/Text>/,
+        /<Box marginTop=\{1\}>\s*<Text color=\{PANEL_SECONDARY\}>\{"─"\.repeat\(contentWidth \+ 2\)\}<\/Text>/,
     );
     assert.doesNotMatch(chatBubbleSource, /\{isUser \? \(\s*<Box marginTop=\{1\}>/);
 });

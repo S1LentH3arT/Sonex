@@ -15,7 +15,6 @@ from src.llm.transport import (
     LLMTransport,
     ChatRequest,
     ChatResponse,
-    LiteLLMTransport,
     OpenAICompatibleTransport,
 )
 from src.llm.transport.deepseek import DeepSeekTransport
@@ -59,18 +58,15 @@ class ProviderClient:
 
     Args:
         runtime_config: include provider and model for resolve.
-        transport: the transport for sending request to provider.
         adapters: list of adapters. Default adapters include official providers and Custom.
     """
     def __init__(
         self,
         runtime_config: RuntimeConfig,
-        transport: LLMTransport | None = None,
         adapters: dict[str, LLMAdapter] = None,
         provider_transports: dict[str, LLMTransport] | None = None,
     ) -> None:
         self.runtime_config = runtime_config
-        self.transport = transport or LiteLLMTransport()
         self.provider_transports = provider_transports or {
             "openai": OpenAICompatibleTransport(default_base_url="https://api.openai.com/v1"),
             "anthropic": AnthropicOfficialTransport(),
@@ -90,12 +86,14 @@ class ProviderClient:
 
         - Resolve provider from request.
         - If adapter is ``None``, raise error and record a log.
-        - Calling ``self.transport.send()`` and get a raw response.
+        - Call the provider transport and get a raw response.
         - Parse the raw response to a unified format and return.
         """
         provider_name = request.provider or self.runtime_config.default_provider
         provider_config = self.runtime_config.get_provider(provider_name, model=request.model)
-        adapter = self.adapters.get(provider_name) or DefaultAdapter()
+        adapter = self.adapters.get(provider_name)
+        if adapter is None and provider_name.startswith("custom__"):
+            adapter = DefaultAdapter()
         if adapter is None:
             message = f"Provider '{provider_name}' is not supported."
             logger.error(message)
@@ -107,8 +105,12 @@ class ProviderClient:
             if provider_name == "custom" or provider_name.startswith("custom__")
             else CodexAppServerTransport()
             if provider_name == "openai" and provider_config.billing_mode == "chatgpt_subscription"
-            else self.provider_transports.get(provider_name, self.transport)
+            else self.provider_transports.get(provider_name)
         )
+        if transport is None:
+            message = f"Provider '{provider_name}' is not supported."
+            logger.error(message)
+            raise RuntimeError(message)
         raw_response = transport.send(provider_request, provider_config)
         if raw_response is None:
             raise RuntimeError(f"Provider '{provider_name}' returned an empty response.")

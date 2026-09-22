@@ -9,6 +9,8 @@ export type InputRoute =
     | { type: 'extension_input'; value: string }
     | { type: 'safe_exit'; reason: string }
     | { type: 'info' }
+    | { type: 'theme' }
+    | { type: 'proxy' }
     | { type: 'slash_completion'; command: SlashCommandSuggestion }
     | { type: 'unknown_slash'; value: string }
     | { type: 'setup_input'; channel: 'spotify' | 'auth'; value: string }
@@ -50,6 +52,8 @@ export function resolveInputRoute(value: string, context: InputRoutingContext): 
             return { type: 'safe_exit', reason: command.name };
         }
         if (command?.name === 'info') return { type: 'info' };
+        if (command?.name === 'theme' && !hasSlashCommandArguments(text)) return { type: 'theme' };
+        if (command?.name === 'proxy' && !hasSlashCommandArguments(text)) return { type: 'proxy' };
         if (text.startsWith('/') && !command) {
             return context.selectedSlashCommand
                 ? { type: 'slash_completion', command: context.selectedSlashCommand }

@@ -4,18 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sonex"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 description = "A CLI agent music player"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "typer",
     "rich",
-    "openai",
-    "litellm",
     "python-dotenv",
-    "requests",
-    "textual",
+    "requests[socks]",
     "fastapi",
     "uvicorn[standard]",
     "spotipy",

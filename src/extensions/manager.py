@@ -18,6 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
+from src.network.proxy import urlopen as proxy_urlopen
 from src.auth.spotify import load_spotify_token, spotify_user_client
 from src.auth.store import get_provider_auth, load_auth_store, remove_provider_method, set_api_key
 from src.log import sonex_home
@@ -539,7 +540,7 @@ class ExtensionManager:
                     f"https://www.youtube.com/results?{query}",
                     headers={"Accept": "text/html", "User-Agent": "Sonex/1.0"},
                 )
-                with urllib.request.urlopen(request, timeout=12) as response:
+                with proxy_urlopen(request, timeout=12) as response:
                     body = response.read(256 * 1024)
                 return (b"videoId" in body, None if b"videoId" in body else "search_parse_failed")
             if extension_id == "jamendo":
@@ -548,7 +549,7 @@ class ExtensionManager:
                 if not client_id:
                     return False, "credentials_missing"
                 params = urllib.parse.urlencode({"client_id": client_id, "format": "json", "limit": 1, "audioformat": "mp32"})
-                with urllib.request.urlopen(f"https://api.jamendo.com/v3.0/tracks/?{params}", timeout=12) as response:
+                with proxy_urlopen(f"https://api.jamendo.com/v3.0/tracks/?{params}", timeout=12) as response:
                     payload = json.loads(response.read(64 * 1024).decode("utf-8"))
                 return (isinstance(payload, dict) and "results" in payload, None if isinstance(payload, dict) and "results" in payload else "invalid_response")
             if extension_id == "audius":
@@ -557,7 +558,7 @@ class ExtensionManager:
                     return False, "credentials_missing"
                 params = urllib.parse.urlencode({"query": "sonex", "limit": 1, "api_key": config.audius_api_key})
                 request = urllib.request.Request(f"https://api.audius.co/v1/tracks/search?{params}", headers={"Accept": "application/json", "User-Agent": "Sonex/1.0"})
-                with urllib.request.urlopen(request, timeout=12) as response:
+                with proxy_urlopen(request, timeout=12) as response:
                     payload = json.loads(response.read(64 * 1024).decode("utf-8"))
                 return (isinstance(payload, dict) and "data" in payload, None if isinstance(payload, dict) and "data" in payload else "invalid_response")
         except Exception as exc:

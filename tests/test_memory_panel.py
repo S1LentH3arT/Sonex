@@ -64,6 +64,8 @@ class MemoryPanelTests(unittest.IsolatedAsyncioTestCase):
         await session.start()
 
         self.assertEqual(ui.events[-1]["view"], "root")
+        self.assertEqual(ui.events[-1]["title"], "Memory")
+        self.assertEqual(ui.events[-1]["hint"], "↑/↓ to select · Enter to continue · Esc to return")
         self.assertNotIn("enabled", ui.events[-1])
 
     async def test_sources_keep_user_memory_and_dump_as_fixed_entries(self) -> None:
@@ -73,6 +75,8 @@ class MemoryPanelTests(unittest.IsolatedAsyncioTestCase):
         await session.show_entries("user")
 
         self.assertEqual(ui.events[0]["view"], "sources")
+        self.assertEqual(ui.events[0]["title"], "Memory")
+        self.assertEqual(ui.events[0]["hint"], "↑/↓ to select · Enter to continue · Esc to return")
         self.assertEqual(ui.events[1]["target"], "user")
         self.assertEqual(ui.events[1]["entries"][0]["content"], "Prefers jazz")
 

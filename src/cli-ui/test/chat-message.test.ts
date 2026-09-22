@@ -11,7 +11,7 @@ import {
     wrapChatMessageContent,
     wrapChatMessageSegments,
 } from '../src/chat-message.js';
-import { BORDER_BLUE, BORDER_BLUE_SOFT, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from '../src/constants.js';
+import { BORDER_BLUE, BORDER_BLUE_SOFT, TOOL_NAVY, TOOL_VALUE } from '../src/constants.js';
 
 assert.deepEqual(wrapChatMessageContent('hello', 20), ['hello']);
 assert.deepEqual(wrapChatMessageContent('one\ntwo\nthree', 20), ['one', 'two', 'three']);
@@ -48,13 +48,13 @@ assert.equal(CHAT_SYSTEM_MARKER_COLOR, '#c8a6ff');
 assert.equal(BORDER_BLUE_SOFT, '#9fd9ff');
 assert.equal(resolveChatMarkerColor('agent', null, 'system'), CHAT_SYSTEM_MARKER_COLOR);
 assert.notEqual(resolveChatMarkerColor('agent', null, 'system'), BORDER_BLUE_SOFT);
-assert.equal(resolveChatMarkerColor('agent', 'spotify', null), SPOTIFY_GREEN);
+assert.equal(resolveChatMarkerColor('agent', 'spotify', null), BORDER_BLUE);
 assert.equal(resolveChatMarkerColor('agent', null, null), BORDER_BLUE);
 
 assert.equal(CHAT_MESSAGE_TEXT_COLOR, '#ffffff');
-assert.equal(resolveChatContentColor('user', null), CHAT_MESSAGE_TEXT_COLOR);
-assert.equal(resolveChatContentColor('user', 'error'), CHAT_MESSAGE_TEXT_COLOR);
-assert.equal(resolveChatContentColor('agent', null), CHAT_MESSAGE_TEXT_COLOR);
-assert.equal(resolveChatContentColor('agent', 'system'), CHAT_MESSAGE_TEXT_COLOR);
+assert.equal(resolveChatContentColor('user', null), '#fff4f6');
+assert.equal(resolveChatContentColor('user', 'error'), '#fff4f6');
+assert.equal(resolveChatContentColor('agent', null), '#fff4f6');
+assert.equal(resolveChatContentColor('agent', 'system'), '#fff4f6');
 assert.equal(resolveChatContentColor('agent', 'warning'), CHAT_WARNING_MARKER_COLOR);
 assert.equal(resolveChatContentColor('agent', 'error'), CHAT_ERROR_MARKER_COLOR);

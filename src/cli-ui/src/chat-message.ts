@@ -1,7 +1,7 @@
 import stringWidth from 'string-width';
 
-import { BORDER_BLUE, SPOTIFY_GREEN } from './constants.js';
 import type { ChatRole, ChatSegment, ChatTheme, ChatTone } from './types.js';
+import { resolveUiTheme, type UiThemeId } from './ui-theme.js';
 
 export const CHAT_USER_MARKER_COLOR = "#808791";
 export const CHAT_SYSTEM_MARKER_COLOR = "#c8a6ff";
@@ -84,20 +84,22 @@ export function wrapChatMessageSegments(
 
 export function resolveChatMarkerColor(
     role: ChatRole,
-    theme: ChatTheme | null,
+    _theme: ChatTheme | null,
     tone: ChatTone | null,
+    uiTheme?: UiThemeId | null,
 ): string {
-    if (role === "user") return CHAT_USER_MARKER_COLOR;
+    const tokens = resolveUiTheme(uiTheme);
+    if (role === "user") return tokens.secondary;
     if (tone === "error") return CHAT_ERROR_MARKER_COLOR;
     if (tone === "warning") return CHAT_WARNING_MARKER_COLOR;
     if (tone === "system") return CHAT_SYSTEM_MARKER_COLOR;
-    if (theme === "spotify") return SPOTIFY_GREEN;
-    return BORDER_BLUE;
+    return tokens.accent;
 }
 
-export function resolveChatContentColor(role: ChatRole, tone: ChatTone | null): string {
-    if (role === "user") return CHAT_MESSAGE_TEXT_COLOR;
+export function resolveChatContentColor(role: ChatRole, tone: ChatTone | null, uiTheme?: UiThemeId | null): string {
+    const tokens = resolveUiTheme(uiTheme);
+    if (role === "user") return tokens.primary;
     if (tone === "error") return CHAT_ERROR_MARKER_COLOR;
     if (tone === "warning") return CHAT_WARNING_MARKER_COLOR;
-    return CHAT_MESSAGE_TEXT_COLOR;
+    return tokens.primary;
 }

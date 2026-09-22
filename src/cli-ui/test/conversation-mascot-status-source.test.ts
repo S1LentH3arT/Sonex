@@ -28,7 +28,7 @@ const dynamicTailBody = source.slice(dynamicTailStart, dynamicTailEnd);
 assert.match(dynamicTailBody, /const hasModelPanel = authSetup\?\.active && authSetup\.step === "model";/);
 assert.match(dynamicTailBody, /const hasSetupPanel = Boolean\(spotifySetup\) \|\| Boolean\(authSetup && authSetup\.step !== "model"\);/);
 assert.match(dynamicTailBody, /const hasSlashPanel = slashSuggestions\.length > 0;/);
-assert.match(dynamicTailBody, /const showInput = !helpPanel && !languagePanel && !hasModelPanel && !memoryPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
+assert.match(dynamicTailBody, /const showInput = !helpPanel && !languagePanel && !themePanel && !hasModelPanel && !memoryPanel && \(!confirm \|\| Boolean\(selectedChoice\?\.input\)\);/);
 assert.match(dynamicTailBody, /const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;/);
 assert.match(dynamicTailBody, /agentWorking \? <AgentWorkingStatus \/> : <MiniMascotStatus \/>/);
 assert.match(dynamicTailBody, /<InputDock[\s\S]*modelStatus=\{modelStatus\}/);
@@ -55,6 +55,6 @@ assert.match(source, /const WORKING_SPINNER_FRAMES = \["⠋", "⠙", "⠹", "⠸
 assert.match(source, /const WORKING_SPINNER_INTERVAL_MS = 100;/);
 assert.match(workingBody, /color=\{CHAT_SYSTEM_MARKER_COLOR\}/);
 assert.match(workingBody, /italic>Working/);
-assert.match(workingBody, /color="#808791" bold> • Esc to interrupt/);
+assert.match(workingBody, /color=\{PANEL_SECONDARY\} bold> • Esc to interrupt/);
 assert.match(appSource, /case "agent_working_state":/);
 assert.match(appSource, /type:\s*"agent_turn_interrupt",\s*turn_id:\s*agentWorkingTurnId/);

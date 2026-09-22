@@ -128,24 +128,6 @@ const messages: Record<UiLanguage, Record<MessageKey, string>> = {
     },
 };
 
-const shortcutCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
-    bye: { en: "save and exit", "zh-CN": "保存会话并退出" },
-    help: { en: "show commands", "zh-CN": "显示可用的 Sonex 命令" },
-    info: { en: "show runtime info", "zh-CN": "显示当前运行信息" },
-    lang: { en: "choose display language", "zh-CN": "选择 TUI 显示语言" },
-    logout: { en: "sign out and exit", "zh-CN": "退出当前 LLM 服务登录并关闭" },
-    model: { en: "switch active model", "zh-CN": "切换当前模型" },
-    player: { en: "detect and set default player", "zh-CN": "检测并设置默认播放器" },
-    playlist: { en: "browse or save playlists", "zh-CN": "浏览或保存播放列表" },
-    queue: { en: "show playback queue", "zh-CN": "显示播放队列" },
-    quit: { en: "save and exit", "zh-CN": "保存会话并退出" },
-    random: { en: "play a recent song", "zh-CN": "从最近歌曲中播放" },
-    recommend: { en: "recommend songs", "zh-CN": "按偏好的音乐口味推荐歌曲" },
-    resume: { en: "resume playback", "zh-CN": "继续当前播放" },
-    sandbox: { en: "check Agent Bash sandbox", "zh-CN": "检查 Agent Bash 沙箱" },
-    spotify: { en: "toggle Spotify mode", "zh-CN": "进入或退出持久化 Spotify 模式" },
-};
-
 const helpCommandDescriptions: Record<string, Record<UiLanguage, string>> = {
     bye: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
     exit: { en: "save the current session and exit safely", "zh-CN": "保存会话并退出" },
@@ -257,7 +239,7 @@ export function languageLabel(language: UiLanguage): string {
 export function localizeSlashCommands(commands: SlashCommandSuggestion[], language: UiLanguage): SlashCommandSuggestion[] {
     return commands.map((command) => ({
         ...command,
-        description: shortcutCommandDescriptions[command.name]?.[language] ?? command.description,
+        description: helpCommandDescriptions[command.name]?.[language] ?? command.description,
     }));
 }
 

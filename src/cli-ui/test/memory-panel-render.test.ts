@@ -25,7 +25,7 @@ test('renders memory choices in place of the input dock', async () => {
     const memoryPanel: NonNullable<MemoryPanelState> = {
         view: 'root',
         title: 'Memory',
-        hint: 'Enter to select; Esc to hide',
+        hint: '↑/↓ to select · Enter to continue · Esc to return',
         readOnly: false,
         entries: [],
     };
@@ -63,8 +63,10 @@ test('renders memory choices in place of the input dock', async () => {
     await new Promise((resolve) => setImmediate(resolve));
     const plain = stripAnsi(output);
     try {
-        assert.match(plain, /view memory entries/);
+        assert.match(plain, /config memory entries/);
         assert.match(plain, /reset memory/);
+        assert.match(plain, /Sonex collects preferences and summarizes experience during your daily\s+use\s*\./);
+        assert.match(plain, /↑\/↓ to select · Enter to continue · Esc to return/);
         assert.doesNotMatch(plain, /Ask Sonex anything|gpt-test/);
     } finally {
         app.unmount();

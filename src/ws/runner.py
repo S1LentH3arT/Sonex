@@ -118,6 +118,15 @@ from src.llm.transport.codex_app_server import (
     wait_for_chatgpt_login,
 )
 from src.llm.models import model_choices_for_provider, model_display_name
+from src.network.proxy import (
+    DIRECT,
+    PROXY,
+    ProxyConfigError,
+    check_proxy_target,
+    proxy_status,
+    save_and_apply,
+    validate_proxy_url,
+)
 from src.llm.transport import ChatRequest, sanitize_error_message
 from src.llm.usage import reset_token_usage_observer, set_token_usage_observer
 from src.log import sonex_home
@@ -4935,11 +4944,7 @@ class MemorySettingsSession:
                 "type": "memory_panel",
                 "view": "root",
                 "title": "Memory",
-                "hint": (
-                    "b rebuild damaged metadata · Esc to hide"
-                    if getattr(self.store, "_read_only_reason", None) == "metadata_corrupt"
-                    else "Enter to select; Esc to hide"
-                ),
+                "hint": "↑/↓ to select · Enter to continue · Esc to return",
                 "read_only": bool(getattr(self.store, "_read_only", False)),
                 "entries": [],
             }
@@ -4950,8 +4955,8 @@ class MemorySettingsSession:
             {
                 "type": "memory_panel",
                 "view": "sources",
-                "title": "view memory entries",
-                "hint": "Enter to open; Esc to return",
+                "title": "Memory",
+                "hint": "↑/↓ to select · Enter to continue · Esc to return",
                 "read_only": bool(getattr(self.store, "_read_only", False)),
                 "entries": [],
             }
@@ -5159,6 +5164,72 @@ class WebSocketRunner:
         self._playback_coordinator = MusicPlaybackCoordinator(SelectionStore())
         self._extension_manager = ExtensionManager()
 
+    async def _handle_proxy_action(self, ui: WebSocketUIAdapter, data: dict[str, Any]) -> None:
+        action = str(data.get("action") or "")
+        status = proxy_status()
+        base = {
+            **status,
+            "view": "config" if action in {"config", "focus", "check", "save"} else "root",
+            "root_index": 0,
+        }
+        if action == "open":
+            await ui.send_proxy_state(base)
+            return
+        if action == "config":
+            await ui.send_proxy_state({**base, "view": "config", "url": status.get("url") or ""})
+            return
+        if action == "direct":
+            try:
+                await asyncio.to_thread(save_and_apply, DIRECT)
+            except (ProxyConfigError, OSError) as exc:
+                await ui.send_proxy_state({**base, "error": str(exc)})
+                return
+            await ui.append_system_message("Direct mode enabled. Requests will not use a proxy.")
+            if os.getenv("SONEX_PROXY", "").strip():
+                await ui.append_warning_message(
+                    "SONEX_PROXY is set. Direct mode is active now; the environment value will win after restart."
+                )
+            await ui.send_proxy_state({**proxy_status(), "view": "root", "close": True})
+            return
+        if action == "save":
+            url = str(data.get("value") or "").strip()
+            try:
+                normalized = validate_proxy_url(url)
+                await asyncio.to_thread(save_and_apply, PROXY, normalized)
+            except (ProxyConfigError, OSError) as exc:
+                await ui.send_proxy_state({**base, "view": "config", "url": url, "error": str(exc)})
+                return
+            await ui.append_system_message(f"Proxy enabled: {normalized}")
+            env = os.getenv("SONEX_PROXY", "").strip()
+            if env:
+                try:
+                    env = validate_proxy_url(env)
+                except ProxyConfigError:
+                    pass
+                if env and env != normalized:
+                    await ui.append_warning_message(
+                        "SONEX_PROXY differs from the panel setting. This panel setting is active now; the environment value will win after restart."
+                    )
+            await ui.send_proxy_state({**proxy_status(), "view": "root", "close": True})
+            return
+        if action == "check":
+            url = str(data.get("value") or "").strip()
+            try:
+                normalized = validate_proxy_url(url)
+            except ProxyConfigError as exc:
+                await ui.send_proxy_state({**base, "view": "config", "url": url, "error": str(exc)})
+                return
+            checks = {"model": {"status": "checking"}, "youtube": {"status": "checking"}}
+            await ui.send_proxy_state({**base, "view": "config", "url": url, "checks": checks, "error": None})
+            model, youtube = await asyncio.gather(
+                asyncio.to_thread(check_proxy_target, "https://api.openai.com/v1/models", proxy_url=normalized),
+                asyncio.to_thread(check_proxy_target, "https://www.youtube.com/generate_204", proxy_url=normalized),
+            )
+            checks["model"] = model
+            checks["youtube"] = youtube
+            await ui.send_proxy_state({**base, "view": "config", "url": url, "checks": checks, "error": None})
+
+
     @property
     def _running_task(self) -> asyncio.Task[Any] | None:
         """Compatibility read for older callers; state is session-owned."""
@@ -5258,6 +5329,7 @@ class WebSocketRunner:
                 "memory_panel_action": lambda data: self._handle_memory_panel_action(ui, data),
                 "extension_panel_action": lambda data: self._handle_extension_panel_action(ui, data),
                 "extension_panel_input": lambda data: self._handle_extension_panel_input(ui, str(data.get("value") or "")),
+                "proxy_action": lambda data: self._handle_proxy_action(ui, data),
                 "agent_turn_interrupt": lambda data: self._handle_agent_turn_interrupt(ui, str(data.get("turn_id") or "")),
                 "setup_input": route_setup_input,
                 "auth_setup_input": route_auth_setup_input,
@@ -6909,7 +6981,7 @@ class WebSocketRunner:
         return {
             "view": view,
             "title": "Extensions" if view == "list" else "Extension setup" if view == "setup" else "",
-            "hint": "↑/↓ select · Enter open · Esc close" if view == "list" else "↑/↓ select · Enter act · Esc back",
+            "hint": "↑/↓ to select · Enter to open · Esc to close" if view == "list" else "↑/↓ to select · Enter to act · Esc to return",
             "selected_extension": selected,
             "extensions": extensions,
             "detail": detail,

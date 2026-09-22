@@ -1,5 +1,5 @@
-import { BORDER_BLUE, SPOTIFY_GREEN, TOOL_NAVY } from './constants.js';
 import type { ChatTheme } from './types.js';
+import { resolveUiTheme, type UiThemeId } from './ui-theme.js';
 
 export type AgentChatThemeTokens = {
     accent: string;
@@ -9,22 +9,13 @@ export type AgentChatThemeTokens = {
     linkText: string;
 };
 
-const DEFAULT_AGENT_CHAT_THEME: AgentChatThemeTokens = {
-    accent: BORDER_BLUE,
-    strongText: BORDER_BLUE,
-    highlightBackground: TOOL_NAVY,
-    codeBackground: '#252933',
-    linkText: '#9fd9ff',
-};
-
-const SPOTIFY_AGENT_CHAT_THEME: AgentChatThemeTokens = {
-    accent: SPOTIFY_GREEN,
-    strongText: SPOTIFY_GREEN,
-    highlightBackground: '#0b3d20',
-    codeBackground: '#252933',
-    linkText: '#73d998',
-};
-
-export function resolveAgentChatTheme(theme: ChatTheme | null): AgentChatThemeTokens {
-    return theme === 'spotify' ? SPOTIFY_AGENT_CHAT_THEME : DEFAULT_AGENT_CHAT_THEME;
+export function resolveAgentChatTheme(_theme: ChatTheme | null, uiTheme?: UiThemeId | null): AgentChatThemeTokens {
+    const tokens = resolveUiTheme(uiTheme);
+    return {
+        accent: tokens.accent,
+        strongText: tokens.accent,
+        highlightBackground: tokens.toolBackground,
+        codeBackground: tokens.codeBackground,
+        linkText: tokens.link,
+    };
 }

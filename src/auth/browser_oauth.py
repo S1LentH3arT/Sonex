@@ -16,9 +16,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from src.auth.oauth import save_oauth_token
+from src.network.proxy import direct_urlopen
 from src.auth.models import OAuthToken
 from src.auth.providers import normalize_provider
 from src.log import sonex_home
@@ -167,7 +168,7 @@ def refresh_browser_oauth_token(
         method="POST",
     )
     try:
-        with urlopen(request, timeout=30) as response:
+        with direct_urlopen(request, timeout=30) as response:
             token_info = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         raise BrowserOAuthError(f"OAuth token refresh failed: {exc}") from exc
@@ -345,7 +346,7 @@ def _exchange_code(config: BrowserOAuthConfig, *, code: str, verifier: str) -> d
         method="POST",
     )
     try:
-        with urlopen(request, timeout=30) as response:
+        with direct_urlopen(request, timeout=30) as response:
             token_info = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
         raise BrowserOAuthError(f"OAuth token exchange failed: {exc}") from exc

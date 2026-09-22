@@ -36,15 +36,15 @@ assert.equal((headerBody.match(/\{displayCwd\}/g) ?? []).length, 1);
 assert.equal((headerBody.match(/session id:/g) ?? []).length, 1);
 assert.equal((headerBody.match(/\{sessionId\}/g) ?? []).length, 1);
 assert.equal(
-    (headerBody.match(/<Text color="#808791">session id:<\/Text>/g) ?? []).length,
+    (headerBody.match(/<Text color=\{PANEL_SECONDARY\}>session id:<\/Text>/g) ?? []).length,
     1,
 );
 assert.equal(
-    (headerBody.match(/<Text color="#fff4f6" wrap="truncate-end">\{sessionId\}<\/Text>/g) ?? []).length,
+    (headerBody.match(/<Text color=\{PANEL_PRIMARY\} wrap="truncate-end">\{sessionId\}<\/Text>/g) ?? []).length,
     1,
 );
 assert.equal(
-    (headerBody.match(/<Text color="#fff4f6"(?: wrap="truncate-end")?>\{displayCwd\}<\/Text>/g) ?? []).length,
+    (headerBody.match(/<Text color=\{PANEL_PRIMARY\}(?: wrap="truncate-end")?>\{displayCwd\}<\/Text>/g) ?? []).length,
     1,
 );
 assert.doesNotMatch(headerBody, /~\/dev\/sonex/);

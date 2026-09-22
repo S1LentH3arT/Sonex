@@ -17,7 +17,10 @@ from urllib.parse import parse_qs, urlparse
 import typer
 import uvicorn
 from rich.console import Console
+from rich.markup import escape
 from rich.table import Table
+from typer.exceptions import Abort, TyperException
+from typer.main import get_command
 
 from src.auth.oauth import save_oauth_token
 from src.auth.providers import get_provider_capability, normalize_provider, provider_names
@@ -40,6 +43,14 @@ from src.extensions import ExtensionManager
 from src.llm.models import list_provider_models
 from src.log import configure_file_logging, sonex_home, sonex_log_path
 from src.memory.tool import search_memory
+from src.network.proxy import (
+    DIRECT,
+    PROXY,
+    ProxyConfigError,
+    configure_startup_proxy,
+    proxy_status,
+    save_and_apply,
+)
 from src.sandbox import SandboxManager, SandboxState
 from src.thinking.config import ThinkingConfig
 from src.tools.agent_catalog import QUERY_PROVIDERS
@@ -54,21 +65,40 @@ from src.tools.youtube_runtime import (
 )
 from src.workspace import user_workspace_root
 
-DEFAULT_APP_VERSION = "0.1.0-alpha.3"
+DEFAULT_APP_VERSION = "0.1.0-alpha.4"
 APP_VERSION = os.getenv("SONEX_APP_VERSION", DEFAULT_APP_VERSION)
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9001
 SERVER_START_TIMEOUT = 15.0
 
-app = typer.Typer(no_args_is_help=False, add_completion=True)
-auth_app = typer.Typer(no_args_is_help=True, help="Manage Sonex provider credentials.")
-doctor_app = typer.Typer(no_args_is_help=True, help="Inspect local Sonex runtime health.")
-youtube_app = typer.Typer(no_args_is_help=True, help="Inspect the built-in YouTube extension.")
-extension_app = typer.Typer(no_args_is_help=True, help="Inspect built-in music extensions.")
-sandbox_app = typer.Typer(no_args_is_help=True, help="Inspect the Agent sandbox.")
-model_app = typer.Typer(no_args_is_help=True, help="Inspect configured LLM models.")
-memory_app = typer.Typer(no_args_is_help=True, help="Search Sonex memory.")
-playlist_app = typer.Typer(no_args_is_help=True, help="Inspect local playlists.")
+class _CliTyper(typer.Typer):
+    """Keep Click's exit semantics while giving shell errors a light style."""
+
+    def __call__(self, *args: object, **kwargs: object) -> object:
+        kwargs["standalone_mode"] = False
+        try:
+            result = get_command(self)(*args, **kwargs)
+        except TyperException as exc:
+            _show_cli_error(exc)
+            raise SystemExit(exc.exit_code) from exc
+        except Abort:
+            _error_console.print("[red]Aborted![/red]")
+            raise SystemExit(1) from None
+        if isinstance(result, int) and result:
+            raise SystemExit(result)
+        return result
+
+
+app = _CliTyper(no_args_is_help=False, add_completion=True, rich_markup_mode=None)
+auth_app = typer.Typer(no_args_is_help=True, help="Manage Sonex provider credentials.", rich_markup_mode=None)
+doctor_app = typer.Typer(no_args_is_help=True, help="Inspect local Sonex runtime health.", rich_markup_mode=None)
+youtube_app = typer.Typer(no_args_is_help=True, help="Inspect the built-in YouTube extension.", rich_markup_mode=None)
+extension_app = typer.Typer(no_args_is_help=True, help="Inspect built-in music extensions.", rich_markup_mode=None)
+sandbox_app = typer.Typer(no_args_is_help=True, help="Inspect the Agent sandbox.", rich_markup_mode=None)
+model_app = typer.Typer(no_args_is_help=True, help="Inspect configured LLM models.", rich_markup_mode=None)
+memory_app = typer.Typer(no_args_is_help=True, help="Search Sonex memory.", rich_markup_mode=None)
+playlist_app = typer.Typer(no_args_is_help=True, help="Inspect local playlists.", rich_markup_mode=None)
+proxy_app = typer.Typer(no_args_is_help=True, help="Configure Sonex outbound proxy routing.", rich_markup_mode=None)
 app.add_typer(auth_app, name="auth")
 app.add_typer(doctor_app, name="doctor")
 app.add_typer(youtube_app, name="youtube")
@@ -77,7 +107,9 @@ app.add_typer(sandbox_app, name="sandbox")
 app.add_typer(model_app, name="model")
 app.add_typer(memory_app, name="memory")
 app.add_typer(playlist_app, name="playlist")
-console = Console()
+app.add_typer(proxy_app, name="proxy")
+console = Console(style="bright_white")
+_error_console = Console(stderr=True, style="bright_white")
 _RETIRED_PROVIDERS = {"apple_music", "apple_mode"}
 
 _ERROR_EXIT_CODES = {
@@ -88,6 +120,16 @@ _ERROR_EXIT_CODES = {
     "RESOURCE_UNSUPPORTED": 4,
     "PROVIDER_UNSUPPORTED": 4,
 }
+
+
+def _show_cli_error(exc: TyperException) -> None:
+    ctx = getattr(exc, "ctx", None)
+    if ctx is not None:
+        typer.echo(ctx.get_usage(), err=True)
+        help_option = ctx.command.get_help_option(ctx)
+        if help_option is not None:
+            typer.echo(f"Try '{ctx.command_path} {help_option.opts[-1]}' for help.", err=True)
+    _error_console.print(f"[red]Error: {escape(exc.format_message())}[/red]")
 
 
 def _project_root() -> Path:
@@ -122,8 +164,44 @@ def _normalize_auth_method(method: str) -> str:
 
 def _reject_retired_provider(provider: str) -> None:
     if provider in _RETIRED_PROVIDERS:
-        console.print(f"[red]Unknown provider: {provider}.[/red]")
+        _error_console.print(f"[red]Unknown provider: {provider}.[/red]")
         raise typer.Exit(1)
+
+
+@proxy_app.command("set")
+def proxy_set(url: str) -> None:
+    """Save and enable an HTTP or SOCKS5 proxy."""
+    try:
+        config = save_and_apply(PROXY, url)
+    except (ProxyConfigError, OSError) as exc:
+        raise typer.BadParameter(str(exc), param_hint="url") from exc
+    typer.echo(f"Proxy enabled: {config.url}")
+
+
+@proxy_app.command("disable")
+def proxy_disable() -> None:
+    """Save Direct mode while retaining the configured proxy address."""
+    try:
+        save_and_apply(DIRECT)
+    except (ProxyConfigError, OSError) as exc:
+        raise typer.Exit(f"Unable to save proxy configuration: {exc}") from exc
+    typer.echo("Direct mode enabled. Requests will not use a proxy.")
+
+
+@proxy_app.command("status")
+def proxy_status_command(
+    json_output: bool = typer.Option(False, "--json", help="Print machine-readable JSON."),
+) -> None:
+    """Show the active proxy route and override source."""
+    payload = proxy_status()
+    if json_output:
+        typer.echo(json.dumps(payload, ensure_ascii=False))
+        return
+    typer.echo(f"mode: {payload['mode']}")
+    typer.echo(f"url: {payload['url'] or '-'}")
+    typer.echo(f"source: {payload['source']}")
+    if payload["environment_override"]:
+        typer.echo(f"environment: {payload['environment_url']}")
 
 
 def _provider_secret_env_names(provider: str, kind: str) -> tuple[str, ...]:
@@ -164,7 +242,7 @@ def _prompt_api_key(provider: str) -> str:
 
 
 def _print_auth_store_path(path: Path) -> None:
-    console.print(f"[dim]Saved credentials to {path}[/dim]")
+    console.print(f"[bright_white]Saved credentials to {path}[/bright_white]")
 
 
 def _spotify_loopback_login() -> None:
@@ -199,8 +277,8 @@ def _spotify_loopback_login() -> None:
             return
 
     authorize_url, expected_state = spotify_authorize_url()
-    console.print("[dim]Opening Spotify authorization in your browser...[/dim]")
-    console.print(f"[dim]{authorize_url}[/dim]")
+    console.print("[bright_white]Opening Spotify authorization in your browser...[/bright_white]")
+    console.print(f"[bright_white]{authorize_url}[/bright_white]")
     webbrowser.open(authorize_url)
 
     with HTTPServer((host, port), SpotifyCallbackHandler) as server:
@@ -208,13 +286,13 @@ def _spotify_loopback_login() -> None:
         server.handle_request()
 
     if received.get("error"):
-        console.print(f"[red]Spotify authorization failed: {received['error']}[/red]")
+        _error_console.print(f"[red]Spotify authorization failed: {received['error']}[/red]")
         raise typer.Exit(1)
     if not received.get("code"):
-        console.print("[red]Spotify authorization timed out or returned no code.[/red]")
+        _error_console.print("[red]Spotify authorization timed out or returned no code.[/red]")
         raise typer.Exit(1)
     if received.get("state") != expected_state:
-        console.print("[red]Spotify authorization state mismatch.[/red]")
+        _error_console.print("[red]Spotify authorization state mismatch.[/red]")
         raise typer.Exit(1)
 
     token_info = spotify_oauth_manager(state=expected_state).get_access_token(
@@ -247,7 +325,7 @@ def login(
 
     if selected_method == "oauth":
         if not capability.supports_oauth:
-            console.print(
+            _error_console.print(
                 f"[red]Provider '{name}' does not support OAuth in Sonex yet. Use API key login instead.[/red]"
             )
             raise typer.Exit(1)
@@ -271,7 +349,7 @@ def login(
         return
 
     if not capability.supports_api_key:
-        console.print(f"[red]Provider '{name}' does not support API key login.[/red]")
+        _error_console.print(f"[red]Provider '{name}' does not support API key login.[/red]")
         raise typer.Exit(1)
 
     key = _prompt_api_key(name)
@@ -298,12 +376,19 @@ def list_auth(
     if json_output:
         typer.echo(json.dumps(payload, ensure_ascii=False, default=str))
         return
-    console.print(f"[dim]Auth store: {auth_store_path()}[/dim]")
+    console.print(f"[bright_white]Auth store: {auth_store_path()}[/bright_white]")
     if store.default_provider:
-        console.print(f"[dim]Default provider: {store.default_provider}[/dim]")
+        console.print(f"[bright_white]Default provider: {store.default_provider}[/bright_white]")
     if store.default_model:
-        console.print(f"[dim]Default model: {store.default_model}[/dim]")
-    table = Table("Provider", "Method", "API key", "OAuth", "Model", "Base URL", "Updated")
+        console.print(f"[bright_white]Default model: {store.default_model}[/bright_white]")
+    table = Table(
+        box=None,
+        header_style="bold bright_white",
+        pad_edge=False,
+        padding=(0, 1),
+    )
+    for heading in ("Provider", "Method", "API key", "OAuth", "Model", "Base URL", "Updated"):
+        table.add_column(heading, overflow="fold")
     for provider in sorted(store.providers.values(), key=lambda item: item.name):
         public = provider_to_public_dict(provider)
         table.add_row(
@@ -325,9 +410,9 @@ def logout(provider: str) -> None:
     _reject_retired_provider(name)
     removed = remove_provider(name)
     if removed:
-        console.print(f"[green]Removed credentials for {name}.[/green]")
+        console.print(f"[bright_white]Removed credentials for {name}.[/bright_white]")
     else:
-        console.print(f"[yellow]No credentials found for {name}.[/yellow]")
+        _error_console.print(f"[yellow]No credentials found for {name}.[/yellow]")
 
 
 @auth_app.command("set-default")
@@ -638,7 +723,7 @@ def _build_ink_ui_if_needed() -> None:
             "Ink UI dependencies are missing. Install dependencies in src/cli-ui first."
         )
 
-    console.print("[dim]Building React + Ink TUI...[/dim]")
+    console.print("[bright_white]Building React + Ink TUI...[/bright_white]")
     subprocess.run(
         [_node_bin(), str(tsc), "--outDir", "dist"],
         cwd=_cli_ui_dir(),
@@ -726,10 +811,17 @@ def main(
     version: bool = typer.Option(False, "--version", "-v", is_eager=True),
     host: str = typer.Option(DEFAULT_HOST, "--host", help="WebSocket API host."),
     port: int = typer.Option(DEFAULT_PORT, "--port", help="WebSocket API port."),
+    proxy: str | None = typer.Option(None, "--proxy", help="Use an HTTP or SOCKS5 proxy."),
+    no_proxy: bool = typer.Option(False, "--no-proxy", help="Use Direct mode and clear proxy routing."),
 ) -> None:
     if version:
         typer.echo(f"v{APP_VERSION}")
         raise typer.Exit()
+
+    try:
+        configure_startup_proxy(cli_proxy=proxy, cli_no_proxy=no_proxy)
+    except (ProxyConfigError, OSError) as exc:
+        raise typer.BadParameter(str(exc), param_hint="--proxy/--no-proxy") from exc
 
     if ctx.invoked_subcommand in {None, "api", "tui"}:
         start_background_health_check()

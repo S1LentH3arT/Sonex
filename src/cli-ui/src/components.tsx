@@ -3,9 +3,9 @@ import { Box, Static, Text, Transform, measureElement } from 'ink';
 import TextInput from 'ink-text-input';
 import stringWidth from 'string-width';
 import { chatDocumentSegments } from './chat-document.js';
-import { CHAT_SYSTEM_MARKER_COLOR, CHAT_USER_MARKER_COLOR, resolveChatContentColor, resolveChatMarkerColor, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
+import { CHAT_SYSTEM_MARKER_COLOR, resolveChatContentColor, resolveChatMarkerColor, wrapChatMessageContent, wrapChatMessageSegments } from './chat-message.js';
 import { resolveAgentChatTheme } from './chat-theme.js';
-import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
+import { APP_VERSION, BORDER_BLUE, BORDER_BLUE_SOFT, FALLBACK_MODEL_NAME, MAX_VISIBLE_MODEL_CHOICES, MAX_VISIBLE_SLASH_COMMANDS, PANEL_PRIMARY, PANEL_SECONDARY, PLAYER_PAUSED, PLAYER_SECONDARY, SONEX_MASCOT, SONEX_MASCOT_MICRO, SPOTIFY_GREEN, TOOL_NAVY, TOOL_VALUE } from './constants.js';
 import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } from './command-panel.js';
 import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
@@ -18,12 +18,15 @@ import { renderCoverPatternHalfBlocks, resolveCoverPatternDisplay, type CoverPat
 import { resolveMiniPlayerLayout, type ChatHeaderVariant, type MiniPlayerLayout, type ShellRegion, type SpotifyImmersiveLayout } from './layout.js';
 import { filterModelChoices, formatModelPanelLabel, modelPanelLabelWidth } from './model-selection.js';
 import { buildPlaybackStatusIconLine } from './mini-progress-writer.js';
-import { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem } from './panel-frame.js';
+import { PANEL_BACKGROUND, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem } from './panel-frame.js';
+import { panelContentWidth } from './panel-frame.js';
+import { PanelGuide } from './panel-frame.js';
 import { formatTrackPanelLine, trackPanelTrackKey } from './track-panel.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 import { ExtensionPanelOverlay } from './extension-panel.js';
 import type { CommittedTranscriptRecord } from './transcript.js';
-import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, CoverImageEvent, ExtensionPanelState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import type { ActivityItem, ActivityKind, AuthMethodChoice, AuthRuntimeState, AuthSetupState, ChatBubbleProps, ChatMessageItem, ConfirmChoice, ConfirmState, CoverImageEvent, ExtensionPanelState, HelpPanelState, LanguagePanelState, LoginScreenProps, MemoryPanelState, PlayerPaneVariant, PlayerState, PromptInputProps, ProviderModeState, ProxyPanelState, SlashCommandSuggestion, SpotifyModeState, SpotifySetupState, ThemePanelState, TrackPanelState, TrackPanelTrack, TrackSummary, UiLanguage } from './types.js';
+import { UI_THEMES } from './ui-theme.js';
 
 const Mascot = () => {
     return (
@@ -75,7 +78,7 @@ export const AgentWorkingStatus = () => {
         <Box height={1} flexShrink={0} paddingLeft={1} paddingRight={1} alignItems="flex-start">
             <Text color={CHAT_SYSTEM_MARKER_COLOR}>{WORKING_SPINNER_FRAMES[frame]} </Text>
             <Text color={CHAT_SYSTEM_MARKER_COLOR} italic>Working</Text>
-            <Text color="#808791" bold> • Esc to interrupt</Text>
+            <Text color={PANEL_SECONDARY} bold> • Esc to interrupt</Text>
         </Box>
     );
 };
@@ -107,18 +110,18 @@ export const HeaderFrame = ({ authState, cwd, sessionId, variant, language = "en
     const displayCwd = formatWorkingDirectory(cwd);
     const runtimeInformation = (
         <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
-            <Text wrap="truncate-end"><Text bold color="#fff4f6">Sonex CLI</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
+            <Text wrap="truncate-end"><Text bold color={PANEL_PRIMARY}>Sonex Agent</Text> <Text bold color={BORDER_BLUE}>v{APP_VERSION}</Text></Text>
             <Box height={1} />
-            <Text color="#d8bcc7" wrap="truncate-end">
+            <Text color={PANEL_SECONDARY} wrap="truncate-end">
                 {identityModel} • {authState.ready
                     ? formatAuthLabel(authState)
                     : <Text color="#facc15" bold>Not logged in</Text>}
             </Text>
-            <Text color="#fff4f6" wrap="truncate-end">{displayCwd}</Text>
+            <Text color={PANEL_PRIMARY} wrap="truncate-end">{displayCwd}</Text>
             {sessionId ? (
                 <>
-                    <Text color="#808791">session id:</Text>
-                    <Text color="#fff4f6" wrap="truncate-end">{sessionId}</Text>
+                    <Text color={PANEL_SECONDARY}>session id:</Text>
+                    <Text color={PANEL_PRIMARY} wrap="truncate-end">{sessionId}</Text>
                 </>
             ) : null}
         </Box>
@@ -205,6 +208,7 @@ export const LoginScreen = ({
     const isModelStep = authSetup.step === "model";
     const isOauthWait = authSetup.step === "oauth_wait";
     const isTextStep = !isProviderStep && !isMethodStep && !isModelStep && !isOauthWait;
+    const isChoiceStep = isProviderStep || isMethodStep || isModelStep;
     const choices = isProviderStep ? providerChoices : isMethodStep ? methodChoices : isModelStep ? modelChoices : [];
     const showProviderConnectionStatus = isProviderStep
         && providerChoices.length > 0
@@ -217,21 +221,21 @@ export const LoginScreen = ({
         : [];
 
     return (
-        <PanelFrame width={74} paddingX={2} title={authSetup.title} hint={displayMessage}>
-            {(isProviderStep || isMethodStep || isModelStep) ? (
-                <>
-                    <LoginChoiceList
-                        choices={choices}
-                        selectedIndex={selectedIndex}
-                        visibleLimit={isProviderStep ? MAX_VISIBLE_LOGIN_PROVIDERS : isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
-                        showConnectionStatus={showProviderConnectionStatus}
-                    />
-                    <PanelRow
-                        width={74}
-                        paddingX={2}
-                        segments={[{ text: t(language, "login.continue"), color: PANEL_SECONDARY, bold: true }]}
-                    />
-                </>
+        <PanelFrame
+            width={74}
+            paddingX={2}
+            title={authSetup.title}
+            description="Select your available provider and get connected to activate Sonex."
+            hint={isChoiceStep ? null : displayMessage}
+            footer={isChoiceStep ? <PanelGuide width={74} paddingX={2} text={t(language, "login.continue")} /> : null}
+        >
+            {isChoiceStep ? (
+                <LoginChoiceList
+                    choices={choices}
+                    selectedIndex={selectedIndex}
+                    visibleLimit={isProviderStep ? MAX_VISIBLE_LOGIN_PROVIDERS : isModelStep ? MAX_VISIBLE_MODEL_CHOICES : undefined}
+                    showConnectionStatus={showProviderConnectionStatus}
+                />
             ) : null}
 
             {isTextStep ? (
@@ -422,8 +426,8 @@ const SlashCommandList = ({ suggestions, selectedIndex, spotifyTheme = false }: 
             {visibleSuggestions.map((command, index) => {
                 const absoluteIndex = startIndex + index;
                 const selected = absoluteIndex === boundedIndex;
-                const commandColor = selected ? (spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE) : "#fff4f6";
-                const descriptionColor = selected ? commandColor : "#808791";
+                const commandColor = selected ? BORDER_BLUE : PANEL_PRIMARY;
+                const descriptionColor = selected ? commandColor : PANEL_SECONDARY;
                 return (
                     <Text key={command.name} color={commandColor} bold={selected} wrap="truncate-end">
                         <Text>{formatCommandListLabel(command)}</Text>
@@ -452,7 +456,12 @@ const HelpPanel = ({ panel, selectedIndex, width, language = "en" }: {
     }));
 
     return (
-        <PanelFrame width={width} title={panel.title} hint={panel.hint}>
+        <PanelFrame
+            width={width}
+            title={panel.title}
+            description="Rich built-in commands covering various function."
+            footer={<PanelGuide width={width} text="↑/↓ to select · Enter for completion · Esc to close" />}
+        >
             {panel.commands.length === 0 ? (
                 <PanelRow
                     width={width}
@@ -470,11 +479,11 @@ const HelpPanel = ({ panel, selectedIndex, width, language = "en" }: {
     );
 };
 
-export const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, segments = null, document = null, showDivider = true }: ChatBubbleProps) => {
+export const ChatBubble = ({ role, content, contentWidth, theme = null, tone = null, segments = null, document = null, uiTheme = null, showDivider = true }: ChatBubbleProps) => {
     const isUser = role === "user";
-    const markerColor = resolveChatMarkerColor(role, theme, tone);
-    const contentColor = resolveChatContentColor(role, tone);
-    const semanticTheme = resolveAgentChatTheme(theme);
+    const markerColor = resolveChatMarkerColor(role, theme, tone, uiTheme);
+    const contentColor = resolveChatContentColor(role, tone, uiTheme);
+    const semanticTheme = resolveAgentChatTheme(theme, uiTheme);
     const useToolSegmentStyles = !isUser && tone === null;
     const semanticSegments = !isUser && tone === null && document?.version === 1
         ? chatDocumentSegments(document)
@@ -535,7 +544,7 @@ export const ChatBubble = ({ role, content, contentWidth, theme = null, tone = n
             })}
             {showDivider ? (
                 <Box marginTop={1}>
-                    <Text color={CHAT_USER_MARKER_COLOR}>{"─".repeat(contentWidth + 2)}</Text>
+                    <Text color={PANEL_SECONDARY}>{"─".repeat(contentWidth + 2)}</Text>
                 </Box>
             ) : null}
         </Box>
@@ -565,6 +574,7 @@ export const CommittedRecord = ({
                 tone={record.item.tone}
                 segments={record.item.segments}
                 document={record.item.document}
+                uiTheme={record.item.uiTheme}
             />
         )}
     </Box>
@@ -632,11 +642,11 @@ const TrackPanel = ({
 
     const panelTitle = localizeTrackPanelTitle(panel, language);
     const titleRows = 1;
-    const hintRows = panel.hint ? 1 : 0;
+    const guideRows = 2;
     const paddingRows = 1;
     const availableRows = Math.max(
         TRACK_PANEL_MIN_VISIBLE_ROWS,
-        panelHeight > 0 ? panelHeight - titleRows - hintRows - paddingRows - 2 : TRACK_PANEL_MIN_VISIBLE_ROWS,
+        panelHeight > 0 ? panelHeight - titleRows - guideRows - paddingRows - 2 : TRACK_PANEL_MIN_VISIBLE_ROWS,
     );
 
     const visibleRowCount = panel.tracks.length === 0
@@ -664,7 +674,7 @@ const TrackPanel = ({
                 width={panelWidth}
                 paddingX={2}
                 title={panelTitle}
-                hint={panel.hint ? `${panel.hint}; Esc to hide` : null}
+                footer={<PanelGuide width={panelWidth} paddingX={2} text="↑/↓ to select · Enter to play · Ctrl+A to queue · Esc to close" />}
             >
                 {panel.tracks.length === 0 ? (
                     <PanelRow
@@ -723,7 +733,7 @@ const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor
     panelWidth?: number;
 }) => {
     if (!panel) return null;
-    const width = Math.max(3, Math.min(74, Math.floor(panelWidth)));
+    const width = Math.max(3, Math.floor(panelWidth));
     if (editor) {
         return (
             <Box width="100%" flexDirection="column" flexShrink={0} paddingX={1}>
@@ -751,7 +761,7 @@ const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor
         );
     }
     const rootItems = panel.view === "root"
-        ? ["view memory entries", "reset memory"]
+        ? ["config memory entries", "reset memory"]
         : panel.view === "sources"
             ? ["USER.md", "MEMORY.md", "Memory Dump"]
             : panel.view === "format"
@@ -803,15 +813,57 @@ const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor
                 color: PANEL_PRIMARY,
             }],
         }));
+    const memoryLanding = panel.view === "root" || panel.view === "sources";
+    const memoryDescription = "Sonex collects preferences and summarizes experience during your daily use.";
+    const memoryFooter = "↑/↓ to select · Enter to continue · Esc to return";
+    const sourceDescriptions: Record<string, string> = {
+        "USER.md": "Review your music preferences and playback style",
+        "MEMORY.md": "Include long-term experience and summarized notes",
+        "Memory Dump": "Deprecated or mistaken memory but still available for recovery",
+    };
+    const sourceLabels = ["USER.md", "MEMORY.md", "Memory Dump"];
+    const sourceTitleWidth = Math.max(...sourceLabels.map((label) => stringWidth(label))) + 1;
+    const sourceDescriptionWidth = Math.max(1, panelContentWidth(width, 2) - sourceTitleWidth);
+    const sourceRows = panel.view === "sources" ? sourceLabels.map((label, index) => {
+        const selected = index === selectedIndex;
+        const titleSegments = resolvePanelChoiceSegments({
+            key: label,
+            segments: [{ text: label.padEnd(sourceTitleWidth, " "), color: PANEL_PRIMARY }],
+        }, selected, false);
+        const descriptionColor = selected ? BORDER_BLUE : PANEL_SECONDARY;
+        const descriptionRows = wrapChatMessageContent(sourceDescriptions[label], sourceDescriptionWidth);
+        return (
+            <React.Fragment key={label}>
+                <PanelRow
+                    width={width}
+                    paddingX={2}
+                    segments={[
+                        ...titleSegments,
+                        { text: descriptionRows[0] ?? "", color: descriptionColor, bold: selected },
+                    ]}
+                />
+                {descriptionRows.slice(1).map((row, rowIndex) => (
+                    <PanelRow
+                        key={`${label}-description-${rowIndex + 1}`}
+                        width={width}
+                        paddingX={2}
+                        segments={[{ text: `${" ".repeat(sourceTitleWidth)}${row}`, color: descriptionColor, bold: selected }]}
+                    />
+                ))}
+            </React.Fragment>
+        );
+    }) : null;
     return (
         <Box width="100%" flexDirection="column" flexShrink={0} paddingX={1}>
             <PanelFrame
                 width={width}
                 paddingX={2}
-                title={`${panel.title}${panel.readOnly ? " · Read only" : ""}`}
-                hint={searchQuery ? `Filter: /${searchQuery} · ${panel.hint ?? ""}` : panel.hint}
+                title={memoryLanding ? "Memory" : `${panel.title}${panel.readOnly ? " · Read only" : ""}`}
+                description={memoryLanding ? memoryDescription : null}
+                hint={memoryLanding ? null : (searchQuery ? `Filter: /${searchQuery} · ${panel.hint ?? ""}` : panel.hint)}
+                footer={memoryLanding ? <PanelGuide width={width} paddingX={2} text={memoryFooter} /> : null}
             >
-                {items.length > 0 ? (
+                {sourceRows ?? (items.length > 0 ? (
                     <PanelChoiceList
                         items={items}
                         selectedIndex={selectedIndex}
@@ -825,7 +877,7 @@ const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor
                         paddingX={2}
                         segments={[{ text: "No memory entries.", color: PANEL_SECONDARY }]}
                     />
-                )}
+                ))}
             </PanelFrame>
         </Box>
     );
@@ -1009,9 +1061,9 @@ const PlayerMascot = ({ visual, frame, compact }: {
 
 const TrackDetails = React.memo(({ player, compact }: { player: PlayerState; compact: boolean }) => (
     <Box flexDirection="column">
-        <Text bold color="#fff4f6">{player.name}</Text>
-        <Text color="#bf98a7">{player.artist}</Text>
-        {!compact || player.album !== "-" ? <Text color="#bf98a7">{player.album}</Text> : null}
+        <Text bold color={PANEL_PRIMARY}>{player.name}</Text>
+        <Text color={PLAYER_SECONDARY}>{player.artist}</Text>
+        {!compact || player.album !== "-" ? <Text color={PLAYER_SECONDARY}>{player.album}</Text> : null}
     </Box>
 ));
 
@@ -1040,7 +1092,7 @@ const MiniPlayerStaticBody = React.memo(({
                     <Text bold color={BORDER_BLUE_SOFT} wrap="truncate-end">{player.name}</Text>
                 </Box>
                 <Box width={infoInnerWidth} justifyContent="center">
-                    <Text color="#ffffff" wrap="truncate-end">{formatMiniTrackSubtitle(player.artist, player.album)}</Text>
+                    <Text color={PANEL_PRIMARY} wrap="truncate-end">{formatMiniTrackSubtitle(player.artist, player.album)}</Text>
                 </Box>
                 <Text>{' '.repeat(infoInnerWidth)}</Text>
                 <Box width={infoInnerWidth}>
@@ -1095,9 +1147,9 @@ const PlaybackMeter = ({ player, visual, compact = false, active = true }: {
     return (
         <Box flexDirection="column" marginTop={1}>
             <Text>
-                <Text color="#bf98a7">{progress}</Text> <Text color={visual.secondary}>{progressBar}</Text> <Text color="#bf98a7">{duration}</Text>
+                <Text color={PLAYER_SECONDARY}>{progress}</Text> <Text color={visual.secondary}>{progressBar}</Text> <Text color={PLAYER_SECONDARY}>{duration}</Text>
             </Text>
-            <Text color={isPlaying ? visual.accent : "#7f5d6b"}>{isPlaying ? "playing" : "paused"}</Text>
+            <Text color={isPlaying ? visual.accent : PLAYER_PAUSED}>{isPlaying ? "playing" : "paused"}</Text>
         </Box>
     );
 };
@@ -1381,6 +1433,71 @@ const LanguagePanel = ({ panel, selectedIndex, width, language = "en" }: {
     );
 };
 
+const ThemePanel = ({ panel, selectedIndex, width }: {
+    panel: ThemePanelState;
+    selectedIndex: number;
+    width: number;
+}) => {
+    if (!panel) return null;
+    const choices = Object.values(UI_THEMES);
+    return (
+        <PanelFrame
+            width={width}
+            title="Theme"
+            description="Decorate Sonex with your favourite color schemes."
+            footer={<PanelGuide width={width} text="↑/↓ to preview · Enter to save · Esc to cancel" />}
+        >
+            <PanelChoiceList
+                items={choices.map((choice) => ({
+                    key: choice.id,
+                    segments: [
+                        { text: choice.id === panel.selected ? "● " : "  ", color: choice.accent, preserveColorWhenSelected: true },
+                        { text: choice.label.padEnd(20, " "), color: PANEL_PRIMARY },
+                        { text: "■", color: choice.accent, preserveColorWhenSelected: true },
+                        { text: "■", color: choice.panelTitle, preserveColorWhenSelected: true },
+                        { text: "■", color: choice.primary, preserveColorWhenSelected: true },
+                    ],
+                }))}
+                selectedIndex={selectedIndex}
+                width={width}
+            />
+            {panel.saveError ? (
+                <PanelRow width={width} segments={[{ text: panel.saveError, color: "#ff9c9c" }]} />
+            ) : null}
+        </PanelFrame>
+    );
+};
+
+const ProxyPanel = ({ panel, input, setInput, onSubmit, inputFocus, inputRevision, width }: {
+    panel: ProxyPanelState;
+    input: string;
+    setInput: (value: string) => void;
+    onSubmit: (value: string) => void;
+    inputFocus: boolean;
+    inputRevision: number;
+    width: number;
+}) => {
+    if (!panel) return null;
+    if (panel.view === "root") {
+        return <PanelFrame width={width} title="Proxy" footer={<PanelGuide width={width} text="↑/↓ to select · Enter to choose · Esc to close" />}>
+            <PanelChoiceList items={["Config", "Direct"].map((label) => ({ key: label, segments: [{ text: label, color: PANEL_PRIMARY }] }))} selectedIndex={panel.rootIndex} width={width} />
+        </PanelFrame>;
+    }
+    const checkLine = (label: string, result: { status: string; phase?: "proxy" | "target"; message?: string; httpStatus?: number }) => {
+        const detail = result.status === "checking" ? "checking…" : result.status === "passed" ? `passed${result.httpStatus ? ` (${result.httpStatus})` : ""}` : result.status === "failed" ? `${result.phase === "target" ? "target failed" : "proxy failed"}${result.message ? `: ${result.message}` : ""}` : "not checked";
+        return <PanelRow key={label} width={width} segments={[{ text: `${label}: `, color: PANEL_SECONDARY }, { text: detail, color: result.status === "passed" ? "#4ade80" : result.status === "failed" ? "#ff9c9c" : PANEL_PRIMARY }]} />;
+    };
+    return <PanelFrame width={width} title="Proxy configuration" hint="Tab focus · Enter activate · Esc back">
+        <PanelRow width={width} segments={[{ text: "Address", color: PANEL_SECONDARY }]} />
+        <PromptInput input={input} setInput={setInput} onSubmit={onSubmit} focus={inputFocus && panel.focus === "url"} placeholder="http://host:port or socks5://host:port" inputRevision={inputRevision} />
+        {checkLine("Model", panel.checks.model)}
+        {checkLine("YouTube", panel.checks.youtube)}
+        <PanelChoiceList items={["Check", "Save"].map((label) => ({ key: label, segments: [{ text: label, color: PANEL_PRIMARY }] }))} selectedIndex={panel.focus === "save" ? 1 : 0} width={width} />
+        {panel.environmentOverride ? <PanelRow width={width} segments={[{ text: "SONEX_PROXY will override this setting after restart.", color: "#fbbf24" }]} /> : null}
+        {panel.error ? <PanelRow width={width} segments={[{ text: panel.error, color: "#ff9c9c" }]} /> : null}
+    </PanelFrame>;
+};
+
 type CompactSetupPanel = NonNullable<SpotifySetupState | AuthSetupState>;
 
 const setupDoneHint = (setupPanel: CompactSetupPanel, _language: UiLanguage): string | null => {
@@ -1392,7 +1509,7 @@ const setupMessageColor = (setupPanel: CompactSetupPanel): string => {
     const text = `${setupPanel.title} ${setupPanel.message}`.toLowerCase();
     if (text.includes("failed") || text.includes("失败")) return "#ff6b6b";
     if (text.includes("connected") || text.includes("success") || text.includes("成功")) return BORDER_BLUE_SOFT;
-    return "#bf98a7";
+    return PLAYER_SECONDARY;
 };
 
 const CompactSetup = ({
@@ -1502,6 +1619,9 @@ const InputDock = ({
     helpPanelIndex,
     languagePanel,
     languagePanelIndex,
+    themePanel,
+    themePanelIndex,
+    proxyPanel,
     modelPanelIndex,
     terminalColumns,
     minimal = false,
@@ -1528,6 +1648,9 @@ const InputDock = ({
     helpPanelIndex: number;
     languagePanel: LanguagePanelState;
     languagePanelIndex: number;
+    themePanel: ThemePanelState;
+    themePanelIndex: number;
+    proxyPanel: ProxyPanelState;
     modelPanelIndex: number;
     terminalColumns: number | null;
     minimal?: boolean;
@@ -1544,8 +1667,7 @@ const InputDock = ({
     const modelLabelWidth = modelPanelLabelWidth(allModelChoices);
     const modelPanel = authSetup?.active && authSetup.step === "model"
         ? {
-            title: authSetup.title,
-            hint: authSetup.message,
+            title: "Model",
             items: filteredModelChoices.map((model) => ({
                 key: model.value,
                 segments: [
@@ -1558,6 +1680,8 @@ const InputDock = ({
     const showInput = !setupPanel
         && !helpPanel
         && !languagePanel
+        && !themePanel
+        && !proxyPanel
         && !modelPanel
         && (!confirm || Boolean(selectedChoice?.input) && !isSongCandidateConfirm);
     const spotifyModeBorderLabel = " 🎧 Spotify Mode ";
@@ -1582,8 +1706,15 @@ const InputDock = ({
                         />
                     ) : null}
                     <LanguagePanel panel={languagePanel} selectedIndex={languagePanelIndex} width={insetPanelWidth} language={language} />
+                    <ThemePanel panel={themePanel} selectedIndex={themePanelIndex} width={insetPanelWidth} />
+                    <ProxyPanel panel={proxyPanel} input={input} setInput={setInput} onSubmit={onSubmit} inputFocus={inputFocus} inputRevision={inputRevision} width={insetPanelWidth} />
                     {modelPanel ? (
-                        <PanelFrame width={insetPanelWidth} title={modelPanel.title} hint={modelPanel.hint}>
+                        <PanelFrame
+                            width={insetPanelWidth}
+                            title={modelPanel.title}
+                            description='Queried from official provider API. Wanna try a local or customized model? Config and activate the "Custom" provider in "/login".'
+                            footer={<PanelGuide width={insetPanelWidth} text="↑/↓ to select · Enter to submit · Esc to cancel" />}
+                        >
                             <PanelRow
                                 width={insetPanelWidth}
                                 segments={[
@@ -1597,10 +1728,6 @@ const InputDock = ({
                                 visibleLimit={MAX_VISIBLE_MODEL_CHOICES}
                                 width={insetPanelWidth}
                                 spotifyTheme={spotifyTheme}
-                            />
-                            <PanelRow
-                                width={insetPanelWidth}
-                                segments={[{ text: t(language, "login.continue"), color: PANEL_SECONDARY, bold: true }]}
                             />
                         </PanelFrame>
                     ) : null}
@@ -1636,11 +1763,11 @@ const InputDock = ({
             {showInput ? (
                 <>
                     <Box borderTop={true} borderBottom={true} borderLeft={false} borderRight={false}
-                        borderStyle="single" borderColor="#808791"
+                        borderStyle="single" borderColor={PANEL_SECONDARY}
                         paddingX={1} paddingTop={0} flexDirection="column"
                         minHeight={3} flexShrink={0}>
                         <Box flexDirection="row">
-                            <Text color="#7f5d6b">
+                            <Text color={PLAYER_PAUSED}>
                                 {minimal && switchHint ? `${switchHint} · ` : ""}
                             </Text>
                             <PromptInput
@@ -1657,7 +1784,7 @@ const InputDock = ({
                     <Box height={1} paddingX={1} flexDirection="row">
                         <Box flexGrow={1} minWidth={0}>
                             {modelStatus ? (
-                                <Text color="#808791" wrap="truncate-end">{modelStatus}</Text>
+                                <Text color={PANEL_SECONDARY} wrap="truncate-end">{modelStatus}</Text>
                             ) : null}
                         </Box>
                         <Box flexShrink={0}>
@@ -1693,6 +1820,9 @@ export const DynamicTail = ({
     helpPanelIndex,
     languagePanel,
     languagePanelIndex,
+    themePanel,
+    themePanelIndex,
+    proxyPanel,
     modelPanelIndex,
     memoryPanel,
     memoryPanelIndex,
@@ -1723,6 +1853,9 @@ export const DynamicTail = ({
     helpPanelIndex: number;
     languagePanel: LanguagePanelState;
     languagePanelIndex: number;
+    themePanel: ThemePanelState;
+    themePanelIndex: number;
+    proxyPanel: ProxyPanelState;
     modelPanelIndex: number;
     memoryPanel: MemoryPanelState;
     memoryPanelIndex: number;
@@ -1737,7 +1870,7 @@ export const DynamicTail = ({
     const hasModelPanel = authSetup?.active && authSetup.step === "model";
     const hasSetupPanel = Boolean(spotifySetup) || Boolean(authSetup && authSetup.step !== "model");
     const hasSlashPanel = slashSuggestions.length > 0;
-    const showInput = !helpPanel && !languagePanel && !hasModelPanel && !memoryPanel && (!confirm || Boolean(selectedChoice?.input));
+    const showInput = !helpPanel && !languagePanel && !themePanel && !hasModelPanel && !memoryPanel && (!confirm || Boolean(selectedChoice?.input));
     const showMiniMascotStatus = showInput && !confirm && !hasSlashPanel && !hasSetupPanel;
 
     return (
@@ -1750,11 +1883,12 @@ export const DynamicTail = ({
                         contentWidth={Math.max(1, (terminalColumns ?? 80) - 4)}
                         theme={streamingMessage.theme}
                         tone={streamingMessage.tone}
+                        uiTheme={streamingMessage.uiTheme}
                         showDivider={false}
                     />
                 </Box>
             ) : null}
-            {showMiniMascotStatus ? (
+            {showMiniMascotStatus && !proxyPanel ? (
                 agentWorking ? <AgentWorkingStatus /> : <MiniMascotStatus />
             ) : null}
             {memoryPanel ? (
@@ -1788,6 +1922,9 @@ export const DynamicTail = ({
                     helpPanelIndex={helpPanelIndex}
                     languagePanel={languagePanel}
                     languagePanelIndex={languagePanelIndex}
+                    themePanel={themePanel}
+                    themePanelIndex={themePanelIndex}
+                    proxyPanel={proxyPanel}
                     modelPanelIndex={modelPanelIndex}
                     terminalColumns={terminalColumns}
                     language={language}
@@ -1883,10 +2020,10 @@ const ProviderImmersiveRegion = ({
                 <Text bold color={SPOTIFY_GREEN}>Spotify Mode</Text>
             </Box>
             <Box justifyContent="center" marginTop={1}>
-                <Text color="#fff4f6" wrap="truncate-end">{player.name}</Text>
+                <Text color={PANEL_PRIMARY} wrap="truncate-end">{player.name}</Text>
             </Box>
             <Box justifyContent="center">
-                <Text color="#bf98a7" wrap="truncate-end">{formatMiniTrackSubtitle(player.artist, player.album)}</Text>
+                <Text color={PLAYER_SECONDARY} wrap="truncate-end">{formatMiniTrackSubtitle(player.artist, player.album)}</Text>
             </Box>
             <Box height={1} marginTop={1} />
             <Box justifyContent="center">
@@ -1925,6 +2062,9 @@ export const DynamicShell = ({
     helpPanelIndex,
     languagePanel,
     languagePanelIndex,
+    themePanel,
+    themePanelIndex,
+    proxyPanel,
     modelPanelIndex,
     trackPanel,
     trackPanelIndex,
@@ -1968,6 +2108,9 @@ export const DynamicShell = ({
     helpPanelIndex: number;
     languagePanel: LanguagePanelState;
     languagePanelIndex: number;
+    themePanel: ThemePanelState;
+    themePanelIndex: number;
+    proxyPanel: ProxyPanelState;
     modelPanelIndex: number;
     trackPanel: TrackPanelState;
     trackPanelIndex: number;
@@ -2060,6 +2203,9 @@ export const DynamicShell = ({
             helpPanelIndex={helpPanelIndex}
             languagePanel={languagePanel}
             languagePanelIndex={languagePanelIndex}
+            themePanel={themePanel}
+            themePanelIndex={themePanelIndex}
+            proxyPanel={proxyPanel}
             modelPanelIndex={modelPanelIndex}
             memoryPanel={activeRegion === "memoryPanel" ? memoryPanel : null}
             memoryPanelIndex={memoryPanelIndex}

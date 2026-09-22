@@ -56,3 +56,26 @@ def test_help_exposes_native_completion() -> None:
 
     assert result.exit_code == 0
     assert "--show-completion" in result.stdout
+
+
+def test_shell_help_and_errors_are_borderless() -> None:
+    help_result = runner.invoke(main.app, ["auth", "--help"])
+    error_result = runner.invoke(main.app, ["auth", "unknown"])
+
+    assert help_result.exit_code == 0
+    assert error_result.exit_code == 2
+    assert not any(glyph in help_result.stdout for glyph in ("╭", "╰", "│", "─"))
+    assert not any(glyph in error_result.output for glyph in ("╭", "╰", "│", "─"))
+    assert "Error: No such command 'unknown'." in error_result.output
+
+
+def test_auth_list_uses_borderless_wrapped_table(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("SONEX_HOME", str(tmp_path))
+    set_api_key("openai", "sk-secret", path=tmp_path / "auth.json")
+
+    result = runner.invoke(main.app, ["auth", "list"])
+
+    assert result.exit_code == 0
+    assert "Provider  Method" in result.stdout
+    assert "openai" in result.stdout
+    assert not any(glyph in result.stdout for glyph in ("┏", "┓", "┗", "┛", "┃", "╋"))

@@ -18,7 +18,7 @@ test('uses the shared blue selected state for Quick Check and Reset', () => {
 });
 
 test('renders extension status with the signal color in bold', () => {
-    assert.match(extensionSource, /text: `Status       \$\{statusLabel\(detail\.status\)\}`, color: signalColor, bold: true/);
+    assert.match(extensionSource, /text: `Status       \$\{statusLabel\(detail\.status\)\}`, color: extensionStatusColor, bold: true/);
 });
 
 test('aligns dependency names after every status marker and animates unknown progress', () => {

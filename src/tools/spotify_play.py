@@ -16,6 +16,7 @@ from typing import Any
 import requests
 from spotipy import SpotifyException
 
+from src.network.proxy import urlopen as proxy_urlopen
 from src.auth.spotify import (
     SpotifyConfigMissingError,
     SpotifyLoginRequiredError,
@@ -206,7 +207,7 @@ def _cache_cover(track: dict[str, Any]) -> str | None:
 
     try:
         _spotify_cover_dir().mkdir(parents=True, exist_ok=True)
-        with urllib.request.urlopen(url, timeout=5) as response:
+        with proxy_urlopen(url, timeout=5) as response:
             content = response.read(5 * 1024 * 1024)
         if content:
             path.write_bytes(content)

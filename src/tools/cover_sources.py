@@ -10,7 +10,8 @@ import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from src.network.proxy import urlopen
 
 from src.tools.cover_source_state import (
     caa_front_endpoints as _caa_front_endpoints,

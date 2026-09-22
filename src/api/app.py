@@ -9,6 +9,7 @@ from fastapi import FastAPI, WebSocket
 
 from src.api.ws_runner import WebSocketRunner
 from src.log import configure_file_logging
+from src.network.proxy import configure_startup_proxy
 
 runner = WebSocketRunner()
 
@@ -17,6 +18,7 @@ runner = WebSocketRunner()
 async def lifespan(app: FastAPI):
     """Configure runtime resources for the FastAPI process lifetime."""
     configure_file_logging()
+    configure_startup_proxy()
     yield
 
 

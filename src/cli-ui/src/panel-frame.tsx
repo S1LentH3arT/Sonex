@@ -3,13 +3,10 @@ import { Box, Text, Transform } from 'ink';
 import stringWidth from 'string-width';
 
 import { wrapChatMessageContent } from './chat-message.js';
-import { BORDER_BLUE, SPOTIFY_GREEN } from './constants.js';
+import { BORDER_BLUE, PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PANEL_TITLE } from './constants.js';
 import { withTrueColorBackground } from './terminal-frame-writer.js';
 
-export const PANEL_BACKGROUND = "#48273e";
-export const PANEL_TITLE = "#c8a6ff";
-export const PANEL_PRIMARY = "#fff4f6";
-export const PANEL_SECONDARY = "#808791";
+export { PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PANEL_TITLE } from './constants.js';
 
 export const withPanelBackground = (value: string): string => (
     withTrueColorBackground(value, PANEL_BACKGROUND)
@@ -63,7 +60,7 @@ export const fitPanelSegments = (
 export const resolvePanelChoiceSegments = (
     item: PanelChoiceItem,
     selected: boolean,
-    spotifyTheme: boolean,
+    _spotifyTheme: boolean,
 ): PanelRowSegment[] => {
     if (!selected) {
         return item.unselectedBold
@@ -72,7 +69,7 @@ export const resolvePanelChoiceSegments = (
     }
 
     if (item.segments.some((segment) => segment.preserveColorWhenSelected)) {
-        const selectedColor = spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE;
+        const selectedColor = BORDER_BLUE;
         return item.segments.map((segment) => ({
             ...segment,
             color: item.selectedColor ?? (segment.preserveColorWhenSelected ? segment.color : selectedColor),
@@ -82,7 +79,7 @@ export const resolvePanelChoiceSegments = (
 
     return [{
         text: item.segments.map((segment) => segment.text).join(""),
-        color: item.selectedColor ?? (spotifyTheme ? SPOTIFY_GREEN : BORDER_BLUE),
+        color: item.selectedColor ?? BORDER_BLUE,
         bold: true,
     }];
 };
@@ -139,6 +136,21 @@ export const PanelRow = ({
     );
 };
 
+export const PanelGuide = ({ width, text, paddingX = 1 }: {
+    width: number;
+    text: string;
+    paddingX?: number;
+}) => (
+    <>
+        <PanelEmptyRow width={width} />
+        <PanelRow
+            width={width}
+            paddingX={paddingX}
+            segments={[{ text, color: PANEL_SECONDARY }]}
+        />
+    </>
+);
+
 export const PanelChoiceList = ({
     items,
     selectedIndex,
@@ -187,8 +199,10 @@ export const PanelFrame = ({
     width,
     title,
     titleSegments = null,
+    description = null,
     hint = null,
     hintColor = PANEL_SECONDARY,
+    footer = null,
     titleDetailSegments = null,
     paddingX = 1,
     children,
@@ -196,8 +210,10 @@ export const PanelFrame = ({
     width: number;
     title: string;
     titleSegments?: PanelRowSegment[] | null;
+    description?: string | null;
     hint?: string | null;
     hintColor?: string;
+    footer?: ReactNode;
     titleDetailSegments?: PanelRowSegment[] | null;
     paddingX?: number;
     children?: ReactNode;
@@ -224,6 +240,14 @@ export const PanelFrame = ({
                     segments={[{ text: row, color: PANEL_TITLE, bold: true }]}
                 />
             ))}
+            {description ? wrapChatMessageContent(description, contentWidth).map((row, index) => (
+                <PanelRow
+                    key={`panel-description-${index}`}
+                    width={boundedWidth}
+                    paddingX={paddingX}
+                    segments={[{ text: row, color: PANEL_SECONDARY }]}
+                />
+            )) : null}
             {hintRows.map((row, index) => (
                 <PanelRow
                     key={`panel-hint-${index}`}
@@ -241,6 +265,7 @@ export const PanelFrame = ({
             ) : null}
             <PanelEmptyRow width={boundedWidth} />
             {children}
+            {footer}
             <PanelEmptyRow width={boundedWidth} />
         </Box>
     );

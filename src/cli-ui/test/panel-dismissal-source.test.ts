@@ -48,13 +48,13 @@ assert.doesNotMatch(completedSetupEscape, /panel\.(spotifySetupHidden|setupHidde
 
 const confirmEscape = sliceBetween(
     'if (!confirm) return;',
-    'if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active) return;',
+    'if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active || themePanel?.active) return;',
 );
 assert.match(confirmEscape, /key\.escape[\s\S]*decision: "deny"[\s\S]*setConfirm\(null\)/);
 assert.doesNotMatch(confirmEscape, /panel\.confirmHidden/);
 
 const helpEscape = sliceBetween(
-    'if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active) return;',
+    'if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active || themePanel?.active) return;',
     'if (activeRegion !== "trackPanel"',
 );
 assert.match(helpEscape, /key\.escape[\s\S]*setHelpPanel\(null\)/);

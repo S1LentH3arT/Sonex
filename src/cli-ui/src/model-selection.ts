@@ -2,12 +2,13 @@ import stringWidth from 'string-width';
 
 import type { AuthMethodChoice } from './types.js';
 
+const modelId = (choice: AuthMethodChoice): string => choice.value.replace(/^[^:]+::/, '');
 export const modelPanelLabelWidth = (choices: AuthMethodChoice[]): number => (
-    Math.max(0, ...choices.map((choice) => stringWidth(choice.label))) + 1
+    Math.max(0, ...choices.map((choice) => stringWidth(modelId(choice)))) + 1
 );
 
 export const formatModelPanelLabel = (choice: AuthMethodChoice, width: number): string => {
-    const label = choice.label;
+    const label = modelId(choice);
     const labelWidth = stringWidth(label);
     if (labelWidth >= width) return label;
     return `${label}${" ".repeat(width - labelWidth)}`;

@@ -48,7 +48,10 @@ assert.equal(zhSlashCommands.find((command) => command.name === "search"), undef
 
 const englishShortHelp = localizeSlashCommands(SLASH_COMMANDS, "en")
     .find((command) => command.name === "help");
-assert.equal(englishShortHelp?.description, "show commands");
+assert.equal(englishShortHelp?.description, "show available Sonex commands");
+const englishBye = localizeSlashCommands(SLASH_COMMANDS, "en")
+    .find((command) => command.name === "bye");
+assert.equal(englishBye?.description, "save the current session and exit safely");
 
 const helpCommands = helpCommandsForLanguage([
     { name: "help", usage: "/help", description: "Show available Sonex commands." },

@@ -20,7 +20,7 @@ assert.match(miniBody, /formatMiniTrackSubtitle\(player\.artist, player\.album\)
 assert.match(miniBody, /justifyContent="center"/);
 assert.match(miniBody, /paddingLeft=\{layout\.infoLeftPadding\}/);
 assert.match(miniBody, /<Text bold color=\{BORDER_BLUE_SOFT\} wrap="truncate-end">\{player\.name\}<\/Text>/);
-assert.match(miniBody, /<Text color="#ffffff" wrap="truncate-end">\{formatMiniTrackSubtitle\(player\.artist, player\.album\)\}<\/Text>/);
+assert.match(miniBody, /<Text color=\{PANEL_PRIMARY\} wrap="truncate-end">\{formatMiniTrackSubtitle\(player\.artist, player\.album\)\}<\/Text>/);
 assert.equal(miniBody.includes('Now Playing'), false);
 assert.equal(miniBody.includes('playing'), false);
 assert.equal(miniBody.includes('paused'), false);

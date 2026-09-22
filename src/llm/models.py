@@ -10,6 +10,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from src.network.proxy import urlopen as proxy_urlopen
 from src.auth.providers import provider_display_name
 from src.llm.config import ProviderConfig
 from src.llm.transport import LLMTransportError, sanitize_error_message
@@ -192,7 +193,7 @@ def _fetch_deepseek_models(config: ProviderConfig) -> list[ModelInfo]:
         request.add_header("Authorization", f"Bearer {config.api_key}")
 
     try:
-        with urllib.request.urlopen(request, timeout=config.timeout or 5) as response:
+        with proxy_urlopen(request, timeout=config.timeout or 5) as response:
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
@@ -423,7 +424,7 @@ def _model_label_from_metadata(item: dict[str, Any], provider: str, model_id: st
 
 def _read_json_response(request: urllib.request.Request, timeout: float | None) -> dict[str, Any]:
     try:
-        with urllib.request.urlopen(request, timeout=timeout or 5) as response:
+        with proxy_urlopen(request, timeout=timeout or 5) as response:
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")

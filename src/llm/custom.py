@@ -11,6 +11,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
+from src.network.proxy import urlopen as proxy_urlopen
 from src.llm.transport import LLMTransportError, sanitize_error_message
 
 
@@ -99,7 +100,7 @@ def test_custom_connection(
 
 def _read_json(request: urllib.request.Request, timeout: float) -> Any:
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with proxy_urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")

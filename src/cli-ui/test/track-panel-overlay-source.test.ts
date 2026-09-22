@@ -33,7 +33,7 @@ assert.match(
 );
 assert.match(
     trackPanelBody,
-    /<PanelFrame[\s\S]*width=\{panelWidth\}[\s\S]*paddingX=\{2\}[\s\S]*title=\{panelTitle\}[\s\S]*hint=\{panel\.hint \? `\$\{panel\.hint\}; Esc to hide` : null\}/,
+    /<PanelFrame[\s\S]*width=\{panelWidth\}[\s\S]*paddingX=\{2\}[\s\S]*title=\{panelTitle\}[\s\S]*<PanelGuide width=\{panelWidth\} paddingX=\{2\} text="↑\/↓ to select · Enter to play · Ctrl\+A to queue · Esc to close" \/>/,
 );
 assert.match(trackPanelBody, /const items: PanelChoiceItem\[\] = panel\.tracks\.map/);
 assert.match(trackPanelBody, /text: formatTrackPanelLine\(track, TRACK_PANEL_ROW_WIDTH\)/);

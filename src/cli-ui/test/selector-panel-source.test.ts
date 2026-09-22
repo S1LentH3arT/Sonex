@@ -8,13 +8,10 @@ const constantsSource = readFileSync(new URL('../src/constants.ts', import.meta.
 
 assert.match(constantsSource, /export const SPOTIFY_GREEN = "#1db954"/);
 assert.match(constantsSource, /export const MAX_VISIBLE_MODEL_CHOICES = 4/);
-assert.match(panelSource, /export const PANEL_BACKGROUND = "#48273e"/);
-assert.match(panelSource, /export const PANEL_TITLE = "#c8a6ff"/);
-assert.match(panelSource, /export const PANEL_PRIMARY = "#fff4f6"/);
-assert.match(panelSource, /export const PANEL_SECONDARY = "#808791"/);
+assert.match(panelSource, /export \{ PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PANEL_TITLE \} from '\.\/constants\.js'/);
 assert.match(
     source,
-    /import \{ PANEL_BACKGROUND, PANEL_PRIMARY, PANEL_SECONDARY, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem \} from '\.\/panel-frame\.js'/,
+    /import \{ PANEL_BACKGROUND, PanelChoiceList, PanelEmptyRow, PanelFrame, PanelRow, resolvePanelChoiceSegments, type PanelChoiceItem \} from '\.\/panel-frame\.js'/,
 );
 
 // The shared formal-panel frame owns the top/title/body/bottom rhythm.
@@ -23,10 +20,11 @@ assert.match(
     /<PanelEmptyRow width=\{boundedWidth\} \/>[\s\S]*color: PANEL_TITLE, bold: true[\s\S]*\{children\}[\s\S]*<PanelEmptyRow width=\{boundedWidth\} \/>/,
 );
 assert.match(panelSource, /withTrueColorBackground\(value, PANEL_BACKGROUND\)/);
+assert.match(panelSource, /export const PanelGuide/);
 assert.equal((panelSource.match(/<Transform transform=\{withPanelBackground\}>/g) ?? []).length, 2);
 assert.match(
     panelSource,
-    /color: item\.selectedColor \?\? \(spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE\),[\s\S]*bold: true/,
+    /color: item\.selectedColor \?\? BORDER_BLUE,[\s\S]*bold: true/,
 );
 assert.doesNotMatch(panelSource, /borderStyle=|selectedBackground|backgroundColor=/);
 assert.doesNotMatch(panelSource, /selected \? "> "|showSelectionMarker/);
@@ -63,7 +61,7 @@ const songCandidateBody = compactConfirmBody.slice(
 
 // Login is a formal panel; its text and secret inputs are embedded directly in the frame.
 assert.match(loginBody, /<PanelChoiceList/);
-assert.match(loginBody, /<PanelFrame width=\{74\} paddingX=\{2\} title=\{authSetup\.title\} hint=\{displayMessage\}>/);
+assert.match(loginBody, /<PanelFrame[\s\S]*width=\{74\}[\s\S]*paddingX=\{2\}[\s\S]*title=\{authSetup\.title\}[\s\S]*description="Select your available provider and get connected to activate Sonex\."[\s\S]*footer=\{isChoiceStep \? <PanelGuide width=\{74\} paddingX=\{2\} text=\{t\(language, "login\.continue"\)\} \/> : null\}/);
 assert.match(
     loginBody,
     /<PromptInput[\s\S]*mask=\{authSetup\.mask \|\| isApiKeyStep \? "\*" : undefined\}[\s\S]*backgroundColor=\{PANEL_BACKGROUND\}[\s\S]*backgroundWidth=\{74\}[\s\S]*backgroundPaddingX=\{2\}/,
@@ -74,13 +72,13 @@ assert.doesNotMatch(loginBody, /borderStyle=|selectedBackground|selected \? "> "
 assert.match(slashBody, /<Box flexDirection="column">/);
 assert.match(
     slashBody,
-    /const commandColor = selected \? \(spotifyTheme \? SPOTIFY_GREEN : BORDER_BLUE\) : "#fff4f6";/,
+    /const commandColor = selected \? BORDER_BLUE : PANEL_PRIMARY;/,
 );
 assert.match(slashBody, /<Text key=\{command\.name\} color=\{commandColor\} bold=\{selected\}/);
 assert.doesNotMatch(slashBody, /PanelFrame|PanelChoiceList|backgroundColor=|selected \? "> "/);
 
 // /help is a real panel and therefore uses the shared frame and list.
-assert.match(helpBody, /<PanelFrame width=\{width\} title=\{panel\.title\} hint=\{panel\.hint\}>/);
+assert.match(helpBody, /<PanelFrame[\s\S]*width=\{width\}[\s\S]*title=\{panel\.title\}[\s\S]*description="Rich built-in commands covering various function\."[\s\S]*<PanelGuide width=\{width\} text="↑\/↓ to select · Enter for completion · Esc to close" \/>/);
 assert.match(helpBody, /<PanelChoiceList[\s\S]*visibleLimit=\{HELP_PANEL_VISIBLE_COMMANDS\}/);
 assert.match(helpBody, /color: PANEL_PRIMARY/);
 assert.match(helpBody, /color: PANEL_SECONDARY/);
@@ -144,7 +142,7 @@ assert.match(source, /formatModelPanelLabel\(model, modelLabelWidth\)/);
 assert.match(inputDockBody, /const insetPanelWidth = Math\.max\(3, Math\.floor\(terminalColumns \?\? 80\) - 2\)/);
 assert.match(
     inputDockBody,
-    /<PanelFrame width=\{insetPanelWidth\} title=\{modelPanel\.title\} hint=\{modelPanel\.hint\}>[\s\S]*<PanelChoiceList[\s\S]*visibleLimit=\{MAX_VISIBLE_MODEL_CHOICES\}/,
+    /<PanelFrame[\s\S]*width=\{insetPanelWidth\}[\s\S]*title=\{modelPanel\.title\}[\s\S]*description='Queried from official provider API\. Wanna try a local or customized model\? Config and activate the "Custom" provider in "\/login"\.'[\s\S]*footer=\{<PanelGuide width=\{insetPanelWidth\} text="↑\/↓ to select · Enter to submit · Esc to cancel" \/>\}[\s\S]*<PanelChoiceList[\s\S]*visibleLimit=\{MAX_VISIBLE_MODEL_CHOICES\}/,
 );
 assert.match(inputDockBody, /const filteredModelChoices = filterModelChoices\(allModelChoices, input\)/);
 assert.match(inputDockBody, /text: "⌕ ", color: PANEL_SECONDARY/);
@@ -152,7 +150,7 @@ assert.match(inputDockBody, /text: input \|\| "Search model…", color: input \?
 assert.doesNotMatch(inputDockBody, /borderColor=\{PANEL_SECONDARY\}[\s\S]*Search model…/);
 assert.match(inputDockBody, /const spotifyTheme = Boolean\(spotifyMode\?\.enabled \|\| spotifySetup\)/);
 assert.match(inputDockBody, /<SlashCommandList suggestions=\{slashSuggestions\} selectedIndex=\{slashIndex\} spotifyTheme=\{spotifyTheme\} \/>/);
-assert.match(inputDockBody, /borderStyle="single" borderColor="#808791"/);
+assert.match(inputDockBody, /borderStyle="single" borderColor=\{PANEL_SECONDARY\}/);
 assert.match(inputDockBody, /const spotifyModeBorderLabel = " 🎧 Spotify Mode "/);
 assert.match(inputDockBody, /<Text bold color=\{SPOTIFY_GREEN\}>\{spotifyModeBorderLabel\}<\/Text>/);
 assert.doesNotMatch(inputDockBody, /`\$\{switchHint\} · > `|: "> "/);
@@ -167,6 +165,10 @@ assert.match(
     /<CompactConfirm[\s\S]*input=\{input\}[\s\S]*inputFocus=\{inputFocus\}[\s\S]*panelWidth=/,
 );
 assert.match(inputDockBody, /setupPanel \? <CompactSetup/);
+
+const themeBody = source.slice(source.indexOf('const ThemePanel ='), source.indexOf('const ProxyPanel ='));
+assert.match(themeBody, /title="Theme"[\s\S]*description="Decorate Sonex with your favourite color schemes\."/);
+assert.match(themeBody, /const choices = Object\.values\(UI_THEMES\)/);
 
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
 assert.match(appSource, /const choices = filterModelChoices\(authSetup\?\.models \?\? \[\], input\)/);

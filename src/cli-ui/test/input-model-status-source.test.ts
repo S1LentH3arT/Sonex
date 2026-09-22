@@ -44,7 +44,7 @@ test('input footer keeps one row and prioritizes the Spotify marker', () => {
     );
     assert.match(
         inputDockSource,
-        /modelStatus \? \(\s*<Text color="#808791" wrap="truncate-end">\{modelStatus\}<\/Text>/,
+        /modelStatus \? \(\s*<Text color=\{PANEL_SECONDARY\} wrap="truncate-end">\{modelStatus\}<\/Text>/,
     );
     assert.match(
         inputDockSource,

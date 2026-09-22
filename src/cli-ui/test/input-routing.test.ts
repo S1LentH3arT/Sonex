@@ -38,6 +38,10 @@ test('input routing preserves precedence for confirmation and extension input', 
 test('input routing resolves local commands before backend input', () => {
     assert.deepEqual(resolveInputRoute('/exit', baseContext), { type: 'safe_exit', reason: 'exit' });
     assert.deepEqual(resolveInputRoute('/info', baseContext), { type: 'info' });
+    assert.deepEqual(resolveInputRoute('/theme', baseContext), { type: 'theme' });
+    assert.deepEqual(resolveInputRoute('/proxy', baseContext), { type: 'proxy' });
+    assert.equal(resolveInputRoute('/proxy extra', baseContext).type, 'user_input');
+    assert.equal(resolveInputRoute('/theme extra', baseContext).type, 'user_input');
     assert.deepEqual(resolveInputRoute('/unknown', baseContext), { type: 'unknown_slash', value: '/unknown' });
     assert.deepEqual(resolveInputRoute('hello', baseContext), { type: 'user_input', value: 'hello', command: undefined });
 });

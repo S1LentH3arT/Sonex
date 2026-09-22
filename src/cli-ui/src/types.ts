@@ -1,3 +1,5 @@
+import type { UiThemeId } from "./ui-theme.js";
+
 export type ServerEvent =
     | { type: "chat"; role: ChatRole; text: string; theme?: ChatTheme | null; tone?: ChatTone | null; segments?: ChatSegment[] | null; document?: ChatDocument | null; stream?: boolean }
     | { type: "session_state"; session_id: string }
@@ -10,6 +12,7 @@ export type ServerEvent =
     | { type: "track_panel"; panel: "queue" | "playlist"; title: string; hint?: string | null; tracks: TrackPanelTrack[] }
     | { type: "memory_panel"; view: MemoryPanelView; target?: "user" | "memory" | "dump" | null; title: string; hint?: string | null; read_only?: boolean; entries?: MemoryPanelEntry[]; settings?: Record<string, unknown> }
     | { type: "extension_panel"; view: "list" | "detail" | "setup"; title: string; hint?: string | null; selected_extension?: string | null; extensions: ExtensionView[]; detail?: ExtensionDetail | null; setup?: ExtensionSetup | null }
+    | { type: "proxy_state"; view: "root" | "config"; mode: "proxy" | "direct"; url?: string | null; root_index?: number; focus?: "url" | "check" | "save"; environment_url?: string | null; environment_override?: boolean; error?: string | null; checks?: { model?: ProxyCheckState; youtube?: ProxyCheckState }; close?: boolean }
     | { type: "search_results"; tracks: TrackSummary[] }
     | { type: "player"; state: PlayerState }
     | { type: "spotify_mode"; enabled: boolean; device_id?: string | null; device_name?: string | null }
@@ -67,6 +70,33 @@ export type LanguagePanelState = {
     active: boolean;
     selected: UiLanguage;
     saveError?: string | null;
+} | null;
+
+export type ThemePanelState = {
+    active: boolean;
+    selected: UiThemeId;
+    initial: UiThemeId;
+    saveError?: string | null;
+} | null;
+
+export type ProxyCheckState = {
+    status: "idle" | "checking" | "passed" | "failed";
+    phase?: "proxy" | "target";
+    message?: string;
+    httpStatus?: number;
+};
+
+export type ProxyPanelState = {
+    active: boolean;
+    view: "root" | "config";
+    mode: "proxy" | "direct";
+    url: string;
+    rootIndex: number;
+    focus: "url" | "check" | "save";
+    environmentUrl?: string | null;
+    environmentOverride?: boolean;
+    error?: string | null;
+    checks: { model: ProxyCheckState; youtube: ProxyCheckState };
 } | null;
 
 export type ExtensionStatus = "enabled" | "not_configured" | "disabled" | "unavailable" | "unapplied" | "unsupported" | "waiting";
@@ -138,6 +168,7 @@ export type ClientEvent =
     | { type: "memory_panel_action"; action: string; target?: "user" | "memory" | "dump" | "all"; entry_id?: string; content?: string; value?: unknown }
     | { type: "extension_panel_action"; action: string; extension_id?: string; dependency_id?: string; token?: string | null; revision?: number }
     | { type: "extension_panel_input"; value: string }
+    | { type: "proxy_action"; action: "open" | "direct" | "config" | "focus" | "check" | "save" | "input"; value?: string }
     | { type: "confirm_result"; id: string; decision: string }
     | { type: "setup_input"; value: string }
     | { type: "auth_setup_input"; value: string }
@@ -329,6 +360,7 @@ export type ChatBubbleProps = {
     tone?: ChatTone | null;
     segments?: ChatSegment[] | null;
     document?: ChatDocument | null;
+    uiTheme?: UiThemeId | null;
     showDivider?: boolean;
 };
 
@@ -340,6 +372,7 @@ export type ChatMessageItem = {
     tone?: ChatTone | null;
     segments?: ChatSegment[] | null;
     document?: ChatDocument | null;
+    uiTheme?: UiThemeId | null;
 };
 
 export type ChatTranscriptMessage = Pick<ChatMessageItem, "role" | "content" | "theme" | "tone" | "segments" | "document">;

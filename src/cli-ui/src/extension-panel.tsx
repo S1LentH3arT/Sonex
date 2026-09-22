@@ -2,16 +2,18 @@ import React from "react";
 import { Box, Text } from "ink";
 import stringWidth from "string-width";
 import TextInput from "ink-text-input";
+import { BORDER_BLUE_SOFT, PANEL_TITLE } from "./constants.js";
 import { PanelChoiceList, PanelFrame, PanelRow, PANEL_PRIMARY, PANEL_SECONDARY, type PanelChoiceItem, type PanelRowSegment } from "./panel-frame.js";
+import { PanelGuide } from "./panel-frame.js";
 import type { ExtensionDependency, ExtensionDetail, ExtensionPanelState, ExtensionSetup, ExtensionStatus, ExtensionView } from "./types.js";
 
-const SIGNAL_COLORS: Record<ExtensionView["signal"], string> = {
+const signalColor = (signal: ExtensionView["signal"]): string => ({
     green: "#22c55e",
-    gray: "#808791",
+    gray: PANEL_SECONDARY,
     red: "#ef4444",
     yellow: "#facc15",
-    hollow: "#808791",
-};
+    hollow: PANEL_SECONDARY,
+}[signal]);
 
 const STATUS_LABELS: Record<ExtensionStatus, string> = {
     enabled: "Enabled",
@@ -60,7 +62,7 @@ const dependencyGlyph = (state: ExtensionDependency["state"], spinnerFrame = 0):
 );
 
 const dependencyColor = (state: ExtensionDependency["state"]): string => (
-    state === "installed" ? "#22c55e" : state === "failed" ? "#ef4444" : state === "installing" ? "#808791" : "#808791"
+    state === "installed" ? "#22c55e" : state === "failed" ? "#ef4444" : PANEL_SECONDARY
 );
 
 const dependencyProgressBar = (progress: number | null | undefined, spinnerFrame = 0): string => {
@@ -81,7 +83,7 @@ export const dependencyLine = (dependency: ExtensionDependency, labelWidth: numb
         : dependency.version || dependency.error || "";
     return [
         { text: `${marker} ${paddedLabel}`, color: dependencyColor(dependency.state), bold: dependency.state === "failed", preserveColorWhenSelected: true },
-        { text: suffix ? ` ${suffix}` : "", color: dependency.state === "failed" ? "#ef4444" : dependency.state === "installing" ? "#808791" : PANEL_PRIMARY },
+        { text: suffix ? ` ${suffix}` : "", color: dependency.state === "failed" ? "#ef4444" : dependency.state === "installing" ? PANEL_SECONDARY : PANEL_PRIMARY },
     ];
 };
 
@@ -107,13 +109,17 @@ export const ExtensionPanelOverlay = ({
         const items: PanelChoiceItem[] = panel.extensions.map((extension) => ({
             key: extension.id,
             segments: [
-                { text: `${extensionSignal(extension)} `, color: SIGNAL_COLORS[extension.signal], preserveColorWhenSelected: true },
+                { text: `${extensionSignal(extension)} `, color: signalColor(extension.signal), preserveColorWhenSelected: true },
                 { text: `${extension.name.padEnd(EXTENSION_NAME_WIDTH, " ")} `, color: PANEL_PRIMARY },
                 { text: extension.description, color: PANEL_SECONDARY },
             ],
         }));
         return (
-            <PanelFrame width={width} title={panel.title} hint={panel.hint || "↑/↓ select · Enter open · Esc close"}>
+            <PanelFrame
+                width={width}
+                title={panel.title}
+                footer={<PanelGuide width={width} text="↑/↓ to select · Enter to open · Esc to close" />}
+            >
                 <PanelChoiceList items={items} selectedIndex={selectedIndex} width={width} />
             </PanelFrame>
         );
@@ -149,21 +155,21 @@ export const ExtensionPanelOverlay = ({
             }],
         };
     });
-    const signalColor = SIGNAL_COLORS[extension.signal];
+    const extensionStatusColor = signalColor(extension.signal);
     return (
         <PanelFrame
             width={width}
             title={`${extensionSignal(extension)} ${extension.name}`}
             titleSegments={[
-                { text: extensionSignal(extension), color: signalColor, bold: true },
-                { text: ` ${extension.name}`, color: "#c8a6ff", bold: true },
+                { text: extensionSignal(extension), color: extensionStatusColor, bold: true },
+                { text: ` ${extension.name}`, color: PANEL_TITLE, bold: true },
             ]}
             hint={panel.hint || "↑/↓ select · Enter act · Esc back"}
         >
-            <PanelRow width={width} segments={[{ text: `Status       ${statusLabel(detail.status)}`, color: signalColor, bold: true }]} />
+            <PanelRow width={width} segments={[{ text: `Status       ${statusLabel(detail.status)}`, color: extensionStatusColor, bold: true }]} />
             <PanelRow width={width} segments={[
                 { text: "Tag          ", color: PANEL_PRIMARY },
-                { text: extension.tags.join(" · "), color: "#183b8c", italic: true },
+                { text: extension.tags.join(" · "), color: BORDER_BLUE_SOFT, italic: true },
             ]} />
             <PanelChoiceList
                 items={actions}

@@ -3,7 +3,7 @@ import { Box, useApp, useInput, useStdin } from 'ink';
 import { completeSlashCommand, hasSlashCommandArguments, matchingSlashCommand, slashCommandSuggestions, spotifyModeSlashCommands, unknownSlashCommandMessage } from './commands.js';
 import { getSelectableConfirmChoices } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
-import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, wsUrl } from './constants.js';
+import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, applyUiTheme, wsUrl } from './constants.js';
 import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
 import { planServerEventCoordination } from './event-coordination.js';
 import { ExtensionPanelOverlay } from './extension-panel.js';
@@ -25,7 +25,9 @@ import { resolveInputRoute } from './input-routing.js';
 import { initialProviderState, reduceProviderState, type ProviderAction } from './provider-state.js';
 import { applyPanelLifecycle as applyPanelLifecyclePlan, type PanelLifecycleTrigger } from './panel-lifecycle.js';
 import { initialServerEventState, reduceServerEventState, type MemoryEditorState, type ServerEventState } from './server-event-state.js';
-import type { ChatItem, ChatMessageItem, ConfirmState, LanguagePanelState, PlayerState, ProviderModeState, SessionTokenUsage, SpotifyModeState, ServerEvent, SlashCommandSuggestion, UiLanguage } from './types.js';
+import { loadUiTheme, saveUiTheme } from './ui-settings.js';
+import { UI_THEME_IDS, type UiThemeId } from './ui-theme.js';
+import type { ChatItem, ChatMessageItem, ConfirmState, LanguagePanelState, PlayerState, ProviderModeState, ProxyPanelState, SessionTokenUsage, SpotifyModeState, ServerEvent, SlashCommandSuggestion, ThemePanelState, UiLanguage } from './types.js';
 import { TOKEN_USAGE_ANIMATION_INTERVAL_MS, nextAnimatedTokenUsage } from './usage-animation.js';
 
 type InkInputKey = {
@@ -55,6 +57,11 @@ export const App: React.FC<{
     const { isRawModeSupported } = useStdin();
     const rawModeAvailable = Boolean(isRawModeSupported && typeof process.stdin.setRawMode === "function");
     const [language] = useState<UiLanguage>(OFFICIAL_UI_LANGUAGE);
+    const [uiTheme, setUiTheme] = useState<UiThemeId>(() => {
+        const loaded = loadUiTheme();
+        applyUiTheme(loaded);
+        return loaded;
+    });
     const [input, setInput] = useState("");
     const [inputRevision, setInputRevision] = useState(0);
     const [runtimeState, dispatchRuntimeState] = React.useReducer(
@@ -125,6 +132,9 @@ export const App: React.FC<{
     const setHelpPanelIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('helpPanelIndex', value);
     const [languagePanel, setLanguagePanel] = useState<LanguagePanelState>(null);
     const [languagePanelIndex, setLanguagePanelIndex] = useState(0);
+    const [themePanel, setThemePanel] = useState<ThemePanelState>(null);
+    const [themePanelIndex, setThemePanelIndex] = useState(0);
+    const [proxyPanel, setProxyPanel] = useState<ProxyPanelState>(null);
     const setTrackPanelIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('trackPanelIndex', value);
     const setMemoryPanelIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('memoryPanelIndex', value);
     const setLoginSelectionIndex: React.Dispatch<React.SetStateAction<number>> = (value) => patchServerState('loginSelectionIndex', value);
@@ -137,6 +147,7 @@ export const App: React.FC<{
     const dismissedConfirmIdsRef = React.useRef(new Set<string>());
     const spotifyModeRef = React.useRef<SpotifyModeState>(spotifyMode);
     const providerModeRef = React.useRef<ProviderModeState>(providerMode);
+    const uiThemeRef = React.useRef<UiThemeId>(uiTheme);
     const spotifySetupActiveRef = React.useRef(false);
     const authSetupActiveRef = React.useRef(false);
     const slashMenuActiveRef = React.useRef(false);
@@ -149,7 +160,7 @@ export const App: React.FC<{
     const extensionSetupInput = extensionPanel?.view === "setup" ? extensionPanel.setup?.input : null;
     const authInterfaceActive = Boolean(authSetup?.active || spotifySetup?.active);
     const showFixedHeader = activeRegion === "chat" && authInterfaceActive && !isLoginScreenActive;
-    const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active || extensionPanel
+    const slashSuggestions = authSetup?.active || spotifySetup?.active || languagePanel?.active || themePanel?.active || proxyPanel?.active || extensionPanel
         ? []
         : spotifyMode.enabled
             ? spotifyModeSlashCommands(input, language)
@@ -165,6 +176,8 @@ export const App: React.FC<{
         && !spotifySetup?.active
         && !helpPanel
         && !languagePanel?.active
+        && !themePanel?.active
+        && !proxyPanel?.active
         && !recommendInputLocked
         && slashInput.length > 1
         && isSlashInput
@@ -266,13 +279,19 @@ export const App: React.FC<{
         });
     }, []);
 
+    const stampTheme = React.useCallback((item: ChatItem): ChatItem => {
+        if (item.type !== "message" || item.uiTheme) return item;
+        return { ...item, uiTheme: uiThemeRef.current };
+    }, []);
+
     const commitItems = React.useCallback((items: ChatItem[]) => {
         if (items.length === 0) return;
         finishActiveTextStream();
-        dispatchTranscript({ type: "commit", items, presentation: transcriptPresentation });
-    }, [finishActiveTextStream, transcriptPresentation]);
+        dispatchTranscript({ type: "commit", items: items.map(stampTheme), presentation: transcriptPresentation });
+    }, [finishActiveTextStream, stampTheme, transcriptPresentation]);
 
     const startTextStream = React.useCallback((item: ChatMessageItem) => {
+        item = stampTheme(item) as ChatMessageItem;
         finishActiveTextStream();
         const units = textStreamUnits(item.content);
         if (units.length === 0) {
@@ -289,7 +308,7 @@ export const App: React.FC<{
         nextTextStreamIdRef.current += 1;
         activeTextStreamRef.current = active;
         setActiveTextStream(active);
-    }, [finishActiveTextStream, transcriptPresentation]);
+    }, [finishActiveTextStream, stampTheme, transcriptPresentation]);
 
     React.useEffect(() => {
         if (!activeTextStream) return;
@@ -418,13 +437,22 @@ export const App: React.FC<{
         if (recommendInputLocked) return;
         const sanitized = value.replace(/\x1B/g, "");
         setInput(sanitized);
+        if (proxyPanel?.view === "config" && proxyPanel.focus === "url") {
+            setProxyPanel((current) => current ? { ...current, url: sanitized, error: null, checks: { model: { status: "idle" }, youtube: { status: "idle" } } } : current);
+        }
         if (sanitized) {
             applyPanelLifecycle("input");
         }
         if (sanitized !== slashMenuDismissedFor) {
             setSlashMenuDismissedFor(null);
         }
-    }, [applyPanelLifecycle, recommendInputLocked, slashMenuDismissedFor]);
+    }, [applyPanelLifecycle, proxyPanel, recommendInputLocked, slashMenuDismissedFor]);
+
+    const previewUiTheme = React.useCallback((next: UiThemeId) => {
+        applyUiTheme(next);
+        uiThemeRef.current = next;
+        setUiTheme(next);
+    }, []);
 
     const showError = React.useCallback((message: string, detail?: string | null) => {
         const content = detail ? `${message}\n${detail}` : message;
@@ -466,6 +494,34 @@ export const App: React.FC<{
             : undefined;
     const applyServerEvent = React.useCallback((rawEvent: ServerEvent) => {
         const evt = applyLanguageToServerEvent(rawEvent, language);
+        if (evt.type === "proxy_state") {
+            if (evt.checks && (!proxyPanel || proxyPanel.view !== "config" || evt.url !== undefined && evt.url !== proxyPanel.url)) return;
+            if (evt.close) {
+                setProxyPanel(null);
+                setInput("");
+                return;
+            }
+            setProxyPanel((current) => ({
+                active: true,
+                view: evt.view,
+                mode: evt.mode,
+                url: evt.url ?? current?.url ?? "",
+                rootIndex: evt.root_index ?? current?.rootIndex ?? 0,
+                focus: evt.focus ?? current?.focus ?? "url",
+                environmentUrl: evt.environment_url ?? current?.environmentUrl ?? null,
+                environmentOverride: evt.environment_override ?? current?.environmentOverride ?? false,
+                error: evt.error ?? null,
+                checks: {
+                    model: evt.checks?.model ?? current?.checks.model ?? { status: "idle" },
+                    youtube: evt.checks?.youtube ?? current?.checks.youtube ?? { status: "idle" },
+                },
+            }));
+            if (evt.url !== undefined) {
+                setInput(evt.url ?? "");
+                setInputRevision((prev) => prev + 1);
+            }
+            return;
+        }
         const transcriptClass = classifyServerEventForTranscript(evt);
         if (transcriptClass === "chat" && evt.type === "chat") {
             const item: ChatMessageItem = {
@@ -485,7 +541,7 @@ export const App: React.FC<{
                 finishActiveTextStream();
                 dispatchTranscript({
                     type: "receiveUser",
-                    item,
+                    item: stampTheme(item) as ChatMessageItem,
                     presentation: transcriptPresentation,
                 });
             } else {
@@ -626,7 +682,7 @@ export const App: React.FC<{
                 setTimeout(() => exit(), 80);
                 break;
         }
-    }, [applyPanelLifecycle, applyRuntimeAction, applyShellAction, commitItems, exit, finishActiveTextStream, language, showError, startTextStream, switchRegion, transcriptPresentation]);
+    }, [applyPanelLifecycle, applyRuntimeAction, applyShellAction, commitItems, exit, finishActiveTextStream, language, proxyPanel, showError, stampTheme, startTextStream, switchRegion, transcriptPresentation]);
 
     const onEvent = React.useCallback((rawEvent: ServerEvent) => {
         try {
@@ -747,8 +803,39 @@ export const App: React.FC<{
         setSlashMenuDismissedFor(null);
     }, []);
 
+    const openThemePanel = React.useCallback(() => {
+        const current = uiThemeRef.current;
+        setThemePanel({ active: true, selected: current, initial: current, saveError: null });
+        setThemePanelIndex(Math.max(0, UI_THEME_IDS.indexOf(current)));
+        setInput("");
+        setSlashMenuDismissedFor(null);
+    }, []);
+
+    const openProxyPanel = React.useCallback(() => {
+        setProxyPanel({ active: true, view: "root", mode: "direct", url: "", rootIndex: 0, focus: "url", checks: { model: { status: "idle" }, youtube: { status: "idle" } } });
+        setInput("");
+        setSlashMenuDismissedFor(null);
+        send({ type: "proxy_action", action: "open" });
+    }, [send]);
+
     const submitInput = React.useCallback((value: string) => {
         if (recommendInputLocked) return;
+        if (proxyPanel?.active) {
+            if (proxyPanel.view === "config") {
+                if (proxyPanel.focus === "url") {
+                    setProxyPanel((current) => current ? { ...current, focus: "check" } : current);
+                } else if (proxyPanel.focus === "check") {
+                    send({ type: "proxy_action", action: "check", value: proxyPanel.url });
+                } else {
+                    send({ type: "proxy_action", action: "save", value: proxyPanel.url });
+                }
+            } else if (proxyPanel.rootIndex === 0) {
+                send({ type: "proxy_action", action: "config" });
+            } else {
+                send({ type: "proxy_action", action: "direct" });
+            }
+            return;
+        }
         const route = resolveInputRoute(value, {
             confirm,
             selectedConfirmChoice,
@@ -761,7 +848,7 @@ export const App: React.FC<{
             selectedSlashCommand,
         });
         if (route.type === "empty") return;
-        finishActiveTextStream();
+        if (route.type !== "theme" && route.type !== "proxy") finishActiveTextStream();
 
         switch (route.type) {
             case "ignore":
@@ -784,6 +871,16 @@ export const App: React.FC<{
                 setSlashMenuDismissedFor(null);
                 applyPanelLifecycle("info");
                 commitItems([createInfoBannerItem(authState, RUNTIME_WORKING_DIRECTORY, sessionIdRef.current)]);
+                return;
+            case "theme":
+                setInput("");
+                setSlashMenuDismissedFor(null);
+                openThemePanel();
+                return;
+            case "proxy":
+                setInput("");
+                setSlashMenuDismissedFor(null);
+                openProxyPanel();
                 return;
             case "slash_completion":
                 applySlashCompletion(route.command);
@@ -813,7 +910,35 @@ export const App: React.FC<{
                 return;
             }
         }
-    }, [applyPanelLifecycle, applySlashCompletion, appendUnknownCommandWarning, authState, commitItems, confirm, extensionInputFocused, extensionPanel, extensionSetupInput, finishActiveTextStream, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedSlashCommand, send, showError, authSetup?.active, spotifySetup?.active]);
+    }, [applyPanelLifecycle, applySlashCompletion, appendUnknownCommandWarning, authState, commitItems, confirm, extensionInputFocused, extensionPanel, extensionSetupInput, finishActiveTextStream, openProxyPanel, openThemePanel, proxyPanel, recommendInputLocked, requestSafeExit, selectableConfirmChoices, selectedConfirmChoice, selectedSlashCommand, send, showError, authSetup?.active, spotifySetup?.active]);
+
+    useInput((inputKey, key) => {
+        if (!proxyPanel?.active) return;
+        if (key.escape) {
+            if (proxyPanel.view === "config") {
+                setProxyPanel((current) => current ? { ...current, view: "root", error: null } : current);
+                setInput("");
+            } else {
+                setProxyPanel(null);
+                setInput("");
+            }
+            return;
+        }
+        if (proxyPanel.view === "root") {
+            if (key.upArrow || key.downArrow) {
+                setProxyPanel((current) => current ? { ...current, rootIndex: current.rootIndex === 0 ? 1 : 0 } : current);
+            } else if (key.return) {
+                submitInput(input);
+            }
+            return;
+        }
+        if (key.tab || inputKey === "\t") {
+            const order = ["url", "check", "save"] as const;
+            const index = order.indexOf(proxyPanel.focus);
+            const next = key.shift ? (index + order.length - 1) % order.length : (index + 1) % order.length;
+            setProxyPanel((current) => current ? { ...current, focus: order[next] } : current);
+        }
+    }, { isActive: rawModeAvailable && Boolean(proxyPanel?.active) && !confirm });
 
     useInput((inputKey, key) => {
         if (!extensionPanel) return;
@@ -993,6 +1118,31 @@ export const App: React.FC<{
         }
     }, { isActive: Boolean(languagePanel?.active) && rawModeAvailable });
 
+    useInput((_inputKey, key) => {
+        if (!themePanel?.active) return;
+        if (key.upArrow || key.downArrow) {
+            const nextIndex = key.upArrow
+                ? (themePanelIndex - 1 + UI_THEME_IDS.length) % UI_THEME_IDS.length
+                : (themePanelIndex + 1) % UI_THEME_IDS.length;
+            const nextTheme = UI_THEME_IDS[nextIndex];
+            setThemePanel((current) => current ? { ...current, selected: nextTheme, saveError: null } : current);
+            setThemePanelIndex(nextIndex);
+            previewUiTheme(nextTheme);
+        } else if (key.return) {
+            try {
+                saveUiTheme(themePanel.selected);
+                setThemePanel(null);
+            } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                setThemePanel((current) => current ? { ...current, saveError: `Unable to save theme: ${detail}` } : current);
+            }
+        } else if (key.escape) {
+            previewUiTheme(themePanel.initial);
+            setThemePanel(null);
+            setThemePanelIndex(0);
+        }
+    }, { isActive: Boolean(themePanel?.active) && rawModeAvailable });
+
     useInput((inputKey, key) => {
         if (spotifySetup && spotifySetup.active === false && key.escape) {
             applyProviderAction({ type: "clear_spotify_setup" });
@@ -1031,7 +1181,7 @@ export const App: React.FC<{
     });
 
     useInput((inputKey, key) => {
-        if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active) return;
+        if (!helpPanel || confirm || isSlashMenuActive || languagePanel?.active || themePanel?.active) return;
 
         if (key.upArrow && helpPanel.commands.length > 0) {
             setHelpPanelIndex((prev) => (prev - 1 + helpPanel.commands.length) % helpPanel.commands.length);
@@ -1050,10 +1200,10 @@ export const App: React.FC<{
             setHelpPanel(null);
             setHelpPanelIndex(0);
         }
-    }, { isActive: Boolean(helpPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active });
+    }, { isActive: Boolean(helpPanel) && rawModeAvailable && !confirm && !isSlashMenuActive && !languagePanel?.active && !themePanel?.active });
 
     useInput((inputKey, key) => {
-        if (activeRegion !== "trackPanel" || !trackPanel || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
+        if (activeRegion !== "trackPanel" || !trackPanel || confirm || isSlashMenuActive || languagePanel?.active || themePanel?.active || isModelPanelActive) return;
         const selectedTrackPanelTrack = trackPanel.tracks[Math.min(trackPanelIndex, Math.max(0, trackPanel.tracks.length - 1))] ?? null;
         if (key.escape) {
             setTrackPanel(null);
@@ -1078,6 +1228,7 @@ export const App: React.FC<{
             && !confirm
             && !isSlashMenuActive
             && !languagePanel?.active
+            && !themePanel?.active
             && !isModelPanelActive,
     });
 
@@ -1219,13 +1370,13 @@ export const App: React.FC<{
             send({ type: "memory_panel_action", action: "review_reject", target: memoryPanel.target ?? undefined, entry_id: selected.entry_id });
         } else if (inputKey.toLowerCase() === "v" && selected && memoryPanel.view === "detail" && !memoryPanel.readOnly) {
             send({ type: "memory_panel_action", action: "revisions", target: memoryPanel.target ?? undefined, entry_id: selected.entry_id });
-        } else if (inputKey.toLowerCase() === "b" && memoryPanel.view === "root" && memoryPanel.readOnly && memoryPanel.hint?.includes("rebuild")) {
+        } else if (inputKey.toLowerCase() === "b" && memoryPanel.view === "root" && memoryPanel.readOnly) {
             send({ type: "memory_panel_action", action: "rebuild" });
         }
     }, { isActive: activeRegion === "memoryPanel" && Boolean(memoryPanel) && rawModeAvailable && !confirm });
 
     useInput((inputKey, key) => {
-        if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active || isModelPanelActive) return;
+        if (!playbackSessionActive || confirm || isSlashMenuActive || languagePanel?.active || themePanel?.active || isModelPanelActive) return;
         if (key.tab || inputKey === "\t") {
             const nextShellState = reduceShellState(shellStateRef.current, {
                 type: "toggle_region",
@@ -1237,7 +1388,7 @@ export const App: React.FC<{
             }
             applyShellAction({ type: "replace", state: nextShellState });
         }
-    }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active && !isModelPanelActive });
+    }, { isActive: rawModeAvailable && playbackSessionActive && !confirm && !isSlashMenuActive && !languagePanel?.active && !themePanel?.active && !isModelPanelActive });
 
     useInput((_inputKey, key) => {
         if (!key.escape || !agentWorkingTurnId) return;
@@ -1256,6 +1407,7 @@ export const App: React.FC<{
             && !isSlashMenuActive
             && !helpPanel
             && !languagePanel?.active
+            && !themePanel?.active
             && !spotifySetup?.active
             && !authSetup?.active
             && !trackPanel,
@@ -1297,7 +1449,7 @@ export const App: React.FC<{
                         onSubmit={submitInput}
                         inputPlaceholder={inputPlaceholder}
                         inputMask={inputMask}
-                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !isExiting && !helpPanel && !languagePanel?.active && !isModelPanelActive && !recommendInputLocked}
+                        inputFocus={(!confirm || Boolean(selectedConfirmInput)) && rawModeAvailable && !isExiting && !helpPanel && !languagePanel?.active && !themePanel?.active && !isModelPanelActive && !recommendInputLocked}
                         inputRevision={inputRevision}
                         player={player}
                         coverUrl={coverUrl}
@@ -1316,6 +1468,9 @@ export const App: React.FC<{
                         helpPanelIndex={helpPanelIndex}
                         languagePanel={languagePanel}
                         languagePanelIndex={languagePanelIndex}
+                        themePanel={themePanel}
+                        themePanelIndex={themePanelIndex}
+                        proxyPanel={proxyPanel}
                         modelPanelIndex={loginSelectionIndex}
                         trackPanel={trackPanel}
                         trackPanelIndex={trackPanelIndex}

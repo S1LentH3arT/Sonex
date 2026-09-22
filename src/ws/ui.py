@@ -218,6 +218,9 @@ class WebSocketUIAdapter:
         event = {"type": "extension_panel", **payload}
         await self._send(event)
 
+    async def send_proxy_state(self, payload: dict[str, Any]) -> None:
+        await self._send({"type": "proxy_state", **payload})
+
     async def send_cover(self, url: str) -> None:
         await self._send({"type": "cover", "url": url})
         asyncio.create_task(_send_cover_pattern(self, url))
@@ -317,7 +320,7 @@ class WebSocketUIAdapter:
         commands: list[BuiltinCommand],
         *,
         title: str = "Slash commands",
-        hint: str = "press Esc to hide",
+        hint: str = "↑/↓ to select · Enter to continue · Esc to close",
     ) -> None:
         await self._send(
             {

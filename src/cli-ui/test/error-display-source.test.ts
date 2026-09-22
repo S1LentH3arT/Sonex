@@ -22,5 +22,5 @@ assert.match(componentsSource, /<ChatBubble[\s\S]*theme=\{record\.item\.theme\}/
 assert.match(componentsSource, /tone=\{record\.item\.tone\}/);
 assert.doesNotMatch(componentsSource, /theme === "spotify" && !isUser \? SPOTIFY_GREEN/);
 assert.doesNotMatch(componentsSource, /theme === "muted" && !isUser \? "#9ca3af"/);
-assert.match(componentsSource, /resolveChatMarkerColor\(role, theme, tone\)/);
-assert.match(componentsSource, /resolveChatContentColor\(role, tone\)/);
+assert.match(componentsSource, /resolveChatMarkerColor\(role, theme, tone, uiTheme\)/);
+assert.match(componentsSource, /resolveChatContentColor\(role, tone, uiTheme\)/);

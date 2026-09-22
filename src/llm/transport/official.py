@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from src.network.proxy import urlopen as proxy_urlopen
 from src.llm.config import ProviderConfig
 from src.llm.transport.base import LLMTransportError, ProviderRequest, sanitize_error_message
 from src.log import get_logger
@@ -98,7 +99,7 @@ def _json_request(url: str, payload: dict[str, Any], *, timeout: float | None) -
 
 def _send_json(http_request: urllib.request.Request, provider: str, *, timeout: float | None) -> Any:
     try:
-        with urllib.request.urlopen(http_request, timeout=timeout or 60) as response:
+        with proxy_urlopen(http_request, timeout=timeout or 60) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")

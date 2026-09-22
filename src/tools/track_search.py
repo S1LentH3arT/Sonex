@@ -11,7 +11,8 @@ import urllib.parse
 from threading import Lock
 from typing import Any
 from urllib.error import HTTPError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from src.network.proxy import urlopen
 
 from src.llm.transport import sanitize_error_message
 from src.tools.cover_sources import (

@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadUiLanguage, saveUiLanguage } from '../src/ui-settings.js';
+import { loadUiLanguage, loadUiTheme, saveUiLanguage, saveUiTheme } from '../src/ui-settings.js';
 
 const withTempHome = (fn: (home: string) => void) => {
     const home = mkdtempSync(join(tmpdir(), 'sonex-ui-settings-'));
@@ -25,12 +25,15 @@ withTempHome((home) => {
     assert.equal(loadUiLanguage(), "en");
     saveUiLanguage("zh-CN");
     assert.equal(loadUiLanguage(), "zh-CN");
-    assert.deepEqual(JSON.parse(readFileSync(join(home, "ui-settings.json"), "utf8")), { language: "zh-CN" });
+    saveUiTheme("nord");
+    assert.equal(loadUiTheme(), "nord");
+    assert.deepEqual(JSON.parse(readFileSync(join(home, "ui-settings.json"), "utf8")), { language: "zh-CN", theme: "nord" });
 });
 
 withTempHome((home) => {
-    writeFileSync(join(home, "ui-settings.json"), JSON.stringify({ language: "fr" }));
+    writeFileSync(join(home, "ui-settings.json"), JSON.stringify({ language: "fr", theme: "unknown" }));
     assert.equal(loadUiLanguage(), "en");
+    assert.equal(loadUiTheme(), "sonex");
 });
 
 withTempHome((home) => {

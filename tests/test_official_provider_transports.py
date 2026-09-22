@@ -109,23 +109,20 @@ class OfficialProviderTransportTests(unittest.TestCase):
 
 
 class ProviderClientRoutingTests(unittest.TestCase):
-    def test_known_cloud_provider_uses_official_transport_before_litellm_fallback(self) -> None:
+    def test_known_cloud_provider_uses_official_transport(self) -> None:
         runtime = RuntimeConfig(
             default_provider="openai",
             default_model="gpt-5.5",
             providers={"openai": ProviderConfig(name="openai", model="gpt-5.5", api_key="sk-test")},
         )
-        fallback = Mock()
-        fallback.send.side_effect = AssertionError("LiteLLM fallback should not be used for openai")
         official = Mock()
         official.send.return_value = {"choices": [{"message": {"content": "ok"}}]}
 
-        client = ProviderClient(runtime_config=runtime, transport=fallback, provider_transports={"openai": official})
+        client = ProviderClient(runtime_config=runtime, provider_transports={"openai": official})
         response = client.generate(ChatRequest(messages=[{"role": "user", "content": "hello"}]))
 
         self.assertEqual(response.output_text, "ok")
         official.send.assert_called_once()
-        fallback.send.assert_not_called()
 
     def test_first_class_compatible_providers_use_openai_compatible_transport(self) -> None:
         providers = {
@@ -166,20 +163,16 @@ class ProviderClientRoutingTests(unittest.TestCase):
         self.assertEqual(provider_request.native_payload["messages"][0]["content"][0]["text"], "hello")
         self.assertEqual(provider_request.native_payload["max_tokens"], 128)
 
-    def test_unknown_provider_uses_litellm_fallback(self) -> None:
+    def test_unknown_provider_is_rejected(self) -> None:
         runtime = RuntimeConfig(
             default_provider="unknown",
             default_model="custom-model",
             providers={"unknown": ProviderConfig(name="unknown", model="custom-model", api_key="sk-test")},
         )
-        fallback = Mock()
-        fallback.send.return_value = {"choices": [{"message": {"content": "ok"}}]}
+        client = ProviderClient(runtime_config=runtime)
 
-        client = ProviderClient(runtime_config=runtime, transport=fallback)
-        response = client.generate(ChatRequest(messages=[{"role": "user", "content": "hello"}]))
-
-        self.assertEqual(response.output_text, "ok")
-        fallback.send.assert_called_once()
+        with self.assertRaisesRegex(RuntimeError, "Provider 'unknown' is not supported"):
+            client.generate(ChatRequest(messages=[{"role": "user", "content": "hello"}]))
 
 
 if __name__ == "__main__":

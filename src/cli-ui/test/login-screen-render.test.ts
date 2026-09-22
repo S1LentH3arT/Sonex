@@ -75,13 +75,14 @@ test('renders compact provider connection rows without lowercase aliases', async
     assert.match(plain, /• OpenRouter — Not connected/);
     assert.doesNotMatch(plain, /Not connected\s+openai/);
     assert.doesNotMatch(plain, /Connected\s+gemini/);
+    assert.match(plain, /Select your available provider and get connected to activate Sonex\./);
     assert.match(plain, /↑\/↓ to select · Enter to continue · Esc to close/);
     assert.match(frame, /\u001b\[(?:38;2;29;185;84|38;5;78)m•/);
     assert.match(frame, /\u001b\[(?:38;2;128;135;145|38;5;145)m•/);
     assert.match(frame, /\u001b\[(?:38;2;239;68;68|38;5;203)m•/);
     assert.match(
         frame,
-        /\u001b\[1m\u001b\[(?:38;2;128;135;145|38;5;145)m↑\/↓ to select · Enter to continue · Esc to close/,
+        /\u001b\[(?:38;2;128;135;145|38;5;145)m↑\/↓ to select · Enter to continue · Esc to close/,
     );
 });
 

@@ -14,6 +14,7 @@ from typing import Any
 
 import yt_dlp
 
+from src.network.proxy import urlopen as proxy_urlopen
 from src.log import sonex_home
 from src.tools.online_provider_health import provider_cooldown
 from src.tools.youtube_runtime import runtime_status, update_state
@@ -33,7 +34,7 @@ def _latest_version() -> str | None:
         "https://pypi.org/pypi/yt-dlp/json",
         headers={"Accept": "application/json", "User-Agent": "Sonex/1.0"},
     )
-    with urllib.request.urlopen(request, timeout=3) as response:
+    with proxy_urlopen(request, timeout=3) as response:
         payload = json.load(response)
     info = payload.get("info") if isinstance(payload, dict) else None
     version = info.get("version") if isinstance(info, dict) else None

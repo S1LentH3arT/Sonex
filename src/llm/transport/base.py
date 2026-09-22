@@ -6,9 +6,6 @@ from dataclasses import dataclass, field
 from typing import Protocol, Any
 
 from src.llm.config import ProviderConfig
-from src.log import get_logger
-
-logger = get_logger(__name__)
 
 
 class LLMTransportError(RuntimeError):
@@ -117,51 +114,3 @@ class ProviderRequest:
 class LLMTransport(Protocol):
     def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
         ...
-
-
-class LiteLLMTransport(LLMTransport):
-    def send(self, request: ProviderRequest, config: ProviderConfig) -> Any:
-        from litellm import completion
-
-        payload = dict(request.payload)
-        payload["model"] = _resolve_transport_model(request.model, config)
-
-        if config.api_key:
-            payload["api_key"] = config.api_key
-        if config.base_url:
-            payload["base_url"] = config.base_url
-        if config.api_version:
-            payload["api_version"] = config.api_version
-        if config.timeout is not None:
-            payload["timeout"] = config.timeout
-        if config.extra_headers:
-            payload["extra_headers"] = config.extra_headers
-        if config.custom_llm_provider:
-            payload["custom_llm_provider"] = config.custom_llm_provider
-        if config.options:
-            payload.update(config.options)
-
-        try:
-            return completion(**payload)
-        except Exception as exc:
-            safe_error = sanitize_error_message(exc)
-            logger.error(f"Transport request failed for provider '{config.name}': {safe_error}.")
-            raise LLMTransportError(
-                f"LLM provider '{config.name}' request failed: {safe_error}"
-            ) from exc
-
-
-def _resolve_transport_model(model: str, config: ProviderConfig) -> str:
-    if "/" in model:
-        return model
-
-    prefixes = {
-        "anthropic": "anthropic",
-        "gemini": "gemini",
-        "deepseek": "deepseek",
-        "custom": None,
-    }
-    prefix = prefixes.get(config.name)
-    if prefix:
-        return f"{prefix}/{model}"
-    return model

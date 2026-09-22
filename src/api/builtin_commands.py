@@ -70,6 +70,7 @@ BUILTIN_COMMANDS: tuple[BuiltinCommand, ...] = (
     BuiltinCommand("playlist", "/playlist [name]|save [name]", "browse playlists or save the current song"),
     BuiltinCommand("queue", "/queue", "show the playback queue"),
     BuiltinCommand("extension", "/extension", "check and manage built-in music extensions"),
+    BuiltinCommand("proxy", "/proxy", "configure outbound proxy routing"),
     BuiltinCommand("spotify", "/spotify", "enter or exit persistent Spotify mode"),
     BuiltinCommand("pause", "/pause", "pause current local playback", visible=False),
     BuiltinCommand("resume", "/resume", "resume current local playback"),

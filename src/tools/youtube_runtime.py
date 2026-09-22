@@ -22,6 +22,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Iterator
 
+from src.network.proxy import urlopen as proxy_urlopen
+from src.network.proxy import active_proxy
 from src.log import sonex_home
 from src.tools.youtube_runtime_state import (
     activated_state,
@@ -436,7 +438,7 @@ def _provider_log_path() -> Path:
 def _provider_ping(base_url: str, timeout: float = 0.5) -> bool:
     try:
         request = urllib.request.Request(f"{base_url}/ping", headers={"Accept": "application/json"})
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with proxy_urlopen(request, timeout=timeout) as response:
             return 200 <= int(response.status) < 300
     except (OSError, urllib.error.URLError, ValueError):
         return False
@@ -638,6 +640,11 @@ def run_managed_ytdlp_request(
     from src.tools.yt_dlp_runner import YtDlpError, run_ytdlp
 
     safe_options, _provider_url = prepare_worker(options, operation=operation)
+    current_proxy = active_proxy()
+    if current_proxy.enabled and current_proxy.url:
+        safe_options["proxy"] = current_proxy.url
+    else:
+        safe_options.pop("proxy", None)
     try:
         with youtube_request_gate(options=safe_options):
             return run_ytdlp(
@@ -806,7 +813,7 @@ def _download_file(url: str, destination: Path, *, phase: str, timeout: float = 
     digest = hashlib.sha256()
     received = 0
     last_persisted = 0.0
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Sonex/1.0"}), timeout=10) as response:
+    with proxy_urlopen(urllib.request.Request(url, headers={"User-Agent": "Sonex/1.0"}), timeout=10) as response:
         total_header = response.headers.get("Content-Length")
         total = int(total_header) if total_header and total_header.isdigit() else 0
         _update_state(phase=phase, bytes_received=0, bytes_total=total, progress=0 if total else None)
@@ -888,7 +895,7 @@ def _pypi_latest(package: str) -> str | None:
         f"{PYPI_BASE}/{package}/json",
         headers={"Accept": "application/json", "User-Agent": "Sonex/1.0"},
     )
-    with urllib.request.urlopen(request, timeout=5) as response:
+    with proxy_urlopen(request, timeout=5) as response:
         payload = json.load(response)
     info = payload.get("info") if isinstance(payload, dict) else None
     version = info.get("version") if isinstance(info, dict) else None
@@ -900,7 +907,7 @@ def _pypi_wheel_hash(package: str, version: str) -> str:
         f"{PYPI_BASE}/{package}/{version}/json",
         headers={"Accept": "application/json", "User-Agent": "Sonex/1.0"},
     )
-    with urllib.request.urlopen(request, timeout=5) as response:
+    with proxy_urlopen(request, timeout=5) as response:
         payload = json.load(response)
     urls = payload.get("urls") if isinstance(payload, dict) else None
     if not isinstance(urls, list):
@@ -1030,7 +1037,7 @@ def _install_node_component(staging: Path, version: str) -> dict[str, Any]:
     architecture = _node_architecture()
     archive_url, checksums_url = _node_download_urls(version, architecture)
     archive = staging / "node.tar.xz"
-    with urllib.request.urlopen(checksums_url, timeout=10) as response:
+    with proxy_urlopen(checksums_url, timeout=10) as response:
         checksums = response.read(512 * 1024).decode("utf-8")
     archive_name = archive_url.rsplit("/", 1)[-1]
     expected = next((line.split()[0] for line in checksums.splitlines() if line.endswith(archive_name)), None)

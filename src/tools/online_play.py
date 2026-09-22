@@ -21,6 +21,7 @@ from typing import Any, Callable
 
 import yt_dlp
 
+from src.network.proxy import urlopen as proxy_urlopen
 from src.auth.store import get_provider_auth, load_auth_store
 from src.llm.transport import sanitize_error_message
 from src.log import sonex_home
@@ -1712,7 +1713,7 @@ def _format_youtube_fallback_failure(candidate: dict[str, Any], youtube_message:
 
 def _json_get(url: str, *, headers: dict[str, str] | None = None, timeout: float = 10.0) -> dict[str, Any]:
     request = urllib.request.Request(url, headers=headers or {})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with proxy_urlopen(request, timeout=timeout) as response:
         payload = response.read().decode("utf-8")
     data = json.loads(payload)
     if not isinstance(data, dict):
@@ -2789,7 +2790,7 @@ def download_open_audio_candidate(candidate: dict[str, Any], *, cache_root: Path
     audio_ext = _extension_from_url(download_url)
     audio_path = audio_dir / f"{cache_id}.{audio_ext}"
     request = urllib.request.Request(download_url, headers={"User-Agent": "Sonex/1.0"})
-    with urllib.request.urlopen(request, timeout=30) as response, audio_path.open("wb") as output:
+    with proxy_urlopen(request, timeout=30) as response, audio_path.open("wb") as output:
         while True:
             chunk = response.read(1024 * 256)
             if not chunk:

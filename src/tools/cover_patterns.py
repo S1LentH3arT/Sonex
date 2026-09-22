@@ -10,7 +10,8 @@ import time
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
+from src.network.proxy import urlopen
 
 from PIL import Image, ImageOps
 
