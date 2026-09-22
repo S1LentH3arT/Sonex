@@ -150,6 +150,7 @@ Sonex prefers official provider APIs for the main cloud LLMs:
 | Anthropic | Official messages endpoint with API Key authentication |
 | Google Gemini | Official Gemini API with API Key or Google OAuth and a user-supplied Cloud project (preview) |
 | DeepSeek | Official API adapter |
+| Additional API-key providers | OpenRouter, Z.AI, Kimi Global/CN, MiniMax Global/CN, and xAI |
 | Custom | Named OpenAI-compatible Chat Completions connections with model discovery and manual Model ID fallback |
 
 Open the only interactive LLM connection entry point inside Sonex:
@@ -158,7 +159,8 @@ Open the only interactive LLM connection entry point inside Sonex:
 /login
 ```
 
-Choose OpenAI, Google Gemini, Anthropic, DeepSeek, or Custom in the panel.
+Choose OpenAI, Google Gemini, Anthropic, DeepSeek, OpenRouter, Z.AI, Kimi,
+MiniMax, xAI, or Custom in the panel.
 OpenAI API Key and ChatGPT Subscription credentials are independent and never
 silently fall back to each other. Google OAuth requires a Cloud project with
 Gemini API access and billing already configured. Anthropic OAuth is not
@@ -325,12 +327,13 @@ play Mitski Nobody
 ```
 
 Sonex checks for a matching local file first. Without a local match, or after you
-skip it, normal mode opens up to five metadata candidates and continues through
-Sonex online audio without asking for a playback provider. `/recommend [taste]`
-returns a numbered text list first, defaults to
-five tracks, uses the hint before recent playback and `USER.md` preferences, and
-adds the recommended tracks to the Sonex playback queue without starting
-playback. You can then ask to play an item such as `play number 2` or `播放第2首`.
+skip it, normal mode asks you to choose Spotify or Online when Spotify is ready;
+otherwise it continues with Online. Sonex then shows up to five candidates from
+the selected source. `/recommend [taste]` returns a numbered text list first,
+defaults to five tracks, uses the hint before recent playback and `USER.md`
+preferences, and adds the recommended tracks to the Sonex playback queue without
+starting playback. You can then ask to play an item such as `play number 2` or
+`播放第2首`.
 
 While a local or online track is playing, use the TUI playback shortcuts:
 

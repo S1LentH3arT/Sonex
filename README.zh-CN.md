@@ -137,21 +137,37 @@ Sonex 优先为主流云端 LLM provider 调用官方 API：
 
 | Provider | 集成方式 |
 | --- | --- |
-| OpenAI | 官方 chat completions 接口 |
-| Anthropic | 官方 messages 接口 |
-| Gemini | 官方 generate content 接口，配置 OAuth 时包含 Authorization header |
+| OpenAI | 官方 API Key endpoint，或由隔离的 Codex App Server 管理 ChatGPT Subscription 访问（实验性） |
+| Anthropic | 官方 messages endpoint，使用 API Key 认证 |
+| Google Gemini | 官方 Gemini API，支持 API Key 或 Google OAuth；OAuth 需要用户提供 Cloud project（预览） |
 | DeepSeek | 官方 API adapter |
-| LiteLLM | 作为自定义或暂未 native 化 provider 的兼容 fallback 保留；不是以上云端 provider 的默认调用路径 |
+| 其他 API-key provider | OpenRouter、Z.AI、Kimi Global/CN、MiniMax Global/CN 和 xAI |
+| Custom | 命名的 OpenAI-compatible Chat Completions 连接，支持模型发现和手动输入 Model ID |
 
-使用以下命令管理 LLM provider 凭据。`login` 会从隐藏输入、
-`SONEX_<PROVIDER>_API_KEY` 环境变量或 stdin 读取密钥，不接受命令行明文密钥：
+Sonex 内唯一的交互式 LLM 连接入口是：
+
+```text
+/login
+```
+
+在面板中选择 OpenAI、Google Gemini、Anthropic、DeepSeek、OpenRouter、Z.AI、
+Kimi、MiniMax、xAI 或 Custom。OpenAI API Key 与 ChatGPT Subscription 凭据彼此
+独立，不会静默回退。Google OAuth 要求 Cloud project 已启用 Gemini API 和计费；
+V1 不包含 Anthropic OAuth。
+
+同一组 provider 凭据也可以通过 shell 管理：
 
 ```bash
 sonex auth login openai
-sonex auth list
+sonex auth list --json
 sonex auth set-default openai
 sonex auth logout openai
 ```
+
+`auth login` 会从隐藏输入、`SONEX_<PROVIDER>_API_KEY` 环境变量或 stdin
+读取密钥，不接受命令行明文密钥。只读 runtime 和音乐查询支持 `--json`，包括
+`sonex status`、`sonex extension list`、`sonex model list`、`sonex recent` 和
+`sonex playlist list`。
 
 也可以使用环境变量配置：
 
@@ -165,14 +181,14 @@ export SONEX_DEEPSEEK_API_KEY=sk-...
 ```
 
 > [!WARNING]
-> 不要把 API Key 或 Sonex 保存的凭据提交到版本控制。建议使用 `sonex auth`
+> 不要把 API Key 或 Sonex 保存的凭据提交到版本控制。建议使用 `/login`
 > 管理本地密钥；环境变量应通过安全的本地密钥存储或部署密钥系统提供。
 
 如果默认 provider 还没有配置好就开始聊天，TUI 会先进入交互式设置流程，不会
-直接开始 planner 或 agent 工作。把 `ollama` 配置为默认 provider 时，可以作为
-本地 provider 使用。
+直接开始 planner 或 agent 工作。原内置 Ollama provider 已退休，不会自动迁移；
+如需使用 Ollama 或其他兼容 endpoint，请在 `/login` 中添加命名的 Custom 连接。
 
-Sonex 会加载 `.env`，然后按以下顺序解析运行时配置：环境变量、`sonex auth`
+Sonex 会加载 `.env`，然后按以下顺序解析运行时配置：环境变量、`/login`
 保存的凭据，最后是 JSON 配置文件。设置 `SONEX_CONFIG_PATH` 可以使用
 `~/.sonex/thinking.json` 之外的配置文件。
 
@@ -200,8 +216,8 @@ Sonex 会加载 `.env`，然后按以下顺序解析运行时配置：环境变�
 
 ## 音乐服务设置
 
-执行 `/connect` 会打开交互式音乐账号连接面板，其中列出 Spotify、网易云音乐、
-Jamendo 和 Audius。可用性检查由各服务独立完成，不会静默改变当前播放 provider。
+执行 `/extension` 会打开交互式音乐扩展面板，其中列出 Spotify、Jamendo、Audius
+和 YouTube。可用性检查由各服务独立完成，不会静默改变当前播放 provider。
 
 > [!NOTE]
 > 连接记录只保存非敏感的账号标识与健康状态；OAuth token 仍由现有本地组件持有。
@@ -216,7 +232,7 @@ Jamendo 和 Audius。可用性检查由各服务独立完成，不会静默改�
 在 TUI 中输入：
 
 ```text
-setup spotify
+/spotify
 ```
 
 Sonex 会引导你创建 Spotify app、添加 loopback Redirect URI、输入 Client ID 和
@@ -252,19 +268,19 @@ Spotify mode，直到本地 Spotify token 过期、缺少必要 scopes，或你�
 
 ### 本地和 Provider 播放
 
-如果需要可控制的本地文件、网易云音乐或在线播放，请安装 `mpv`。Spotify 播放使用
+如果需要可控制的本地文件或在线播放，请安装 `mpv`。Spotify 播放使用
 Spotify Connect，不经过本地播放器。持久化 Spotify Mode 仍会让整个音乐界面固定使用
 Spotify；普通模式则可以为单次播放请求选择已就绪的 Spotify 连接。
 
 ### 播放源选择
 
-普通模式会优先检查本地文件。没有本地结果或跳过本地后，Sonex 会同时提供已就绪的
-网易云音乐、Spotify 原生播放源和 Online 选项。Sonex 只搜索选中的 catalog，并保留
-网易云音乐原生 ID 或 Spotify URI；搜索失败或没有可播放结果时，可以重试、补充关键词
-或切换播放源。iTunes Search 仍只用于元数据发现，不是播放源。要使用 Online 路径，
-至少配置一个在线音频 provider：
+普通模式会优先检查本地文件。没有本地结果或跳过本地后，如果 Spotify 已就绪，
+Sonex 会同时提供 Spotify 和 Online；否则直接使用 Online。Sonex 只搜索选中的 catalog，
+保留原生 Spotify URI，并允许在搜索失败或没有可播放结果时重试、补充关键词或切换
+播放源。iTunes Search 仍只用于元数据发现，不是播放源。要使用 Online 路径，至少配置
+一个在线音频 provider：
 
-执行 `/connect` 并选择 Jamendo 或 Audius。
+执行 `/extension` 并选择 Jamendo 或 Audius。
 
 也可以通过环境变量提供凭据：
 
@@ -286,11 +302,11 @@ play Mitski Nobody
 播放 方大同 忘了美丽
 ```
 
-Sonex 会先检查匹配的本地文件；没有本地结果或跳过本地后，普通模式会先选择网易云音乐、
-Spotify 或 Online 播放源，再展示该来源最多五个候选。`/recommend [taste]` 会先返回编号
-文本列表，默认 5 首；有 taste 时优先按用户输入推荐，再参考最近播放和 `USER.md`
-偏好，并把推荐曲目加入 Sonex 播放队列但不直接播放。之后可以继续要求播放某一项，
-例如 `play number 2` 或 `播放第2首`。
+Sonex 会先检查匹配的本地文件；没有本地结果或跳过本地后，如果 Spotify 已就绪，
+普通模式会要求选择 Spotify 或 Online，否则继续使用 Online，然后展示所选来源最多五个
+候选。`/recommend [taste]` 会先返回编号文本列表，默认 5 首；有 taste 时优先按用户输入
+推荐，再参考最近播放和 `USER.md` 偏好，并把推荐曲目加入 Sonex 播放队列但不直接播放。
+之后可以继续要求播放某一项，例如 `play number 2` 或 `播放第2首`。
 
 本地或在线曲目播放时，可以使用 TUI 快捷键：
 
