@@ -256,8 +256,15 @@ class ExtensionManager:
         enabled = entry.get("enabled", True) is not False
         configured, local, reason_code = self._credential_info(extension.extension_id)
         saved_health = str(entry.get("health") or "")
+        saved_reason = str(entry.get("reason_code") or "")
+        if (
+            extension.extension_id == "youtube"
+            and configured
+            and saved_reason in {"setup_required", "runtime_files_missing", "runtime_entrypoint_check_failed"}
+        ):
+            saved_health = ""
         if configured and saved_health == "unavailable":
-            reason_code = str(entry.get("reason_code") or "check_failed")
+            reason_code = saved_reason or "check_failed"
         elif configured and saved_health == "healthy":
             reason_code = None
         operation = str(entry.get("operation") or "") or None
@@ -301,7 +308,11 @@ class ExtensionManager:
         if view.status in {ExtensionStatus.WAITING, ExtensionStatus.UNSUPPORTED}:
             return ()
         if extension_id == "youtube":
-            return ("enable",) if not view.enabled else ("disable",)
+            if not view.enabled:
+                return ("enable",)
+            if view.configured and view.status is ExtensionStatus.UNAVAILABLE:
+                return ("quick_check", "disable")
+            return ("disable",)
         if armed_action == "reset":
             return ("confirm_reset",)
         if armed_action == "restart":
@@ -541,8 +552,9 @@ class ExtensionManager:
                     headers={"Accept": "text/html", "User-Agent": "Sonex/1.0"},
                 )
                 with proxy_urlopen(request, timeout=12) as response:
-                    body = response.read(256 * 1024)
-                return (b"videoId" in body, None if b"videoId" in body else "search_parse_failed")
+                    status = int(getattr(response, "status", None) or getattr(response, "status_code", 0) or 0)
+                healthy = 200 <= status < 400
+                return healthy, None if healthy else f"http_{status}" if status else "invalid_response"
             if extension_id == "jamendo":
                 config = online_audio_config()
                 client_id = config.jamendo_client_id

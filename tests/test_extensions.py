@@ -6,7 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from src.extensions import ExtensionActionError, ExtensionManager, ExtensionStatus
 
@@ -95,6 +95,37 @@ class ExtensionManagerTests(unittest.TestCase):
             return_value={"status": "restart_required"},
         ):
             self.assertEqual(manager.actions("youtube"), ("disable",))
+
+    def test_youtube_reachable_page_is_healthy_without_parsing_html(self) -> None:
+        manager = ExtensionManager(path=self.state_path)
+        response = MagicMock(status=200)
+        with patch(
+            "src.extensions.manager.local_runtime_check",
+            return_value={"healthy": True, "reason": "ok"},
+        ), patch("src.extensions.manager.proxy_urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value = response
+            self.assertEqual(manager._perform_check("youtube"), (True, None))
+        response.read.assert_not_called()
+
+    def test_youtube_ready_runtime_ignores_stale_setup_failure(self) -> None:
+        manager = ExtensionManager(path=self.state_path)
+        with patch(
+            "src.extensions.manager.runtime_status",
+            return_value={"status": "ready"},
+        ):
+            manager.record_health("youtube", healthy=False, reason_code="setup_required")
+            view = manager.get("youtube")
+        self.assertEqual(view.status, ExtensionStatus.ENABLED)
+        self.assertIsNone(view.reason_code)
+
+    def test_youtube_unavailable_configured_runtime_can_recheck(self) -> None:
+        manager = ExtensionManager(path=self.state_path)
+        with patch(
+            "src.extensions.manager.runtime_status",
+            return_value={"status": "ready"},
+        ):
+            manager.record_health("youtube", healthy=False, reason_code="check_failed")
+            self.assertEqual(manager.actions("youtube"), ("quick_check", "disable"))
 
     def test_snapshot_does_not_probe_network(self) -> None:
         with patch(
