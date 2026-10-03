@@ -16,6 +16,14 @@ const terminalSurface = new TerminalSurfaceController({
 
 terminalSurface.prepare();
 
+const cleanup = (): void => {
+    try {
+        incrementalStdout.dispose();
+    } finally {
+        terminalSurface.dispose();
+    }
+};
+
 let app: ReturnType<typeof render>;
 try {
     app = render(
@@ -27,13 +35,12 @@ try {
         },
     );
 } catch (error) {
-    terminalSurface.dispose();
+    cleanup();
     throw error;
 }
 
 terminalSurface.attachRendererClear(() => app.clear());
 
-const cleanup = (): void => terminalSurface.dispose();
 const stopFromSignal = (exitCode: number): void => {
     process.exitCode = exitCode;
     try {

@@ -1,3 +1,5 @@
+import { supportsKittyGraphics, TerminalCover } from './terminal-cover.js';
+
 export const APP_CLEAR_SCREEN = '\u001B[2J\u001B[H';
 export const INK_CLEAR_SCREEN = '\u001B[2J\u001B[3J\u001B[H';
 
@@ -16,6 +18,8 @@ export type TerminalDimensions = {
 
 export type IncrementalStdout = NodeJS.WriteStream & {
     reset: () => void;
+    dispose: () => void;
+    cover: TerminalCover;
 };
 
 const normalizeTrueColor = (color: string): string => (
@@ -143,6 +147,7 @@ export const createIncrementalStdout = (stdout: NodeJS.WriteStream): Incremental
         rows: stdout.rows,
     }));
     const writeThrough = stdout.write.bind(stdout) as (...args: any[]) => boolean;
+    const cover = new TerminalCover(stdout.isTTY === true && supportsKittyGraphics(), writeThrough);
     const incrementalWrite = ((chunk: string | Uint8Array, ...args: unknown[]): boolean => {
         if (typeof chunk !== "string") {
             return writeThrough(chunk, ...args);
@@ -150,20 +155,22 @@ export const createIncrementalStdout = (stdout: NodeJS.WriteStream): Incremental
 
         const safeChunk = stdout.isTTY === true
             ? fillTrailingRowBackground(chunk, stdout.columns)
-            : stripTerminalControlSequences(chunk);
+            : stripTerminalControlSequences(cover.transform(chunk));
         const output = frameWriter.transform(safeChunk);
         if (output === null) {
             completeSuppressedWrite(args);
             return true;
         }
 
-        return writeThrough(output, ...args);
+        return writeThrough(cover.transform(output), ...args);
     }) as NodeJS.WriteStream["write"];
 
     return new Proxy(stdout, {
         get(target, property) {
             if (property === "write") return incrementalWrite;
-            if (property === "reset") return () => frameWriter.reset();
+            if (property === "reset") return () => { cover.reset(); frameWriter.reset(); };
+            if (property === "dispose") return () => cover.dispose();
+            if (property === "cover") return cover;
             if (property === "rows") return undefined;
             const value = Reflect.get(target, property, target);
             return typeof value === "function" ? value.bind(target) : value;

@@ -10,7 +10,7 @@ import { HELP_PANEL_VISIBLE_COMMANDS, helpPanelCommands, visibleCommandWindow } 
 import { getVisibleConfirmChoices, resolveConfirmChoiceDisplayIndex } from './confirm-choice.js';
 import { buildProgressBar, formatDuration, formatMiniTrackSubtitle, formatMusicCandidateDisplayLabel } from './format.js';
 import { formatWorkingDirectory } from './info-banner.js';
-import { useCoverArt } from './hooks.js';
+import { useCoverArt } from './cover-image.js';
 import { hideInputCursor, INPUT_CURSOR_BLINK_INTERVAL_MS } from './input-cursor.js';
 import { languageLabel, t } from './i18n.js';
 import { coverVisualFromSource, type CoverVisualModel } from './cover-visual.js';
@@ -885,11 +885,11 @@ const MemoryPanelOverlay = ({ panel, selectedIndex = 0, searchQuery = "", editor
 
 const CoverAtmosphere = ({ visual, art, compact }: {
     visual: CoverVisualModel;
-    art: string | null;
+    art: React.ReactNode;
     compact: boolean;
 }) => {
     if (art) {
-        return <Text>{art}</Text>;
+        return <>{art}</>;
     }
 
     const rows = compact ? visual.blocks.slice(0, 5) : visual.blocks;
@@ -946,8 +946,8 @@ const StaticCover = React.memo(({ visual, coverUrl, coverImage, coverPattern, te
         : resolveCoverPatternDisplay(null, terminalSpace);
     const compactCoverWidth = Math.max(22, Math.min(48, (terminalSpace?.columns ?? 40) - 6));
     const compactCoverHeight = Math.max(8, Math.min(24, (terminalSpace?.rows ?? 22) - 8));
-    const { art, failed } = useCoverArt(coverImage, compact ? compactCoverWidth : 32, compact ? compactCoverHeight : 16);
-    const resolvedVisual = React.useMemo(() => coverVisualFromSource(coverUrl, failed), [coverUrl, failed]);
+    const art = useCoverArt(coverImage, compact ? compactCoverWidth : 32, compact ? compactCoverHeight : 16);
+    const resolvedVisual = React.useMemo(() => coverVisualFromSource(coverUrl), [coverUrl]);
     const patternRequestedAt = React.useRef<number | null>(null);
 
     React.useEffect(() => {

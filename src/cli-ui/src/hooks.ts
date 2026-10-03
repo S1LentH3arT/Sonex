@@ -1,45 +1,9 @@
 import React from 'react';
 import WebSocket from 'ws';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE } from './constants.js';
-import type { ClientEvent, CoverImageEvent, PlayerState, ServerEvent } from './types.js';
+import type { ClientEvent, PlayerState, ServerEvent } from './types.js';
 
 export const PLAYBACK_PROGRESS_INTERVAL_MS = 1000;
-
-let nextKittyImageId = 1;
-
-export const kittyDeleteSequence = (imageId: number): string => (
-    `\u001B_Ga=d,d=I,i=${imageId},q=2;\u001B\\`
-);
-
-export const supportsKittyGraphics = (): boolean => (
-    !process.env.TMUX
-    && !process.env.STY
-    && (process.env.TERM === 'xterm-kitty' || Boolean(process.env.KITTY_WINDOW_ID))
-);
-
-export const kittyImageSequence = (
-    image: CoverImageEvent,
-    width: number,
-    height: number,
-): { art: string | null; imageId: number | null } => {
-    if (!supportsKittyGraphics() || image.format !== 'png' || !image.data) {
-        return { art: null, imageId: null };
-    }
-    const imageId = nextKittyImageId++;
-    const sourceAspect = image.width / Math.max(1, image.height * 0.5);
-    const availableAspect = width / Math.max(1, height);
-    const columns = availableAspect > sourceAspect
-        ? Math.max(1, Math.round(height * sourceAspect))
-        : Math.max(1, Math.round(width));
-    const rows = availableAspect > sourceAspect
-        ? Math.max(1, Math.round(height))
-        : Math.max(1, Math.round(width / sourceAspect));
-    const chunks = image.data.match(/.{1,4096}/g) ?? [];
-    const sequence = chunks.map((chunk, index) => (
-        `\u001B_G${index === 0 ? `i=${imageId},` : ''}f=100,a=T,c=${columns},r=${rows},q=2,m=${index === chunks.length - 1 ? 0 : 1};${chunk}\u001B\\`
-    )).join('');
-    return { art: sequence || null, imageId: sequence ? imageId : null };
-};
 
 export function isPlaybackStarting(player: PlayerState): boolean {
     return player.playback_status === "starting";
@@ -112,58 +76,6 @@ export function usePlaybackProgress(player: PlayerState, active = true): number 
     return playbackProgressAt(player, now);
 }
 
-/**
- * Coordinates the use cover art operation for the CLI UI runtime.
- *
- * @param url Input value used by the use cover art operation.
- * @param width Input value used by the use cover art operation.
- * @param height Input value used by the use cover art operation.
- * @returns The computed result for the surrounding CLI UI flow.
- */
-export function useCoverArt(image: CoverImageEvent | null, width = 32, height = 16): { art: string | null; failed: boolean } {
-    const [art, setArt] = React.useState<string | null>(null);
-    const [failed, setFailed] = React.useState(false);
-    const imageId = React.useRef<number | null>(null);
-
-    React.useEffect(() => {
-        if (!image) {
-            if (imageId.current !== null) {
-                process.stdout.write(kittyDeleteSequence(imageId.current));
-                imageId.current = null;
-            }
-            setArt(null);
-            setFailed(false);
-            return;
-        }
-
-        if (imageId.current !== null) {
-            process.stdout.write(kittyDeleteSequence(imageId.current));
-            imageId.current = null;
-        }
-        setArt(null);
-        setFailed(false);
-
-        const rendered = kittyImageSequence(image, width, height);
-        imageId.current = rendered.imageId;
-        setArt(rendered.art);
-
-        return () => {
-            if (imageId.current !== null) {
-                process.stdout.write(kittyDeleteSequence(imageId.current));
-                imageId.current = null;
-            }
-        };
-    }, [image, width, height]);
-
-    return { art, failed };
-}
-
-/**
- * Coordinates the is http cover source operation for the CLI UI runtime.
- *
- * @param url Input value used by the is http cover source operation.
- * @returns The computed result for the surrounding CLI UI flow.
- */
 /**
  * Coordinates the use latest callback operation for the CLI UI runtime.
  *
