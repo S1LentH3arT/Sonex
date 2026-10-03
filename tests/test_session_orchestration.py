@@ -68,8 +68,6 @@ class SessionOrchestrationTests(unittest.IsolatedAsyncioTestCase):
         lifecycle.attach_producer(thread)
         thread.start()
         context.active_agent_turn = lifecycle
-        context.active_agent_turn_id = lifecycle.turn_id
-        context.agent_turn_interrupt_event = lifecycle.interrupt_event
         context.agent_interaction_active = True
         provider = asyncio.create_task(asyncio.sleep(60))
         context.active_agent_provider_task = provider
@@ -81,8 +79,6 @@ class SessionOrchestrationTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.wait_for(abort_task, timeout=1)
 
         self.assertIsNone(context.active_agent_turn)
-        self.assertIsNone(context.active_agent_turn_id)
-        self.assertIsNone(context.agent_turn_interrupt_event)
         self.assertFalse(context.agent_interaction_active)
         self.assertTrue(provider.cancelled())
         discard_session_context(session_key)
@@ -110,9 +106,9 @@ class SessionOrchestrationTests(unittest.IsolatedAsyncioTestCase):
         second = _SessionKey()
         first_context = create_session_context(first)
         second_context = create_session_context(second)
-        first_context.active_agent_turn_id = "turn-1"
-        self.assertEqual(session_context_for(first).active_agent_turn_id, "turn-1")
-        self.assertIsNone(session_context_for(second).active_agent_turn_id)
+        first_context.active_agent_turn = AgentTurnLifecycle("turn-1")
+        self.assertEqual(session_context_for(first).active_agent_turn.turn_id, "turn-1")
+        self.assertIsNone(session_context_for(second).active_agent_turn)
         discard_session_context(first)
         discard_session_context(second)
 

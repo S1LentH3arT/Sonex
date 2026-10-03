@@ -28,6 +28,7 @@ from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
 from src.music.playback_coordinator import ProviderReadiness, RecordingIdentity
 from src.thinking.config import ThinkingConfig
+from src.ws.session_orchestration import AgentTurnLifecycle, session_context_for
 
 
 class FakeUI:
@@ -283,7 +284,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         ui = FakeUI()
         blocker = asyncio.Event()
         active = asyncio.create_task(blocker.wait())
-        setattr(ui, "_agent_turn_task", active)
+        context = session_context_for(ui)
+        context.running_task = active
         try:
             for index in range(11):
                 await runner._handle_user_input(ui, f"queued {index}")
@@ -291,7 +293,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             active.cancel()
 
         self.assertEqual(
-            list(getattr(ui, "_agent_input_queue")),
+            list(context.agent_input_queue),
             [f"queued {index}" for index in range(10)],
         )
         self.assertTrue(
@@ -313,11 +315,11 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
     async def test_agent_interrupt_is_turn_bound_and_cancels_provider_work_once(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
-        interrupt_event = threading.Event()
+        lifecycle = AgentTurnLifecycle("turn-current")
         provider_task = asyncio.create_task(asyncio.sleep(60))
-        setattr(ui, "_active_agent_turn_id", "turn-current")
-        setattr(ui, "_agent_turn_interrupt_event", interrupt_event)
-        setattr(ui, "_active_agent_provider_task", provider_task)
+        context = session_context_for(ui)
+        context.active_agent_turn = lifecycle
+        context.active_agent_provider_task = provider_task
 
         interrupted = await runner._handle_agent_turn_interrupt(
             ui,
@@ -331,7 +333,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(interrupted)
         self.assertFalse(stale)
-        self.assertTrue(interrupt_event.is_set())
+        self.assertTrue(lifecycle.interrupt_event.is_set())
         self.assertTrue(provider_task.cancelled())
         self.assertEqual(
             [
@@ -371,7 +373,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             task = asyncio.create_task(runner._run_agent_turn(ui, "hello"))
             for _ in range(20):
                 await asyncio.sleep(0.01)
-                turn_id = getattr(ui, "_active_agent_turn_id", None)
+                lifecycle = session_context_for(ui).active_agent_turn
+                turn_id = lifecycle.turn_id if lifecycle is not None else None
                 if turn_id:
                     break
             else:
@@ -4200,14 +4203,18 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
                     pending,
                 )
                 if expired:
-                    session.pending_player_confirm_result = None
+                    session.playback_attempt.pending_player_confirm_result = None
 
                 with patch(
                     "src.api.ws_runner.asyncio.to_thread",
                     side_effect=_to_thread_inline,
                 ):
                     if expired:
-                        await session._complete_player_confirmation(decision)
+                        await session.playback_attempt.complete_player_confirmation(
+                            decision,
+                            selected_metadata=session.selected_playback_metadata,
+                            agent_handoff=session._on_finish is not None,
+                        )
                     else:
                         await session.handle_choice(decision)
 

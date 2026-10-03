@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from urllib.parse import parse_qs, urlparse
 from urllib.parse import unquote
 
@@ -2579,7 +2579,165 @@ class MusicIntentConfirmationSession:
             self.runner._run_agent_turn(self.ui, self.original_input, command_intent=intent)
         )
         context.running_task = task
-        session_set(self.ui, "_agent_turn_task", task)
+
+
+class PlaybackAttemptSession:
+    """Execute one playback attempt and resume it after player approval."""
+
+    def __init__(
+        self,
+        ui: WebSocketUIAdapter,
+        runner: "WebSocketRunner",
+        query: str,
+        *,
+        ask_confirm: Callable[..., Any],
+        finish: Callable[..., Any],
+    ) -> None:
+        self.ui = ui
+        self.runner = runner
+        self.query = query
+        self.ask_confirm = ask_confirm
+        self.finish = finish
+        self.pending_player_confirm_result: dict[str, Any] | None = None
+
+    async def invoke_tool(
+        self,
+        tool_name: str,
+        args: dict[str, Any],
+        *,
+        cache_provider: str | None = None,
+        pending_detail: str | None = None,
+    ) -> dict[str, Any]:
+        if pending_detail:
+            await self.ui.append_activity(
+                kind="tool",
+                title=f"Calling {tool_name}",
+                detail=pending_detail,
+                status="pending",
+            )
+        try:
+            result = await asyncio.to_thread(registry.invoke_system, tool_name, args)
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": tool_name,
+                "message": sanitize_error_message(exc),
+                "error_code": "PLAYBACK_FAILED",
+                "data": args,
+            }
+        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
+        if _is_player_confirm_result(result):
+            await self._ask_player_confirm(result)
+            return result
+        if _is_failed_tool_result(result):
+            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
+            await self.ui.send_error(message)
+        if isinstance(result, dict) and result.get("status") == "success":
+            data = dict(result.get("data") or {})
+            if cache_provider:
+                data.setdefault("provider", cache_provider)
+            try:
+                await asyncio.to_thread(upsert_cached_song, data)
+            except Exception:
+                pass
+        return result
+
+    async def play_online_candidate(
+        self,
+        candidate: dict[str, Any],
+        *,
+        report_failure: bool = True,
+    ) -> dict[str, Any]:
+        await self.ui.append_activity(
+            kind="tool",
+            title="Caching online audio",
+            detail="Downloading selected audio before local playback.",
+            status="pending",
+        )
+        try:
+            result = await asyncio.to_thread(_play_online_audio_for_runner, candidate, player="auto")
+        except Exception as exc:
+            result = {
+                "status": "fail",
+                "tool": "play_online_audio",
+                "message": sanitize_error_message(exc),
+                "error_code": "PLAYBACK_FAILED",
+                "data": candidate,
+            }
+        await self.runner._sync_tool_result_ui(self.ui, "play_online_audio", result)
+        if _is_player_confirm_result(result):
+            await self._ask_player_confirm(result)
+            return result
+        if _is_failed_tool_result(result) and report_failure:
+            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
+            await self.ui.send_error(message)
+        if isinstance(result, dict) and result.get("status") == "success":
+            await self.runner._handoff_previous_provider(self.ui, "online")
+            session_set(self.ui, "_active_playback_provider", "online")
+            try:
+                await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
+            except Exception:
+                pass
+        return result
+
+    async def complete_player_confirmation(
+        self,
+        decision: Any,
+        *,
+        selected_metadata: dict[str, Any] | None,
+        agent_handoff: bool,
+    ) -> None:
+        pending = self.pending_player_confirm_result
+        self.pending_player_confirm_result = None
+        if not pending:
+            await self.finish("Player confirmation expired.", status="error")
+            return
+        tool_name = str(pending.get("tool") or "player")
+        result = await asyncio.to_thread(complete_player_confirm, pending, decision)
+        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
+        if _is_failed_tool_result(result):
+            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
+            await self.ui.send_error(message)
+            await self.finish("Playback failed.", status="error")
+            return
+        if isinstance(result, dict) and result.get("status") == "success":
+            provider = "online" if tool_name == "play_online_audio" else "local" if tool_name == "play_local_song" else None
+            if provider is not None:
+                await self.runner._handoff_previous_provider(self.ui, provider)
+                session_set(self.ui, "_active_playback_provider", provider)
+            try:
+                await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
+            except Exception:
+                pass
+        if isinstance(result, dict) and result.get("status") == "success" and selected_metadata is not None:
+            data = result.get("data")
+            result_data = data if isinstance(data, dict) else {}
+            selected_player = result_data.get("player") or decision
+            if not agent_handoff:
+                await self.ui.append_agent_message(format_player_feedback(selected_player))
+            await self.ui.append_system_message(
+                (format_agent_playing_feedback if agent_handoff else format_playing_feedback)(
+                    result,
+                    selected_metadata,
+                )
+            )
+        await self.finish("Online playback selected.")
+
+    async def _ask_player_confirm(self, result: dict[str, Any]) -> None:
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        self.pending_player_confirm_result = result
+        await self.ask_confirm(
+            message=str(data.get("confirm_message") or result.get("message") or "Confirm player launch."),
+            choices=data.get("choices") if isinstance(data.get("choices"), list) else [],
+            tool_args={
+                "query": self.query,
+                "stage": "player_confirm",
+                "tool": result.get("tool"),
+                "player": data.get("player"),
+                "player_label": data.get("player_label"),
+            },
+            tool_name=str(result.get("tool") or "player"),
+        )
 
 
 class PlaySelectionSession:
@@ -2596,7 +2754,6 @@ class PlaySelectionSession:
         self.query = query.strip()
         self.local_file: str | None = None
         self.active_confirm_id: str | None = None
-        self.pending_player_confirm_result: dict[str, Any] | None = None
         self.metadata_candidates: list[dict[str, Any]] = []
         self.native_candidates: list[dict[str, Any]] = []
         self.online_audio_candidates: list[dict[str, Any]] = []
@@ -2607,6 +2764,13 @@ class PlaySelectionSession:
         self.awaiting_online_refinement = False
         self._on_finish = on_finish
         self._finished = False
+        self.playback_attempt = PlaybackAttemptSession(
+            ui,
+            runner,
+            self.query,
+            ask_confirm=self._ask_confirm,
+            finish=self._finish,
+        )
 
     async def start(self) -> None:
         if not self.query:
@@ -2628,8 +2792,12 @@ class PlaySelectionSession:
 
     async def handle_choice(self, decision: Any) -> None:
         choice = str(decision or "cancel")
-        if self.pending_player_confirm_result:
-            await self._complete_player_confirmation(choice)
+        if self.playback_attempt.pending_player_confirm_result:
+            await self.playback_attempt.complete_player_confirmation(
+                choice,
+                selected_metadata=self.selected_playback_metadata,
+                agent_handoff=self._on_finish is not None,
+            )
             return
 
         if choice in {"deny", "cancel"}:
@@ -3398,39 +3566,13 @@ class PlaySelectionSession:
         cache_provider: str | None = None,
         pending_detail: str | None = None,
     ) -> dict[str, Any]:
-        if pending_detail:
-            await self.ui.append_activity(
-                kind="tool",
-                title=f"Calling {tool_name}",
-                detail=pending_detail,
-                status="pending",
-            )
-        try:
-            result = await asyncio.to_thread(registry.invoke_system, tool_name, args)
-        except Exception as exc:
-            result = {
-                "status": "fail",
-                "tool": tool_name,
-                "message": sanitize_error_message(exc),
-                "error_code": "PLAYBACK_FAILED",
-                "data": args,
-            }
-        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
-        if _is_player_confirm_result(result):
-            await self._ask_player_confirm(result)
-            return result
-        if _is_failed_tool_result(result):
-            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
-            await self.ui.send_error(message)
-        if isinstance(result, dict) and result.get("status") == "success":
-            data = dict(result.get("data") or {})
-            if cache_provider:
-                data.setdefault("provider", cache_provider)
-            try:
-                await asyncio.to_thread(upsert_cached_song, data)
-            except Exception:
-                pass
-        return result
+        self.playback_attempt.query = self.query
+        return await self.playback_attempt.invoke_tool(
+            tool_name,
+            args,
+            cache_provider=cache_provider,
+            pending_detail=pending_detail,
+        )
 
     async def _play_online_audio_candidate(
         self,
@@ -3438,100 +3580,11 @@ class PlaySelectionSession:
         *,
         report_failure: bool = True,
     ) -> dict[str, Any]:
-        await self.ui.append_activity(
-            kind="tool",
-            title="Caching online audio",
-            detail="Downloading selected audio before local playback.",
-            status="pending",
+        self.playback_attempt.query = self.query
+        return await self.playback_attempt.play_online_candidate(
+            candidate,
+            report_failure=report_failure,
         )
-        try:
-            result = await asyncio.to_thread(_play_online_audio_for_runner, candidate, player="auto")
-        except Exception as exc:
-            result = {
-                "status": "fail",
-                "tool": "play_online_audio",
-                "message": sanitize_error_message(exc),
-                "error_code": "PLAYBACK_FAILED",
-                "data": candidate,
-            }
-        await self.runner._sync_tool_result_ui(self.ui, "play_online_audio", result)
-        if _is_player_confirm_result(result):
-            await self._ask_player_confirm(result)
-            return result
-        if _is_failed_tool_result(result) and report_failure:
-            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
-            await self.ui.send_error(message)
-        if isinstance(result, dict) and result.get("status") == "success":
-            await self.runner._handoff_previous_provider(self.ui, "online")
-            session_set(self.ui, "_active_playback_provider", "online")
-            try:
-                await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
-            except Exception:
-                pass
-        return result
-
-    async def _ask_player_confirm(self, result: dict[str, Any]) -> None:
-        data = result.get("data") if isinstance(result.get("data"), dict) else {}
-        self.pending_player_confirm_result = result
-        await self._ask_confirm(
-            message=str(data.get("confirm_message") or result.get("message") or "Confirm player launch."),
-            choices=data.get("choices") if isinstance(data.get("choices"), list) else [],
-            tool_args={
-                "query": self.query,
-                "stage": "player_confirm",
-                "tool": result.get("tool"),
-                "player": data.get("player"),
-                "player_label": data.get("player_label"),
-            },
-            tool_name=str(result.get("tool") or "player"),
-        )
-
-    async def _complete_player_confirmation(self, decision: Any) -> None:
-        pending = self.pending_player_confirm_result
-        self.pending_player_confirm_result = None
-        if not pending:
-            await self._finish("Player confirmation expired.", status="error")
-            return
-        tool_name = str(pending.get("tool") or "player")
-        result = await asyncio.to_thread(complete_player_confirm, pending, decision)
-        await self.runner._sync_tool_result_ui(self.ui, tool_name, result)
-        if _is_failed_tool_result(result):
-            message = _friendly_runtime_error_message(result, fallback="Playback failed.")
-            await self.ui.send_error(message)
-            await self._finish("Playback failed.", status="error")
-            return
-        if isinstance(result, dict) and result.get("status") == "success":
-            provider = "online" if tool_name == "play_online_audio" else "local" if tool_name == "play_local_song" else None
-            if provider is not None:
-                await self.runner._handoff_previous_provider(self.ui, provider)
-                session_set(self.ui, "_active_playback_provider", provider)
-            try:
-                await asyncio.to_thread(upsert_cached_song, dict(result.get("data") or {}))
-            except Exception:
-                pass
-        if (
-            isinstance(result, dict)
-            and result.get("status") == "success"
-            and self.selected_playback_metadata is not None
-        ):
-            data = result.get("data")
-            result_data = data if isinstance(data, dict) else {}
-            selected_player = result_data.get("player") or decision
-            if self._on_finish is None:
-                await self.ui.append_agent_message(
-                    format_player_feedback(selected_player)
-                )
-            await self.ui.append_system_message(
-                (
-                    format_agent_playing_feedback
-                    if self._on_finish is not None
-                    else format_playing_feedback
-                )(
-                    result,
-                    self.selected_playback_metadata,
-                )
-            )
-        await self._finish("Online playback selected.")
 
     async def _finish(self, detail: str, *, status: str = "success") -> None:
         session_set(self.ui, "_play_selection", None)
@@ -4001,7 +4054,6 @@ class AgentCandidateSelectionSession:
             current_task = asyncio.current_task()
             context = session_context_for(self.ui)
             context.active_agent_provider_task = current_task
-            session_set(self.ui, "_active_agent_provider_task", current_task)
             try:
                 result = await self.runner._commit_agent_playback_selection(
                     self.ui,
@@ -4022,12 +4074,10 @@ class AgentCandidateSelectionSession:
             finally:
                 if context.active_agent_provider_task is current_task:
                     context.active_agent_provider_task = None
-                    session_discard(self.ui, "_active_agent_provider_task")
             self.complete(result)
 
         task = session_context_for(self.ui).tasks.create_task(commit_selection(), name="agent-playback-commit")
         session_context_for(self.ui).active_agent_provider_task = task
-        session_set(self.ui, "_active_agent_provider_task", task)
 
     async def _timeout(self) -> None:
         await asyncio.sleep(self.timeout_seconds)
@@ -5415,16 +5465,16 @@ class WebSocketRunner:
     ) -> bool:
         """Logically interrupt the matching foreground Agent turn."""
         context = session_context_for(ui)
-        if not turn_id or session_get(ui, "_active_agent_turn_id") != turn_id:
-            return False
         lifecycle = context.active_agent_turn
-        if lifecycle is not None and lifecycle.turn_id == turn_id:
-            lifecycle.interrupt()
-        else:
-            interrupt_event = context.agent_turn_interrupt_event or session_get(ui, "_agent_turn_interrupt_event")
-            if isinstance(interrupt_event, threading.Event):
-                interrupt_event.set()
-        provider_task = context.active_agent_provider_task or session_get(ui, "_active_agent_provider_task")
+        if (
+            not turn_id
+            or lifecycle is None
+            or lifecycle.turn_id != turn_id
+            or lifecycle.interrupt_event.is_set()
+        ):
+            return False
+        lifecycle.interrupt()
+        provider_task = context.active_agent_provider_task
         if isinstance(provider_task, asyncio.Task) and not provider_task.done():
             provider_task.cancel()
         context.confirm_queue.put(
@@ -5438,8 +5488,6 @@ class WebSocketRunner:
                 },
             )
         )
-        context.active_agent_turn_id = None
-        session_discard(ui, "_active_agent_turn_id")
         await ui.send_agent_working_state(turn_id, active=False)
         await ui.append_system_message("Agent turn interrupted.")
         return True
@@ -5556,12 +5604,13 @@ class WebSocketRunner:
         parsed_command = parse_builtin_command(user_input)
         submitted_to_agent = parsed_command is None or parsed_command.command_intent() is not None
 
-        active_agent_task = session_get(ui, "_agent_turn_task")
+        context = session_context_for(ui)
+        active_agent_task = context.running_task
         if active_agent_task is not None and not active_agent_task.done():
-            pending: deque[str] = session_get(ui, "_agent_input_queue")
+            pending: deque[str] = context.agent_input_queue
             if pending is None:
                 pending = deque()
-                session_set(ui, "_agent_input_queue", pending)
+                context.agent_input_queue = pending
             if len(pending) >= 10:
                 await ui.append_warning_message(
                     "The Agent message queue is full. Please resend this message after the current turn."
@@ -5663,7 +5712,6 @@ class WebSocketRunner:
         )
         context.agent_input_queue = context.agent_input_queue or deque()
         context.running_task = task
-        session_set(ui, "_agent_turn_task", task)
         return task
 
     async def _collect_turn_memory(
@@ -7529,128 +7577,92 @@ class WebSocketRunner:
             if not finished.done():
                 finished.set_result(result)
 
-        async def play_selected(identity: RecordingIdentity) -> dict[str, Any]:
-            local_candidate = (
-                dict(candidate)
-                if candidate.get("provider") == "local"
-                else await asyncio.to_thread(
-                    self._verified_cached_recording,
-                    identity,
-                )
-            )
-            local_path = (
-                local_candidate.get("playback_path")
-                if isinstance(local_candidate, dict)
-                else None
-            )
-            if isinstance(local_candidate, dict) and local_path:
-                playback = PlaySelectionSession(
-                    ui,
-                    self,
-                    query,
-                    on_finish=finish,
-                )
-                playback.selected_playback_metadata = dict(local_candidate)
-                session_set(ui, "_play_selection", playback)
-                local_result = await playback._invoke_playback(
-                    "play_local_song",
-                    {"query": str(local_path), "player": "auto"},
-                )
-                if _is_failed_tool_result(local_result):
-                    await playback._finish("Local playback failed.", status="error")
-                    return await finished
-                if _is_player_confirm_result(local_result):
-                    return await finished
-                await ui.append_system_message(
-                    format_agent_playing_feedback(local_result, local_candidate)
-                )
-                await playback._finish("Local playback selected.")
-                return await finished
-            selected_source = str(
-                candidate.get("playback_source")
-                or candidate.get("native_source")
-                or requested_provider
-                or ""
-            ).casefold()
-            if selected_source == "spotify" and candidate.get("uri"):
-                readiness = await self._activate_authoritative_source(ui, selected_source)
-                if readiness is None:
-                    message = f"{self._provider_label(selected_source)} is no longer ready."
-                    await ui.send_error(message)
-                    return {
-                        "status": "playback_failed",
-                        "message": message,
-                        "error_code": "AUTHORITATIVE_PROVIDER_UNAVAILABLE",
-                        "data": {"provider": selected_source},
-                    }
-                native_result = await self._try_selected_native_provider(
-                    ui,
-                    identity=identity,
-                    provider=selected_source,
-                    selected_candidate=candidate,
-                    readiness=readiness,
-                )
-                if native_result.get("status") == "playback_completed":
-                    session_set(ui, "_preferred_playback_provider", selected_source)
-                return native_result
-            if selected_source == "online":
-                authoritative_result = {
-                    "status": "playback_failed",
-                    "data": {"online_allowed": True},
-                }
-            else:
-                authoritative_result = await self._route_authoritative_provider(
-                    ui,
-                    identity=identity,
-                    selected_candidate=candidate,
-                    requested_provider=requested_provider,
-                    hard_provider=hard_provider,
-                )
-            if authoritative_result.get("status") == "playback_completed":
-                return authoritative_result
-            if hard_provider and selected_source != "online":
-                await ui.send_error(
-                    str(
-                        authoritative_result.get("message")
-                        or "The requested provider could not play the selected recording."
-                    )
-                )
-                return authoritative_result
-            community_allowed = bool(
-                isinstance(authoritative_result.get("data"), dict)
-                and authoritative_result["data"].get("online_allowed")
-            )
-            if not community_allowed:
-                community_allowed = await self._confirm_agent_playback_route(
-                    ui,
-                    message=(
-                        "No authoritative provider is available. "
-                        "Try community audio sources?"
-                    ),
-                    stage="community_audio",
-                    provider="community",
-                )
-            if not community_allowed:
-                message = "Playback stopped because no authoritative provider was available."
-                await ui.send_error(message)
-                return {
-                    "status": "playback_cancelled",
-                    "message": message,
-                    "error_code": None,
-                    "data": {"reason": "community_audio_rejected"},
-                }
+        async def resolve_local(identity: RecordingIdentity) -> dict[str, Any] | None:
+            return await asyncio.to_thread(self._verified_cached_recording, identity)
+
+        async def play_local(local_candidate: Mapping[str, Any]) -> dict[str, Any]:
             playback = PlaySelectionSession(
                 ui,
                 self,
                 query,
                 on_finish=finish,
             )
+            metadata = dict(local_candidate)
+            playback.selected_playback_metadata = metadata
+            session_set(ui, "_play_selection", playback)
+            local_result = await playback._invoke_playback(
+                "play_local_song",
+                {"query": str(local_candidate["playback_path"]), "player": "auto"},
+            )
+            if _is_failed_tool_result(local_result):
+                await playback._finish("Local playback failed.", status="error")
+                return await finished
+            if _is_player_confirm_result(local_result):
+                return await finished
+            await ui.append_system_message(format_agent_playing_feedback(local_result, metadata))
+            await playback._finish("Local playback selected.")
+            return await finished
+
+        async def play_native(
+            provider: str,
+            identity: RecordingIdentity,
+            selected_candidate: Mapping[str, Any],
+        ) -> dict[str, Any]:
+            readiness = await self._activate_authoritative_source(ui, provider)
+            if readiness is None:
+                message = f"{self._provider_label(provider)} is no longer ready."
+                await ui.send_error(message)
+                return {
+                    "status": "playback_failed",
+                    "message": message,
+                    "error_code": "AUTHORITATIVE_PROVIDER_UNAVAILABLE",
+                    "data": {"provider": provider},
+                }
+            result = await self._try_selected_native_provider(
+                ui,
+                identity=identity,
+                provider=provider,
+                selected_candidate=dict(selected_candidate),
+                readiness=readiness,
+            )
+            if result.get("status") == "playback_completed":
+                session_set(ui, "_preferred_playback_provider", provider)
+            return result
+
+        async def route_authoritative(
+            identity: RecordingIdentity,
+            selected_candidate: Mapping[str, Any],
+            requested: str | None,
+            hard: bool,
+        ) -> dict[str, Any]:
+            return await self._route_authoritative_provider(
+                ui,
+                identity=identity,
+                selected_candidate=dict(selected_candidate),
+                requested_provider=requested,
+                hard_provider=hard,
+            )
+
+        async def confirm_community() -> bool:
+            return await self._confirm_agent_playback_route(
+                ui,
+                message="No authoritative provider is available. Try community audio sources?",
+                stage="community_audio",
+                provider="community",
+            )
+
+        async def play_community(
+            identity: RecordingIdentity,
+            _selected_source: str,
+            selected_candidate: Mapping[str, Any],
+        ) -> dict[str, Any]:
+            playback = PlaySelectionSession(ui, self, query, on_finish=finish)
             playback.playback_source = "online"
-            playback.selected_playback_metadata = dict(candidate)
+            playback.selected_playback_metadata = dict(selected_candidate)
             playback.selected_playback_metadata.setdefault("original_query", query)
             session_set(ui, "_play_selection", playback)
             resolved_query = str(
-                candidate.get("youtube_query")
+                selected_candidate.get("youtube_query")
                 or f"{identity.artist} {identity.title}"
             ).strip()
             await playback._play_selected_metadata_candidate(
@@ -7659,11 +7671,23 @@ class WebSocketRunner:
             )
             return await finished
 
-        return await self._playback_coordinator.play(
+        async def report_error(message: str) -> None:
+            await ui.send_error(message)
+
+        return await self._playback_coordinator.play_selected(
             selection_ref,
             session_id=ui.session_id,
             turn_id=turn_id,
-            play_selected=play_selected,
+            candidate=candidate,
+            requested_provider=requested_provider,
+            hard_provider=hard_provider,
+            resolve_local=resolve_local,
+            play_local=play_local,
+            play_native=play_native,
+            route_authoritative=route_authoritative,
+            confirm_community=confirm_community,
+            play_community=play_community,
+            report_error=report_error,
         )
 
     @staticmethod
@@ -8174,7 +8198,10 @@ class WebSocketRunner:
         except BaseException:
             lifecycle = context.active_agent_turn
             if lifecycle is not None:
-                active_turn = context.active_agent_turn_id == lifecycle.turn_id
+                active_turn = (
+                    context.active_agent_turn is lifecycle
+                    and not lifecycle.interrupt_event.is_set()
+                )
                 if active_turn:
                     with suppress(BaseException):
                         await ui.send_agent_working_state(lifecycle.turn_id, active=False)
@@ -8182,10 +8209,6 @@ class WebSocketRunner:
                         await ui.send_status(UiStatus(phase="Idle", message="Idle..."), active=False)
                 with suppress(BaseException):
                     await asyncio.shield(context.abort_agent_turn(lifecycle))
-                if active_turn:
-                    session_discard(ui, "_active_agent_turn_id")
-                session_discard(ui, "_agent_turn_interrupt_event")
-                session_discard(ui, "_agent_turn_task")
                 session_set(ui, "_recommendation_turn_active", False)
             raise
 
@@ -8202,11 +8225,7 @@ class WebSocketRunner:
         lifecycle = AgentTurnLifecycle(turn_id)
         interrupt_event = lifecycle.interrupt_event
         context.active_agent_turn = lifecycle
-        context.active_agent_turn_id = turn_id
-        context.agent_turn_interrupt_event = interrupt_event
         context.agent_interaction_active = True
-        session_set(ui, "_active_agent_turn_id", turn_id)
-        session_set(ui, "_agent_turn_interrupt_event", interrupt_event)
         await ui.send_agent_working_state(turn_id, active=True)
         context.confirm_queue = queue.Queue()
         tool_message_gate = lifecycle.tool_message_gate
@@ -8635,17 +8654,16 @@ class WebSocketRunner:
                         name="collect-turn-memory",
                     )
 
-        active_turn = context.active_agent_turn_id == turn_id
+        active_turn = (
+            context.active_agent_turn is lifecycle
+            and not lifecycle.interrupt_event.is_set()
+        )
         await context.finish_agent_turn(lifecycle)
-        if context.agent_turn_interrupt_event is None:
-            session_discard(ui, "_agent_turn_interrupt_event")
         session_set(ui, "_recommendation_turn_active", False)
         await ui.send_status(UiStatus(phase="Idle", message="Idle..."), active=False)
         next_input = context.take_next_agent_input()
         if active_turn:
             await ui.send_agent_working_state(turn_id, active=False)
-            session_discard(ui, "_active_agent_turn_id")
-        session_discard(ui, "_agent_turn_task")
         if next_input is not None and not ui.closed:
             for item in ui.transcript:
                 if (

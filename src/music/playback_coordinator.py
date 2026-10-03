@@ -197,7 +197,18 @@ def recording_identity_matches(
     return True
 
 
-PlaySelected = Callable[[RecordingIdentity], Awaitable[dict[str, Any]] | dict[str, Any]]
+ResolveLocalCandidate = Callable[[RecordingIdentity], Awaitable[Mapping[str, Any] | None]]
+PlayLocalCandidate = Callable[[Mapping[str, Any]], Awaitable[dict[str, Any]]]
+PlayNativeCandidate = Callable[[str, RecordingIdentity, Mapping[str, Any]], Awaitable[dict[str, Any]]]
+RouteSelectedCandidate = Callable[
+    [RecordingIdentity, Mapping[str, Any], str | None, bool],
+    Awaitable[dict[str, Any]],
+]
+ConfirmCommunityRoute = Callable[[], Awaitable[bool]]
+PlayCommunityCandidate = Callable[
+    [RecordingIdentity, str, Mapping[str, Any]], Awaitable[dict[str, Any]]
+]
+ReportPlaybackError = Callable[[str], Awaitable[Any]]
 RouteCallback = Callable[[ProviderReadiness], Awaitable[Any] | Any]
 RecoverCallback = Callable[[str, ProviderReadiness | None], Awaitable[ProviderReadiness | None] | ProviderReadiness | None]
 SourceProbe = Callable[[], Awaitable[Sequence[ProviderReadiness]] | Sequence[ProviderReadiness]]
@@ -447,14 +458,24 @@ class MusicPlaybackCoordinator:
             },
         }
 
-    async def play(
+    async def play_selected(
         self,
         selection_ref: str,
         *,
         session_id: str,
         turn_id: str,
-        play_selected: PlaySelected,
+        candidate: Mapping[str, Any],
+        requested_provider: str | None,
+        hard_provider: bool,
+        resolve_local: ResolveLocalCandidate,
+        play_local: PlayLocalCandidate,
+        play_native: PlayNativeCandidate,
+        route_authoritative: RouteSelectedCandidate,
+        confirm_community: ConfirmCommunityRoute,
+        play_community: PlayCommunityCandidate,
+        report_error: ReportPlaybackError,
     ) -> dict[str, Any]:
+        """Consume one selected recording and own its fallback policy."""
         try:
             identity = self.selections.consume(
                 selection_ref,
@@ -468,7 +489,56 @@ class MusicPlaybackCoordinator:
                 "error_code": exc.error_code,
                 "data": {},
             }
-        result = play_selected(identity)
-        if inspect.isawaitable(result):
-            result = await result
-        return dict(result)
+
+        local_candidate = (
+            candidate
+            if candidate.get("provider") == "local"
+            else await resolve_local(identity)
+        )
+        if isinstance(local_candidate, Mapping) and local_candidate.get("playback_path"):
+            return await play_local(local_candidate)
+
+        selected_source = str(
+            candidate.get("playback_source")
+            or candidate.get("native_source")
+            or requested_provider
+            or ""
+        ).casefold()
+        if selected_source == "spotify" and candidate.get("uri"):
+            return await play_native(selected_source, identity, candidate)
+
+        authoritative_result = (
+            {"status": "playback_failed", "data": {"online_allowed": True}}
+            if selected_source == "online"
+            else await route_authoritative(
+                identity,
+                candidate,
+                requested_provider,
+                hard_provider,
+            )
+        )
+        if authoritative_result.get("status") == "playback_completed":
+            return authoritative_result
+        if hard_provider and selected_source != "online":
+            await report_error(
+                str(
+                    authoritative_result.get("message")
+                    or "The requested provider could not play the selected recording."
+                )
+            )
+            return authoritative_result
+
+        data = authoritative_result.get("data")
+        community_allowed = bool(isinstance(data, Mapping) and data.get("online_allowed"))
+        if not community_allowed:
+            community_allowed = await confirm_community()
+        if not community_allowed:
+            message = "Playback stopped because no authoritative provider was available."
+            await report_error(message)
+            return {
+                "status": "playback_cancelled",
+                "message": message,
+                "error_code": None,
+                "data": {"reason": "community_audio_rejected"},
+            }
+        return await play_community(identity, selected_source, candidate)

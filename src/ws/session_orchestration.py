@@ -97,8 +97,6 @@ class SessionContext:
     running_task: asyncio.Task[Any] | None = None
     confirm_queue: queue.Queue[tuple[str, Any]] = field(default_factory=queue.Queue)
     agent_input_queue: Any = None
-    active_agent_turn_id: str | None = None
-    agent_turn_interrupt_event: Any = None
     active_agent_turn: AgentTurnLifecycle | None = None
     active_agent_provider_task: asyncio.Task[Any] | None = None
     agent_interaction_active: bool = False
@@ -144,8 +142,6 @@ class SessionContext:
         await lifecycle.wait_for_producer()
         if self.active_agent_turn is lifecycle:
             self.active_agent_turn = None
-            self.active_agent_turn_id = None
-            self.agent_turn_interrupt_event = None
             self.agent_interaction_active = False
         if self.running_task is asyncio.current_task():
             self.running_task = None
@@ -165,13 +161,6 @@ class SessionContext:
 
 
 _contexts: weakref.WeakKeyDictionary[Any, SessionContext] = weakref.WeakKeyDictionary()
-_CONTEXT_FIELDS = {
-    "_agent_turn_task": "running_task",
-    "_agent_input_queue": "agent_input_queue",
-    "_active_agent_turn_id": "active_agent_turn_id",
-    "_agent_turn_interrupt_event": "agent_turn_interrupt_event",
-    "_active_agent_provider_task": "active_agent_provider_task",
-}
 
 
 def create_session_context(ui: Any) -> SessionContext:
@@ -197,11 +186,6 @@ def live_session_contexts() -> tuple[SessionContext, ...]:
 
 def session_get(ui: Any, key: str, default: Any = None) -> Any:
     context = session_context_for(ui)
-    field_name = _CONTEXT_FIELDS.get(key)
-    if field_name:
-        value = getattr(context, field_name)
-        if value is not None:
-            return value
     value = context.get(key, default)
     if value is not default:
         return value
@@ -213,11 +197,7 @@ def session_set(ui: Any, key: str, value: Any) -> None:
     previous = context.get(key)
     if value is None and previous is not None:
         context.confirm_registry.unregister_owner(previous)
-    field_name = _CONTEXT_FIELDS.get(key)
-    if field_name:
-        setattr(context, field_name, value)
-    else:
-        context.set(key, value)
+    context.set(key, value)
     # Keep lightweight fake UIs used by legacy unit tests working without
     # reintroducing dynamic state on the real WebSocketUIAdapter.
     if ui.__class__.__name__ != "WebSocketUIAdapter":

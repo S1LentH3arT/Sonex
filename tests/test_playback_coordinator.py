@@ -14,6 +14,53 @@ from src.music.playback_coordinator import (
 
 
 class PlaybackCoordinatorTests(unittest.IsolatedAsyncioTestCase):
+    def playback_callbacks(self, seen: list[RecordingIdentity] | None = None) -> dict[str, object]:
+        async def resolve_local(_identity: RecordingIdentity) -> None:
+            return None
+
+        async def play_local(_candidate: object) -> dict[str, object]:
+            raise AssertionError("no local candidate was resolved")
+
+        async def play_native(
+            _provider: str,
+            _identity: RecordingIdentity,
+            _candidate: object,
+        ) -> dict[str, object]:
+            raise AssertionError("no native candidate was selected")
+
+        async def route_authoritative(
+            *_args: object,
+        ) -> dict[str, object]:
+            raise AssertionError("online selection should skip authoritative routing")
+
+        async def confirm_community() -> bool:
+            raise AssertionError("an online selection already permits community audio")
+
+        async def play_community(
+            identity: RecordingIdentity,
+            _source: str,
+            _candidate: object,
+        ) -> dict[str, object]:
+            if seen is not None:
+                seen.append(identity)
+            return {"status": "playback_completed", "data": {"provider": "local"}}
+
+        async def report_error(_message: str) -> None:
+            raise AssertionError("successful route should not report an error")
+
+        return {
+            "candidate": {"playback_source": "online"},
+            "requested_provider": None,
+            "hard_provider": False,
+            "resolve_local": resolve_local,
+            "play_local": play_local,
+            "play_native": play_native,
+            "route_authoritative": route_authoritative,
+            "confirm_community": confirm_community,
+            "play_community": play_community,
+            "report_error": report_error,
+        }
+
     async def test_resolve_native_candidate_keeps_trusted_uri_without_searching(self) -> None:
         coordinator = MusicPlaybackCoordinator()
         searched = False
@@ -226,21 +273,17 @@ class PlaybackCoordinatorTests(unittest.IsolatedAsyncioTestCase):
         selection_ref = store.issue(session_id="s1", turn_id="t1", identity=identity)
         seen: list[RecordingIdentity] = []
 
-        async def play(selected: RecordingIdentity) -> dict[str, object]:
-            seen.append(selected)
-            return {"status": "playback_completed", "data": {"provider": "local"}}
-
-        result = await coordinator.play(
+        result = await coordinator.play_selected(
             selection_ref,
             session_id="s1",
             turn_id="t1",
-            play_selected=play,
+            **self.playback_callbacks(seen),
         )
-        replay = await coordinator.play(
+        replay = await coordinator.play_selected(
             selection_ref,
             session_id="s1",
             turn_id="t1",
-            play_selected=play,
+            **self.playback_callbacks(seen),
         )
 
         self.assertEqual(result["status"], "playback_completed")
@@ -255,13 +298,47 @@ class PlaybackCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             turn_id="t1",
             identity=RecordingIdentity("BB88", "方大同"),
         )
-        result = await coordinator.play(
+        result = await coordinator.play_selected(
             selection_ref,
             session_id="s2",
             turn_id="t1",
-            play_selected=lambda _: {"status": "playback_completed"},
+            **self.playback_callbacks(),
         )
         self.assertEqual(result["error_code"], "SELECTION_EXPIRED")
+
+    async def test_selected_playback_prefers_verified_local_cache_before_provider_route(self) -> None:
+        store = SelectionStore()
+        coordinator = MusicPlaybackCoordinator(store)
+        identity = RecordingIdentity("BB88", "方大同")
+        selection_ref = store.issue(session_id="s1", turn_id="t1", identity=identity)
+        played: list[str] = []
+        callbacks = self.playback_callbacks()
+        callbacks["candidate"] = {"playback_source": "spotify", "uri": "spotify:track:123"}
+
+        async def resolve_local(_identity: RecordingIdentity) -> dict[str, str]:
+            return {"playback_path": "/cache/bb88.mp3"}
+
+        async def play_local(candidate: object) -> dict[str, object]:
+            played.append("local")
+            self.assertEqual(candidate["playback_path"], "/cache/bb88.mp3")
+            return {"status": "playback_completed", "data": {"provider": "local"}}
+
+        async def play_native(*_args: object) -> dict[str, object]:
+            played.append("spotify")
+            return {"status": "playback_completed"}
+
+        callbacks["resolve_local"] = resolve_local
+        callbacks["play_local"] = play_local
+        callbacks["play_native"] = play_native
+        result = await coordinator.play_selected(
+            selection_ref,
+            session_id="s1",
+            turn_id="t1",
+            **callbacks,
+        )
+
+        self.assertEqual(result["status"], "playback_completed")
+        self.assertEqual(played, ["local"])
 
     async def test_selection_expires_after_five_minutes(self) -> None:
         now = [100.0]
@@ -273,11 +350,11 @@ class PlaybackCoordinatorTests(unittest.IsolatedAsyncioTestCase):
             identity=RecordingIdentity("BB88", "方大同"),
         )
         now[0] += 301
-        result = await coordinator.play(
+        result = await coordinator.play_selected(
             selection_ref,
             session_id="s1",
             turn_id="t1",
-            play_selected=lambda _: {"status": "playback_completed"},
+            **self.playback_callbacks(),
         )
         self.assertEqual(result["error_code"], "SELECTION_EXPIRED")
 
