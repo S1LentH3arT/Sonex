@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const eventSource = readFileSync(new URL('../src/event-coordination.ts', import.meta.url), 'utf8');
 const panelSource = readFileSync(new URL('../src/panel-frame.tsx', import.meta.url), 'utf8');
 const constantsSource = readFileSync(new URL('../src/constants.ts', import.meta.url), 'utf8');
 
@@ -173,11 +174,11 @@ assert.match(themeBody, /const choices = Object\.values\(UI_THEMES\)/);
 assert.match(appSource, /const isModelPanelActive = authSetup\?\.active && authSetup\.step === "model"/);
 assert.match(appSource, /const choices = filterModelChoices\(authSetup\?\.models \?\? \[\], input\)/);
 assert.match(appSource, /key\.backspace \|\| key\.delete/);
-assert.match(appSource, /evt\.active === false && evt\.step === "model"/);
+assert.match(eventSource, /event\.active === false && event\.step === 'model'/);
 assert.match(appSource, /const selectableConfirmChoices = React\.useMemo\(\(\) => confirm \? getSelectableConfirmChoices\(confirm\.choices, confirm\.tool_name === "provider_mode_exit"\) : \[\], \[confirm\]\)/);
 assert.match(appSource, /resolveInputRoute\(value, \{[\s\S]*selectableConfirmChoices/);
 assert.match(appSource, /setConfirmIndex\(\(prev\) => selectableConfirmChoices\.length > 0 \? Math\.min\(selectableConfirmChoices\.length - 1, prev \+ 1\) : 0\)/);
 assert.match(appSource, /const isLoginScreenActive = isGenericAuthSetup\(authSetup\) && !isModelPanelActive/);
 assert.match(appSource, /completeSlashCommand\(selectedHelpCommand\)/);
-assert.match(appSource, /case "spotify_mode":/);
-assert.match(appSource, /applyProviderAction\(\{ type: "event", event: evt \}\)/);
+assert.match(eventSource, /case 'spotify_mode':/);
+assert.match(appSource, /applyProviderEvent: \(event\) => applyProviderAction\(\{ type: "event", event \}\)/);

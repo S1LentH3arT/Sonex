@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const eventSource = readFileSync(new URL('../src/event-coordination.ts', import.meta.url), 'utf8');
 const componentSource = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
 const spotifyImmersiveSource = componentSource.slice(
     componentSource.indexOf('const ProviderImmersiveRegion ='),
@@ -27,7 +28,7 @@ assert.match(appSource, /const spotifyImmersiveLayout = React\.useMemo/);
 assert.match(appSource, /enabled: stdout\.isTTY === true && \(miniVisible \|\| spotifyImmersiveVisible\)/);
 assert.match(appSource, /position: spotifyImmersiveVisible \? spotifyImmersiveLayout\.progressSlot : miniLayout\.progressSlot/);
 assert.equal(appSource.includes('useMiniProgressWriter'), false);
-assert.match(appSource, /providerMode: providerModeRef\.current\.enabled/);
+assert.match(appSource, /providerMode: \(\) => providerModeRef\.current\.enabled/);
 assert.match(appSource, /providerModeRef\.current\.enabled/);
 assert.match(appSource, /if \(key\.tab \|\| inputKey === "\\t"\) \{[\s\S]*type: "toggle_region"/);
 assert.equal(appSource.includes('if (shellStateRef.current.region === "spotifyImmersive")'), false);

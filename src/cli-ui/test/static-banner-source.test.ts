@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const eventSource = readFileSync(new URL('../src/event-coordination.ts', import.meta.url), 'utf8');
 const componentSource = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
 
 assert.match(appSource, /const \[shellState, dispatchShellState\] = React\.useReducer\(reduceShellState, initialShellState\)/);
@@ -10,7 +11,8 @@ assert.match(appSource, /const playbackSessionActive = shellState\.playbackSessi
 assert.match(appSource, /const switchRegion = React\.useCallback/);
 assert.match(appSource, /terminalSurface\.transition\(nextSurface, \(surface\) => \{[\s\S]*dispatchTranscript\(\{ type: "setSurface", surface \}\)[\s\S]*applyShellAction\(\{ type: "set_region", region: nextRegion \}\)/);
 assert.doesNotMatch(appSource, /clearTerminalForLayoutSwitch|stdout\.write\(['"]\\u001B\[2J/);
-assert.match(appSource, /planServerEventCoordination\(evt, \{[\s\S]*shellState: shellStateRef\.current/);
+assert.match(appSource, /applyServerEventCoordination\(evt, rawEvent, language/);
+assert.match(eventSource, /planServerEventCoordination\(event, \{[\s\S]*shellState,[\s\S]*providerMode: bindings\.providerMode\(\)/);
 assert.match(appSource, /reduceShellState\(shellStateRef\.current, \{[\s\S]*type: "toggle_region"/);
 assert.match(appSource, /switchRegion\("chat"\)/);
 assert.doesNotMatch(appSource, /activeRegion === "chat" \? <HeaderFrame/);

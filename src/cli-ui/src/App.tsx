@@ -5,7 +5,7 @@ import { getSelectableConfirmChoices } from './confirm-choice.js';
 import { selectedHelpPanelCommand } from './command-panel.js';
 import { API_NOT_RUNNING_DETAIL, API_NOT_RUNNING_MESSAGE, applyUiTheme, wsUrl } from './constants.js';
 import { CommittedTranscript, DynamicShell, HeaderFrame, isGenericAuthSetup, LoginScreen } from './components.js';
-import { planServerEventCoordination } from './event-coordination.js';
+import { applyServerEventCoordination } from './event-coordination.js';
 import { ExtensionPanelOverlay } from './extension-panel.js';
 import { useSonexSocket } from './hooks.js';
 import { chatMessagesForTranscript, createInfoBannerItem } from './info-banner.js';
@@ -554,134 +554,44 @@ export const App: React.FC<{
             return;
         }
 
-        applyRuntimeAction({ type: "event", event: evt, rawEvent });
-        if (evt.type === "spotify_mode" || evt.type === "provider_mode" || evt.type === "spotify_setup" || evt.type === "auth_setup") {
-            applyProviderAction({ type: "event", event: evt });
-        }
-
-        const coordination = planServerEventCoordination(evt, {
-            shellState: shellStateRef.current,
-            providerMode: providerModeRef.current.enabled && providerModeRef.current.provider !== "normal"
+        applyServerEventCoordination(evt, rawEvent, language, {
+            shellState: () => shellStateRef.current,
+            providerMode: () => providerModeRef.current.enabled && providerModeRef.current.provider !== "normal"
                 ? providerModeRef.current.provider
                 : null,
-        });
-        const dismissedConfirm = evt.type === "confirm" && dismissedConfirmIdsRef.current.has(evt.id);
-        dispatchServerEvent({ type: 'event', event: evt, language, dismissedConfirm });
-        if (!dismissedConfirm) {
-            if (coordination.panelLifecycle) applyPanelLifecycle(coordination.panelLifecycle);
-        }
-
-        switch (evt.type) {
-            case "session_state":
-                break;
-            case "usage_state":
-                break;
-            case "agent_working_state":
-                break;
-            case "activity":
-                if (runtimeStateRef.current.launchPreparing) setLaunchPreparingFrame(0);
-                break;
-            case "status":
-                break;
-            case "input_state":
-                if (evt.disabled && evt.reason === "recommendation") {
-                    setInput("");
-                    setInputRevision((prev) => prev + 1);
-                    setSlashMenuDismissedFor(null);
-                }
-                break;
-            case "track_panel":
-                if (coordination.region === "trackPanel") switchRegion("trackPanel");
-                break;
-            case "memory_panel":
-                if (coordination.region === "memoryPanel") switchRegion("memoryPanel");
-                break;
-            case "extension_panel":
-                break;
-            case "search_results": {
-                break;
-            }
-            case "player":
-                if (coordination.shellState) {
-                    if (coordination.shellState.region !== shellStateRef.current.region) {
-                        switchRegion(coordination.shellState.region);
-                    }
-                    applyShellAction({ type: "replace", state: coordination.shellState });
-                }
-                break;
-            case "spotify_mode":
-                if (coordination.shellState) {
-                    switchRegion(coordination.shellState.region);
-                    applyShellAction({ type: "replace", state: coordination.shellState });
-                }
-                break;
-            case "provider_mode": {
-                if (coordination.shellState) {
-                    switchRegion(coordination.shellState.region);
-                    applyShellAction({ type: "replace", state: coordination.shellState });
-                }
-                break;
-            }
-            case "cover":
-                break;
-            case "cover_image":
-                break;
-            case "cover_pattern":
-                break;
-            case "cover_pattern_unavailable":
-                break;
-            case "confirm":
-                if (dismissedConfirmIdsRef.current.has(evt.id)) {
-                    break;
-                }
+            isConfirmDismissed: (id) => dismissedConfirmIdsRef.current.has(id),
+            applyRuntimeEvent: (event, raw) => applyRuntimeAction({ type: "event", event, rawEvent: raw }),
+            applyProviderEvent: (event) => applyProviderAction({ type: "event", event }),
+            dispatchServerEvent: (event, eventLanguage, dismissedConfirm) => dispatchServerEvent({
+                type: 'event',
+                event,
+                language: eventLanguage,
+                dismissedConfirm,
+            }),
+            applyPanelLifecycle,
+            switchRegion,
+            applyShellState: (state) => applyShellAction({ type: "replace", state }),
+            clearInput: () => setInput(""),
+            resetRecommendationInput: () => {
                 setInput("");
-                if (coordination.region === "chat") switchRegion("chat");
-                break;
-            case "confirm_dismiss": {
-                dismissedConfirmIdsRef.current.add(evt.id);
-                break;
-            }
-            case "spotify_setup":
-                if (coordination.region === "chat") switchRegion("chat");
-                break;
-            case "auth_setup":
-                if (evt.active === false && evt.step === "model") {
-                    setInput("");
-                    break;
-                }
-                if (coordination.region === "chat") switchRegion("chat");
-                if (evt.step === "model") {
-                    setInput("");
-                }
-                break;
-            case "auth_state":
-                const
-                    nextAuthState = {
-                    ready: evt.ready,
-                    provider: evt.provider,
-                    model: evt.model,
-                    model_label: evt.model_label,
-                    auth_type: evt.auth_type,
-                    credential_source: evt.credential_source,
-                    reason: evt.reason,
-                };
-                if (!startupInfoCapturedRef.current) {
-                    startupInfoCapturedRef.current = true;
-                    commitItems([createInfoBannerItem(
-                        nextAuthState,
-                        RUNTIME_WORKING_DIRECTORY,
-                        sessionIdRef.current,
-                    )]);
-                }
-                break;
-            case "help_panel":
-                if (coordination.region === "chat") switchRegion("chat");
-                break;
-            case "bye":
-                if (coordination.region === "chat") switchRegion("chat");
-                setTimeout(() => exit(), 80);
-                break;
-        }
+                setInputRevision((prev) => prev + 1);
+                setSlashMenuDismissedFor(null);
+            },
+            resetLaunchPreparingFrame: () => {
+                if (runtimeStateRef.current.launchPreparing) setLaunchPreparingFrame(0);
+            },
+            dismissConfirm: (id) => dismissedConfirmIdsRef.current.add(id),
+            captureAuthState: (event) => {
+                if (startupInfoCapturedRef.current) return;
+                startupInfoCapturedRef.current = true;
+                commitItems([createInfoBannerItem(
+                    event,
+                    RUNTIME_WORKING_DIRECTORY,
+                    sessionIdRef.current,
+                )]);
+            },
+            exit: () => setTimeout(() => exit(), 80),
+        });
     }, [applyPanelLifecycle, applyRuntimeAction, applyShellAction, commitItems, exit, finishActiveTextStream, language, proxyPanel, showError, stampTheme, startTextStream, switchRegion, transcriptPresentation]);
 
     const onEvent = React.useCallback((rawEvent: ServerEvent) => {

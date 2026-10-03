@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const eventSource = readFileSync(new URL('../src/event-coordination.ts', import.meta.url), 'utf8');
 const componentsSource = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
 const trackPanelStart = componentsSource.indexOf('const TrackPanel =');
 const trackPanelOverlayStart = componentsSource.indexOf('const TrackPanelOverlay =');
@@ -67,8 +68,9 @@ assert.doesNotMatch(dynamicShellBody, /isSpotifyThemePanel/);
 // Track-panel keyboard behavior remains local while server events reduce centrally.
 assert.match(appSource, /const \[serverEventState, dispatchServerEvent\] = React\.useReducer\(reduceServerEventState/);
 assert.match(appSource, /setTrackPanelIndex\(0\)/);
-assert.match(appSource, /dispatchServerEvent\(\{ type: 'event', event: evt/);
-assert.match(appSource, /case "track_panel":[\s\S]*switchRegion\("trackPanel"\)/);
+assert.match(appSource, /applyServerEventCoordination\(evt, rawEvent, language/);
+assert.match(appSource, /dispatchServerEvent: \(event, eventLanguage, dismissedConfirm\) => dispatchServerEvent/);
+assert.match(eventSource, /case 'track_panel':[\s\S]*bindings\.switchRegion\(coordination\.region\)/);
 assert.match(appSource, /key\.upArrow[\s\S]*setTrackPanelIndex\(\(prev\) => Math\.max\(0, prev - 1\)\)/);
 assert.match(appSource, /key\.downArrow[\s\S]*setTrackPanelIndex\(\(prev\) => Math\.min\(trackPanel\.tracks\.length - 1, prev \+ 1\)\)/);
 assert.match(appSource, /if \(key\.escape\) \{\s*setTrackPanel\(null\)/);

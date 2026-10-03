@@ -19,12 +19,12 @@ test('constructs, passes, and attaches one terminal surface controller', () => {
 test('cleans up if Ink rendering throws', () => {
     assert.match(
         source,
-        /try\s*\{[\s\S]*render\([\s\S]*<App terminalSurface=\{terminalSurface\}[\s\S]*\);\s*\}\s*catch \(error\)\s*\{\s*terminalSurface\.dispose\(\);\s*throw error;/,
+        /try\s*\{[\s\S]*render\([\s\S]*<App terminalSurface=\{terminalSurface\}[\s\S]*\);\s*\}\s*catch \(error\)\s*\{\s*cleanup\(\);\s*throw error;/,
     );
 });
 
 test('uses one idempotent cleanup path for exit and signals', () => {
-    assert.match(source, /const cleanup = \(\): void => terminalSurface\.dispose\(\)/);
+    assert.match(source, /const cleanup = \(\): void => \{\s*try \{\s*incrementalStdout\.dispose\(\);\s*\} finally \{\s*terminalSurface\.dispose\(\);/);
     assert.match(source, /process\.once\('SIGINT', onSigint\)/);
     assert.match(source, /process\.once\('SIGTERM', onSigterm\)/);
     assert.match(source, /process\.exitCode = exitCode/);

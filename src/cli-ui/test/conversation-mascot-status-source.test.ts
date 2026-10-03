@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { SONEX_MASCOT_MICRO } from '../src/constants.js';
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const eventSource = readFileSync(new URL('../src/event-coordination.ts', import.meta.url), 'utf8');
 const source = readFileSync(new URL('../src/components.tsx', import.meta.url), 'utf8');
 
 const mascotStart = source.indexOf('const MiniMascotStatus =');
@@ -56,5 +57,6 @@ assert.match(source, /const WORKING_SPINNER_INTERVAL_MS = 100;/);
 assert.match(workingBody, /color=\{CHAT_SYSTEM_MARKER_COLOR\}/);
 assert.match(workingBody, /italic>Working/);
 assert.match(workingBody, /color=\{PANEL_SECONDARY\} bold> • Esc to interrupt/);
-assert.match(appSource, /case "agent_working_state":/);
+assert.match(appSource, /applyServerEventCoordination\(evt, rawEvent, language/);
+assert.match(eventSource, /bindings\.applyRuntimeEvent\(event, rawEvent\)/);
 assert.match(appSource, /type:\s*"agent_turn_interrupt",\s*turn_id:\s*agentWorkingTurnId/);

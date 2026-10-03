@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const appSource = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
+const eventSource = readFileSync(new URL('../src/event-coordination.ts', import.meta.url), 'utf8');
 const typesSource = readFileSync(new URL('../src/types.ts', import.meta.url), 'utf8');
 
 assert.match(appSource, /process\.stdin\.on\("data", handlePlaybackShortcut\)/);
@@ -15,9 +16,9 @@ assert.match(appSource, /const spotifyShortcut = shellStateRef\.current\.region 
 assert.match(appSource, /const providerShortcut = shellStateRef\.current\.region === "providerImmersive"[\s\S]*providerModeRef\.current\.provider === "spotify"[\s\S]*isSpotifyPlaybackShortcutSource\(playerRef\.current\)/);
 assert.match(appSource, /if \(!localShortcut && !spotifyShortcut && !providerShortcut\) return;/);
 assert.match(appSource, /send\(\{ type: "internal_command", text: command \}\)/);
-assert.match(appSource, /case "track_panel":/);
+assert.match(eventSource, /case 'track_panel':/);
 assert.match(appSource, /reduceServerEventState/);
-assert.match(appSource, /dispatchServerEvent\(\{ type: 'event', event: evt/);
+assert.match(appSource, /applyServerEventCoordination\(evt, rawEvent, language/);
 assert.match(appSource, /const selectedTrackPanelTrack = trackPanel\.tracks\[Math\.min\(trackPanelIndex, Math\.max\(0, trackPanel\.tracks\.length - 1\)\)\] \?\? null;/);
 assert.match(appSource, /const isTrackPanelQueueShortcut = \(inputKey: string, key: .*?\): boolean =>/);
 assert.match(appSource, /return Boolean\(key\.ctrl && \(inputKey === "\\x01" \|\| inputKey\.toLowerCase\(\) === "a"\)\);/);
