@@ -25,6 +25,7 @@ from typing import Any, Iterator
 from src.network.proxy import urlopen as proxy_urlopen
 from src.network.proxy import active_proxy
 from src.log import sonex_home
+from src.platform_support import exclusive_file_lock, process_is_alive, set_private_mode, terminate_process
 from src.tools.youtube_runtime_state import (
     activated_state,
     cache_is_fresh,
@@ -54,12 +55,6 @@ from src.tools.youtube_runtime_state import (
 )
 
 logger = logging.getLogger(__name__)
-
-try:  # pragma: no cover - exercised on the supported POSIX targets
-    import fcntl
-except ImportError:  # pragma: no cover - Windows fallback
-    fcntl = None  # type: ignore[assignment]
-
 
 RUNTIME_FORMAT = 1
 PROVIDER_IDLE_SECONDS = 6 * 60 * 60
@@ -113,7 +108,7 @@ def _state_path(name: str) -> Path:
 def _mkdir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
-        os.chmod(path, 0o700)
+        set_private_mode(path, 0o700)
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -127,7 +122,7 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         with contextlib.suppress(OSError):
-            os.chmod(temp_path, 0o600)
+            set_private_mode(temp_path, 0o600)
         os.replace(temp_path, path)
     finally:
         with contextlib.suppress(FileNotFoundError):
@@ -143,42 +138,18 @@ def _read_json(path: Path) -> dict[str, Any] | None:
 
 
 def _pid_alive(pid: int | None) -> bool:
-    if not pid or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except (OSError, ProcessLookupError):
-        return False
-    return True
+    return process_is_alive(pid)
 
 
 @contextlib.contextmanager
 def _exclusive_file_lock(path: Path, *, timeout: float, purpose: str = "request") -> Iterator[None]:
     """Acquire a user-owned cross-process lock with a bounded wait."""
 
-    _mkdir(path.parent)
-    handle = path.open("a+")
-    started = time.monotonic()
-    acquired = False
     try:
-        while time.monotonic() - started < max(0.01, timeout):
-            if fcntl is None:
-                acquired = True
-                break
-            try:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                acquired = True
-                break
-            except BlockingIOError:
-                time.sleep(0.1)
-        if not acquired:
-            raise YoutubeQueueBusy(lock_busy_message(purpose))
-        yield
-    finally:
-        if acquired and fcntl is not None:
-            with contextlib.suppress(OSError):
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-        handle.close()
+        with exclusive_file_lock(path, timeout=timeout):
+            yield
+    except TimeoutError as exc:
+        raise YoutubeQueueBusy(lock_busy_message(purpose)) from exc
 
 
 def _normalize_proxy(value: Any) -> str:
@@ -451,18 +422,8 @@ def _pick_port() -> int:
 
 
 def _terminate_pid(pid: int | None) -> None:
-    if not _pid_alive(pid):
-        return
-    try:
-        os.kill(int(pid), signal.SIGTERM)
-    except OSError:
-        return
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline and _pid_alive(pid):
-        time.sleep(0.05)
-    if _pid_alive(pid):
-        with contextlib.suppress(OSError):
-            os.kill(int(pid), signal.SIGKILL)
+    with contextlib.suppress(OSError):
+        terminate_process(pid)
 
 
 def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
@@ -509,7 +470,7 @@ def _ensure_provider_running_locked(manifest: dict[str, Any]) -> str:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        start_new_session=True,
+        start_new_session=os.name != "nt",
         close_fds=True,
     )
     provider_payload = {
@@ -558,7 +519,7 @@ def _provider_monitor(server_entry: str, node: str, port: int) -> int:
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
-            start_new_session=True,
+            start_new_session=os.name != "nt",
         )
         monitor_started = time.monotonic()
         idle_expired = False
@@ -801,11 +762,15 @@ def offline_package_bundle() -> dict[str, dict[str, str]] | None:
 
 def _node_architecture() -> str:
     machine = platform.machine().lower()
+    if os.name == "nt":
+        if machine in {"x86_64", "amd64"}:
+            return "x64"
+        raise RuntimeError("Managed YouTube runtime currently supports Windows x64 only.")
     if machine in {"x86_64", "amd64"}:
         return "x64"
     if machine in {"aarch64", "arm64"}:
         return "arm64"
-    raise RuntimeError("Managed YouTube runtime currently supports Linux x64/arm64 and WSL2 only.")
+    raise RuntimeError("Managed YouTube runtime supports x64/arm64 on Linux and x64 on Windows.")
 
 
 def _download_file(url: str, destination: Path, *, phase: str, timeout: float = 120.0) -> str:
@@ -855,7 +820,9 @@ def _safe_extract_tar(archive: Path, destination: Path) -> None:
 
 
 def _node_download_urls(version: str, architecture: str) -> tuple[str, str]:
-    archive_name = f"node-v{version}-linux-{architecture}.tar.xz"
+    system = "win" if os.name == "nt" else "linux"
+    extension = "zip" if os.name == "nt" else "tar.xz"
+    archive_name = f"node-v{version}-{system}-{architecture}.{extension}"
     base = NODE_DIST_BASE.format(version=version)
     return f"{base}/{archive_name}", f"{base}/SHASUMS256.txt"
 
@@ -977,7 +944,7 @@ def start_update_job(*, reason: str = "setup", force: bool = False, component: s
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            start_new_session=os.name != "nt",
             close_fds=True,
         )
     except OSError as exc:
@@ -1007,7 +974,7 @@ def _run_checked(command: list[str], *, cwd: Path, timeout: float, phase: str) -
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
-        start_new_session=True,
+        start_new_session=os.name != "nt",
     )
     try:
         process.communicate(timeout=min(max(1.0, timeout), remaining))
@@ -1036,7 +1003,8 @@ def _patch_bgutil_server(source: Path) -> str:
 def _install_node_component(staging: Path, version: str) -> dict[str, Any]:
     architecture = _node_architecture()
     archive_url, checksums_url = _node_download_urls(version, architecture)
-    archive = staging / "node.tar.xz"
+    windows = os.name == "nt"
+    archive = staging / ("node.zip" if windows else "node.tar.xz")
     with proxy_urlopen(checksums_url, timeout=10) as response:
         checksums = response.read(512 * 1024).decode("utf-8")
     archive_name = archive_url.rsplit("/", 1)[-1]
@@ -1048,28 +1016,47 @@ def _install_node_component(staging: Path, version: str) -> dict[str, Any]:
         raise RuntimeError("Node.js release checksum verification failed.")
     extracted = staging / "node-extracted"
     _mkdir(extracted)
-    _safe_extract_tar(archive, extracted)
+    if windows:
+        import zipfile
+
+        with zipfile.ZipFile(archive) as bundle:
+            root = extracted.resolve()
+            for member in bundle.infolist():
+                target_path = (root / member.filename).resolve()
+                if target_path != root and root not in target_path.parents:
+                    raise RuntimeError("Downloaded Node.js archive contains an unsafe path.")
+            bundle.extractall(extracted)
+    else:
+        _safe_extract_tar(archive, extracted)
     roots = [candidate for candidate in extracted.iterdir() if candidate.is_dir()]
-    if len(roots) != 1 or not (roots[0] / "bin" / "node").is_file():
+    node_relative = Path("node.exe") if windows else Path("bin/node")
+    if len(roots) != 1 or not (roots[0] / node_relative).is_file():
         raise RuntimeError("Node.js archive layout was not recognized.")
-    target = _components_root() / f"node-{version}-{architecture}"
+    platform_suffix = "-windows" if windows else ""
+    target = _components_root() / f"node-{version}-{architecture}{platform_suffix}"
+    expected_files = (
+        ("node.exe", "npm.cmd", "node_modules/npm/bin/npm-cli.js")
+        if windows
+        else ("bin/node", "bin/npm", "lib/node_modules/npm/bin/npm-cli.js")
+    )
     if target.exists() and not all(
         (target / relative).is_file()
-        for relative in (
-            "bin/node",
-            "bin/npm",
-            "lib/node_modules/npm/bin/npm-cli.js",
-        )
+        for relative in expected_files
     ):
         shutil.rmtree(target)
     if not target.exists():
         shutil.move(str(roots[0]), str(target))
-    node = target / "bin" / "node"
-    npm = target / "bin" / "npm"
-    npm_cli = target / "lib" / "node_modules" / "npm" / "bin" / "npm-cli.js"
+    node = target / ("node.exe" if windows else "bin/node")
+    npm = target / ("npm.cmd" if windows else "bin/npm")
+    npm_cli = target / ("node_modules/npm/bin/npm-cli.js" if windows else "lib/node_modules/npm/bin/npm-cli.js")
     if not node.is_file() or not npm.is_file() or not npm_cli.is_file():
         raise RuntimeError("Private Node.js bundle is incomplete.")
-    npm_package = _read_json(target / "lib" / "node_modules" / "npm" / "package.json")
+    npm_package_path = (
+        target / "node_modules" / "npm" / "package.json"
+        if windows
+        else target / "lib" / "node_modules" / "npm" / "package.json"
+    )
+    npm_package = _read_json(npm_package_path)
     npm_version = str(npm_package.get("version") or "bundled")
     node_manifest = {"version": version, "node_executable": str(node), "npm_executable": str(npm), "npm_cli": str(npm_cli), "created_at": time.time()}
     _write_json(_component_manifest_path("node"), node_manifest)

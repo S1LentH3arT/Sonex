@@ -13,6 +13,7 @@ from src.auth.models import AuthStore, OAuthToken, ProviderAuth
 from src.auth.providers import normalize_provider, normalize_provider_model
 from src.auth.secure_store import delete_refresh_token, load_refresh_token, store_refresh_token
 from src.log import sonex_home
+from src.platform_support import set_private_mode
 
 
 _RETIRED_PROVIDER_NAMES = frozenset({"apple_music", "apple_mode"})
@@ -73,9 +74,9 @@ def save_auth_store(store: AuthStore, path: Path | None = None) -> Path:
         with tmp.open("w", encoding="utf-8") as f:
             json.dump(store.to_dict(), f, indent=2, ensure_ascii=True)
             f.write("\n")
-        os.chmod(tmp, 0o600)
+        set_private_mode(tmp, 0o600)
         tmp.replace(resolved)
-        os.chmod(resolved, 0o600)
+        set_private_mode(resolved, 0o600)
     except OSError as exc:
         raise AuthStoreError(f"Could not write auth store at {resolved}: {exc}") from exc
     return resolved

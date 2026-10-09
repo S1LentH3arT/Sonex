@@ -22,6 +22,7 @@ from src.network.proxy import urlopen as proxy_urlopen
 from src.auth.spotify import load_spotify_token, spotify_user_client
 from src.auth.store import get_provider_auth, load_auth_store, remove_provider_method, set_api_key
 from src.log import sonex_home
+from src.platform_support import set_private_mode
 from src.tools.online_play import online_audio_config
 from src.tools.youtube_runtime import local_runtime_check, runtime_status, set_youtube_enabled
 
@@ -125,7 +126,7 @@ class ExtensionRevisionConflict(ExtensionActionError):
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with contextlib.suppress(OSError):
-        os.chmod(path.parent, 0o700)
+        set_private_mode(path.parent, 0o700)
     fd, raw_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
     temporary = Path(raw_path)
     try:
@@ -135,10 +136,10 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         with contextlib.suppress(OSError):
-            os.chmod(temporary, 0o600)
+            set_private_mode(temporary, 0o600)
         os.replace(temporary, path)
         with contextlib.suppress(OSError):
-            os.chmod(path, 0o600)
+            set_private_mode(path, 0o600)
     finally:
         with contextlib.suppress(FileNotFoundError):
             temporary.unlink()
@@ -156,6 +157,8 @@ def _supported_platform() -> bool:
     system = platform.system().lower()
     machine = platform.machine().lower()
     if system == "linux" and machine in {"x86_64", "amd64", "aarch64", "arm64"}:
+        return True
+    if system == "windows" and machine in {"x86_64", "amd64"}:
         return True
     # WSL reports Linux in normal Python installations; keep this explicit for
     # callers/tests that expose the environment marker.

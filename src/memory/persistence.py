@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-import fcntl
+import os
 
 
 class MemoryPersistence:
@@ -73,7 +73,24 @@ class MemoryPersistence:
     def acquire_lock(path: Path) -> tuple[Any, bool]:
         handle = path.open("a+")
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if os.name == "nt":
+                import msvcrt
+
+                handle.seek(0)
+                if not handle.read(1):
+                    handle.seek(0)
+                    handle.write("\0")
+                    handle.flush()
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             return handle, False
+        except OSError:
+            if os.name == "nt":
+                return handle, False
+            raise
         return handle, True

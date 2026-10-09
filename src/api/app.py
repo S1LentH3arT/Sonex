@@ -22,7 +22,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Sonex TUI API", lifespan=lifespan)
+app = FastAPI(title="Sonex Runtime API", lifespan=lifespan)
 
 
 @app.websocket("/ws")

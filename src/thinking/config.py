@@ -7,6 +7,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from src.platform_support import set_private_mode
 from typing import Any
 
 from dotenv import load_dotenv
@@ -90,7 +91,7 @@ def _save_config_file(path: Path, data: dict[str, Any]) -> None:
     with path.open("w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=True)
     try:
-        os.chmod(path, 0o600)
+        set_private_mode(path, 0o600)
     except OSError:
         pass
 

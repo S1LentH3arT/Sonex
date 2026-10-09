@@ -6,6 +6,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from src.platform_support import set_private_mode
 
 
 PREFERENCES_VERSION = 1
@@ -55,6 +56,6 @@ def write_player_preferences(path: Path, preferences: PlayerSinkPreferences) -> 
         json.dumps(preferences.to_payload(), ensure_ascii=True, indent=2) + "\n",
         encoding="utf-8",
     )
-    os.chmod(temporary, 0o600)
+    set_private_mode(temporary, 0o600)
     temporary.replace(path)
-    os.chmod(path, 0o600)
+    set_private_mode(path, 0o600)

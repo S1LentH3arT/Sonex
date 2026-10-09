@@ -22,7 +22,7 @@ dependencies = [
     "numpy",
     "mutagen",
     "keyring",
-    "dbus-next"
+    "dbus-next; sys_platform == 'linux'"
 ]
 
 [tool.setuptools.package-data]

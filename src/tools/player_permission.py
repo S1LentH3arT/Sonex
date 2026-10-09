@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from typing import Any, Callable
 
@@ -67,7 +68,7 @@ def launch_legacy_player_command(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            start_new_session=os.name != "nt",
         )
     except OSError as exc:
         return ToolResult.failure(

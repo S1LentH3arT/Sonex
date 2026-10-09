@@ -9,6 +9,7 @@ import unicodedata
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from src.platform_support import set_private_mode
 
 from src.log import sonex_home
 
@@ -186,6 +187,6 @@ class MusicConnectionManager:
             json.dumps(payload, ensure_ascii=True, indent=2) + "\n",
             encoding="utf-8",
         )
-        os.chmod(temporary, 0o600)
+        set_private_mode(temporary, 0o600)
         temporary.replace(self._path)
-        os.chmod(self._path, 0o600)
+        set_private_mode(self._path, 0o600)

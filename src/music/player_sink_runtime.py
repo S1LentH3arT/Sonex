@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import platform
 import shlex
 import shutil
 import subprocess
@@ -73,11 +74,13 @@ def _launch(command: tuple[str, ...]) -> None:
         command,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        start_new_session=True,
+        start_new_session=os.name != "nt",
     )
 
 
 def _process_running(executable: str) -> bool:
+    if platform.system() == "Windows":
+        return False
     target = executable.casefold()
     proc = Path("/proc")
     if not proc.is_dir():
@@ -97,7 +100,9 @@ def _process_running(executable: str) -> bool:
 def _source_url(uri: str) -> str:
     parsed = urlparse(uri)
     if parsed.scheme == "file":
-        return unquote(parsed.path)
+        from urllib.request import url2pathname
+
+        return url2pathname(unquote(parsed.path))
     return uri
 
 
@@ -180,7 +185,7 @@ def _validate_known_player(
             play_command,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            start_new_session=os.name != "nt",
         )
         deadline = time.monotonic() + 1
         while process.poll() is None and time.monotonic() < deadline:
@@ -388,7 +393,7 @@ def build_player_sink_manager(
         process_name,
         control_builder,
         flatpak_app_id,
-    ) in known:
+    ) in (() if os.name == "nt" else known):
         target = next(
             (
                 path
@@ -433,7 +438,7 @@ def build_player_sink_manager(
             )
         )
 
-    if discover_mpris is None:
+    if discover_mpris is None and os.name != "nt":
         client = DbusNextMprisClient()
         discover_mpris = lambda: discover_mpris_adapters(client)
     return PlayerSinkManager(

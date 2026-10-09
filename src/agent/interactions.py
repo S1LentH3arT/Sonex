@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from src.platform_support import set_private_mode
 
 from src.log import sonex_home
 
@@ -26,9 +27,9 @@ def mark_interrupted_interaction(*, path: Path | None = None) -> None:
         json.dumps({"version": 1, "interrupted": True}, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
-    os.chmod(temporary, 0o600)
+    set_private_mode(temporary, 0o600)
     temporary.replace(target)
-    os.chmod(target, 0o600)
+    set_private_mode(target, 0o600)
 
 
 def has_interrupted_interaction(*, path: Path | None = None) -> bool:

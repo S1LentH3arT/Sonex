@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from src.log import sonex_home
+from src.platform_support import set_private_mode
 
 _SERVICE_NAME = "sonex.oauth"
 
@@ -61,9 +62,9 @@ def store_refresh_token(provider: str, refresh_token: str) -> str:
     with temp.open("w", encoding="utf-8") as stream:
         json.dump(data, stream, indent=2, ensure_ascii=True)
         stream.write("\n")
-    os.chmod(temp, 0o600)
+    set_private_mode(temp, 0o600)
     temp.replace(path)
-    os.chmod(path, 0o600)
+    set_private_mode(path, 0o600)
     return f"file://{reference}"
 
 
@@ -123,6 +124,6 @@ def delete_refresh_token(reference: str | None) -> None:
     with temp.open("w", encoding="utf-8") as stream:
         json.dump(data, stream, indent=2, ensure_ascii=True)
         stream.write("\n")
-    os.chmod(temp, 0o600)
+    set_private_mode(temp, 0o600)
     temp.replace(path)
-    os.chmod(path, 0o600)
+    set_private_mode(path, 0o600)

@@ -4,7 +4,7 @@ from src.tools.track_reference_state import normalize_provider, reference_key, t
 
 
 def test_reference_state_normalizes_provider_and_prefers_native_identity() -> None:
-    assert normalize_provider(" NetEase-Music ") == "netease_music"
+    assert normalize_provider(" Example-Music ") == "example_music"
     assert reference_key("spotify", {"uri": "spotify:track:1", "name": "Song"}) == (
         "uri",
         "spotify:track:1",

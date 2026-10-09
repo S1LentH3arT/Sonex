@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 import wave
 from pathlib import Path
@@ -59,6 +60,8 @@ class DbusNextMprisClient:
         self.timeout_seconds = timeout_seconds
 
     async def _connect(self) -> Any:
+        if os.name == "nt":
+            raise RuntimeError("MPRIS discovery is available on Linux only.")
         try:
             from dbus_next.aio import MessageBus
         except ImportError as exc:
