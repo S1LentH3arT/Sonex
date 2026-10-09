@@ -1,0 +1,15 @@
+{
+  "bundle": {
+    "resources": {
+      "resources/runtime/": "runtime/",
+      "resources/player/": "player/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"]
+      },
+      "webviewInstallMode": { "type": "downloadBootstrapper" }
+    }
+  }
+}

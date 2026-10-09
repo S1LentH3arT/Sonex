@@ -72,7 +72,7 @@ class PlaybackControllerTests(unittest.TestCase):
 
         with patch.object(playback.shutil, "which", return_value="/usr/bin/mpv"), \
              patch.object(playback.subprocess, "Popen", return_value=process) as popen, \
-             patch.object(playback.os.path, "exists", return_value=True), \
+             patch.object(playback, "connect_mpv"), \
              patch.object(adapter, "status", return_value=expected_state):
             adapter.start()
 
@@ -112,7 +112,7 @@ class PlaybackControllerTests(unittest.TestCase):
         with patch.dict(os.environ, {"SONEX_HOME": home.name}), \
                 patch.object(playback.shutil, "which", return_value="/usr/bin/mpv"), \
                 patch.object(playback.subprocess, "Popen", return_value=process), \
-                patch.object(playback.os.path, "exists", return_value=True), \
+                patch.object(playback, "connect_mpv"), \
                 patch.object(adapter, "status", return_value=expected_state):
             adapter.start()
             deadline = time.monotonic() + 1
@@ -209,11 +209,11 @@ class PlaybackControllerTests(unittest.TestCase):
         with patch.dict(os.environ, {"SONEX_HOME": home.name}), \
                 patch.object(playback.shutil, "which", return_value="/usr/bin/mpv"), \
                 patch.object(playback.subprocess, "Popen", return_value=process), \
-                patch.object(playback.os.path, "exists", return_value=True), \
+                patch.object(playback, "connect_mpv"), \
                 patch.object(adapter, "status", return_value=started_state):
             adapter.start()
 
-        with patch.object(playback.socket, "socket", side_effect=lambda *_args, **_kwargs: FakeIpcSocket()):
+        with patch.object(playback, "connect_mpv", side_effect=lambda *_args, **_kwargs: FakeIpcSocket()):
             state = adapter.status()
             properties["time-pos"] = 0.4
             adapter.status()
@@ -326,8 +326,8 @@ class PlaybackControllerTests(unittest.TestCase):
                 ).encode()
 
         with patch.object(
-            playback.socket,
-            "socket",
+            playback,
+            "connect_mpv",
             side_effect=lambda *_args, **_kwargs: FakeIpcSocket(),
         ):
             state = adapter.status()

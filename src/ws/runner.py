@@ -161,10 +161,11 @@ from src.tools.agent_surface import remember_local_track
 from src.tools.track_refs import remember_track_reference, resolve_track_reference
 from src.tools.up_next import (
     append_up_next_track,
-    consume_up_next_head,
-    fail_up_next_head,
+    consume_up_next_entry,
+    fail_up_next_entry,
     up_next_snapshot,
 )
+from src.tools.up_next_state import UpNextFullError
 from src.tools.local_play import search_local_file
 from src.tools.online_play import (
     ONLINE_AUDIO_SETUP_MESSAGE,
@@ -1658,6 +1659,10 @@ class ModelSelectionSession:
         text = value.strip()
         if text.lower() in {"__cancel__", "cancel"}:
             session_set(self.ui, "_model_setup", None)
+            await self.ui.send_auth_setup(
+                provider=self.provider, step="cancelled", title="Switch model",
+                message="Model selection was cancelled.", active=False,
+            )
             return
 
         parsed = _parse_model_choice(text, self.model_choices)
@@ -1822,6 +1827,10 @@ class AuthSetupSession:
             self.oauth_task = None
             self.codex_server = None
             session_set(self.ui, "_auth_setup", None)
+            await self.ui.send_auth_setup(
+                provider=self.provider, step="cancelled", title="Connect Sonex",
+                message="Connection setup was cancelled.", active=False,
+            )
             return
 
         if self.step == "provider":
@@ -5290,9 +5299,15 @@ class WebSocketRunner:
                 return context.running_task
         return None
 
+    def _create_ui(self, ws: WebSocket) -> WebSocketUIAdapter:
+        return WebSocketUIAdapter(ws, session_id=create_session_id())
+
+    def _additional_routes(self, ui: WebSocketUIAdapter) -> dict[str, Any]:
+        return {}
+
     async def handle_ws(self, ws: WebSocket) -> None:
         await ws.accept()
-        ui = WebSocketUIAdapter(ws, session_id=create_session_id())
+        ui = self._create_ui(ws)
         context = create_session_context(ui)
         start_background_health_check()
         bind_memory_scope(ui.session_id)
@@ -5385,6 +5400,7 @@ class WebSocketRunner:
                 "auth_setup_input": route_auth_setup_input,
                 "confirm_result": route_confirm,
                 "bye": route_bye,
+                **self._additional_routes(ui),
             }
         )
         try:
@@ -6321,7 +6337,17 @@ class WebSocketRunner:
                 )
                 resolved = resolve_track_reference(ref)
             assert resolved is not None
-            append_up_next_track(resolved)
+            try:
+                append_up_next_track(resolved)
+            except UpNextFullError as exc:
+                await ui.append_activity(
+                    kind="error",
+                    title="Playback queue",
+                    detail=str(exc),
+                    status="error",
+                )
+                await ui.send_error(str(exc))
+                return
             await ui._send({"type": "queue", "tracks": _queue_payload()})
             title = str(track.get("name") or track.get("title") or "selected track")
             await ui.append_activity(kind="status", title="Playback queue", detail=f"Added to playback queue: {title}.", status="success")
@@ -6366,9 +6392,12 @@ class WebSocketRunner:
 
                 async def settle_legacy(result: dict[str, Any]) -> None:
                     if result.get("status") == "playback_completed":
-                        consume_up_next_head()
+                        consume_up_next_entry(str(current.get("entry_id") or ""))
                     else:
-                        fail_up_next_head(str(result.get("message") or "Playback failed."))
+                        fail_up_next_entry(
+                            str(current.get("entry_id") or ""),
+                            str(result.get("message") or "Playback failed."),
+                        )
                     await ui._send({"type": "queue", "tracks": _queue_payload()})
 
                 session = PlaySelectionSession(
@@ -6388,7 +6417,7 @@ class WebSocketRunner:
                 report_failure=False,
             )
             if started:
-                consume_up_next_head()
+                consume_up_next_entry(str(current.get("entry_id") or ""))
                 await ui._send({"type": "queue", "tracks": _queue_payload()})
                 if failures:
                     await ui.send_error(
@@ -6398,7 +6427,7 @@ class WebSocketRunner:
                     )
                 return
             failures.append(reason)
-            state = fail_up_next_head(reason)
+            state = fail_up_next_entry(str(current.get("entry_id") or ""), reason)
 
         await ui._send({"type": "queue", "tracks": _queue_payload()})
         await ui.send_error(

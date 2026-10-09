@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "runtime-access"
+description = "Start the bundled runtime and exchange bounded protocol messages."
+commands.allow = ["runtime_start", "runtime_send"]

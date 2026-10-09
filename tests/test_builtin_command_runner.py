@@ -28,6 +28,7 @@ from src.auth.store import load_auth_store, set_api_key, set_default
 from src.log import configure_file_logging, sonex_log_path
 from src.music.playback_coordinator import ProviderReadiness, RecordingIdentity
 from src.thinking.config import ThinkingConfig
+from src.tools.up_next_state import UpNextFullError
 from src.ws.session_orchestration import AgentTurnLifecycle, session_context_for
 
 
@@ -793,7 +794,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse([event for event in ui.events if event.get("type") == "auth_setup"])
         self.assertTrue(any(event.get("text") == "Usage: /login" for event in ui.events))
 
-    async def test_login_cancel_is_completely_silent(self) -> None:
+    async def test_login_cancel_closes_setup_without_chat_or_activity(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
 
@@ -803,7 +804,9 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             before = len(ui.events)
             await setup.handle_input("__cancel__")
 
-        self.assertEqual(len(ui.events), before)
+        self.assertEqual(len(ui.events), before + 1)
+        self.assertEqual(ui.events[-1]["type"], "auth_setup")
+        self.assertFalse(ui.events[-1]["active"])
         self.assertIsNone(getattr(ui, "_auth_setup"))
 
     async def test_lang_is_treated_as_an_unknown_command(self) -> None:
@@ -2543,16 +2546,39 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         details = [str(event.get("detail") or "") for event in ui.events]
         self.assertTrue(any("Added to playback queue" in detail for detail in details))
 
+    async def test_track_panel_queue_add_reports_full_queue_without_success(self) -> None:
+        runner = WebSocketRunner()
+        ui = FakeUI()
+        track = {"ref": "spotify:track:overflow", "name": "Overflow", "provider": "spotify"}
+        resolved = {**track, "playable": True}
+        with patch(
+            "src.api.ws_runner.resolve_track_reference",
+            return_value=resolved,
+        ), patch(
+            "src.api.ws_runner.append_up_next_track",
+            side_effect=UpNextFullError("Up-next queue is full (maximum 100 tracks)."),
+        ):
+            await runner._handle_track_panel_action(
+                ui,
+                {"action": "queue_add", "track": track, "panel": "playlist"},
+            )
+
+        details = [str(event.get("detail") or "") for event in ui.events]
+        self.assertTrue(any("queue is full" in detail for detail in details))
+        self.assertFalse(any("Added to playback queue" in detail for detail in details))
+
     async def test_up_next_play_skips_failed_head_and_reports_one_caution(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
         first = {
+            "entry_id": "entry-first",
             "ref": "spotify:uri:spotify:track:first",
             "name": "First",
             "provider": "spotify",
             "playable": True,
         }
         second = {
+            "entry_id": "entry-second",
             "ref": "spotify:uri:spotify:track:second",
             "name": "Second",
             "provider": "spotify",
@@ -2568,12 +2594,12 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             "revision": 1,
             "items": [first, second],
             "failed": [],
-        }), patch("src.api.ws_runner.fail_up_next_head", return_value={
+        }), patch("src.api.ws_runner.fail_up_next_entry", return_value={
             "revision": 2,
             "items": [second],
             "failed": [{**first, "failure_reason": "First route failed."}],
         }) as fail_head, patch(
-            "src.api.ws_runner.consume_up_next_head",
+            "src.api.ws_runner.consume_up_next_entry",
         ) as consume_head, patch(
             "src.api.ws_runner._queue_payload",
             return_value=[],
@@ -2581,8 +2607,8 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
             await runner._play_up_next_from_selection(ui, first)
 
         self.assertEqual(runner._play_track_panel_track.await_count, 2)
-        fail_head.assert_called_once_with("First route failed.")
-        consume_head.assert_called_once_with()
+        fail_head.assert_called_once_with("entry-first", "First route failed.")
+        consume_head.assert_called_once_with("entry-second")
         cautions = [event for event in ui.events if event.get("type") == "error"]
         self.assertEqual(len(cautions), 1)
         self.assertIn("skipping 1 queued track", str(cautions[0]["message"]))
@@ -4881,7 +4907,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
     async def test_agent_turn_appends_approval_before_rich_tool_batch_message(self) -> None:
         runner = WebSocketRunner()
         ui = FakeUI()
-        commands = ["cd src/cli-ui", "npm test"]
+        commands = ["cd src/cli", "npm test"]
         calls = [
             ToolAction("Read", {"query": "preferences"}),
             ToolAction("Bash", {"commands": commands}),
@@ -4906,7 +4932,7 @@ class BuiltinCommandRunnerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("You confirmed running 'npm test' this time.", chat_events[0]["text"])
         self.assertEqual(
             chat_events[1]["text"],
-            "Read preferences\n\nBash cd src/cli-ui\n     npm test",
+            "Read preferences\n\nBash cd src/cli\n     npm test",
         )
         self.assertTrue(chat_events[1].get("segments"))
 

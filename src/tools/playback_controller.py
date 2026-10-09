@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -21,6 +21,7 @@ from typing import Any, Callable, Literal, Protocol
 from src.tools.registry import Params, registry
 from src.tools.result import ToolResult
 from src.tools.mpv_diagnostics import MpvDiagnosticSession, MpvPlaybackHealthMonitor
+from src.tools.mpv_ipc import connect_mpv, mpv_ipc_address
 from src.tools.playback_state import (
     PlayerName,
     PlayerState,
@@ -128,6 +129,9 @@ class PlaybackAdapter(Protocol):
         ...
 
 
+    def seek(self, position_ms: int) -> PlayerState: ...
+
+
 class MpvPlaybackAdapter:
     def __init__(
         self,
@@ -142,7 +146,7 @@ class MpvPlaybackAdapter:
         self.metadata = metadata
         self._diagnostic_time_source = diagnostic_time_source
         self.session_id = uuid.uuid4().hex
-        self.socket_path = str(Path(tempfile.gettempdir()) / f"sonex-mpv-{self.session_id}.sock")
+        self.socket_path = mpv_ipc_address(self.session_id)
         self.process: subprocess.Popen[bytes] | None = None
         self.volume_percent: int | None = None
         self.diagnostics: MpvDiagnosticSession | None = None
@@ -180,7 +184,8 @@ class MpvPlaybackAdapter:
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE if self.diagnostics else subprocess.DEVNULL,
-                start_new_session=True,
+                start_new_session=os.name != "nt",
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except Exception as exc:
             self._close_diagnostics("start_failed", error=str(exc))
@@ -198,13 +203,17 @@ class MpvPlaybackAdapter:
             if self.process.poll() is not None:
                 self._close_diagnostics("start_failed", error="mpv exited before playback started")
                 raise RuntimeError("mpv exited before playback started.")
-            if os.path.exists(self.socket_path):
+            try:
+                with connect_mpv(self.socket_path, timeout=0.1):
+                    pass
                 return self.status(default_playing=True)
+            except (OSError, TimeoutError):
+                pass
             time.sleep(0.05)
         self._close_diagnostics("start_failed", error="mpv IPC socket was not ready")
         raise RuntimeError("mpv IPC socket was not ready.")
 
-    def _request_with_client(self, client: socket.socket, command: list[Any]) -> Any:
+    def _request_with_client(self, client: Any, command: list[Any]) -> Any:
         """Send one correlated command over an already connected mpv IPC client."""
         request_id = uuid.uuid4().int & ((1 << 63) - 1)
         payload = json.dumps({
@@ -233,9 +242,7 @@ class MpvPlaybackAdapter:
     def _request(self, command: list[Any]) -> Any:
         if self.process and self.process.poll() is not None:
             raise RuntimeError("mpv process is not running.")
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(1)
-            client.connect(self.socket_path)
+        with connect_mpv(self.socket_path) as client:
             return self._request_with_client(client, command)
 
     def _properties(self, names: tuple[str, ...]) -> dict[str, Any]:
@@ -245,9 +252,7 @@ class MpvPlaybackAdapter:
             return {name: error for name in names}
         results: dict[str, Any] = {}
         try:
-            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-                client.settimeout(1)
-                client.connect(self.socket_path)
+            with connect_mpv(self.socket_path) as client:
                 for name in names:
                     try:
                         results[name] = self._request_with_client(
@@ -427,6 +432,11 @@ class MpvPlaybackAdapter:
         return self.status()
 
 
+    def seek(self, position_ms: int) -> PlayerState:
+        self._request(["seek", position_ms / 1000, "absolute+exact"])
+        return self.status()
+
+
 class LocalPlaybackController:
     def __init__(self) -> None:
         """Init for local playback controller.
@@ -527,6 +537,13 @@ class LocalPlaybackController:
 
     def set_volume(self, volume_percent: int) -> PlayerState:
         return self._require_adapter().set_volume(_coerce_volume(volume_percent))
+
+    def seek(self, position_ms: int) -> PlayerState:
+        if isinstance(position_ms, bool) or not isinstance(position_ms, (int, float)):
+            raise ValueError("Seek position must be a non-negative number of milliseconds.")
+        if not math.isfinite(position_ms) or position_ms < 0:
+            raise ValueError("Seek position must be a non-negative number of milliseconds.")
+        return self._require_adapter().seek(int(position_ms))
 
 
 controller = LocalPlaybackController()

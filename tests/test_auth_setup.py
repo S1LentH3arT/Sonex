@@ -541,7 +541,8 @@ class AuthSetupTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertIsNone(getattr(ui, "_model_setup"))
             auth_events = [event for event in ui.events if event.get("type") == "auth_setup"]
-            self.assertEqual(len(auth_events), auth_event_count)
+            self.assertEqual(len(auth_events), auth_event_count + 1)
+            self.assertFalse(auth_events[-1]["active"])
 
     def _isolated_auth_env(self, extra: dict[str, str] | None = None):
         home = tempfile.TemporaryDirectory()
