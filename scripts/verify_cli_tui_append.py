@@ -15,9 +15,9 @@ import termios
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-FIXTURE = ROOT / "src" / "cli-ui" / "test" / "fixtures" / "append-render-fixture.mjs"
+FIXTURE = ROOT / "src" / "cli" / "test" / "fixtures" / "append-render-fixture.mjs"
 NON_TTY_FIXTURE = (
-    ROOT / "src" / "cli-ui" / "test" / "fixtures" / "non-tty-render-fixture.mjs"
+    ROOT / "src" / "cli" / "test" / "fixtures" / "non-tty-render-fixture.mjs"
 )
 ALT_ENTER = b"\x1b[?1049h"
 ALT_LEAVE = b"\x1b[?1049l"

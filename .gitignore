@@ -11,11 +11,11 @@ assets/
 sonex.egg-info/
 build/
 temp/
-src/cli-ui/node_modules/
-src/cli-ui/node_modules/.package-lock.json
-src/cli-ui/dist/
-src/cli-ui/vendor/*
-!src/cli-ui/vendor/
-!src/cli-ui/vendor/.npmignore
+src/cli/node_modules/
+src/cli/node_modules/.package-lock.json
+src/cli/dist/
+src/cli/vendor/*
+!src/cli/vendor/
+!src/cli/vendor/.npmignore
 lib/
 share/

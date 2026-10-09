@@ -41,7 +41,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: src/cli-ui
+        working-directory: src/cli
 
     steps:
       - name: Check out repository
@@ -52,7 +52,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: src/cli-ui/package-lock.json
+          cache-dependency-path: src/cli/package-lock.json
 
       - name: Install dependencies
         run: npm ci

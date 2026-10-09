@@ -19,7 +19,7 @@ jobs:
       id-token: write
     defaults:
       run:
-        working-directory: src/cli-ui
+        working-directory: src/cli
 
     steps:
       - name: Check out repository

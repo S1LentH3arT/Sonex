@@ -140,7 +140,7 @@ def _cli_ui_dir() -> Path:
     configured = os.getenv("SONEX_CLI_UI_DIR")
     if configured:
         return Path(configured).expanduser().resolve()
-    return _project_root() / "src" / "cli-ui"
+    return _project_root() / "src" / "cli"
 
 
 def _node_bin() -> str:
@@ -720,7 +720,7 @@ def _build_ink_ui_if_needed() -> None:
     tsc = _tsc_entry()
     if not tsc.exists():
         raise typer.BadParameter(
-            "Ink UI dependencies are missing. Install dependencies in src/cli-ui first."
+            "Ink UI dependencies are missing. Install dependencies in src/cli first."
         )
 
     console.print("[bright_white]Building React + Ink TUI...[/bright_white]")

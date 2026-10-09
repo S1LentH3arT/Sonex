@@ -11,6 +11,7 @@ import threading
 import time
 from functools import lru_cache
 from pathlib import Path
+from src.platform_support import set_private_mode
 from typing import Any
 
 from src.llm.config import ProviderConfig
@@ -43,7 +44,7 @@ def codex_home() -> Path:
 def bundled_codex_bin() -> Path:
     """Return the Codex binary managed by the Sonex CLI package."""
     executable = "codex.cmd" if os.name == "nt" else "codex"
-    return Path(__file__).resolve().parents[2] / "cli-ui" / "node_modules" / ".bin" / executable
+    return Path(__file__).resolve().parents[2] / "cli" / "node_modules" / ".bin" / executable
 
 
 def resolve_codex_bin() -> Path:
@@ -279,7 +280,7 @@ memories = false
 hooks = false
 """
     path.write_text(content, encoding="utf-8")
-    os.chmod(path, 0o600)
+    set_private_mode(path, 0o600)
 
 
 def start_chatgpt_device_login(server: CodexAppServer) -> dict[str, str]:

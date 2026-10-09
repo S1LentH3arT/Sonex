@@ -31,7 +31,7 @@ else
 fi
 
 INSTALL_SCRIPT="$ROOT_DIR/scripts/install.sh"
-CLI_UI_DIR="$ROOT_DIR/src/cli-ui"
+CLI_UI_DIR="$ROOT_DIR/src/cli"
 VENV_DIR="$ROOT_DIR/.venv"
 VENV_PY="$VENV_DIR/bin/python3.12"
 VENV_SONEX="$VENV_DIR/bin/sonex"

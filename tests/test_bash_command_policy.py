@@ -14,13 +14,13 @@ def test_read_only_commands_are_allowed_without_review() -> None:
 
 def test_unknown_write_and_build_commands_require_review() -> None:
     decision = inspect_commands(
-        ["cd src/cli-ui", "npm test", "printf done > result.txt"]
+        ["cd src/cli", "npm test", "printf done > result.txt"]
     )
 
     assert decision.valid
     assert decision.level == "review"
     assert decision.display_commands == (
-        "cd src/cli-ui",
+        "cd src/cli",
         "npm test",
         "printf done > result.txt",
     )

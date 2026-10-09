@@ -2,7 +2,7 @@
 set -u
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CLI_UI_DIR="$ROOT_DIR/src/cli-ui"
+CLI_UI_DIR="$ROOT_DIR/src/cli"
 VENV_DIR="$ROOT_DIR/.venv"
 VENV_PY="$VENV_DIR/bin/python3.12"
 LAUNCHER="$ROOT_DIR/scripts/sonex"

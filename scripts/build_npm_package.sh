@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CLI_UI_DIR="$ROOT_DIR/src/cli-ui"
+CLI_UI_DIR="$ROOT_DIR/src/cli"
 VENDOR_DIR="$CLI_UI_DIR/vendor"
 PYTHON_BIN="${PYTHON_BIN:-python3.12}"
 UV_BIN="${UV_BIN:-uv}"
@@ -50,4 +50,4 @@ if [ "$wheel_count" -ne 1 ]; then
 fi
 
 printf 'Npm package payload prepared in %s.\n' "$CLI_UI_DIR"
-printf 'Run: (cd src/cli-ui && npm pack --dry-run)\n'
+printf 'Run: (cd src/cli && npm pack --dry-run)\n'

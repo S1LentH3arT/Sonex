@@ -45,8 +45,8 @@ required. The first run needs network access to download uv, Python, and the
 locked packages. Later launches reuse the versioned runtime.
 
 Maintainers can prepare the release payload with
-`npm --prefix src/cli-ui run pack:release`, then verify it with
-`(cd src/cli-ui && npm pack --dry-run)`.
+`npm --prefix src/cli run pack:release`, then verify it with
+`(cd src/cli && npm pack --dry-run)`.
 
 `pack:release` downloads and compiles the pinned PO Token Provider into the npm
 package's `vendor/youtube-runtime` directory. Running `npm install` in a source
@@ -63,7 +63,7 @@ The installer:
 - Creates or reuses `.venv`
 - Installs the Python package and dependencies
 - Installs the React + Ink TUI dependencies with `npm ci`
-- Builds `src/cli-ui/dist/index.js`
+- Builds `src/cli/dist/index.js`
 - Creates a user-facing `sonex` launcher at `~/.local/bin/sonex`
 
 > [!TIP]

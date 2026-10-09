@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEST_DIR="${1:-$ROOT_DIR/src/cli-ui/vendor/youtube-runtime}"
+DEST_DIR="${1:-$ROOT_DIR/src/cli/vendor/youtube-runtime}"
 PROVIDER_VERSION="${YOUTUBE_PROVIDER_VERSION:-1.3.2}"
 ARCHIVE_URL="https://github.com/Brainicism/bgutil-ytdlp-pot-provider/archive/refs/tags/${PROVIDER_VERSION}.tar.gz"
 

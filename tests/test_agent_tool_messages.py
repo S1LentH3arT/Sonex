@@ -15,7 +15,7 @@ def test_tool_batch_formats_semantic_values_and_aligned_multivalue_blocks() -> N
             ToolAction("Read", {"files": ["USER.md", "My Notes.md"]}),
             ToolAction(
                 "Bash",
-                {"commands": ["npm --prefix src/cli-ui test", "git status --short"]},
+                {"commands": ["npm --prefix src/cli test", "git status --short"]},
             ),
             ToolAction(
                 "Query",
@@ -32,7 +32,7 @@ def test_tool_batch_formats_semantic_values_and_aligned_multivalue_blocks() -> N
     assert message.text == (
         "Read USER.md\n"
         "     My Notes.md\n\n"
-        "Bash npm --prefix src/cli-ui test\n"
+        "Bash npm --prefix src/cli test\n"
         "     git status --short\n\n"
         "Query spotify catalog Miles Davis live"
     )
