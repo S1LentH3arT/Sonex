@@ -12,6 +12,7 @@ from src.tools.agent_modify import Modify, complete_modify_confirmation
 from src.tools.agent_surface import remember_track_reference
 from src.tools.playlists import list_playlist_tracks, list_playlists
 from src.tools.up_next import up_next_snapshot
+from src.tools.up_next_state import MAX_UP_NEXT
 
 
 def _paths(tmp_path: Path):
@@ -170,6 +171,43 @@ def test_modify_up_next_requires_a_playable_reference_and_persists(tmp_path: Pat
         restored = up_next_snapshot()
         assert restored["revision"] == 1
         assert [item["name"] for item in restored["items"]] == ["Playable Song"]
+
+
+def test_modify_rejects_up_next_add_that_exceeds_capacity_atomically(tmp_path: Path) -> None:
+    ref = remember_track_reference(
+        "spotify",
+        {"name": "Overflow", "artist": "Artist", "uri": "spotify:track:overflow"},
+        playable=True,
+    )
+    playlists_patch, up_next_patch = _paths(tmp_path)
+    with playlists_patch, up_next_patch:
+        from src.tools.up_next import commit_up_next_state
+
+        commit_up_next_state(
+            {
+                "revision": 0,
+                "items": [
+                    {
+                        "ref": f"spotify:uri:spotify:track:{index}",
+                        "name": str(index),
+                        "playable": True,
+                    }
+                    for index in range(MAX_UP_NEXT)
+                ],
+                "failed": [],
+            },
+            expected_revision=0,
+        )
+        before = up_next_snapshot()
+
+        result = Modify(
+            [{"target": "up_next", "action": "add", "refs": [ref]}],
+            idempotency_key="queue-capacity",
+        )
+
+        assert result["status"] == "fail"
+        assert result["error_code"] == "QUEUE_FULL"
+        assert up_next_snapshot() == before
 
 
 def test_modify_validates_entire_batch_before_creating_files(tmp_path: Path) -> None:

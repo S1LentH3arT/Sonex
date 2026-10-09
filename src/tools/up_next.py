@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from src.music.legacy_tracks import is_retired_provider_track
 from src.tools.up_next_state import (
     MAX_FAILED_UP_NEXT,
     MAX_UP_NEXT,
+    UpNextFullError,
     append_up_next_state,
     coerce_up_next_state,
     consume_up_next_head_state,
@@ -58,11 +60,14 @@ def _load(path: Path) -> dict[str, Any]:
         + (loaded_failed if isinstance(loaded_failed, list) else [])
     )
     needs_migration = any(
-        isinstance(item, dict) and is_retired_provider_track(item)
+        isinstance(item, dict)
+        and (is_retired_provider_track(item) or not item.get("entry_id"))
         for item in persisted_tracks
     )
     state = _coerce_state(loaded)
     if needs_migration:
+        for item in [*state["items"], *state["failed"]]:
+            item.setdefault("entry_id", uuid.uuid4().hex)
         _save(path, state)
     return state
 
@@ -112,7 +117,12 @@ def commit_up_next_state(
             raise UpNextVersionConflict(
                 f"Expected up-next revision {expected_revision}, found {current['revision']}."
             )
+        raw_items = state.get("items") if isinstance(state, dict) else None
+        if isinstance(raw_items, list) and len(raw_items) > MAX_UP_NEXT:
+            raise UpNextFullError("Up-next queue is full (maximum 100 tracks).")
         proposed = _coerce_state(state)
+        for item in [*proposed["items"], *proposed["failed"]]:
+            item.setdefault("entry_id", uuid.uuid4().hex)
         proposed["revision"] = current["revision"] + 1
         _save(path, proposed)
         return {
@@ -132,6 +142,66 @@ def consume_up_next_head(*, queue_path: Path | None = None) -> dict[str, Any]:
         current = next_state
         return commit_up_next_state(
             current,
+            expected_revision=current["revision"],
+            queue_path=queue_path,
+        )
+
+
+def consume_up_next_entry(
+    entry_id: str,
+    *,
+    queue_path: Path | None = None,
+) -> dict[str, Any]:
+    """Remove the exact queue entry whose playback completed."""
+    return _settle_up_next_entry(entry_id, queue_path=queue_path)
+
+
+def fail_up_next_entry(
+    entry_id: str,
+    reason: str,
+    *,
+    queue_path: Path | None = None,
+) -> dict[str, Any]:
+    """Move the exact failed queue entry to failure history."""
+    return _settle_up_next_entry(
+        entry_id,
+        reason=reason,
+        queue_path=queue_path,
+    )
+
+
+def _settle_up_next_entry(
+    entry_id: str,
+    *,
+    reason: str | None = None,
+    queue_path: Path | None = None,
+) -> dict[str, Any]:
+    with _UP_NEXT_LOCK:
+        current = up_next_snapshot(queue_path=queue_path)
+        index = next(
+            (
+                index
+                for index, item in enumerate(current["items"])
+                if str(item.get("entry_id") or "") == str(entry_id)
+            ),
+            None,
+        )
+        if index is None:
+            return current
+        items = list(current["items"])
+        settled = items.pop(index)
+        failed = list(current["failed"])
+        if reason is not None:
+            failed.insert(
+                0,
+                {
+                    **settled,
+                    "failure_reason": str(reason or "Playback failed."),
+                    "failed_at": time.time(),
+                },
+            )
+        return commit_up_next_state(
+            {**current, "items": items, "failed": failed},
             expected_revision=current["revision"],
             queue_path=queue_path,
         )

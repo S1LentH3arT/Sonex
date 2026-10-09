@@ -54,10 +54,16 @@ def append_up_next_state(state: dict[str, Any], track: dict[str, Any]) -> dict[s
         raise ValueError("Up-next tracks require an available playback route.")
     if any(str(item.get("ref") or "") == ref for item in state["items"]):
         return state
+    if len(state["items"]) >= MAX_UP_NEXT:
+        raise UpNextFullError("Up-next queue is full (maximum 100 tracks).")
     return {
         **state,
-        "items": [*state["items"], dict(track)][:MAX_UP_NEXT],
+        "items": [*state["items"], dict(track)],
     }
+
+
+class UpNextFullError(ValueError):
+    """Raised when a new track would exceed the queue capacity."""
 
 
 def consume_up_next_head_state(state: dict[str, Any]) -> dict[str, Any]:

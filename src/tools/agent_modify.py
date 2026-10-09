@@ -28,11 +28,13 @@ from src.tools.modify_idempotency import (
 from src.tools.result import ToolResult
 from src.tools.track_refs import resolve_track_reference
 from src.tools.up_next import (
+    UpNextFullError,
     UpNextVersionConflict,
     commit_up_next_state,
     up_next_snapshot,
     up_next_storage_path,
 )
+from src.tools.up_next_state import MAX_UP_NEXT
 
 
 PLAYLIST_ACTIONS = {
@@ -421,6 +423,11 @@ def _build_plan(
                     "failed": [dict(item) for item in up_before["failed"]],
                 }
             affected, description = _apply_up_next_operation(operation, up_after)
+            if len(up_after["items"]) > MAX_UP_NEXT:
+                raise ModifyError(
+                    f"Up-next queue is full (maximum {MAX_UP_NEXT} tracks).",
+                    "QUEUE_FULL",
+                )
         else:
             raise ModifyError(f"Unsupported modify target: {target or '-'}.", "TARGET_UNSUPPORTED")
         affected_tracks += affected
@@ -525,6 +532,8 @@ def _commit(plan: _Plan) -> dict[str, Any]:
         _restore_storage(storage_snapshots)
         if isinstance(exc, (PlaylistVersionConflict, UpNextVersionConflict)):
             raise ModifyError(str(exc), "VERSION_CONFLICT") from exc
+        if isinstance(exc, UpNextFullError):
+            raise ModifyError(str(exc), "QUEUE_FULL") from exc
         raise
 
 
