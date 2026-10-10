@@ -12,8 +12,10 @@ sonex.egg-info/
 build/
 temp/
 src/cli/node_modules/
+src/web/frontend/node_modules/
 src/cli/node_modules/.package-lock.json
 src/cli/dist/
+src/web/static/
 src/cli/vendor/*
 !src/cli/vendor/
 !src/cli/vendor/.npmignore

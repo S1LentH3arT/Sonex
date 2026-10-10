@@ -8,6 +8,7 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -69,6 +70,7 @@ DEFAULT_APP_VERSION = "0.1.0-alpha.4"
 APP_VERSION = os.getenv("SONEX_APP_VERSION", DEFAULT_APP_VERSION)
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 9001
+DEFAULT_WEB_PORT = 9002
 SERVER_START_TIMEOUT = 15.0
 
 class _CliTyper(typer.Typer):
@@ -856,6 +858,35 @@ def tui(
     exit_code = _run_ink_tui(host=host, port=port)
     if exit_code:
         raise typer.Exit(exit_code)
+
+
+def _open_web_when_ready(port: int) -> None:
+    try:
+        _wait_for_server(DEFAULT_HOST, port)
+        webbrowser.open(f"http://127.0.0.1:{port}")
+    except RuntimeError:
+        pass
+
+
+@app.command()
+def web(
+    port: int = typer.Option(DEFAULT_WEB_PORT, "--port", help="Local web UI port."),
+) -> None:
+    """Run the local browser UI and keep its Agent Runtime alive."""
+    os.chdir(user_workspace_root())
+    typer.echo(f"Sonex Web: http://127.0.0.1:{port}")
+    opener = threading.Timer(0.25, _open_web_when_ready, args=(port,))
+    opener.daemon = True
+    opener.start()
+    try:
+        uvicorn.run(
+            "src.web.app:app",
+            host=DEFAULT_HOST,
+            port=port,
+            log_level=os.getenv("SONEX_UVICORN_LOG_LEVEL", "warning"),
+        )
+    finally:
+        opener.cancel()
 
 
 @doctor_app.command("audio")

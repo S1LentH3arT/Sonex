@@ -27,6 +27,7 @@ dependencies = [
 
 [tool.setuptools.package-data]
 "src.tools.bead_catalog_data" = ["*.json"]
+"src.web" = ["static/index.html", "static/assets/*"]
 
 [project.scripts]
 sonex = "src.main:app"
